@@ -1,0 +1,411 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// IDENTITY & MULTI-TENANT
+// ============================================================
+
+model Tenant {
+  id              String   @id @default(uuid())
+  name            String
+  slug            String   @unique
+  brandConfig     Json?
+  plan            String   @default("starter")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users           User[]
+  businesses      Business[]
+  ledgerEvents    LedgerEvent[]
+  consentRecords  ConsentRecord[]
+  complianceChecks ComplianceCheck[]
+  documents       Document[]
+
+  @@map("tenants")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  tenantId        String
+  email           String
+  passwordHash    String?
+  firstName       String
+  lastName        String
+  role            String   @default("advisor")
+  mfaEnabled      Boolean  @default(false)
+  mfaSecret       String?
+  isActive        Boolean  @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  auditLogs       AuditLog[]
+  advisorDeals    Business[] @relation("AdvisorBusinesses")
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model AuditLog {
+  id              String   @id @default(uuid())
+  userId          String?
+  tenantId        String
+  action          String
+  resource        String
+  resourceId      String?
+  metadata        Json?
+  ipAddress       String?
+  timestamp       DateTime @default(now())
+
+  user            User?    @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, timestamp])
+  @@index([resource, resourceId])
+  @@map("audit_logs")
+}
+
+// ============================================================
+// BUSINESS & ONBOARDING
+// ============================================================
+
+model Business {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  advisorId           String?
+  legalName           String
+  dba                 String?
+  ein                 String?
+  entityType          String
+  stateOfFormation    String?
+  dateOfFormation     DateTime?
+  mcc                 String?
+  industry            String?
+  annualRevenue       Decimal?
+  monthlyRevenue      Decimal?
+  fundingReadinessScore Int?
+  status              String   @default("intake")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  advisor             User?    @relation("AdvisorBusinesses", fields: [advisorId], references: [id])
+  owners              BusinessOwner[]
+  creditProfiles      CreditProfile[]
+  fundingRounds       FundingRound[]
+  cardApplications    CardApplication[]
+  complianceChecks    ComplianceCheck[]
+  consentRecords      ConsentRecord[]
+  documents           Document[]
+  suitabilityChecks   SuitabilityCheck[]
+  acknowledgments     ProductAcknowledgment[]
+  achAuthorizations   AchAuthorization[]
+  costCalculations    CostCalculation[]
+
+  @@index([tenantId, status])
+  @@map("businesses")
+}
+
+model BusinessOwner {
+  id                  String   @id @default(uuid())
+  businessId          String
+  firstName           String
+  lastName            String
+  ownershipPercent    Decimal
+  ssn                 String?
+  dateOfBirth         DateTime?
+  address             Json?
+  isBeneficialOwner   Boolean  @default(true)
+  kycStatus           String   @default("pending")
+  kycVerifiedAt       DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business            Business @relation(fields: [businessId], references: [id])
+
+  @@map("business_owners")
+}
+
+// ============================================================
+// CREDIT & INTELLIGENCE
+// ============================================================
+
+model CreditProfile {
+  id                  String   @id @default(uuid())
+  businessId          String
+  profileType         String   // personal | business
+  bureau              String   // equifax | transunion | experian | dnb
+  score               Int?
+  scoreType           String?  // fico | vantage | sbss | paydex
+  utilization         Decimal?
+  inquiryCount        Int?
+  derogatoryCount     Int?
+  tradelines          Json?
+  rawData             Json?
+  pulledAt            DateTime
+  createdAt           DateTime @default(now())
+
+  business            Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, bureau, pulledAt])
+  @@map("credit_profiles")
+}
+
+// ============================================================
+// FUNDING & APPLICATIONS
+// ============================================================
+
+model FundingRound {
+  id                  String   @id @default(uuid())
+  businessId          String
+  roundNumber         Int
+  targetCredit        Decimal?
+  targetCardCount     Int?
+  status              String   @default("planning")
+  aprExpiryDate       DateTime?
+  alertSent60         Boolean  @default(false)
+  alertSent30         Boolean  @default(false)
+  alertSent15         Boolean  @default(false)
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business            Business @relation(fields: [businessId], references: [id])
+  applications        CardApplication[]
+
+  @@unique([businessId, roundNumber])
+  @@map("funding_rounds")
+}
+
+model CardApplication {
+  id                  String   @id @default(uuid())
+  businessId          String
+  fundingRoundId      String?
+  issuer              String
+  cardProduct         String
+  status              String   @default("draft")
+  creditLimit         Decimal?
+  introApr            Decimal?
+  introAprExpiry      DateTime?
+  regularApr          Decimal?
+  annualFee           Decimal?
+  cashAdvanceFee      Decimal?
+  consentCapturedAt   DateTime?
+  submittedAt         DateTime?
+  decidedAt           DateTime?
+  declineReason       String?
+  adverseActionNotice Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business            Business @relation(fields: [businessId], references: [id])
+  fundingRound        FundingRound? @relation(fields: [fundingRoundId], references: [id])
+
+  @@index([businessId, status])
+  @@map("card_applications")
+}
+
+model SuitabilityCheck {
+  id                  String   @id @default(uuid())
+  businessId          String
+  score               Int
+  maxSafeLeverage     Decimal?
+  recommendation      String
+  noGoTriggered       Boolean  @default(false)
+  noGoReasons         Json?
+  alternativeProducts Json?
+  decisionExplanation String?
+  overriddenBy        String?
+  overrideReason      String?
+  createdAt           DateTime @default(now())
+
+  business            Business @relation(fields: [businessId], references: [id])
+
+  @@map("suitability_checks")
+}
+
+// ============================================================
+// CONSENT & COMPLIANCE
+// ============================================================
+
+model ConsentRecord {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String?
+  channel             String   // voice | sms | email | partner | document
+  consentType         String   // tcpa | data_sharing | referral | application
+  status              String   @default("active") // active | revoked | expired
+  grantedAt           DateTime @default(now())
+  revokedAt           DateTime?
+  revocationReason    String?
+  ipAddress           String?
+  evidenceRef         String?
+  metadata            Json?
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  business            Business? @relation(fields: [businessId], references: [id])
+
+  @@index([tenantId, businessId, channel])
+  @@index([status])
+  @@map("consent_records")
+}
+
+model ProductAcknowledgment {
+  id                  String   @id @default(uuid())
+  businessId          String
+  acknowledgmentType  String   // product_reality | fee_schedule | personal_guarantee | cash_advance_risk
+  version             String
+  signedAt            DateTime
+  signatureRef        String?
+  documentVaultId     String?
+  metadata            Json?
+  createdAt           DateTime @default(now())
+
+  business            Business @relation(fields: [businessId], references: [id])
+
+  @@map("product_acknowledgments")
+}
+
+model ComplianceCheck {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String?
+  checkType           String   // udap | state_law | vendor | kyb
+  riskScore           Int?
+  riskLevel           String?  // low | medium | high | critical
+  findings            Json?
+  stateJurisdiction   String?
+  resolvedAt          DateTime?
+  createdAt           DateTime @default(now())
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  business            Business? @relation(fields: [businessId], references: [id])
+
+  @@index([tenantId, checkType])
+  @@map("compliance_checks")
+}
+
+// ============================================================
+// ACH & DEBIT CONTROLS
+// ============================================================
+
+model AchAuthorization {
+  id                  String   @id @default(uuid())
+  businessId          String
+  processorName       String
+  authorizedAmount    Decimal?
+  authorizedFrequency String?
+  status              String   @default("active") // active | revoked | suspended
+  signedDocumentRef   String?
+  authorizedAt        DateTime
+  revokedAt           DateTime?
+  revocationNotifiedAt DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business            Business @relation(fields: [businessId], references: [id])
+  debitEvents         DebitEvent[]
+
+  @@map("ach_authorizations")
+}
+
+model DebitEvent {
+  id                  String   @id @default(uuid())
+  authorizationId     String
+  amount              Decimal
+  frequency           String?
+  isWithinTolerance   Boolean  @default(true)
+  flagged             Boolean  @default(false)
+  flagReason          String?
+  processedAt         DateTime
+  createdAt           DateTime @default(now())
+
+  authorization       AchAuthorization @relation(fields: [authorizationId], references: [id])
+
+  @@map("debit_events")
+}
+
+// ============================================================
+// FINANCIAL
+// ============================================================
+
+model CostCalculation {
+  id                  String   @id @default(uuid())
+  businessId          String
+  programFees         Decimal  @default(0)
+  percentOfFunding    Decimal  @default(0)
+  annualFees          Decimal  @default(0)
+  cashAdvanceFees     Decimal  @default(0)
+  processorFees       Decimal  @default(0)
+  totalCost           Decimal  @default(0)
+  effectiveApr        Decimal?
+  irc163jImpact       Decimal?
+  bestCaseFlow        Json?
+  baseCaseFlow        Json?
+  worstCaseFlow       Json?
+  createdAt           DateTime @default(now())
+
+  business            Business @relation(fields: [businessId], references: [id])
+
+  @@map("cost_calculations")
+}
+
+// ============================================================
+// CANONICAL LEDGER & EVENT BUS
+// ============================================================
+
+model LedgerEvent {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  eventType           String
+  aggregateType       String
+  aggregateId         String
+  payload             Json
+  metadata            Json?
+  version             Int      @default(1)
+  publishedAt         DateTime @default(now())
+  processedAt         DateTime?
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, eventType])
+  @@index([aggregateType, aggregateId])
+  @@index([publishedAt])
+  @@map("ledger_events")
+}
+
+// ============================================================
+// DOCUMENT VAULT
+// ============================================================
+
+model Document {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String?
+  documentType        String
+  title               String
+  storageKey          String
+  mimeType            String?
+  sizeBytes           Int?
+  sha256Hash          String?
+  cryptoTimestamp      String?
+  legalHold           Boolean  @default(false)
+  metadata            Json?
+  uploadedBy          String?
+  createdAt           DateTime @default(now())
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  business            Business? @relation(fields: [businessId], references: [id])
+
+  @@index([tenantId, documentType])
+  @@index([businessId])
+  @@map("documents")
+}
