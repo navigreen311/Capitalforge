@@ -292,7 +292,7 @@ describe('LedgerService — getByTenant()', () => {
 
     const gte = findMany.mock.calls[0][0].where.publishedAt?.gte;
     expect(gte).toBeInstanceOf(Date);
-    expect((gte as Date).getFullYear()).toBe(2026);
+    expect((gte as Date).getUTCFullYear()).toBe(2026);
   });
 
   it('does not add since filter when omitted', async () => {

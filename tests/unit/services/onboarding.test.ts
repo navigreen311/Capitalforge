@@ -169,7 +169,7 @@ describe('calculateFundingReadiness()', () => {
     });
 
     it('derives annual revenue from monthlyRevenue * 12 when annualRevenue is absent', () => {
-      const withMonthly = calculateFundingReadiness({ monthlyRevenue: 20_833 }); // ~$250k/yr
+      const withMonthly = calculateFundingReadiness({ monthlyRevenue: 20_834 }); // ~$250k/yr (20834*12=250008)
       const withAnnual  = calculateFundingReadiness({ annualRevenue:  250_000 });
       // Scores should be identical (or within 1 point due to rounding)
       expect(Math.abs(withMonthly.componentScores.revenue - withAnnual.componentScores.revenue)).toBeLessThanOrEqual(1);

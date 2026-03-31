@@ -10,7 +10,7 @@
 //   - Cross-round comparison scoring
 // ============================================================
 
-import { PrismaClient, type Prisma } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { differenceInDays, subMonths, isAfter } from 'date-fns';
 import { eventBus } from '../events/event-bus.js';
@@ -410,8 +410,10 @@ export class FundingRoundService {
       reasons.push('No credit profile found. Pull a fresh credit report before Round 2.');
     } else {
       // Utilization check
-      currentUtilization = latestProfile.utilization
-        ? Number(latestProfile.utilization)
+      currentUtilization = latestProfile.utilization != null
+        ? (typeof latestProfile.utilization === 'object' && 'toNumber' in (latestProfile.utilization as object)
+            ? (latestProfile.utilization as { toNumber: () => number }).toNumber()
+            : Number(latestProfile.utilization))
         : null;
 
       if (currentUtilization !== null && currentUtilization >= 0.3) {
@@ -562,8 +564,16 @@ export class FundingRoundService {
     );
     const approved = apps.filter((a) => a.status === 'approved');
 
+    const toNum = (v: unknown): number => {
+      if (v === null || v === undefined) return 0;
+      if (typeof v === 'object' && 'toNumber' in (v as object)) {
+        return (v as { toNumber: () => number }).toNumber();
+      }
+      return Number(v);
+    };
+
     const totalCreditObtained = approved.reduce(
-      (sum, a) => sum + (a.creditLimit ? Number(a.creditLimit) : 0),
+      (sum, a) => sum + (a.creditLimit ? toNum(a.creditLimit) : 0),
       0,
     );
 
@@ -571,7 +581,7 @@ export class FundingRoundService {
       ? approved.length / submitted.length
       : 0;
 
-    const targetCredit = round.targetCredit ? Number(round.targetCredit) : null;
+    const targetCredit = round.targetCredit ? toNum(round.targetCredit) : null;
     const creditAttainmentRate =
       targetCredit !== null && targetCredit > 0
         ? totalCreditObtained / targetCredit
@@ -583,9 +593,9 @@ export class FundingRoundService {
     let earliestAprExpiry: Date | null = null;
 
     for (const app of approved) {
-      const limit = app.creditLimit ? Number(app.creditLimit) : 0;
+      const limit = app.creditLimit ? toNum(app.creditLimit) : 0;
       if (app.introApr !== null && app.introApr !== undefined && limit > 0) {
-        weightedAprSum += Number(app.introApr) * limit;
+        weightedAprSum += toNum(app.introApr) * limit;
         weightedAprDenominator += limit;
       }
       if (app.introAprExpiry) {
@@ -601,7 +611,7 @@ export class FundingRoundService {
         : null;
 
     const totalAnnualFees = approved.reduce(
-      (sum, a) => sum + (a.annualFee ? Number(a.annualFee) : 0),
+      (sum, a) => sum + (a.annualFee ? toNum(a.annualFee) : 0),
       0,
     );
 

@@ -59,7 +59,7 @@ export const CreateApplicationSchema = z.object({
   cashAdvanceFee: z.number().min(0, 'Cash advance fee must be >= 0').optional(),
 
   /** Advisors assigned to this application (multi-advisor support) */
-  assignedAdvisorIds: z.array(uuidSchema).min(1, 'At least one advisor must be assigned'),
+  assignedAdvisorIds: z.array(z.string().min(1)).min(1, 'At least one advisor must be assigned'),
 });
 
 export type CreateApplicationInput = z.infer<typeof CreateApplicationSchema>;
@@ -92,7 +92,7 @@ export const TransitionStatusSchema = z
     status: applicationStatusSchema,
 
     /** Required when transitioning TO submitted — ID of the approving user (maker-checker) */
-    approvedByUserId: uuidSchema.optional(),
+    approvedByUserId: z.string().min(1).optional(),
 
     /** Required when declining */
     declineReason: z

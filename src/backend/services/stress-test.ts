@@ -312,8 +312,10 @@ function projectScenario(
     }
 
     // ── Available cash for debt service ──────────────────────
+    // Processor fee is tracked in totalFees (for totalCostOfCapital reporting),
+    // so operatingCashFlow only deducts operating expenses here.
     const operatingCashFlow =
-      input.monthlyRevenue - input.monthlyOperatingExpenses - monthlyProcessorFee;
+      input.monthlyRevenue - input.monthlyOperatingExpenses;
     const availableForRepayment = Math.max(0, operatingCashFlow * repaymentRate);
 
     // Allocate payment proportionally across cards by balance weight

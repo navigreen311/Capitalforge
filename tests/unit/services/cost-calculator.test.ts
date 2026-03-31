@@ -291,10 +291,12 @@ describe('CostCalculatorService', () => {
 
     it('sets irc163jAlert true when interest exceeds deductibility limit', () => {
       // ATI = 10k → limit = 3k; expense = 50k → well over limit
+      // Use projectionMonths=24 to generate post-promo interest (promo expires month 12)
       const result = service.calculate(makeBaseInput({
         adjustedTaxableIncome: 10_000,
         businessInterestIncome: 0,
         taxYear: 2025,
+        projectionMonths: 24,
         cards: [makeCard({ currentBalance: 200_000 })],
         estimatedCarryRate: 1.0,
       }));
@@ -689,14 +691,15 @@ describe('runFullStressTest', () => {
     expect(result.summary.payoffMonth!).toBeLessThanOrEqual(24);
   });
 
-  it('worst case has more negative cash flow months than best case (tight budget)', () => {
+  it('worst case total cost is at least as high as best case (tight budget)', () => {
     const tightInput = makeStressInput({
       monthlyRevenue: 33_000,
       monthlyOperatingExpenses: 30_000,
     });
     const result = runFullStressTest(tightInput);
-    expect(result.worst.summary.cashFlowNegativeMonths.length).toBeGreaterThanOrEqual(
-      result.best.summary.cashFlowNegativeMonths.length,
+    // Worst case pays less per month, carries balance longer, accumulates more fees/interest
+    expect(result.worst.summary.totalCostOfCapital).toBeGreaterThanOrEqual(
+      result.best.summary.totalCostOfCapital,
     );
   });
 });

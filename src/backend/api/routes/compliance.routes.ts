@@ -104,9 +104,8 @@ async function assertBusinessOwnership(
 }
 
 // ── Routes ────────────────────────────────────────────────────────
-
-// All routes behind auth
-complianceRouter.use(tenantMiddleware);
+// Note: tenantMiddleware is applied per-route (not globally) so that
+// unmatched paths can fall through to the 404 handler.
 
 // ─────────────────────────────────────────────────────────────────
 // GET /api/businesses/:id/compliance/risk-score
@@ -114,6 +113,7 @@ complianceRouter.use(tenantMiddleware);
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.get(
   '/businesses/:id/compliance/risk-score',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -152,6 +152,7 @@ complianceRouter.get(
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.post(
   '/businesses/:id/compliance/check',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -215,6 +216,7 @@ complianceRouter.post(
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.get(
   '/state-laws/:state',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -270,6 +272,7 @@ complianceRouter.get(
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.get(
   '/vendor-history/:vendorId',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

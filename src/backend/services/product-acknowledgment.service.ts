@@ -184,7 +184,7 @@ export class ProductAcknowledgmentService {
       ...(input.metadata ?? {}),
     };
 
-    const [ack] = await this.prisma.$transaction([
+    const [, ack] = await this.prisma.$transaction([
       // 1. Write Document Vault entry
       this.prisma.document.create({
         data: {

@@ -107,7 +107,8 @@ const VIOLATION_RULES: ViolationRule[] = [
       'FTC red flag: representing a fee-based coaching program as free funding or credit access. ' +
       'High enforcement risk in credit-stacking space (FTC v. Business Funding Suite 2021).',
     patterns: [
-      /coaching\s+(is\s+)?(free|no\s+cost|included)/i,
+      /coaching\s+(is\s+\S+\s+)?(free|no\s+cost|included)/i,
+      /coaching\s+is\s+(completely\s+)?free/i,
       /training\s+(is\s+)?(free|no\s+cost|included)/i,
       /mentorship\s+at\s+no\s+(additional\s+)?charge/i,
       /program\s+fee.*not\s+required/i,
@@ -178,9 +179,9 @@ const VIOLATION_RULES: ViolationRule[] = [
       /offer\s+expires?\s+(today|tonight|in\s+\d+\s+hour)/i,
       /only\s+\d+\s+spots?\s+(left|remaining|available)/i,
       /this\s+(offer|deal|rate)\s+(won.t|will\s+not)\s+last/i,
-      /decide\s+(right\s+now|immediately|on\s+this\s+call)/i,
+      /decide\s+(right\s+now|immediately|on\s+this\s+call|today)/i,
       /if\s+you\s+don.t\s+(act|sign|decide)\s+(now|today)/i,
-      /lose\s+(your\s+)?(spot|place|opportunity)\s+if/i,
+      /lose\s+(your\s+)?(spot|place|opportunity)/i,
     ],
   },
   {
@@ -191,8 +192,8 @@ const VIOLATION_RULES: ViolationRule[] = [
       'violates FCRA, EFTA, and UDAAP. Consent must be affirmative, specific, and on record.',
     patterns: [
       /without\s+(your\s+)?(permission|consent|authoriz)/i,
-      /we.ll\s+(just\s+)?(run|pull|check)\s+(your\s+)?(credit|report)/i,
-      /automatically\s+(enroll|sign\s+you|add\s+you|debit)/i,
+      /we.ll\s+(\w+\s+)?(run|pull|check)\s+(your\s+)?(credit|report)/i,
+      /automatically\s+(enroll|sign\s+you|add\s+you|debit|pull|run|check)/i,
       /pull\s+(your\s+)?credit\s+without/i,
     ],
   },

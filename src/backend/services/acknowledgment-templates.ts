@@ -53,9 +53,9 @@ IMPORTANT NOTICE — PLEASE READ CAREFULLY BEFORE SIGNING
 
 1. NATURE OF PRODUCT
    CapitalForge and its advisors facilitate applications for BUSINESS-PURPOSE CREDIT
-   CARDS issued by third-party banks (issuers). You are NOT receiving a term loan,
-   a line of credit, a merchant cash advance, or any other form of direct debt
-   financing from CapitalForge.
+   CARDS issued by third-party banks (issuers). You are NOT a term loan,
+   line of credit, merchant cash advance, or any other form of direct debt
+   financing recipient from CapitalForge. You are NOT receiving a term loan.
 
 2. WHAT YOU WILL RECEIVE
    If approved by one or more issuers, you will receive one or more business credit

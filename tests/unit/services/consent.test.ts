@@ -12,9 +12,15 @@
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Mock @prisma/client before importing any service that depends on it
+vi.mock('@prisma/client', () => ({
+  PrismaClient: vi.fn(() => ({})),
+}));
+
 import { ConsentService } from '../../../src/backend/services/consent.service.js';
 import { ConsentGate, TcpaConsentError } from '../../../src/backend/services/consent-gate.js';
-import { EventBus } from '../../../src/backend/events/event-bus.js';
+import { EventBus, eventBus } from '../../../src/backend/events/event-bus.js';
 import type { ConsentChannel, ConsentType } from '../../../src/shared/types/index.js';
 
 // ----------------------------------------------------------------
@@ -222,7 +228,7 @@ describe('ConsentService', () => {
 
     it('publishes consent.captured event after grant', async () => {
       const publishSpy = vi.spyOn(
-        EventBus.getInstance(),
+        eventBus,
         'publishAndPersist',
       );
 
@@ -277,7 +283,7 @@ describe('ConsentService', () => {
 
     it('publishes consent.revoked event for each revoked record', async () => {
       const publishSpy = vi.spyOn(
-        EventBus.getInstance(),
+        eventBus,
         'publishAndPersist',
       );
 
@@ -305,7 +311,7 @@ describe('ConsentService', () => {
 
     it('CONSENT_REVOKED payload includes cascade targets', async () => {
       const publishSpy = vi.spyOn(
-        EventBus.getInstance(),
+        eventBus,
         'publishAndPersist',
       );
 

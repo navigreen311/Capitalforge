@@ -324,7 +324,10 @@ export class CreditIntelligenceService {
 
       // Also factor in the bureau-reported utilization if tradelines lack granularity
       if (!hasData && profile.utilization !== null) {
-        return Number(profile.utilization);
+        const util = profile.utilization;
+        return typeof util === 'object' && util !== null && 'toNumber' in (util as object)
+          ? (util as { toNumber: () => number }).toNumber()
+          : Number(util);
       }
     }
 

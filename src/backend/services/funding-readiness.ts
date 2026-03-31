@@ -166,6 +166,10 @@ function scoreBusinessAge(dateOfFormation: string | Date | null | undefined): { 
 
 /** Industry risk component — 0 to 15 points */
 function scoreIndustryRisk(mcc?: string | null, industry?: string | null): { points: number; label: string } {
+  // If no industry data at all, return 0 (no data to score)
+  if ((mcc === null || mcc === undefined) && (industry === null || industry === undefined)) {
+    return { points: 0, label: 'unknown' };
+  }
   const multiplier = industryRiskMultiplier(mcc, industry);
   const points = Math.round(15 * multiplier);
   const label = industry ?? mcc ?? 'unknown';
@@ -178,7 +182,11 @@ function scoreDebtBurden(
   annualRevenue: number | null,
   monthlyDebtService: number | null | undefined,
 ): { points: number; label: string } {
-  if (debtBalance === null || debtBalance === undefined || debtBalance === 0) {
+  // No debt data provided — cannot score (return 0, not 10)
+  if (debtBalance === null || debtBalance === undefined) {
+    return { points: 0, label: 'no data' };
+  }
+  if (debtBalance === 0) {
     return { points: 10, label: 'no debt' };
   }
 

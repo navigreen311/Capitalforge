@@ -11,6 +11,23 @@
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Mock @prisma/client before any service imports use Prisma.Decimal
+vi.mock('@prisma/client', () => {
+  class MockDecimal {
+    private val: number;
+    constructor(v: number | string) { this.val = Number(v); }
+    toNumber() { return this.val; }
+    toString() { return String(this.val); }
+  }
+  return {
+    PrismaClient: vi.fn(() => ({})),
+    Prisma: {
+      Decimal: MockDecimal,
+    },
+  };
+});
+
 import {
   FundingRoundService,
   type RoundPerformanceMetrics,

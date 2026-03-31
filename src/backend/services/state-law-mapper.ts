@@ -170,7 +170,7 @@ const CALIFORNIA: StateLawProfile = {
         'regulation. Applies to commercial financing ≤ $500,000.',
       timing: 'before_consummation',
       format: ['written_before_consummation', 'electronic_ok'],
-      legalCitation: 'Cal. Fin. Code § 22803; 10 CCR § 910',
+      legalCitation: 'Cal. Fin. Code § 22803 (SB 1235); 10 CCR § 910',
     },
     {
       id: 'CA_SB1235_FINANCE_CHARGE',

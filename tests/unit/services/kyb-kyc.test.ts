@@ -255,7 +255,7 @@ describe('fraud-detection', () => {
         inquiriesLast6Mo: 1,
         einVerified: true,
         einAgeMonths: 48,
-        entityFormationDate: '2020-01-01',
+        entityFormationDate: '2022-01-01', // ~50 months ago, gap with EIN of 48 months is ~2 (<6 tolerance)
       });
       expect(result.riskScore).toBeLessThan(30);
       expect(result.disposition).toBe('low');
@@ -371,7 +371,7 @@ describe('fraud-detection', () => {
       const result = await detectFraud({
         einVerified: true,
         einAgeMonths: 60,
-        entityFormationDate: '2020-01-01',
+        entityFormationDate: '2021-04-01', // ~60 months ago, gap with EIN of 60 months is ~0 (<6 tolerance)
         einAddressCount: 6,
       });
       const codes = result.signals.map((s) => s.code);
