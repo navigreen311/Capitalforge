@@ -1,0 +1,68 @@
+# =============================================================================
+# CapitalForge — Frontend Dockerfile (Next.js standalone)
+# Multi-stage build producing a minimal standalone Next.js server image
+# =============================================================================
+
+# ── Stage 1: Install dependencies ────────────────────────────────────────────
+FROM node:20-alpine AS deps
+
+RUN apk add --no-cache libc6-compat
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+# Install ALL deps (Next.js build needs devDeps like TypeScript, Tailwind etc.)
+RUN npm ci --ignore-scripts
+
+
+# ── Stage 2: Build ────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Bring in installed node_modules from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy manifests and full source needed for the build
+COPY package.json package-lock.json tsconfig.json ./
+COPY src/frontend ./src/frontend/
+COPY src/shared ./src/shared/
+
+# Enable standalone output so Next.js bundles its own minimal server
+ENV NEXT_OUTPUT=standalone
+ENV NODE_ENV=production
+
+RUN npm run build:frontend
+
+
+# ── Stage 3: Production runtime ───────────────────────────────────────────────
+FROM node:20-alpine AS runner
+
+RUN apk add --no-cache dumb-init
+
+ENV NODE_ENV=production
+ENV PORT=3000
+# Disable Next.js telemetry in production containers
+ENV NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /app
+
+# Non-root user
+RUN addgroup --system --gid 1001 capitalforge \
+    && adduser --system --uid 1001 --ingroup capitalforge capitalforge
+
+# Copy only what the standalone server needs
+COPY --from=builder --chown=capitalforge:capitalforge /app/src/frontend/.next/standalone ./
+COPY --from=builder --chown=capitalforge:capitalforge /app/src/frontend/.next/static ./src/frontend/.next/static
+COPY --from=builder --chown=capitalforge:capitalforge /app/src/frontend/public ./src/frontend/public
+
+USER capitalforge
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => { process.exit(r.statusCode < 500 ? 0 : 1) }).on('error', () => process.exit(1))"
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+# The standalone build drops a server.js at the output root
+CMD ["node", "src/frontend/server.js"]
