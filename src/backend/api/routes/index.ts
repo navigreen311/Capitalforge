@@ -1,7 +1,7 @@
 // ============================================================
 // Route Aggregator
 // Mounts all feature route modules under /api.
-// Add new route modules here — do NOT register them in server.ts.
+// Add new route modules here -- do NOT register them in server.ts.
 // ============================================================
 
 import { Router } from 'express';
@@ -17,77 +17,133 @@ import { costCalculatorRouter } from './cost-calculator.routes.js';
 
 export const apiRouter = Router();
 
-// ── Health (public — no auth required) ───────────────────────
+// -- Health (public) --
 apiRouter.use('/health', healthRouter);
 
-// ── Auth (public — login, register, refresh, logout) ─────────
+// -- Auth (public) --
 apiRouter.use('/auth', authRouter);
 
-// ── Onboarding & Business Profile Engine ─────────────────────
+// -- Onboarding --
 apiRouter.use('/businesses', onboardingRouter);
 
-// ── Acknowledgments (compliance gate — must be mounted before applications) ──
+// -- Acknowledgments --
 apiRouter.use('/businesses/:id/acknowledgments', createAcknowledgmentRouter());
 
-// ── KYB / KYC Verification ───────────────────────────────────
-// POST   /api/businesses/:id/verify/kyb
-// POST   /api/businesses/:id/verify/kyc/:ownerId
-// GET    /api/businesses/:id/verification-status
+// -- KYB / KYC --
 apiRouter.use('/businesses', kybKycRouter);
 
-// ── Application Pipeline & Workflow Manager ───────────────────
-// POST   /api/businesses/:id/applications
-// GET    /api/businesses/:id/applications
-// GET    /api/applications/:id
-// PUT    /api/applications/:id/status
+// -- Application Pipeline --
 apiRouter.use('/', applicationRouter);
 
-// ── Suitability & No-Go Engine ────────────────────────────────
-// POST /api/businesses/:id/suitability/check
-// GET  /api/businesses/:id/suitability/latest
-// POST /api/businesses/:id/suitability/override
+// -- Suitability --
 apiRouter.use('/businesses/:id/suitability', suitabilityRouter);
 
-// ── Cost of Capital Calculator ────────────────────────────────
-// POST /api/businesses/:id/cost/calculate
-// GET  /api/businesses/:id/cost/latest
-// POST /api/businesses/:id/cost/compare
+// -- Cost Calculator --
 apiRouter.use('/businesses/:id/cost', costCalculatorRouter);
 
-// ── Card Stacking Optimizer ───────────────────────────────────
-// POST   /api/businesses/:id/optimize
-// GET    /api/businesses/:id/optimizer/results
-// POST   /api/businesses/:id/optimizer/simulate
+// -- Card Stacking Optimizer --
 apiRouter.use('/businesses/:id/optimize', optimizerRouter);
 apiRouter.use('/businesses/:id/optimizer', optimizerRouter);
 
-// ── Document Vault ────────────────────────────────────────────
-// POST   /api/businesses/:id/documents          — upload
-// GET    /api/businesses/:id/documents          — list with filters
-// GET    /api/documents/export/:businessId      — compliance dossier
-// GET    /api/documents/:id                     — retrieve + presigned URL
-// PUT    /api/documents/:id/legal-hold          — toggle legal hold
-// DELETE /api/documents/:id                     — delete (blocked on hold)
+// -- Document Vault --
 import { documentRouter } from './document.routes.js';
 apiRouter.use('/', documentRouter);
 
-// ── Compliance & Risk Center ──────────────────────────────────
-// GET  /api/businesses/:id/compliance/risk-score
-// POST /api/businesses/:id/compliance/check
-// GET  /api/compliance/state-laws/:state
-// GET  /api/compliance/vendor-history/:vendorId
+// -- Compliance & Risk Center --
 import { complianceRouter } from './compliance.routes.js';
 apiRouter.use('/', complianceRouter);
 
-// ── Future route modules ──────────────────────────────────────
-// import { fundingRouter }     from './funding.routes.js';
-// import { consentRouter }     from './consent.routes.js';
-// import { achRouter }         from './ach.routes.js';
-// import { creditRouter }      from './credit.routes.js';
-// import { adminRouter }       from './admin.routes.js';
+// -- Contract Intelligence & Disclosure CMS --
+// POST   /api/contracts/analyze
+// GET    /api/contracts/analyses
+// GET    /api/contracts/:id/red-flags
+// POST   /api/contracts/compare
+// GET    /api/disclosures/templates
+// POST   /api/disclosures/templates
+// PUT    /api/disclosures/templates/:id
+// POST   /api/disclosures/templates/:id/submit
+// POST   /api/disclosures/templates/:id/approve
+// GET    /api/disclosures/templates/:id/history
+// POST   /api/disclosures/render
+// POST   /api/disclosures/render-all
+// POST   /api/disclosures/seed
+import { contractsRouter } from './contracts.routes.js';
+apiRouter.use('/', contractsRouter);
 
-// apiRouter.use('/funding',     fundingRouter);
-// apiRouter.use('/consent',     consentRouter);
-// apiRouter.use('/ach',         achRouter);
-// apiRouter.use('/credit',      creditRouter);
-// apiRouter.use('/admin',       adminRouter);
+// -- Partner & Vendor Governance + Referral Attribution -------
+// POST   /api/partners                        -- onboard partner
+// GET    /api/partners                        -- list partners
+// PUT    /api/partners/:id                    -- update partner
+// GET    /api/partners/:id/scorecard          -- vendor scorecard
+// POST   /api/partners/:id/review             -- review decision
+// POST   /api/partners/:id/renewal            -- initiate renewal
+// POST   /api/partners/:id/renewal/complete   -- complete renewal
+// POST   /api/partners/:id/subprocessors      -- register subprocessor
+// GET    /api/partners/:id/subprocessors      -- list subprocessors
+// POST   /api/businesses/:id/referrals        -- create attribution
+// GET    /api/businesses/:id/referrals        -- list attributions
+// POST   /api/referrals/:id/fee-status        -- update fee status
+// POST   /api/referrals/agreement             -- generate agreement
+// POST   /api/referrals/consent               -- capture consent
+// DELETE /api/referrals/consent/:consentId    -- revoke consent
+// GET    /api/referrals/analytics             -- tenant analytics
+import { partnersRouter } from './partners.routes.js';
+apiRouter.use('/', partnersRouter);
+
+// -- Integration Layer, API Portal & Business Continuity ------
+// POST   /api/integrations/:provider/connect
+// DELETE /api/integrations/:provider/disconnect
+// POST   /api/integrations/:provider/webhook
+// GET/POST/DELETE /api/api-keys
+// GET    /api/observability/health
+// GET    /api/observability/metrics
+// POST   /api/backups/trigger  |  GET /api/backups
+import { integrationsRouter } from './integrations.routes.js';
+apiRouter.use('/', integrationsRouter);
+
+// ── Communication Compliance & Training ──────────────────────
+// POST /api/comm-compliance/scan
+// GET  /api/scripts
+// POST /api/scripts
+// GET  /api/training/certifications
+// POST /api/training/certifications/:id/complete
+// GET  /api/advisors/:id/qa-scores
+// POST /api/advisors/:id/qa-scores
+import { commComplianceRouter } from './comm-compliance.routes.js';
+apiRouter.use('/', commComplianceRouter);
+
+// ── Admin, Offboarding, Fair-Lending & AI Governance ─────────
+// POST   /api/admin/tenants
+// GET    /api/admin/tenants
+// PUT    /api/admin/tenants/:id
+// PUT    /api/admin/tenants/:id/flags
+// GET    /api/admin/tenants/:id/usage
+// POST   /api/offboarding/initiate
+// GET    /api/offboarding/:id
+// POST   /api/offboarding/:id/exit-interview
+// POST   /api/offboarding/:id/export
+// POST   /api/offboarding/:id/delete-data
+// GET    /api/fair-lending/dashboard
+// POST   /api/fair-lending/records
+// GET    /api/fair-lending/coverage
+// GET    /api/fair-lending/adverse-action
+// GET    /api/ai-governance/decisions
+// POST   /api/ai-governance/decisions
+// POST   /api/ai-governance/decisions/:id/override
+// GET    /api/ai-governance/metrics
+// GET    /api/ai-governance/versions
+import { adminRouter } from './admin.routes.js';
+apiRouter.use('/', adminRouter);
+
+// -- Complaint & Remediation Center / Regulator Response Workspace --
+// POST   /api/complaints
+// GET    /api/complaints
+// GET    /api/complaints/analytics
+// PUT    /api/complaints/:id
+// POST   /api/complaints/:id/evidence
+// POST   /api/regulator/inquiries
+// GET    /api/regulator/inquiries
+// PUT    /api/regulator/inquiries/:id
+// POST   /api/regulator/inquiries/:id/export-dossier
+import { complaintsRouter } from './complaints.routes.js';
+apiRouter.use('/', complaintsRouter);
