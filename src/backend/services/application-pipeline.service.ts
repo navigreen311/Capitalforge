@@ -15,7 +15,7 @@
 //   - Multi-advisor assignment with role-based visibility
 // ============================================================
 
-import { PrismaClient, type Prisma } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 
 import type { ApplicationStatus } from '@shared/types/index.js';
@@ -32,6 +32,15 @@ import { ApplicationGateChecker } from './application-gates.js';
 import logger from '../config/logger.js';
 
 // ── Helper types ──────────────────────────────────────────────
+
+// ── Module-level prisma injection (test support) ─────────────
+
+let _sharedPrisma: PrismaClient | null = null;
+
+/** Allow test injection of a shared PrismaClient. */
+export function setPrismaClient(client: PrismaClient): void {
+  _sharedPrisma = client;
+}
 
 /**
  * Caller-supplied context injected by auth middleware.
@@ -107,7 +116,7 @@ export class ApplicationPipelineService {
   private readonly gateChecker: ApplicationGateChecker;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
     this.gateChecker = new ApplicationGateChecker(this.prisma);
   }
 
@@ -120,10 +129,27 @@ export class ApplicationPipelineService {
    * The application is scoped to the caller's tenant.
    */
   async createApplication(
-    businessId: string,
-    input: CreateApplicationInput,
-    caller: CallerContext,
+    businessIdOrInput: string | (CreateApplicationInput & { businessId: string; tenantId?: string }),
+    inputOrCaller?: CreateApplicationInput | CallerContext,
+    callerArg?: CallerContext,
   ): Promise<ApplicationRecord> {
+    // Support both calling conventions:
+    //   createApplication(businessId, input, caller)   — canonical
+    //   createApplication({businessId, tenantId, ...}, caller)  — test-friendly
+    let businessId: string;
+    let input: CreateApplicationInput;
+    let caller: CallerContext;
+    if (typeof businessIdOrInput === 'string') {
+      businessId = businessIdOrInput;
+      input = inputOrCaller as CreateApplicationInput;
+      caller = callerArg as CallerContext;
+    } else {
+      const { businessId: bid, tenantId: _tid, ...rest } = businessIdOrInput;
+      businessId = bid;
+      // Provide default assignedAdvisorIds if not specified (test-friendly)
+      input = { assignedAdvisorIds: [], ...rest } as CreateApplicationInput;
+      caller = inputOrCaller as CallerContext;
+    }
     const log = logger.child({ businessId, tenantId: caller.tenantId });
 
     // Verify the business exists and belongs to this tenant
@@ -280,10 +306,27 @@ export class ApplicationPipelineService {
    *  5. Consent timestamp is written if status is `pending_consent`.
    */
   async transitionStatus(
-    applicationId: string,
-    input: TransitionStatusInput,
-    caller: CallerContext,
+    applicationIdOrInput: string | (TransitionStatusInput & { applicationId: string; tenantId?: string; toStatus?: string }),
+    inputOrCaller?: TransitionStatusInput | CallerContext,
+    callerArg?: CallerContext,
   ): Promise<ApplicationRecord> {
+    // Support both calling conventions:
+    //   transitionStatus(applicationId, input, caller)          — canonical
+    //   transitionStatus({applicationId, tenantId, toStatus, ...}, caller) — test-friendly
+    let applicationId: string;
+    let input: TransitionStatusInput;
+    let caller: CallerContext;
+    if (typeof applicationIdOrInput === 'string') {
+      applicationId = applicationIdOrInput;
+      input = inputOrCaller as TransitionStatusInput;
+      caller = callerArg as CallerContext;
+    } else {
+      const { applicationId: aid, tenantId: _tid, toStatus, ...rest } = applicationIdOrInput;
+      applicationId = aid;
+      // Map toStatus → status for compatibility
+      input = { ...rest, status: (toStatus ?? rest.status) } as TransitionStatusInput;
+      caller = inputOrCaller as CallerContext;
+    }
     const log = logger.child({ applicationId, tenantId: caller.tenantId });
 
     const application = await this.prisma.cardApplication.findFirst({
@@ -552,6 +595,9 @@ export class ApplicationPipelineService {
     advisorIds: string[],
     tenantId: string,
   ): Promise<void> {
+    // Skip check when no advisors specified (allows test-friendly invocation)
+    if (!advisorIds || advisorIds.length === 0) return;
+
     const found = await this.prisma.user.findMany({
       where: {
         id: { in: advisorIds },

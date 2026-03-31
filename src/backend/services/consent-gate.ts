@@ -108,7 +108,10 @@ export class ConsentGate {
     tenantId: string,
     businessId: string,
     channel: ConsentChannel,
+    /** Optional: override the internal ConsentService (useful for test injection) */
+    consentServiceOverride?: ConsentService,
   ): Promise<GateResult> {
+    const effectiveConsentService = consentServiceOverride ?? this.consentService;
     const log = logger.child({ tenantId, businessId, channel });
 
     // 1. Validate channel
@@ -123,7 +126,7 @@ export class ConsentGate {
     let activeConsentType: ConsentType | null = null;
 
     for (const consentType of requiredTypes) {
-      const hasConsent = await this.consentService.hasActiveConsent(
+      const hasConsent = await effectiveConsentService.hasActiveConsent(
         tenantId,
         businessId,
         channel,
@@ -142,6 +145,7 @@ export class ConsentGate {
         tenantId,
         businessId,
         channel,
+        effectiveConsentService,
       );
 
       // For TCPA channels (voice/sms) the regulatory exposure is highest
@@ -228,9 +232,11 @@ export class ConsentGate {
     tenantId: string,
     businessId: string,
     channel: ConsentChannel,
+    consentServiceOverride?: ConsentService,
   ): Promise<boolean> {
+    const svc = consentServiceOverride ?? this.consentService;
     // We query the service for all statuses to determine revoked vs missing
-    const statuses = await this.consentService.getConsentStatuses(
+    const statuses = await svc.getConsentStatuses(
       tenantId,
       businessId,
     );

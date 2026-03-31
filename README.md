@@ -13,7 +13,7 @@
 
 ---
 
-CapitalForge is a **61-module corporate funding and credit card stacking operating system** for financial advisors, brokers, and their business clients. It orchestrates the full lifecycle of commercial credit acquisition — from business intake and KYB/KYC through multi-issuer card stacking, APR expiry management, compliance enforcement, and document vaulting — under a hardened multi-tenant architecture.
+CapitalForge is a **61-module corporate funding and credit card stacking operating system** for financial advisors, brokers, and their business clients. It orchestrates the full lifecycle of commercial credit acquisition — from business intake and KYB/KYC through multi-issuer card stacking, APR expiry management, compliance enforcement, and document vaulting — under a hardened multi-tenant architecture. All 61 modules are implemented across five pillars: Intelligence, Orchestration, Compliance, Platform, and Financial.
 
 ---
 
@@ -44,10 +44,11 @@ CapitalForge replaces fragmented spreadsheets, siloed CRMs, and manual complianc
 
 | Pillar | Responsibility |
 |--------|---------------|
-| **Intelligence** | Credit profiling, fraud detection, suitability scoring, sanctions screening, funding readiness |
-| **Orchestration** | Funding round lifecycle, card application sequencing, APR alert engine, restack triggers |
+| **Intelligence** | Credit profiling, fraud detection, suitability scoring, sanctions screening, funding readiness, VisionAudioForge OCR |
+| **Orchestration** | Funding round lifecycle, card application sequencing, APR alert engine, restack triggers, VoiceForge outreach |
 | **Compliance** | TCPA consent vault, UDAP/UDAAP guardrails, SB 1235 disclosures, Section 1071 data collection, ACH debit controls |
-| **Platform** | Multi-tenant isolation, RBAC, canonical event bus, document vault, audit trail |
+| **Platform** | Multi-tenant isolation, RBAC, canonical event bus, document vault, audit trail, VoiceForge telephony, VAF document intelligence |
+| **Financial** | Spend governance, statement reconciliation, repayment, IRC § 163(j) analysis, tax documents, revenue ops |
 
 ---
 
@@ -102,27 +103,38 @@ bash scripts/setup.sh
 
 See [`docs/architecture.md`](docs/architecture.md) for the full system architecture document including event bus topology, tenant isolation model, and Mermaid data flow diagrams.
 
-### Four Pillars
+See [`docs/voiceforge-integration.md`](docs/voiceforge-integration.md) for the VoiceForge telephony and call-compliance architecture.
+
+See [`docs/visionaudioforge-integration.md`](docs/visionaudioforge-integration.md) for the VisionAudioForge document intelligence and OCR pipeline architecture.
+
+See [`docs/deploy.md`](docs/deploy.md) for the complete deployment guide including Docker commands, migration procedures, rollback, and monitoring.
+
+### Five Pillars
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        CapitalForge                          │
-│                                                             │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │ Intelligence │  │ Orchestration│  │   Compliance     │  │
-│  │             │  │              │  │                  │  │
-│  │ Credit Intel│  │ Funding      │  │ TCPA Consent     │  │
-│  │ Fraud Detect│  │ Rounds       │  │ UDAP/UDAAP       │  │
-│  │ Suitability │  │ Card Apps    │  │ SB 1235          │  │
-│  │ Sanctions   │  │ APR Alerts   │  │ Section 1071     │  │
-│  │ Readiness   │  │ Restack      │  │ ACH Controls     │  │
-│  └─────────────┘  └──────────────┘  └──────────────────┘  │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                     Platform                        │   │
-│  │  Multi-Tenant │ RBAC │ Event Bus │ Document Vault   │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                          CapitalForge (61 Modules)               │
+│                                                                  │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
+│  │ Intelligence │  │ Orchestration│  │      Compliance      │   │
+│  │             │  │              │  │                      │   │
+│  │ Credit Intel│  │ Funding      │  │ TCPA Consent Vault   │   │
+│  │ Fraud Detect│  │ Rounds       │  │ UDAP/UDAAP Monitor   │   │
+│  │ Suitability │  │ Card Apps    │  │ SB 1235 Disclosures  │   │
+│  │ Sanctions   │  │ APR Alerts   │  │ Section 1071         │   │
+│  │ Readiness   │  │ Restack      │  │ ACH Controls         │   │
+│  │ VAF/OCR     │  │ VoiceForge   │  │ Fair Lending Monitor │   │
+│  └─────────────┘  └──────────────┘  └──────────────────────┘   │
+│                                                                  │
+│  ┌─────────────────────────────┐  ┌──────────────────────────┐  │
+│  │          Platform           │  │        Financial         │  │
+│  │                             │  │                          │  │
+│  │ Multi-Tenant │ RBAC         │  │ Spend Governance         │  │
+│  │ Event Bus    │ Document Vault│  │ Statement Reconciliation │  │
+│  │ VoiceForge   │ VAF Agents   │  │ Repayment │ IRC 163(j)   │  │
+│  │ API Portal   │ CRM          │  │ Revenue Ops │ Tax Docs   │  │
+│  └─────────────────────────────┘  └──────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Backend
@@ -140,9 +152,12 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system architect
 
 ---
 
-## MVP Modules
+## Modules
 
-See [`docs/mvp-modules.md`](docs/mvp-modules.md) for full descriptions.
+See [`docs/mvp-modules.md`](docs/mvp-modules.md) for full MVP module descriptions.
+See [`docs/all-modules.md`](docs/all-modules.md) for the complete 61-module registry.
+
+### Core MVP Modules (Sprint 1 — Modules 1–15)
 
 | # | Module | Pillar |
 |---|--------|--------|
@@ -161,6 +176,57 @@ See [`docs/mvp-modules.md`](docs/mvp-modules.md) for full descriptions.
 | 13 | UDAP/UDAAP Compliance Monitor | Compliance |
 | 14 | Document Vault | Platform |
 | 15 | Canonical Audit Ledger & Event Bus | Platform |
+
+### Extended Modules (Sprint 2 — Modules 16–61)
+
+| # | Module | Pillar |
+|---|--------|--------|
+| 16 | Fraud Detection | Intelligence |
+| 17 | Sanctions Screening | Intelligence |
+| 18 | AI Governance | Intelligence |
+| 19 | Decision Explainability | Intelligence |
+| 20 | Funding Simulator | Intelligence |
+| 21 | Stress Test Engine | Intelligence |
+| 22 | Credit Optimizer | Intelligence |
+| 23 | Credit Builder | Intelligence |
+| 24 | Card Benefits Service | Orchestration |
+| 25 | Rewards Optimization | Orchestration |
+| 26 | Auto-Restack Engine | Orchestration |
+| 27 | Decline Recovery | Orchestration |
+| 28 | Issuer Relationship Manager | Orchestration |
+| 29 | Deal Committee | Orchestration |
+| 30 | Workflow Engine | Orchestration |
+| 31 | Policy Orchestration | Orchestration |
+| 32 | State Law Mapper | Compliance |
+| 33 | Disclosure CMS | Compliance |
+| 34 | Fair Lending Monitor | Compliance |
+| 35 | Complaint Management | Compliance |
+| 36 | Regulatory Intelligence | Compliance |
+| 37 | Regulator Response | Compliance |
+| 38 | Comm Compliance | Compliance |
+| 39 | Rules Versioning | Compliance |
+| 40 | API Portal | Platform |
+| 41 | Integration Layer | Platform |
+| 42 | CRM | Platform |
+| 43 | Referral Engine | Platform |
+| 44 | Partner Governance | Platform |
+| 45 | VoiceForge | Platform |
+| 46 | VisionAudioForge | Platform |
+| 47 | SaaS Entitlements | Platform |
+| 48 | Sandbox | Platform |
+| 49 | Data Lineage | Platform |
+| 50 | Business Continuity | Platform |
+| 51 | Revenue Ops | Financial |
+| 52 | Spend Governance | Financial |
+| 53 | Statement Reconciliation | Financial |
+| 54 | Repayment | Financial |
+| 55 | Hardship | Financial |
+| 56 | Tax Documents | Financial |
+| 57 | Funds Flow Classification | Financial |
+| 58 | IRC 163(j) Analysis | Financial |
+| 59 | Statement Normalizer | Financial |
+| 60 | Business Purpose Evidence | Financial |
+| 61 | Client Graduation | Platform |
 
 ---
 
@@ -231,7 +297,12 @@ npm run test:integration
 # End-to-end tests only
 npm run test:e2e
 
-# Watch mode
+# Run a specific E2E test file
+npx vitest run tests/e2e/onboarding-flow.test.ts
+npx vitest run tests/e2e/funding-flow.test.ts
+npx vitest run tests/e2e/compliance-flow.test.ts
+
+# Watch mode (re-runs on file changes)
 npm run test:watch
 
 # Coverage report
@@ -243,6 +314,18 @@ npm run lint
 # Type check
 npx tsc --noEmit
 ```
+
+### Test suites
+
+| Suite | Location | Description |
+|-------|----------|-------------|
+| Unit | `tests/unit/` | Pure function tests — no I/O, no DB |
+| Integration | `tests/integration/` | Service + DB tests (requires running Postgres + Redis) |
+| E2E — Onboarding Flow | `tests/e2e/onboarding-flow.test.ts` | Business creation → KYB/KYC → readiness score → track routing (12 tests) |
+| E2E — Funding Flow | `tests/e2e/funding-flow.test.ts` | Suitability → acknowledgment → consent → optimizer → apply → approve → complete (12 tests) |
+| E2E — Compliance Flow | `tests/e2e/compliance-flow.test.ts` | UDAP → state law → consent gate → ack gate → vault → dossier (12 tests) |
+
+E2E tests use mocked Prisma clients and require **no running infrastructure** — they can run in CI or locally without Docker.
 
 Integration tests require running Docker infrastructure (`docker-compose up -d`) and a `.env` file with `DATABASE_URL` and `REDIS_URL`.
 

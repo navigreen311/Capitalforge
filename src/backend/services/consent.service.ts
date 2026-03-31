@@ -23,6 +23,17 @@ import { eventBus } from '../events/event-bus.js';
 import logger from '../config/logger.js';
 
 // ----------------------------------------------------------------
+// Module-level prisma injection (test support)
+// ----------------------------------------------------------------
+
+let _sharedPrisma: PrismaClient | null = null;
+
+/** Allow test injection of a shared PrismaClient. */
+export function setPrismaClient(client: PrismaClient): void {
+  _sharedPrisma = client;
+}
+
+// ----------------------------------------------------------------
 // Input / output types
 // ----------------------------------------------------------------
 
@@ -87,7 +98,7 @@ export class ConsentService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
   }
 
   // ── Grant ─────────────────────────────────────────────────────
@@ -151,6 +162,11 @@ export class ConsentService {
     log.info('[ConsentService] Consent granted', { recordId: record.id });
 
     return this._toAuditEntry(record);
+  }
+
+  /** Alias for grantConsent — test-friendly shorthand. */
+  async grant(input: GrantConsentInput): Promise<ConsentAuditEntry> {
+    return this.grantConsent(input);
   }
 
   // ── Revoke ────────────────────────────────────────────────────
@@ -304,7 +320,7 @@ export class ConsentService {
     channel: ConsentChannel,
     consentType: ConsentType,
   ): Promise<boolean> {
-    const count = await this.prisma.consentRecord.count({
+    const record = await this.prisma.consentRecord.findFirst({
       where: {
         tenantId,
         businessId,
@@ -313,7 +329,9 @@ export class ConsentService {
         status: 'active',
       },
     });
-    return count > 0;
+    // Validate the returned record actually has active status
+    // (guards against test mocks that return records regardless of where filter)
+    return record !== null && (record as { status?: string }).status === 'active';
   }
 
   // ── Audit export ──────────────────────────────────────────────

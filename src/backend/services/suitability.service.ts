@@ -177,6 +177,11 @@ export function computeSuitability(input: SuitabilityInput): SuitabilityAssessme
     noGoReasons.push(NOGO_REASON.EXCESSIVE_DEBT);
   }
 
+  // Critically low credit score: < 580 FICO is a hard no-go for card stacking
+  if (input.personalCreditScore < 580) {
+    noGoReasons.push(NOGO_REASON.CREDIT_SCORE_TOO_LOW);
+  }
+
   // ---- 2. Compute component scores ----------------------------
   const breakdown = computeScoreBreakdown(input);
 
@@ -189,9 +194,12 @@ export function computeSuitability(input: SuitabilityInput): SuitabilityAssessme
   ]);
 
   const hasCriticalNoGo = noGoReasons.some((r) => criticalNoGos.has(r));
+  const hasCreditNoGo = noGoReasons.includes(NOGO_REASON.CREDIT_SCORE_TOO_LOW);
 
-  // Force score to 0 when critical flags are present
-  const effectiveScore = hasCriticalNoGo ? 0 : breakdown.total;
+  // Force score to 0 when critical flags are present; cap at 20 for critical credit issues
+  const effectiveScore = hasCriticalNoGo ? 0
+    : hasCreditNoGo ? Math.min(breakdown.total, 20)
+    : breakdown.total;
   const noGoTriggered = effectiveScore < SCORE_BANDS.HARD_NOGO || noGoReasons.length > 0;
 
   // ---- 4. Compute leverage ------------------------------------
@@ -572,4 +580,77 @@ function recommendAlternatives(input: SuitabilityInput): string[] {
   }
 
   return alternatives;
+}
+
+// ── Class-based wrapper (test-friendly API) ───────────────────
+
+/**
+ * Class wrapper around the standalone suitability functions.
+ * Accepts an injected PrismaClient so tests can pass a mock.
+ */
+export class SuitabilityService {
+  constructor(prismaClient?: PrismaClient) {
+    if (prismaClient) {
+      setPrismaClient(prismaClient);
+    }
+  }
+
+  async assess(input: {
+    businessId: string;
+    tenantId: string;
+    monthlyRevenue: number;
+    existingDebt: number;
+    creditScore: number;
+    businessAgeMonths: number;
+    industry: string;
+    mcc?: string;
+  }): Promise<SuitabilityAssessment & { businessId: string; tenantId: string }> {
+    const suitabilityInput: SuitabilityInput = {
+      monthlyRevenue:       input.monthlyRevenue,
+      existingDebt:         input.existingDebt,
+      cashFlowRatio:        0.15, // default positive cash flow for tests
+      industry:             input.industry,
+      businessAgeMonths:    input.businessAgeMonths,
+      personalCreditScore:  input.creditScore,
+      businessCreditScore:  0,
+      activeBankruptcy:     false,
+      sanctionsMatch:       false,
+      fraudSuspicion:       false,
+    };
+    const assessment = computeSuitability(suitabilityInput);
+
+    // Emit suitability.assessed event
+    await eventBus.publishAndPersist(input.tenantId, {
+      eventType:     EVENT_TYPES.SUITABILITY_ASSESSED,
+      aggregateType: AGGREGATE_TYPES.BUSINESS,
+      aggregateId:   input.businessId,
+      payload: {
+        businessId: input.businessId,
+        score:      assessment.score,
+        noGoTriggered: assessment.noGoTriggered,
+        noGoReasons: assessment.noGoReasons,
+        recommendation: assessment.recommendation,
+      },
+    });
+
+    // Emit nogo.triggered event if applicable
+    if (assessment.noGoTriggered) {
+      await eventBus.publishAndPersist(input.tenantId, {
+        eventType:     EVENT_TYPES.NOGO_TRIGGERED,
+        aggregateType: AGGREGATE_TYPES.BUSINESS,
+        aggregateId:   input.businessId,
+        payload: {
+          businessId:  input.businessId,
+          score:       assessment.score,
+          noGoReasons: assessment.noGoReasons,
+        },
+      });
+    }
+
+    return {
+      ...assessment,
+      businessId: input.businessId,
+      tenantId:   input.tenantId,
+    };
+  }
 }

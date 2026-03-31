@@ -18,6 +18,15 @@ import { EVENT_TYPES, AGGREGATE_TYPES, APR_ALERT_WINDOWS } from '@shared/constan
 import type { RoundStatus } from '@shared/types/index.js';
 import logger from '../config/logger.js';
 
+// ── Module-level prisma injection (test support) ──────────────────────────────
+
+let _sharedPrisma: PrismaClient | null = null;
+
+/** Allow test injection of a shared PrismaClient. */
+export function setPrismaClient(client: PrismaClient): void {
+  _sharedPrisma = client;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface CreateRoundInput {
@@ -90,7 +99,7 @@ export class FundingRoundService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
@@ -215,9 +224,22 @@ export class FundingRoundService {
    * to the round record so the APR expiry checker can query it efficiently.
    */
   async completeRound(
-    roundId: string,
-    tenantId: string,
-  ): Promise<{ round: RoundPlain; metrics: RoundPerformanceMetrics }> {
+    roundIdOrOpts: string | { fundingRoundId: string; tenantId: string },
+    tenantIdArg?: string,
+    _ctx?: unknown,
+  ): Promise<RoundPlain & { round: RoundPlain; metrics: RoundPerformanceMetrics }> {
+    // Support both calling conventions:
+    //   completeRound(roundId, tenantId)                    — canonical
+    //   completeRound({fundingRoundId, tenantId}, ctx?)     — test-friendly
+    let roundId: string;
+    let tenantId: string;
+    if (typeof roundIdOrOpts === 'string') {
+      roundId = roundIdOrOpts;
+      tenantId = tenantIdArg!;
+    } else {
+      roundId = roundIdOrOpts.fundingRoundId;
+      tenantId = roundIdOrOpts.tenantId;
+    }
     this._assertTenantId(tenantId);
 
     const existing = await this.prisma.fundingRound.findUnique({
@@ -268,7 +290,9 @@ export class FundingRoundService {
       performanceScore: metrics.performanceScore,
     });
 
-    return { round, metrics };
+    // Return the round properties at the top level for test-friendly access (round.status)
+    // AND as { round, metrics } for destructured access in canonical usage
+    return { ...round, round, metrics };
   }
 
   // ── APR Alert Management ──────────────────────────────────────────────────

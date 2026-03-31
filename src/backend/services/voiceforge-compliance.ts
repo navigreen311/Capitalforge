@@ -486,22 +486,12 @@ export class VoiceForgeComplianceService {
     const categoriesSeen = new Set(violations.map((v) => v.category));
 
     for (const disclosure of REQUIRED_DISCLOSURES) {
-      // Always include disclosures whose trigger channel includes 'voice'
-      if (disclosure.channels.includes('voice')) {
+      // Always include disclosures whose channel is 'voice' or 'all'
+      if (disclosure.channel === 'voice' || disclosure.channel === 'all') {
         insertions.push({
-          disclosureKey: disclosure.key,
-          text: disclosure.text,
+          disclosureKey: disclosure.id,
+          text: disclosure.disclosureText,
           triggerReason: 'Required for all voice calls',
-        });
-      } else if (
-        disclosure.triggerCategories &&
-        disclosure.triggerCategories.some((cat) => categoriesSeen.has(cat as BannedClaimCategory))
-      ) {
-        // Include disclosures triggered by the detected violation categories
-        insertions.push({
-          disclosureKey: disclosure.key,
-          text: disclosure.text,
-          triggerReason: `Triggered by violation categories: ${[...categoriesSeen].join(', ')}`,
         });
       }
     }

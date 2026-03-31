@@ -93,11 +93,13 @@ const VIOLATION_RULES: ViolationRule[] = [
       'FTC red flag: implied or explicit government/SBA affiliation without authorisation. ' +
       'Categorically deceptive under UDAP (FTC v. MBA Center 2019).',
     patterns: [
-      /sba[\s-]?(approved|backed|certified|authorized|affiliated)/i,
-      /government[\s-]?(program|grant|funding|backed)/i,
-      /federal[\s-]?(program|funding|grant|backed)/i,
+      /sba[\s-]?(approved|backed|certified|authorized|affiliated|loan)/i,
+      /government[\s-]?(approved|program|grant|funding|backed)/i,
+      /federal[\s-]?(approved|program|funding|grant|backed)/i,
       /\bfdic\b.*program/i,
       /treasury[\s-]?program/i,
+      /equivalent\s+to\s+(an?\s+)?sba/i,
+      /this\s+is\s+(an?\s+)?sba/i,
     ],
   },
   {
@@ -125,7 +127,11 @@ const VIOLATION_RULES: ViolationRule[] = [
       /100\s*%\s*approval/i,
       /approve[sd]?\s+(no matter|regardless)/i,
       /certain\s+to\s+(get|receive|be\s+approved)/i,
-      /we\s+guarantee\s+you\s+(will\s+)?(get|receive)/i,
+      /we\s+guarantee\s+(you\s+)?(will\s+)?(get|receive|be\s+approved)/i,
+      /guarantee\s+.{0,40}\s+will\s+be\s+approved/i,
+      /guarantee\s+.{0,30}\s+approved\s+for/i,
+      /absolutely\s+no\s+.{0,30}\s+regardless\s+of\s+credit/i,
+      /approval\s+is\s+100\s*%\s+(certain|guaranteed)/i,
     ],
   },
   {
@@ -140,6 +146,8 @@ const VIOLATION_RULES: ViolationRule[] = [
       /only\s+pay\s+when\s+you\s+use\s+it/i,
       /no\s+monthly\s+fee[s]?\b(?!.*unless)/i,
       /fee.{0,30}waived\s+(forever|always|permanently)/i,
+      /absolutely\s+no\s+fees/i,
+      /no\s+fees\s+involved/i,
     ],
   },
   {
@@ -262,8 +270,26 @@ export function scoreUdapRisk(input: UdapScorerInput): UdapScorerOutput {
     }
   }
 
+  // If disclosureSent is explicitly false, always add a missing_disclosure violation
+  // (the disclosure was simply not sent — no matching text is required)
+  if (input.disclosureSent === false) {
+    const alreadyHasDisclosure = violations.some((v) => v.type === 'missing_disclosure');
+    if (!alreadyHasDisclosure) {
+      const weight = 7;
+      rawScore += weight * 10;
+      violations.push({
+        type: 'missing_disclosure',
+        evidence: 'disclosureSent=false',
+        severityWeight: weight,
+        description:
+          'Material terms (APR, fees, personal guarantee, cash-advance costs) must be disclosed ' +
+          'prior to application or enrollment per TILA, Reg Z, and state SB 1235 equivalents.',
+      });
+    }
+  }
+
   // Normalise to 0–100
-  const score = Math.min(100, Math.round((rawScore / MAX_RAW_SCORE) * 100));
+  let score = Math.min(100, Math.round((rawScore / MAX_RAW_SCORE) * 100));
   const requiresReview =
     score >= 40 ||
     violations.some(
@@ -278,6 +304,12 @@ export function scoreUdapRisk(input: UdapScorerInput): UdapScorerOutput {
       (v) =>
         v.type === 'government_affiliation_claim' || v.type === 'guaranteed_approval_claim',
     );
+
+  // When a hard stop is triggered by critical violations, ensure the score
+  // reflects the severity — hard stops always score >= 90.
+  if (hardStop && score < 90) {
+    score = 90;
+  }
 
   const summary = buildSummary(score, violations, hardStop);
 
@@ -298,3 +330,6 @@ function buildSummary(
     : `UDAP/UDAAP Score ${score}/100 — review required.`;
   return `${prefix} Violations detected: ${violationList}.`;
 }
+
+/** Alias for scoreUdapRisk — provided for backwards-compatibility. */
+export const scoreUdap = scoreUdapRisk;

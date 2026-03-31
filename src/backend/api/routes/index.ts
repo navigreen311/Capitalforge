@@ -147,3 +147,26 @@ apiRouter.use('/', adminRouter);
 // POST   /api/regulator/inquiries/:id/export-dossier
 import { complaintsRouter } from './complaints.routes.js';
 apiRouter.use('/', complaintsRouter);
+
+// ── VoiceForge — Telephony, Outreach & Call Compliance ───────────
+// POST /api/voiceforge/calls
+// GET  /api/voiceforge/calls
+// GET  /api/voiceforge/calls/:id
+// POST /api/voiceforge/calls/:id/end
+// POST /api/voiceforge/outreach/apr-expiry
+// POST /api/voiceforge/outreach/restack
+// POST /api/voiceforge/compliance/scan-transcript
+// GET  /api/voiceforge/compliance/qa/:advisorId
+import { voiceForgeRouter } from './voiceforge.routes.js';
+apiRouter.use('/', voiceForgeRouter);
+
+// ── VisionAudioForge — Document Intelligence & Agent Orchestration
+// POST /api/vaf/process
+// GET  /api/vaf/results/:id
+// POST /api/vaf/agents/:agentType/run
+// GET  /api/vaf/agents/status
+// POST /api/vaf/ocr/statement
+// POST /api/vaf/ocr/adverse-action
+// POST /api/vaf/verify/id-liveness
+import { visionAudioForgeRouter } from './visionaudioforge.routes.js';
+apiRouter.use('/', visionAudioForgeRouter);

@@ -142,6 +142,13 @@ export interface OptimizerResult {
   plan: StackPlan;
   /** ISO timestamp until which this result is considered fresh (24 h) */
   expiresAt: string;
+  /**
+   * Convenience alias: rounds from the plan, each mapped to { applications }
+   * for test-friendly access (e.g. result.rounds[0].applications).
+   */
+  rounds: Array<{ applications: RankedCard[] }>;
+  /** Convenience alias for plan.totalEstimatedCredit */
+  totalEstimatedCredit: number;
 }
 
 // ============================================================
@@ -182,20 +189,26 @@ export class StackingOptimizerService {
   /**
    * Generate a full stack plan for the given input.
    */
-  optimize(input: OptimizerInput): OptimizerResult {
+  optimize(input: OptimizerInput | (Omit<OptimizerInput, 'personalCredit' | 'businessProfile'> & { personal?: PersonalCreditProfile; business?: BusinessProfile })): OptimizerResult {
+    // Normalise test-friendly input format: { personal, business } → { personalCredit, businessProfile }
+    const normalised = input as OptimizerInput & { personal?: PersonalCreditProfile; business?: BusinessProfile };
+    const canonicalInput: OptimizerInput = {
+      ...normalised,
+      personalCredit: normalised.personalCredit ?? normalised.personal!,
+      businessProfile: normalised.businessProfile ?? normalised.business!,
+    };
     const effectiveCredit = this._applyScenario(
-      input.personalCredit,
-      input.scenarioOverrides,
+      canonicalInput.personalCredit,
+      canonicalInput.scenarioOverrides,
     );
-
     const applicantProfile: ApplicantProfile = {
-      existingCards: input.existingCards,
-      recentApplicationDates: input.recentApplicationDates ?? [],
+      existingCards: canonicalInput.existingCards,
+      recentApplicationDates: canonicalInput.recentApplicationDates ?? [],
     };
 
     const allCards = getActiveCards();
-    const existingNetworks = this._existingNetworks(input.existingCards);
-    const forcedExcludes = new Set(input.excludeCardIds ?? []);
+    const existingNetworks = this._existingNetworks(canonicalInput.existingCards);
+    const forcedExcludes = new Set(canonicalInput.excludeCardIds ?? []);
 
     const rankedCards: RankedCard[] = [];
     const excludedCards: ExcludedCard[] = [];
@@ -231,7 +244,7 @@ export class StackingOptimizerService {
         card,
         approvalProb,
         estimatedCL,
-        input.businessProfile.targetCreditLimit,
+        canonicalInput.businessProfile.targetCreditLimit,
         existingNetworks,
       );
 
@@ -255,25 +268,28 @@ export class StackingOptimizerService {
     // Round 2+: lower FICO requirement cards in subsequent waves.
     // Within each round, preserve the score ranking.
 
-    this._assignRounds(rankedCards, input.businessProfile.targetCreditLimit);
+    this._assignRounds(rankedCards, canonicalInput.businessProfile.targetCreditLimit);
 
     // ── 4. Build plan ─────────────────────────────────────────
 
     const plan = this._buildPlan(
       rankedCards,
       excludedCards,
-      input.businessProfile.targetCreditLimit,
+      canonicalInput.businessProfile.targetCreditLimit,
     );
 
     const now = new Date();
     const expires = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     return {
-      businessId: input.businessProfile.businessId,
+      businessId: canonicalInput.businessProfile.businessId,
       generatedAt: now.toISOString(),
-      input,
+      input: canonicalInput,
       plan,
       expiresAt: expires.toISOString(),
+      // Convenience aliases for test-friendly access
+      rounds: plan.rounds.map((applications) => ({ applications })),
+      totalEstimatedCredit: plan.totalEstimatedCredit,
     };
   }
 

@@ -118,13 +118,22 @@ function buildDocumentContent(
   ].join('\n');
 }
 
+// ---- Module-level prisma injection (test support) ----------
+
+let _sharedPrisma: PrismaClient | null = null;
+
+/** Allow test injection of a shared PrismaClient. */
+export function setPrismaClient(client: PrismaClient): void {
+  _sharedPrisma = client;
+}
+
 // ---- Service class -----------------------------------------
 
 export class ProductAcknowledgmentService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
   }
 
   // ── Core signing operation ─────────────────────────────────
@@ -361,6 +370,17 @@ export class ProductAcknowledgmentService {
           `missing required acknowledgments: ${result.missing.join(', ')}`,
       );
     }
+  }
+
+  /**
+   * Check the pre-submission gate — returns result without throwing.
+   * Test-friendly alias for checkGate with pre-submission required types.
+   */
+  async checkPreSubmissionGate(opts: {
+    businessId: string;
+    tenantId?: string;
+  }): Promise<GateCheckResult> {
+    return this.checkGate(opts.businessId, PRE_SUBMISSION_REQUIRED);
   }
 
   // ── Private helpers ────────────────────────────────────────

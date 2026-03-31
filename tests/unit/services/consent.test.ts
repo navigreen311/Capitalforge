@@ -101,6 +101,15 @@ function makeConsentStore() {
       },
     ),
 
+    findFirst: vi.fn(async ({ where }: { where?: Record<string, unknown> }) => {
+      const all = Array.from(records.values());
+      if (!where) return all[0] ?? null;
+      const match = all.find((r) =>
+        Object.entries(where).every(([k, v]) => r[k] === v),
+      );
+      return match ?? null;
+    }),
+
     count: vi.fn(async ({ where }: { where?: Record<string, unknown> }) => {
       const all = Array.from(records.values());
       if (!where) return all.length;

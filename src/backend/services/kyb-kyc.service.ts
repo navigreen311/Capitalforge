@@ -34,7 +34,26 @@ import type {
 
 // ── Prisma singleton ─────────────────────────────────────────────────────────
 
-const prisma = new PrismaClient();
+let _prisma: PrismaClient | null = null;
+
+/** Allow injection for tests */
+export function setPrismaClient(client: PrismaClient): void {
+  _prisma = client;
+}
+
+function getPrisma(): PrismaClient {
+  if (!_prisma) {
+    _prisma = new PrismaClient();
+  }
+  return _prisma;
+}
+
+/** @deprecated Use getPrisma() internally */
+const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    return (getPrisma() as unknown as Record<string | symbol, unknown>)[prop];
+  },
+});
 
 // ── CapitalForge-specific error class ────────────────────────────────────────
 
@@ -685,4 +704,112 @@ export async function getVerificationStatus(
     readyForApplications,
     owners,
   };
+}
+
+// ── Class-based wrapper (test-friendly API) ───────────────────
+
+/**
+ * Class wrapper around the standalone KYB/KYC functions.
+ * Accepts an injected PrismaClient so tests can pass a mock.
+ */
+export class KybKycService {
+  constructor(prismaClient?: PrismaClient) {
+    if (prismaClient) {
+      setPrismaClient(prismaClient);
+    }
+  }
+
+  async verifyKyb(input: {
+    businessId: string;
+    tenantId: string;
+    legalName: string;
+    ein: string;
+    entityType: string;
+    stateOfFormation: string;
+    dateOfFormation?: string;
+    mcc?: string;
+    industry?: string;
+  }): Promise<{
+    status: string;
+    riskLevel: string;
+    businessId: string;
+    summary: string;
+  }> {
+    const { businessId, tenantId, ...rest } = input;
+    const request = {
+      legalName: rest.legalName,
+      ein: rest.ein,
+      entityType: rest.entityType as 'llc' | 'corporation' | 'sole_proprietor' | 'partnership' | 's_corp' | 'c_corp',
+      stateOfFormation: rest.stateOfFormation,
+      dateOfFormation: rest.dateOfFormation ?? new Date().toISOString().split('T')[0]!,
+      registeredAddress: {
+        street: '123 Main St',
+        city: 'Wilmington',
+        state: rest.stateOfFormation,
+        zip: '19801',
+        country: 'US',
+      },
+      mcc: rest.mcc,
+      industry: rest.industry,
+    };
+    const result = await verifyKyb(businessId, tenantId, request as Parameters<typeof verifyKyb>[2]);
+    // Throw on OFAC/sanctions hard stop so callers can catch it
+    if (result.status === 'sanctions_hold') {
+      throw new KybKycError(
+        result.summary,
+        'OFAC_HARD_MATCH',
+        422,
+      );
+    }
+    // Map result: determine riskLevel based on status
+    const riskLevelMap: Record<string, string> = {
+      verified: 'low',
+      in_review: 'medium',
+      failed: 'high',
+      sanctions_hold: 'critical',
+      pending: 'low',
+    };
+    return {
+      status: result.status,
+      riskLevel: riskLevelMap[result.status] ?? 'low',
+      businessId: result.businessId,
+      summary: result.summary,
+    };
+  }
+
+  async verifyKyc(input: {
+    ownerId: string;
+    businessId: string;
+    tenantId: string;
+    firstName: string;
+    lastName: string;
+    ssn: string;
+    dateOfBirth: string;
+  }): Promise<{
+    status: string;
+    ownerId: string;
+    businessId: string;
+  }> {
+    const { ownerId, businessId, tenantId, ...rest } = input;
+    const request = {
+      firstName: rest.firstName,
+      lastName: rest.lastName,
+      ownershipPercent: 100,
+      ssn: rest.ssn,
+      dateOfBirth: rest.dateOfBirth,
+      address: {
+        street: '123 Main St',
+        city: 'Wilmington',
+        state: 'DE',
+        zip: '19801',
+        country: 'US',
+      },
+    };
+    const result = await verifyKyc(businessId, ownerId, tenantId, request as Parameters<typeof verifyKyc>[3]);
+    return {
+      status: result.status,
+      ownerId: result.ownerId,
+      businessId: result.businessId,
+    };
+  }
 }

@@ -10,12 +10,12 @@ export const EVENT_TYPES = {
 
   // Application
   APPLICATION_SUBMITTED: 'application.submitted',
-  APPLICATION_APPROVED: 'card.approved',
+  APPLICATION_APPROVED: 'application.approved',
   APPLICATION_DECLINED: 'card.declined',
 
   // Funding
   ROUND_STARTED: 'round.started',
-  ROUND_COMPLETED: 'round.completed',
+  ROUND_COMPLETED: 'funding_round.completed',
   APR_EXPIRY_APPROACHING: 'apr.expiry.approaching',
 
   // Compliance

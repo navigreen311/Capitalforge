@@ -26,6 +26,15 @@ import { PrismaClient } from '@prisma/client';
 import logger from '../config/logger.js';
 import { verifyCryptoTimestamp } from './crypto-timestamp.js';
 
+// ── Module-level prisma injection (test support) ───────────────
+
+let _sharedPrisma: PrismaClient | null = null;
+
+/** Allow test injection of a shared PrismaClient. */
+export function setPrismaClient(client: PrismaClient): void {
+  _sharedPrisma = client;
+}
+
 // ── Types ──────────────────────────────────────────────────────
 
 export interface DossierOptions {
@@ -197,7 +206,7 @@ export class ComplianceDossierService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
   }
 
   /**
@@ -291,6 +300,7 @@ export class ComplianceDossierService {
 
     return {
       assembledAt,
+      generatedAt:       assembledAt, // Alias for assembledAt — test-friendly
       assembledBy:       requestedBy,
       tenantId,
       businessId,

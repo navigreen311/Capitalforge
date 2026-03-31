@@ -424,3 +424,61 @@ export async function refreshReadinessScore(
 
   return readiness;
 }
+
+// ── Class-based wrapper (test-friendly API) ───────────────────
+
+/**
+ * Class wrapper around the standalone onboarding functions.
+ * Accepts an injected PrismaClient so tests can pass a mock.
+ */
+export class OnboardingService {
+  constructor(prismaClient?: PrismaClient) {
+    if (prismaClient) {
+      setPrismaClient(prismaClient);
+    }
+  }
+
+  async createBusiness(input: {
+    tenantId: string;
+    advisorId?: string;
+    legalName: string;
+    ein?: string;
+    entityType: string;
+    stateOfFormation?: string;
+    industry?: string;
+    annualRevenue?: number;
+    monthlyRevenue?: number;
+    mcc?: string;
+  }) {
+    const { tenantId, ...rest } = input;
+    const result = await createBusiness(tenantId, rest as Parameters<typeof createBusiness>[1]);
+    return result.business;
+  }
+
+  async addOwner(input: {
+    businessId: string;
+    tenantId: string;
+    firstName: string;
+    lastName: string;
+    dateOfBirth?: string;
+    ssn?: string;
+    ownershipPercent: number;
+    isBeneficialOwner?: boolean;
+  }) {
+    const { tenantId, businessId, ...rest } = input;
+    const result = await addOwner(tenantId, businessId, rest as Parameters<typeof addOwner>[2]);
+    await eventBus.publishAndPersist(tenantId, {
+      eventType: 'owner.added',
+      aggregateType: AGGREGATE_TYPES.BUSINESS,
+      aggregateId: businessId,
+      payload: {
+        ownerId: result.owner.id,
+        businessId,
+        firstName: result.owner.firstName,
+        lastName: result.owner.lastName,
+        isBeneficialOwner: result.owner.isBeneficialOwner,
+      },
+    });
+    return result.owner;
+  }
+}
