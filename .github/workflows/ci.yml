@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  DATABASE_URL: postgresql://capitalforge:capitalforge_dev@localhost:5432/capitalforge_test
+  REDIS_URL: redis://localhost:6379
+  JWT_ACCESS_SECRET: ci-access-secret-minimum-32-characters-long
+  JWT_REFRESH_SECRET: ci-refresh-secret-minimum-32-characters-long
+  JWT_ACCESS_EXPIRY: 15m
+  JWT_REFRESH_EXPIRY: 7d
+  NODE_ENV: test
+  ENCRYPTION_KEY: ci-aes256-key-exactly-32-bytes-!!
+  STORAGE_PROVIDER: local
+  PORT: 4000
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Job 1: Lint & Type Check
+  # Runs without any service containers — fast feedback on
+  # code quality before heavier test jobs run.
+  # ─────────────────────────────────────────────────────────────
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript type check
+        run: npx tsc --noEmit
+
+  # ─────────────────────────────────────────────────────────────
+  # Job 2: Unit Tests
+  # Fast tests that do not require database or Redis.
+  # ─────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Upload unit test coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-coverage
+          path: coverage/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────
+  # Job 3: Integration Tests
+  # Requires PostgreSQL and Redis service containers.
+  # Runs Prisma migrations against the test database before tests.
+  # ─────────────────────────────────────────────────────────────
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: capitalforge_test
+          POSTGRES_USER: capitalforge
+          POSTGRES_PASSWORD: capitalforge_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U capitalforge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Upload integration test coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-coverage
+          path: coverage/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────
+  # Job 4: Build Check
+  # Verifies the project builds cleanly for both backend and
+  # frontend. Runs after tests pass.
+  # ─────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs:
+      - unit-tests
+      - integration-tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build backend
+        run: npm run build:backend
+
+      - name: Build frontend
+        run: npm run build:frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000/api
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            dist/
+            src/frontend/.next/
+          retention-days: 3
