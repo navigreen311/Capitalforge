@@ -202,9 +202,9 @@ export function detectHardshipTrigger(input: HardshipTriggerInput): HardshipTrig
   // ── Trigger type classification ───────────────────────────
   if (hasMissed && hasUtilSpike) {
     triggerType = TRIGGER_TYPE.COMBINED;
-    // Combined signals escalate severity
-    if (severity === 'minor')   severity = 'serious';
-    if (severity === 'serious') severity = 'critical';
+    // Combined signals escalate severity by one level
+    if (severity === 'minor')        severity = 'serious';
+    else if (severity === 'serious') severity = 'critical';
   } else if (hasMissed) {
     triggerType = TRIGGER_TYPE.MISSED_PAYMENT;
   } else if (hasUtilSpike) {

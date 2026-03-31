@@ -113,11 +113,8 @@ export interface ImpactedDeal {
 }
 
 // ============================================================
-// In-memory store (production would use DB table / Redis)
-// Keyed: tenantId:ruleId:semver
+// Store key helper
 // ============================================================
-
-const _store = new Map<string, RuleVersion>();
 
 function storeKey(tenantId: string, ruleId: string, semver: string): string {
   return `${tenantId}:${ruleId}:${semver}`;
@@ -128,6 +125,11 @@ function storeKey(tenantId: string, ruleId: string, semver: string): string {
 // ============================================================
 
 export class RulesVersioningService {
+
+  // In-memory store (production would use DB table / Redis)
+  // Keyed: tenantId:ruleId:semver
+  private _store = new Map<string, RuleVersion>();
+
 
   // ── Version creation ─────────────────────────────────────────
 
@@ -165,7 +167,7 @@ export class RulesVersioningService {
       createdAt:    new Date(),
     };
 
-    _store.set(storeKey(params.tenantId, params.ruleId, params.semver), version);
+    this._store.set(storeKey(params.tenantId, params.ruleId, params.semver), version);
 
     logger.info('[RulesVersioning] Version created', {
       ruleId:  version.ruleId,
@@ -179,12 +181,12 @@ export class RulesVersioningService {
   // ── Version retrieval ────────────────────────────────────────
 
   getVersion(tenantId: string, ruleId: string, semver: string): RuleVersion | undefined {
-    return _store.get(storeKey(tenantId, ruleId, semver));
+    return this._store.get(storeKey(tenantId, ruleId, semver));
   }
 
   listVersions(tenantId: string, ruleId?: string): RuleVersion[] {
     const versions: RuleVersion[] = [];
-    for (const v of _store.values()) {
+    for (const v of this._store.values()) {
       if (v.tenantId !== tenantId) continue;
       if (ruleId && v.ruleId !== ruleId) continue;
       versions.push(v);
@@ -193,7 +195,7 @@ export class RulesVersioningService {
   }
 
   getActiveVersion(tenantId: string, ruleId: string, stage: DeploymentStage): RuleVersion | undefined {
-    for (const v of _store.values()) {
+    for (const v of this._store.values()) {
       if (v.tenantId === tenantId && v.ruleId === ruleId && v.stage === stage && v.isActive) {
         return v;
       }
@@ -202,7 +204,7 @@ export class RulesVersioningService {
   }
 
   getVersionById(id: string): RuleVersion | undefined {
-    for (const v of _store.values()) {
+    for (const v of this._store.values()) {
       if (v.id === id) return v;
     }
     return undefined;
@@ -232,7 +234,7 @@ export class RulesVersioningService {
     this._validateStageProgression(version.stage, params.targetStage);
 
     // Deactivate current active version for this stage
-    for (const v of _store.values()) {
+    for (const v of this._store.values()) {
       if (
         v.tenantId === params.tenantId &&
         v.ruleId === version.ruleId &&

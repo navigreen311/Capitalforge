@@ -261,6 +261,7 @@ const FREE_CARD_ZERO_FEE         = 0;
 export class CardBenefitsService {
 
   private readonly benefitCatalog: Map<string, CardBenefitDefinition[]>;
+  private readonly cardProductsMap: Map<string, CardProduct>;
 
   /**
    * In-memory store for business card benefits.
@@ -272,6 +273,7 @@ export class CardBenefitsService {
 
   constructor(cards: ReadonlyArray<CardProduct> = getActiveCards()) {
     this.benefitCatalog = buildStaticBenefitCatalog(cards);
+    this.cardProductsMap = new Map(cards.map((c) => [c.id, c]));
   }
 
   // ── Benefit catalog helpers ─────────────────────────────────
@@ -520,14 +522,8 @@ export class CardBenefitsService {
   }
 
   private _getAnnualFee(cardId: string): number {
-    // Walk the catalog to find the card's annual fee
-    for (const [cId, defs] of this.benefitCatalog.entries()) {
-      if (cId === cardId && defs.length > 0) {
-        // The definition doesn't store annual fee — pull from CARD_CATALOG
-        break;
-      }
-    }
-    const card = CARD_CATALOG.find((c) => c.id === cardId);
+    // Prefer the cards passed to the constructor (covers mock/test cards too)
+    const card = this.cardProductsMap.get(cardId) ?? CARD_CATALOG.find((c) => c.id === cardId);
     return card?.annualFee ?? 0;
   }
 

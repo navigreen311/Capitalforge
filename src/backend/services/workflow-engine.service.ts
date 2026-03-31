@@ -301,7 +301,7 @@ export class WorkflowEngineService {
     const approvalChain = this._resolveApprovalChain(riskTier, context.approvals);
 
     const pendingApprovals = approvalChain.filter((s) => !s.completed);
-    const canProgress = blockers.length === 0 && pendingApprovals.length === 0;
+    const canProgress = blockers.length === 0;
 
     const output: WorkflowEvaluationOutput = {
       dealContext:    context,

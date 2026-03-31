@@ -139,7 +139,7 @@ const CASH_LIKE_MCCS = new Set([
   '6051', // Non-Financial Institutions — Foreign Currency, Travellers' Cheques
   '7995', // Gambling / Lottery
   '4829', // Wire Transfer Money Orders
-  '6540', // POI — Funding Transactions
+  // Note: 6540 (POI Funding / Visa AFT) is in STORED_VALUE_MCCS and classifies as account_funding
 ]);
 
 const BILL_PAYMENT_MCCS = new Set([
@@ -499,7 +499,7 @@ export function evaluateAmlReadiness(input: AmlReadinessInput): AmlReadinessRepo
   const overallReadiness: AmlReadinessLevel =
     normalised >= 85 ? 'adequate' :
     normalised >= 65 ? 'needs_improvement' :
-    normalised >= 40 ? 'deficient' :
+    normalised > 60  ? 'deficient' :
     'critical_gap';
 
   return {

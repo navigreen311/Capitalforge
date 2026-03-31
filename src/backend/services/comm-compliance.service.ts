@@ -251,7 +251,7 @@ export const BANNED_CLAIMS: BannedClaim[] = [
   {
     id: 'banned-018',
     category: 'upfront_fee_concealment',
-    pattern: /no\s+upfront\s+fee/i,
+    pattern: /no\s+upfront\s+fee|no\s+\w+\s+fee\s+charged\s+upfront|fee\s+charged\s+upfront/i,
     label: 'No upfront fee concealment',
     rationale:
       'Claiming no upfront fees when a programme fee or retainer is charged is deceptive.',

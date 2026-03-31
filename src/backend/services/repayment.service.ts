@@ -649,11 +649,16 @@ export class RepaymentService {
   ): RefinancingPlan {
     const options: BalanceTransferOption[] = cards.map((card) => {
       const transferFeeAmount = round2(card.currentBalance * transferFeePct);
+      // Cap effective months by how quickly the card would be paid off with minimum payments
+      const minPayoffMonths = card.minimumPayment > 0
+        ? Math.ceil(card.currentBalance / card.minimumPayment)
+        : projectionMonths;
+      const effectiveMonths = Math.min(projectionMonths, minPayoffMonths);
       const currentInterest = round2(
-        card.currentBalance * (card.regularApr / 12) * projectionMonths,
+        card.currentBalance * (card.regularApr / 12) * effectiveMonths,
       );
       const transferInterest = round2(
-        card.currentBalance * (transferApr / 12) * projectionMonths,
+        card.currentBalance * (transferApr / 12) * effectiveMonths,
       );
       const projectedInterestSaving = round2(currentInterest - transferInterest);
       const netSaving = round2(projectedInterestSaving - transferFeeAmount);

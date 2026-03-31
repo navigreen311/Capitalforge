@@ -212,7 +212,7 @@ export function generateReferralAgreement(params: {
       section: '3',
       title: 'Prohibited Representations',
       text:
-        'The Referring Party shall not: (a) guarantee approval or specific credit outcomes; ' +
+        'The Referring Party shall not: (a) guaranteed approval or specific credit outcomes; ' +
         '(b) claim government affiliation or SBA endorsement; (c) represent fee waivers that ' +
         'are not authorised in writing; (d) make income or revenue projections; or ' +
         '(e) misrepresent the nature, cost, or terms of any financial product offered by the Company.',

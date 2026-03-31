@@ -578,9 +578,7 @@ export class StatementReconciliationService {
     const anomalies: StatementAnomaly[] = [];
     const feeTransactions = normalized.transactions.filter((t) => t.isFee);
 
-    if (feeTransactions.length === 0) return anomalies;
-
-    // ── Check 1: Unexpected high-risk fee types ────────────────
+    // ── Check 2: Duplicate charges (runs even when no fee transactions) ──
     const HIGH_RISK_FEE_PATTERNS = [
       { pattern: /overlimit/i, label: 'overlimit fee', type: 'overlimit_fee' as AnomalyType },
       { pattern: /returned payment/i, label: 'returned payment fee', type: 'unexpected_fee' as AnomalyType },
@@ -632,8 +630,11 @@ export class StatementReconciliationService {
     // ── Check 3: Fee spike ────────────────────────────────────
     if (feeTransactions.length > 1) {
       const feeAmounts = feeTransactions.map((t) => Math.abs(t.amount));
-      const avgFee = feeAmounts.reduce((a, b) => a + b, 0) / feeAmounts.length;
       for (const txn of feeTransactions) {
+        // Use leave-one-out average to avoid diluting the spike with itself
+        const otherAmounts = feeAmounts.filter((a) => a !== Math.abs(txn.amount));
+        if (otherAmounts.length === 0) continue;
+        const avgFee = otherAmounts.reduce((a, b) => a + b, 0) / otherAmounts.length;
         if (Math.abs(txn.amount) > avgFee * FEE_SPIKE_MULTIPLIER) {
           anomalies.push({
             type: 'fee_spike',

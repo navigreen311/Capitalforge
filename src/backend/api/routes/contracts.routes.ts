@@ -182,10 +182,6 @@ const ListTemplatesSchema = z.object({
   offset: z.coerce.number().min(0).default(0),
 });
 
-// ── Apply auth middleware to all routes ───────────────────────────
-
-contractsRouter.use(tenantMiddleware);
-
 // ============================================================
 // CONTRACT INTELLIGENCE ROUTES
 // ============================================================
@@ -197,6 +193,7 @@ contractsRouter.use(tenantMiddleware);
  */
 contractsRouter.post(
   '/contracts/analyze',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -243,6 +240,7 @@ contractsRouter.post(
  */
 contractsRouter.get(
   '/contracts/analyses',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ ?? 'COMPLIANCE_READ'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -280,6 +278,7 @@ contractsRouter.get(
  */
 contractsRouter.get(
   '/contracts/:id/red-flags',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ ?? 'COMPLIANCE_READ'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -318,6 +317,7 @@ contractsRouter.get(
  */
 contractsRouter.post(
   '/contracts/compare',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -361,6 +361,7 @@ contractsRouter.post(
  */
 contractsRouter.get(
   '/disclosures/templates',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ ?? 'COMPLIANCE_READ'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -400,6 +401,7 @@ contractsRouter.get(
  */
 contractsRouter.post(
   '/disclosures/templates',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -440,6 +442,7 @@ contractsRouter.post(
  */
 contractsRouter.put(
   '/disclosures/templates/:id',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -480,6 +483,7 @@ contractsRouter.put(
  */
 contractsRouter.post(
   '/disclosures/templates/:id/submit',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -512,6 +516,7 @@ contractsRouter.post(
  */
 contractsRouter.post(
   '/disclosures/templates/:id/approve',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -558,6 +563,7 @@ contractsRouter.post(
  */
 contractsRouter.get(
   '/disclosures/templates/:id/history',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ ?? 'COMPLIANCE_READ'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -596,6 +602,7 @@ contractsRouter.get(
  */
 contractsRouter.post(
   '/disclosures/render',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -652,6 +659,7 @@ contractsRouter.post(
  */
 contractsRouter.post(
   '/disclosures/render-all',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -697,6 +705,7 @@ contractsRouter.post(
  */
 contractsRouter.post(
   '/disclosures/seed',
+  tenantMiddleware,
   requirePermission(PERMISSIONS.ADMIN ?? 'ADMIN'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

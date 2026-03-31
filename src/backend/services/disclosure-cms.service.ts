@@ -245,9 +245,9 @@ Date: {{disclosureDate}}
 Client Business: {{businessLegalName}}
 
 PROGRAM FEES
-Advisory Program Fee: ${{programFee}}
-Annual Card Fees (estimated): ${{annualFee}}
-Total Estimated Cost: ${{totalCost}}
+Advisory Program Fee: \${{programFee}}
+Annual Card Fees (estimated): \${{annualFee}}
+Total Estimated Cost: \${{totalCost}}
 Effective APR (first year, if balances maintained): {{effectiveApr}}%
 
 NO HIDDEN FEES: The above schedule represents all fees payable in connection with this program. No additional fees will be charged without your prior written consent.
@@ -270,8 +270,8 @@ Date: {{disclosureDate}}
 Recipient Business: {{businessLegalName}}
 State of Operations: {{businessState}}
 
-FINANCING AMOUNT: ${{fundingAmount}}
-TOTAL COST OF FINANCING (estimated): ${{totalCost}}
+FINANCING AMOUNT: \${{fundingAmount}}
+TOTAL COST OF FINANCING (estimated): \${{totalCost}}
 ANNUAL PERCENTAGE RATE (APR): {{effectiveApr}}%
 
 This disclosure is provided pursuant to California SB 1235, which requires certain disclosures to commercial financing recipients. This program involves business credit cards and is an advisory service, not a direct loan.
@@ -293,8 +293,8 @@ By signing this disclosure, you acknowledge receipt and understand the above ter
 Date: {{disclosureDate}}
 Recipient Business: {{businessLegalName}}
 
-AMOUNT OF FUNDS PROVIDED: ${{fundingAmount}}
-TOTAL DOLLAR COST: ${{totalCost}}
+AMOUNT OF FUNDS PROVIDED: \${{fundingAmount}}
+TOTAL DOLLAR COST: \${{totalCost}}
 ANNUAL PERCENTAGE RATE: {{effectiveApr}}%
 PAYMENT TERMS: As described in your business credit card cardholder agreement(s).
 
@@ -316,8 +316,8 @@ Recipient: {{businessLegalName}}
 
 This advisory program assists Texas businesses in obtaining business credit cards. This is not a loan. The following estimated costs apply:
 
-Program Advisory Fee: ${{programFee}}
-Target Funding: ${{fundingAmount}}
+Program Advisory Fee: \${{programFee}}
+Target Funding: \${{fundingAmount}}
 Introductory APR: {{introApr}}% through {{introAprExpiry}}
 Standard APR After Intro Period: {{regularApr}}%
 
