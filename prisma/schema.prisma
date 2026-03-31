@@ -409,3 +409,708 @@ model Document {
   @@index([businessId])
   @@map("documents")
 }
+
+// ============================================================
+// DECLINE RECOVERY & ADVERSE ACTION
+// ============================================================
+
+model DeclineRecovery {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  applicationId       String
+  issuer              String
+  declineReasons      Json
+  adverseActionRaw    String?
+  reconsiderationStatus String @default("pending")
+  reconsiderationNotes String?
+  reapplyCooldownDate DateTime?
+  letterGenerated     Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, businessId])
+  @@map("decline_recoveries")
+}
+
+// ============================================================
+// REPAYMENT & TREASURY
+// ============================================================
+
+model RepaymentPlan {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  totalBalance        Decimal
+  monthlyPayment      Decimal?
+  strategy            String   @default("avalanche")
+  status              String   @default("active")
+  interestShockDate   DateTime?
+  interestShockAmount Decimal?
+  nextPaymentDate     DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  schedules           PaymentSchedule[]
+
+  @@index([tenantId, businessId])
+  @@map("repayment_plans")
+}
+
+model PaymentSchedule {
+  id                  String   @id @default(uuid())
+  repaymentPlanId     String
+  cardApplicationId   String?
+  issuer              String
+  dueDate             DateTime
+  minimumPayment      Decimal
+  recommendedPayment  Decimal?
+  actualPayment       Decimal?
+  status              String   @default("upcoming")
+  autopayEnabled      Boolean  @default(false)
+  autopayVerified     Boolean  @default(false)
+  paidAt              DateTime?
+  createdAt           DateTime @default(now())
+
+  repaymentPlan       RepaymentPlan @relation(fields: [repaymentPlanId], references: [id])
+
+  @@index([repaymentPlanId, dueDate])
+  @@map("payment_schedules")
+}
+
+// ============================================================
+// SPEND GOVERNANCE & BUSINESS PURPOSE
+// ============================================================
+
+model SpendTransaction {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  cardApplicationId   String?
+  amount              Decimal
+  merchantName        String?
+  mcc                 String?
+  mccCategory         String?
+  riskScore           Int?
+  isCashLike          Boolean  @default(false)
+  businessPurpose     String?
+  evidenceDocId       String?
+  flagged             Boolean  @default(false)
+  flagReason          String?
+  transactionDate     DateTime
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, businessId])
+  @@index([mcc])
+  @@map("spend_transactions")
+}
+
+// ============================================================
+// REWARDS & CARD BENEFITS
+// ============================================================
+
+model RewardsOptimization {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  cardApplicationId   String
+  mccCategory         String
+  rewardsRate         Decimal
+  annualValue         Decimal?
+  isOptimalCard       Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, businessId])
+  @@map("rewards_optimizations")
+}
+
+model CardBenefit {
+  id                  String   @id @default(uuid())
+  cardApplicationId   String
+  benefitType         String
+  benefitName         String
+  benefitValue        Decimal?
+  expiryDate          DateTime?
+  utilized            Boolean  @default(false)
+  utilizedDate        DateTime?
+  createdAt           DateTime @default(now())
+
+  @@map("card_benefits")
+}
+
+// ============================================================
+// REVENUE OPS & BILLING
+// ============================================================
+
+model Invoice {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  invoiceNumber       String
+  type                String
+  amount              Decimal
+  feeBreakdown        Json?
+  status              String   @default("draft")
+  issuedAt            DateTime?
+  dueDate             DateTime?
+  paidAt              DateTime?
+  stripePaymentId     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, businessId])
+  @@map("invoices")
+}
+
+model CommissionRecord {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  invoiceId           String?
+  partnerId           String?
+  advisorId           String?
+  amount              Decimal
+  percentage          Decimal?
+  type                String
+  status              String   @default("pending")
+  paidAt              DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("commission_records")
+}
+
+// ============================================================
+// STATEMENT RECONCILIATION
+// ============================================================
+
+model StatementRecord {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  cardApplicationId   String?
+  issuer              String
+  statementDate       DateTime
+  closingBalance      Decimal?
+  minimumPayment      Decimal?
+  dueDate             DateTime?
+  interestCharged     Decimal?
+  feesCharged         Decimal?
+  sourceDocumentId    String?
+  normalizedData      Json?
+  anomalies           Json?
+  reconciled          Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, businessId])
+  @@map("statement_records")
+}
+
+// ============================================================
+// DEAL COMMITTEE
+// ============================================================
+
+model DealCommitteeReview {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  riskTier            String
+  status              String   @default("pending")
+  redFlagChecklist    Json?
+  committeeNotes      String?
+  conditions          Json?
+  counselSignoff      Boolean  @default(false)
+  accountantSignoff   Boolean  @default(false)
+  reviewedBy          Json?
+  decidedAt           DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("deal_committee_reviews")
+}
+
+// ============================================================
+// HARDSHIP & WORKOUT
+// ============================================================
+
+model HardshipCase {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  triggerType         String
+  severity            String
+  status              String   @default("open")
+  paymentPlan         Json?
+  settlementOffer     Json?
+  counselorReferral   String?
+  cardClosureSequence Json?
+  resolvedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("hardship_cases")
+}
+
+// ============================================================
+// COMPLAINTS & REMEDIATION
+// ============================================================
+
+model Complaint {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String?
+  category            String
+  subcategory         String?
+  source              String
+  severity            String   @default("medium")
+  status              String   @default("open")
+  description         String
+  evidenceDocIds      Json?
+  callRecordIds       Json?
+  rootCause           String?
+  resolution          String?
+  assignedTo          String?
+  escalatedTo         String?
+  resolvedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([category])
+  @@map("complaints")
+}
+
+// ============================================================
+// PARTNER & VENDOR GOVERNANCE
+// ============================================================
+
+model Partner {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  name                String
+  type                String
+  status              String   @default("active")
+  complianceScore     Int?
+  dueDiligenceStatus  String   @default("pending")
+  contractId          String?
+  onboardedAt         DateTime?
+  nextReviewDate      DateTime?
+  metadata            Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  referralAttributions ReferralAttribution[]
+
+  @@index([tenantId, type])
+  @@map("partners")
+}
+
+// ============================================================
+// CONTRACT INTELLIGENCE
+// ============================================================
+
+model ContractAnalysis {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  partnerId           String?
+  documentId          String?
+  contractType        String
+  extractedClauses    Json?
+  redFlags            Json?
+  missingProtections  Json?
+  riskScore           Int?
+  analyzedAt          DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("contract_analyses")
+}
+
+// ============================================================
+// COMMUNICATION COMPLIANCE
+// ============================================================
+
+model CommComplianceRecord {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  advisorId           String
+  channel             String
+  content             String?
+  violations          Json?
+  riskScore           Int?
+  approved            Boolean?
+  reviewedAt          DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, advisorId])
+  @@map("comm_compliance_records")
+}
+
+model ApprovedScript {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  name                String
+  category            String
+  content             String
+  version             String
+  isActive            Boolean  @default(true)
+  approvedBy          String?
+  approvedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, category])
+  @@map("approved_scripts")
+}
+
+// ============================================================
+// TRAINING & CERTIFICATION
+// ============================================================
+
+model TrainingCertification {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  userId              String
+  trackName           String
+  status              String   @default("not_started")
+  score               Int?
+  completedAt         DateTime?
+  expiresAt           DateTime?
+  certificateRef      String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, userId])
+  @@map("training_certifications")
+}
+
+// ============================================================
+// DISCLOSURE & TEMPLATE CMS
+// ============================================================
+
+model DisclosureTemplate {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  state               String
+  category            String
+  name                String
+  content             String
+  version             String
+  effectiveDate       DateTime
+  isActive            Boolean  @default(true)
+  approvedBy          String?
+  approvedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, state, category])
+  @@map("disclosure_templates")
+}
+
+// ============================================================
+// WORKFLOW AUTOMATION & POLICY
+// ============================================================
+
+model WorkflowRule {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  name                String
+  conditions          Json
+  actions             Json
+  priority            Int      @default(0)
+  isActive            Boolean  @default(true)
+  triggerEvent        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, isActive])
+  @@map("workflow_rules")
+}
+
+model PolicyRule {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  name                String
+  ruleType            String
+  conditions          Json
+  actions             Json
+  stopOnMatch         Boolean  @default(false)
+  version             String
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, ruleType])
+  @@map("policy_rules")
+}
+
+// ============================================================
+// REFERRAL & AFFILIATE
+// ============================================================
+
+model ReferralAttribution {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  sourceType          String
+  sourceId            String?
+  partnerId           String?
+  channel             String?
+  feeAmount           Decimal?
+  feeStatus           String   @default("pending")
+  consentDocId        String?
+  paidAt              DateTime?
+  createdAt           DateTime @default(now())
+
+  partner             Partner? @relation(fields: [partnerId], references: [id])
+
+  @@index([tenantId, businessId])
+  @@map("referral_attributions")
+}
+
+// ============================================================
+// REGULATORY INTELLIGENCE
+// ============================================================
+
+model RegulatoryAlert {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  source              String
+  ruleType            String
+  title               String
+  summary             String
+  impactScore         Int?
+  affectedModules     Json?
+  status              String   @default("new")
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  effectiveDate       DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@map("regulatory_alerts")
+}
+
+// ============================================================
+// CRM & ANALYTICS
+// ============================================================
+
+model PipelineStage {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  stage               String
+  enteredAt           DateTime @default(now())
+  exitedAt            DateTime?
+  advisorId           String?
+  notes               String?
+
+  @@index([tenantId, stage])
+  @@map("pipeline_stages")
+}
+
+model AdvisorQaScore {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  advisorId           String
+  callRecordId        String?
+  overallScore        Int
+  complianceScore     Int?
+  scriptAdherence     Int?
+  consentCapture      Int?
+  riskClaimAvoidance  Int?
+  feedback            String?
+  scoredAt            DateTime @default(now())
+
+  @@index([tenantId, advisorId])
+  @@map("advisor_qa_scores")
+}
+
+// ============================================================
+// MULTI-TENANT SAAS
+// ============================================================
+
+model TenantPlan {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  planName            String
+  moduleEntitlements  Json
+  usageLimits         Json?
+  monthlyPrice        Decimal?
+  billingCycle        String   @default("monthly")
+  startDate           DateTime
+  endDate             DateTime?
+  status              String   @default("active")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("tenant_plans")
+}
+
+model UsageMeter {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  metricName          String
+  metricValue         Int      @default(0)
+  periodStart         DateTime
+  periodEnd           DateTime
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, metricName, periodStart])
+  @@map("usage_meters")
+}
+
+// ============================================================
+// ISSUER RELATIONSHIP MGMT
+// ============================================================
+
+model IssuerContact {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  issuer              String
+  contactName         String?
+  contactRole         String?
+  phone               String?
+  email               String?
+  reconsiderationLine String?
+  notes               String?
+  relationshipScore   Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, issuer])
+  @@map("issuer_contacts")
+}
+
+// ============================================================
+// SECTION 1071 / FAIR LENDING
+// ============================================================
+
+model FairLendingRecord {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  applicationId       String?
+  demographicData     Json?
+  businessType        String?
+  creditPurpose       String?
+  actionTaken         String?
+  actionDate          DateTime?
+  adverseReasons      Json?
+  isFirewalled        Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("fair_lending_records")
+}
+
+// ============================================================
+// FUNDS-FLOW CLASSIFICATION
+// ============================================================
+
+model FundsFlowClassification {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  workflowName        String
+  classification      String
+  riskBasis           String?
+  regulatoryFramework String?
+  legalOpinionRef     String?
+  status              String   @default("active")
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, classification])
+  @@map("funds_flow_classifications")
+}
+
+// ============================================================
+// OFFBOARDING & DATA DELETION
+// ============================================================
+
+model OffboardingWorkflow {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String?
+  offboardingType     String
+  status              String   @default("initiated")
+  finalInvoiceId      String?
+  refundAmount        Decimal?
+  dataExportCompleted Boolean  @default(false)
+  dataDeletionStatus  String   @default("pending")
+  deletionProofHash   String?
+  retentionSchedule   Json?
+  exitReason          String?
+  exitInterviewNotes  String?
+  initiatedAt         DateTime @default(now())
+  completedAt         DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("offboarding_workflows")
+}
+
+// ============================================================
+// AI GOVERNANCE
+// ============================================================
+
+model AiDecisionLog {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  moduleSource        String
+  decisionType        String
+  inputHash           String?
+  output              Json
+  confidence          Decimal?
+  overriddenBy        String?
+  overrideReason      String?
+  modelVersion        String?
+  promptVersion       String?
+  latencyMs           Int?
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, moduleSource])
+  @@map("ai_decision_logs")
+}
+
+// ============================================================
+// SANDBOX & SIMULATION
+// ============================================================
+
+model SandboxProfile {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  profileName         String
+  archetype           String
+  profileData         Json
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("sandbox_profiles")
+}
+
+// ============================================================
+// BUSINESS CONTINUITY
+// ============================================================
+
+model BackupRecord {
+  id                  String   @id @default(uuid())
+  tenantId            String?
+  backupType          String
+  status              String   @default("completed")
+  sizeBytes           BigInt?
+  storageLocation     String?
+  retentionDays       Int      @default(90)
+  expiresAt           DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([backupType, createdAt])
+  @@map("backup_records")
+}
