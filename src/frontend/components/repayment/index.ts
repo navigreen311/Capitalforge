@@ -1,6 +1,10 @@
-// NOTE: Uncomment when RepaymentCardDetailDrawer is created
-// export { RepaymentCardDetailDrawer } from './RepaymentCardDetailDrawer';
+export { RepaymentCardDetailDrawer } from './RepaymentCardDetailDrawer';
+export type { RepaymentCardDetailPlan, RepaymentCardDetailDrawerProps } from './RepaymentCardDetailDrawer';
 export { BalanceTransferPanel } from './BalanceTransferPanel';
 export type { BalanceTransferPanelProps } from './BalanceTransferPanel';
 export { RepaymentClientSelector } from './RepaymentClientSelector';
 export type { RepaymentClient, RepaymentClientSelectorProps } from './RepaymentClientSelector';
+export { MethodComparisonPanel } from './MethodComparisonPanel';
+export type { MethodComparisonPanelProps } from './MethodComparisonPanel';
+export { InterestShockAlertActions } from './InterestShockAlertActions';
+export type { InterestShockAlertActionsProps } from './InterestShockAlertActions';

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { SectionCard, StatCard } from '@/components/ui/card';
 
 // Next.js metadata cannot be exported from 'use client' files — kept as a
@@ -35,9 +35,19 @@ interface CardBenefitProfile {
   benefits: Benefit[];
 }
 
+// ─── Placeholder clients ─────────────────────────────────────────────────────
+
+const PLACEHOLDER_CLIENTS = [
+  { id: 'cl-01', name: 'Acme Corp' },
+  { id: 'cl-02', name: 'Sterling Partners' },
+  { id: 'cl-03', name: 'Redwood Holdings' },
+  { id: 'cl-04', name: 'Pinnacle Ventures' },
+  { id: 'cl-05', name: 'BlueSky Industries' },
+];
+
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
-const CARDS: CardBenefitProfile[] = [
+const INITIAL_CARDS: CardBenefitProfile[] = [
   {
     id: 'card-01',
     cardName: 'Amex Business Platinum',
@@ -149,6 +159,30 @@ const CARDS: CardBenefitProfile[] = [
   },
 ];
 
+// ─── How-to-claim text per benefit (keyed by benefit id) ─────────────────────
+
+const HOW_TO_CLAIM: Record<string, string> = {
+  'b-01-1': 'Select your preferred airline in the Amex portal, then use the card for incidental fees.',
+  'b-01-2': 'Enroll via the CLEAR website using your Amex card for payment.',
+  'b-01-3': 'Apply through the Global Entry or TSA PreCheck program and pay with this card.',
+  'b-01-4': 'Book through the Hotel Collection on amextravel.com for a minimum 2-night stay.',
+  'b-01-5': 'Present your Platinum card at any Centurion Lounge entrance.',
+  'b-01-6': 'Apply for Global Entry/NEXUS and pay the application fee with this card.',
+  'b-01-7': 'Book through Fine Hotels & Resorts on amextravel.com.',
+  'b-02-1': 'Select two monthly statement credit categories in the Amex app.',
+  'b-02-2': 'Enroll for Walmart+ through the Amex benefits portal.',
+  'b-02-3': 'Automatically applied to all international transactions.',
+  'b-03-1': 'Pay your monthly cell phone bill with this card. File claims through cardbenefitservices.com.',
+  'b-03-2': 'Automatically covers eligible purchases. File claims within 120 days.',
+  'b-03-3': 'Book and pay for travel with this card. File claims through eclaimsline.com.',
+  'b-04-1': 'Automatically extends manufacturer warranty by 1 year on eligible purchases.',
+  'b-04-2': 'Covers eligible purchases against damage or theft for 120 days.',
+  'b-05-1': 'Automatically applied when booking AA flights and checking bags.',
+  'b-05-2': 'Present your boarding pass — priority boarding is linked to your AAdvantage account.',
+  'b-05-3': 'Spend the required threshold on AA purchases to unlock the discount.',
+  'b-06-1': 'Pay your monthly cell phone bill with this card. File claims through the Wells Fargo portal.',
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function daysUntil(isoDate: string): number {
@@ -231,15 +265,45 @@ function RenewalBadge({ rec }: { rec: CardRenewalRec }) {
   );
 }
 
-function BenefitStatusPill({ status }: { status: BenefitStatus }) {
+function BenefitStatusPill({
+  status,
+  onClick,
+}: {
+  status: BenefitStatus;
+  onClick?: () => void;
+}) {
   const cfg = BENEFIT_STATUS_CONFIG[status];
   return (
-    <span
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
       className={`inline-flex items-center rounded-full text-[10px] font-semibold
-                  px-2 py-0.5 ${cfg.bg} ${cfg.text}`}
+                  px-2 py-0.5 cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-300
+                  transition-all ${cfg.bg} ${cfg.text}`}
+      title={`Click to mark as ${status === 'used' ? 'Unused' : 'Used'}`}
     >
       {cfg.label}
-    </span>
+    </button>
+  );
+}
+
+// ─── Toast component ─────────────────────────────────────────────────────────
+
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 2500);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="fixed bottom-6 right-6 z-[100] bg-gray-900 text-white text-sm px-4 py-3
+                    rounded-lg shadow-lg animate-in slide-in-from-bottom-2 flex items-center gap-3">
+      <span>{message}</span>
+      <button onClick={onClose} className="text-gray-400 hover:text-white text-lg leading-none">&times;</button>
+    </div>
   );
 }
 
@@ -292,7 +356,15 @@ function UtilizationBar({
 
 // ─── Card benefit tile ────────────────────────────────────────────────────────
 
-function CardBenefitTile({ card }: { card: CardBenefitProfile }) {
+function CardBenefitTile({
+  card,
+  onToggleBenefitStatus,
+  onClick,
+}: {
+  card: CardBenefitProfile;
+  onToggleBenefitStatus: (cardId: string, benefitId: string) => void;
+  onClick: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const unusedBenefits  = card.benefits.filter((b) => b.status === 'unused');
   const unusedCount     = unusedBenefits.length;
@@ -301,7 +373,14 @@ function CardBenefitTile({ card }: { card: CardBenefitProfile }) {
   const renewalUrgent   = renewalDays <= 60;
 
   return (
-    <div className="bg-white rounded-xl border border-surface-border shadow-card overflow-hidden flex flex-col">
+    <div
+      className="bg-white rounded-xl border border-surface-border shadow-card overflow-hidden
+                 flex flex-col cursor-pointer hover:shadow-md transition-shadow"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(); }}
+    >
       {/* ── Card header ──────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-surface-border">
         <div className="flex items-center gap-3 min-w-0">
@@ -321,6 +400,27 @@ function CardBenefitTile({ card }: { card: CardBenefitProfile }) {
         </div>
         <RenewalBadge rec={card.renewal} />
       </div>
+
+      {/* ── Cancel banner for cancel-recommended cards ────────── */}
+      {card.renewal === 'cancel' && (
+        <div className="bg-red-600 text-white px-5 py-3 text-xs font-semibold flex items-center justify-between gap-2">
+          <span>Cancel before {formatDate(card.renewalDate)}</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); window.alert(`Calling ${card.issuer}...`); }}
+              className="bg-white/20 hover:bg-white/30 text-white text-[11px] font-semibold px-3 py-1 rounded"
+            >
+              Call {card.issuer}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); window.alert('Cancellation logged.'); }}
+              className="bg-white text-red-600 hover:bg-red-50 text-[11px] font-semibold px-3 py-1 rounded"
+            >
+              Log Cancellation
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Utilization bar ──────────────────────────────────── */}
       <div className="px-5 pt-3 pb-2">
@@ -354,7 +454,10 @@ function CardBenefitTile({ card }: { card: CardBenefitProfile }) {
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <BenefitStatusPill status={benefit.status} />
+                  <BenefitStatusPill
+                    status={benefit.status}
+                    onClick={() => onToggleBenefitStatus(card.id, benefit.id)}
+                  />
                   <span className="text-xs text-gray-700 font-medium leading-tight">
                     {benefit.name}
                   </span>
@@ -379,7 +482,7 @@ function CardBenefitTile({ card }: { card: CardBenefitProfile }) {
 
         {card.benefits.length > 4 && (
           <button
-            onClick={() => setExpanded((v) => !v)}
+            onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
             className="text-xs text-brand-gold-600 hover:underline mt-2 block"
           >
             {expanded ? 'Show less' : `Show ${card.benefits.length - 4} more`}
@@ -403,21 +506,344 @@ function CardBenefitTile({ card }: { card: CardBenefitProfile }) {
   );
 }
 
-// ─── KPI totals ───────────────────────────────────────────────────────────────
+// ─── Detail drawer ───────────────────────────────────────────────────────────
 
-const TOTAL_BENEFITS_VALUE = CARDS.reduce((s, c) => s + c.totalBenefitsValue, 0);
-const TOTAL_USED_VALUE     = CARDS.reduce((s, c) => s + c.benefitsUsedValue, 0);
-const TOTAL_FEES           = CARDS.reduce((s, c) => s + c.annualFee, 0);
-const TOTAL_UNUSED         = CARDS.reduce(
-  (s, c) => s + c.benefits.filter((b) => b.status === 'unused').length,
-  0,
-);
+function CardDetailDrawer({
+  card,
+  onClose,
+  onToggleBenefitStatus,
+}: {
+  card: CardBenefitProfile;
+  onClose: () => void;
+  onToggleBenefitStatus: (cardId: string, benefitId: string) => void;
+}) {
+  // Close on Escape
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/40 z-40"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      {/* Drawer */}
+      <div className="fixed top-0 right-0 h-full w-[480px] max-w-full bg-white z-50 shadow-2xl
+                       overflow-y-auto flex flex-col animate-in slide-in-from-right">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-3 min-w-0">
+            <span
+              className={`inline-flex items-center justify-center w-10 h-10 rounded-lg
+                           text-xs font-bold flex-shrink-0 ${card.iconBg} ${card.iconText}`}
+              aria-hidden="true"
+            >
+              {card.iconCode}
+            </span>
+            <div className="min-w-0">
+              <p className="text-base font-bold text-gray-900 truncate">{card.cardName}</p>
+              <p className="text-xs text-gray-400">{card.issuer}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700 text-2xl leading-none p-1"
+            aria-label="Close drawer"
+          >
+            &times;
+          </button>
+        </div>
+
+        {/* Cancel / Negotiate CTA */}
+        {card.renewal === 'cancel' && (
+          <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-sm font-semibold text-red-700 mb-2">
+              Cancel before {formatDate(card.renewalDate)}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => window.alert(`Calling ${card.issuer}...`)}
+                className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-2 rounded"
+              >
+                Call {card.issuer}
+              </button>
+              <button
+                onClick={() => window.alert('Cancellation logged.')}
+                className="bg-white border border-red-300 text-red-600 hover:bg-red-50 text-xs font-semibold px-4 py-2 rounded"
+              >
+                Log Cancellation
+              </button>
+            </div>
+          </div>
+        )}
+        {card.renewal === 'negotiate' && (
+          <div className="mx-6 mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <p className="text-sm font-semibold text-amber-700 mb-2">
+              Negotiate before {formatDate(card.renewalDate)}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => window.alert(`Calling ${card.issuer} to negotiate...`)}
+                className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded"
+              >
+                Call {card.issuer}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Benefits list */}
+        <div className="px-6 py-4 flex-1">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-gray-700">All Benefits ({card.benefits.length})</p>
+            <RenewalBadge rec={card.renewal} />
+          </div>
+
+          <ul className="space-y-3">
+            {card.benefits.map((benefit) => (
+              <li key={benefit.id} className="border border-surface-border rounded-lg p-3">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <BenefitStatusPill
+                      status={benefit.status}
+                      onClick={() => onToggleBenefitStatus(card.id, benefit.id)}
+                    />
+                    <span className="text-sm font-medium text-gray-800">{benefit.name}</span>
+                  </div>
+                  <span className="text-sm font-bold text-gray-800">${benefit.value.toLocaleString()}</span>
+                </div>
+                {benefit.expiryDate && (
+                  <div className="mb-1">
+                    <ExpiryBadge isoDate={benefit.expiryDate} />
+                  </div>
+                )}
+                {benefit.notes && (
+                  <p className="text-xs text-gray-400 mb-1">{benefit.notes}</p>
+                )}
+                {HOW_TO_CLAIM[benefit.id] && (
+                  <p className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1 mt-1">
+                    <span className="font-semibold">How to claim:</span> {HOW_TO_CLAIM[benefit.id]}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Utilization summary */}
+        <div className="px-6 py-4 border-t border-surface-border bg-surface-overlay">
+          <UtilizationBar
+            usedValue={card.benefitsUsedValue}
+            totalValue={card.totalBenefitsValue}
+            annualFee={card.annualFee}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Client selector ─────────────────────────────────────────────────────────
+
+function ClientSelector({
+  selectedClient,
+  onSelect,
+}: {
+  selectedClient: typeof PLACEHOLDER_CLIENTS[number] | null;
+  onSelect: (client: typeof PLACEHOLDER_CLIENTS[number] | null) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const filtered = useMemo(
+    () => PLACEHOLDER_CLIENTS.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())),
+    [query],
+  );
+
+  if (selectedClient) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-2 bg-brand-navy/10 text-brand-navy text-sm
+                          font-medium px-3 py-1.5 rounded-full">
+          {selectedClient.name}
+          <button
+            onClick={() => onSelect(null)}
+            className="text-brand-navy/60 hover:text-brand-navy text-lg leading-none"
+            aria-label="Clear client"
+          >
+            &times;
+          </button>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        placeholder="Search clients..."
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="bg-gray-50 border border-surface-border rounded-lg px-3 py-1.5 text-sm
+                   text-gray-700 placeholder-gray-400 w-56 focus:outline-none focus:ring-2
+                   focus:ring-brand-navy/20"
+      />
+      {open && filtered.length > 0 && (
+        <ul className="absolute top-full left-0 mt-1 w-56 bg-white border border-surface-border
+                        rounded-lg shadow-lg z-30 overflow-hidden">
+          {filtered.map((client) => (
+            <li key={client.id}>
+              <button
+                onMouseDown={() => { onSelect(client); setQuery(''); setOpen(false); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-brand-navy/5"
+              >
+                {client.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── CSV export helper ───────────────────────────────────────────────────────
+
+function exportCardBenefitsCSV(cards: CardBenefitProfile[]) {
+  const header = 'Card Name,Benefit Name,Value,Status,Expiry Date';
+  const rows = cards.flatMap((card) =>
+    card.benefits.map((b) =>
+      [
+        `"${card.cardName}"`,
+        `"${b.name}"`,
+        b.value,
+        b.status,
+        b.expiryDate ?? '',
+      ].join(','),
+    ),
+  );
+  const csv = [header, ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'card-benefits-export.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CardBenefitsPage() {
+  // State: cards data (mutable for toggling benefit status)
+  const [cards, setCards] = useState<CardBenefitProfile[]>(INITIAL_CARDS);
+
+  // State: recommendation filter
+  const [recommendationFilter, setRecommendationFilter] = useState<'all' | CardRenewalRec>('all');
+
+  // State: selected client
+  const [selectedClient, setSelectedClient] = useState<typeof PLACEHOLDER_CLIENTS[number] | null>(null);
+
+  // State: selected card for drawer
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+
+  // State: toast
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Toggle benefit used/unused
+  const handleToggleBenefitStatus = useCallback((cardId: string, benefitId: string) => {
+    setCards((prev) =>
+      prev.map((card) => {
+        if (card.id !== cardId) return card;
+        return {
+          ...card,
+          benefits: card.benefits.map((b) => {
+            if (b.id !== benefitId) return b;
+            const newStatus: BenefitStatus = b.status === 'used' ? 'unused' : 'used';
+            setToast(`Benefit marked as ${newStatus === 'used' ? 'Used' : 'Unused'}`);
+            return { ...b, status: newStatus };
+          }),
+        };
+      }),
+    );
+  }, []);
+
+  // Filtered cards by recommendation
+  const filteredCards = useMemo(
+    () => recommendationFilter === 'all'
+      ? cards
+      : cards.filter((c) => c.renewal === recommendationFilter),
+    [cards, recommendationFilter],
+  );
+
+  // KPI totals (computed from current card state)
+  const totals = useMemo(() => {
+    const totalBenefitsValue = cards.reduce((s, c) => s + c.totalBenefitsValue, 0);
+    const totalUsedValue     = cards.reduce((s, c) => s + c.benefitsUsedValue, 0);
+    const totalFees          = cards.reduce((s, c) => s + c.annualFee, 0);
+    const totalUnused        = cards.reduce(
+      (s, c) => s + c.benefits.filter((b) => b.status === 'unused').length, 0,
+    );
+    return { totalBenefitsValue, totalUsedValue, totalFees, totalUnused };
+  }, [cards]);
+
+  // Expiring benefits within 90 days (unused only, with expiry date)
+  const expiringBenefits = useMemo(() => {
+    const result: { card: CardBenefitProfile; benefit: Benefit; daysLeft: number }[] = [];
+    for (const card of cards) {
+      for (const benefit of card.benefits) {
+        if (benefit.status === 'unused' && benefit.expiryDate) {
+          const days = daysUntil(benefit.expiryDate);
+          if (days >= 0 && days <= 90) {
+            result.push({ card, benefit, daysLeft: days });
+          }
+        }
+      }
+    }
+    return result.sort((a, b) => a.daysLeft - b.daysLeft);
+  }, [cards]);
+
+  const expiringTotalValue = useMemo(
+    () => expiringBenefits.reduce((s, e) => s + e.benefit.value, 0),
+    [expiringBenefits],
+  );
+
+  // Selected card for drawer
+  const selectedCard = useMemo(
+    () => cards.find((c) => c.id === selectedCardId) ?? null,
+    [cards, selectedCardId],
+  );
+
   return (
     <div className="space-y-8">
+      {/* ── Toast ──────────────────────────────────────────────── */}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+
+      {/* ── Detail drawer ──────────────────────────────────────── */}
+      {selectedCard && (
+        <CardDetailDrawer
+          card={selectedCard}
+          onClose={() => setSelectedCardId(null)}
+          onToggleBenefitStatus={handleToggleBenefitStatus}
+        />
+      )}
+
+      {/* ── Client selector ────────────────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Client:</span>
+        <ClientSelector selectedClient={selectedClient} onSelect={setSelectedClient} />
+      </div>
+
       {/* ── Page header ──────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -426,11 +852,43 @@ export default function CardBenefitsPage() {
             Benefit utilization, expiry countdowns, and renewal recommendations
           </p>
         </div>
-        <button className="btn-accent btn flex-shrink-0">
+        <button
+          className="btn-accent btn flex-shrink-0"
+          onClick={() => exportCardBenefitsCSV(cards)}
+        >
           <span aria-hidden="true">↓</span>
           Export
         </button>
       </div>
+
+      {/* ── Expiring benefits alert ──────────────────────────── */}
+      {expiringBenefits.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-lg" role="img" aria-label="Warning">&#9888;&#65039;</span>
+            <span className="text-sm font-bold text-amber-800">
+              Benefits Expiring Soon &mdash; ${expiringTotalValue.toLocaleString()} at risk
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {expiringBenefits.map((item) => (
+              <li
+                key={`${item.card.id}-${item.benefit.id}`}
+                className="flex items-center justify-between text-xs text-amber-700"
+              >
+                <span>
+                  <span className="font-semibold">{item.card.cardName}</span>
+                  {' '}&mdash;{' '}
+                  {item.benefit.name}
+                </span>
+                <span className="font-semibold">
+                  ${item.benefit.value.toLocaleString()} &middot; {item.daysLeft}d left
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* ── KPI strip ────────────────────────────────────────── */}
       <section aria-labelledby="benefits-kpi-heading">
@@ -438,18 +896,18 @@ export default function CardBenefitsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <StatCard
             title="Total Benefits Value"
-            value={`$${TOTAL_BENEFITS_VALUE.toLocaleString()}`}
+            value={`$${totals.totalBenefitsValue.toLocaleString()}`}
             trendLabel="Across all active cards"
             trendDirection="flat"
             icon="BV"
             iconBg="bg-brand-navy/5"
             iconColor="text-brand-navy"
-            subtitle={`${CARDS.length} cards tracked`}
+            subtitle={`${cards.length} cards tracked`}
           />
           <StatCard
             title="Benefits Used"
-            value={`$${TOTAL_USED_VALUE.toLocaleString()}`}
-            trendLabel={`${Math.round((TOTAL_USED_VALUE / TOTAL_BENEFITS_VALUE) * 100)}% utilization rate`}
+            value={`$${totals.totalUsedValue.toLocaleString()}`}
+            trendLabel={`${Math.round((totals.totalUsedValue / totals.totalBenefitsValue) * 100)}% utilization rate`}
             trendDirection="up"
             icon="BU"
             iconBg="bg-emerald-50"
@@ -458,7 +916,7 @@ export default function CardBenefitsPage() {
           />
           <StatCard
             title="Unused Benefits"
-            value={`${TOTAL_UNUSED}`}
+            value={`${totals.totalUnused}`}
             trendLabel="Benefits not yet claimed"
             trendDirection="down"
             icon="UN"
@@ -468,8 +926,8 @@ export default function CardBenefitsPage() {
           />
           <StatCard
             title="Total Annual Fees"
-            value={`$${TOTAL_FEES.toLocaleString()}`}
-            trendLabel={`Net: +$${(TOTAL_USED_VALUE - TOTAL_FEES).toLocaleString()}`}
+            value={`$${totals.totalFees.toLocaleString()}`}
+            trendLabel={`Net: +$${(totals.totalUsedValue - totals.totalFees).toLocaleString()}`}
             trendDirection="up"
             icon="FE"
             iconBg="bg-red-50"
@@ -479,20 +937,38 @@ export default function CardBenefitsPage() {
         </div>
       </section>
 
-      {/* ── Renewal legend ───────────────────────────────────── */}
+      {/* ── Renewal legend / filter chips ────────────────────── */}
       <div className="flex items-center gap-6 text-xs text-gray-500">
         <span className="font-semibold text-gray-700">Renewal recommendation:</span>
+        {/* "All" chip */}
+        <button
+          onClick={() => setRecommendationFilter('all')}
+          className={`inline-flex items-center gap-1.5 rounded-full border text-xs font-medium
+                      px-2.5 py-1 transition-all ${
+                        recommendationFilter === 'all'
+                          ? 'bg-gray-800 text-white border-gray-800'
+                          : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                      }`}
+        >
+          All
+        </button>
         {(['keep', 'negotiate', 'cancel'] as CardRenewalRec[]).map((rec) => {
           const cfg = RENEWAL_CONFIG[rec];
+          const isActive = recommendationFilter === rec;
           return (
-            <span
+            <button
               key={rec}
+              onClick={() => setRecommendationFilter(rec)}
               className={`inline-flex items-center gap-1.5 rounded-full border text-xs font-medium
-                          px-2.5 py-1 ${cfg.bg} ${cfg.text} ${cfg.border}`}
+                          px-2.5 py-1 transition-all ${
+                            isActive
+                              ? `${cfg.bg} ${cfg.text} ${cfg.border} ring-2 ring-offset-1 ring-current`
+                              : `${cfg.bg} ${cfg.text} ${cfg.border} hover:ring-1 hover:ring-current`
+                          }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} aria-hidden="true" />
               {cfg.label}
-            </span>
+            </button>
           );
         })}
       </div>
@@ -501,10 +977,20 @@ export default function CardBenefitsPage() {
       <section aria-labelledby="benefits-grid-heading">
         <h2 id="benefits-grid-heading" className="sr-only">Card Benefits Grid</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {CARDS.map((card) => (
-            <CardBenefitTile key={card.id} card={card} />
+          {filteredCards.map((card) => (
+            <CardBenefitTile
+              key={card.id}
+              card={card}
+              onToggleBenefitStatus={handleToggleBenefitStatus}
+              onClick={() => setSelectedCardId(card.id)}
+            />
           ))}
         </div>
+        {filteredCards.length === 0 && (
+          <p className="text-center text-sm text-gray-400 py-12">
+            No cards match the selected filter.
+          </p>
+        )}
       </section>
 
       {/* ── Benefits value vs fee bar chart ──────────────────── */}
@@ -513,8 +999,8 @@ export default function CardBenefitsPage() {
         subtitle="Bar comparison per card — green = benefits value, red = annual fee"
       >
         <div className="space-y-4">
-          {CARDS.map((card) => {
-            const maxVal = Math.max(...CARDS.map((c) => c.totalBenefitsValue));
+          {filteredCards.map((card) => {
+            const maxVal = Math.max(...cards.map((c) => c.totalBenefitsValue));
             const benefitPct = (card.totalBenefitsValue / maxVal) * 100;
             const feePct     = (card.annualFee / maxVal) * 100;
             const cfg        = RENEWAL_CONFIG[card.renewal];

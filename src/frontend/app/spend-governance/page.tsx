@@ -9,7 +9,15 @@
 // Network rule violations alert panel.
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import {
+  SpendClientSelector,
+  SpendByCategoryChart,
+  TransactionDetailModal,
+  ViolationActionButtons,
+} from '@/components/spend-governance';
+import type { SpendClient, DateRange } from '@/components/spend-governance';
+import { PLACEHOLDER_SPEND_BY_CATEGORY } from '@/components/spend-governance/SpendByCategoryChart';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -152,6 +160,17 @@ function formatDate(s: string): string {
   catch { return s; }
 }
 
+function estimateCashAdvanceFee(amount: number): string {
+  const low = (amount * 0.03).toFixed(2);
+  const high = (amount * 0.05).toFixed(2);
+  return `$${low}–$${high}`;
+}
+
+function isCashAdvanceCategory(category: string): boolean {
+  const lower = category.toLowerCase();
+  return lower.includes('cash advance') || lower.includes('atm');
+}
+
 // Risk score gauge (mini SVG arc)
 function RiskGauge({ score }: { score: number }) {
   const color = score >= 75 ? '#ef4444' : score >= 50 ? '#f97316' : score >= 25 ? '#eab308' : '#22c55e';
@@ -182,10 +201,25 @@ function RiskGauge({ score }: { score: number }) {
 // ---------------------------------------------------------------------------
 
 export default function SpendGovernancePage() {
-  const [transactions] = useState<Transaction[]>(PLACEHOLDER_TRANSACTIONS);
+  const [transactions, setTransactions] = useState<Transaction[]>(PLACEHOLDER_TRANSACTIONS);
   const [violations] = useState<NetworkViolation[]>(PLACEHOLDER_VIOLATIONS);
-  const [filter, setFilter] = useState<'all' | 'flagged' | 'cash-like'>('all');
+  const [txnFilter, setTxnFilter] = useState<'all' | 'flagged' | 'cash-like'>('all');
   const [exportLoading, setExportLoading] = useState(false);
+
+  // SpendClientSelector state
+  const [selectedClient, setSelectedClient] = useState<SpendClient | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange | null>(null);
+  const [cardFilter, setCardFilter] = useState('All Cards');
+
+  // TransactionDetailModal state
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+
+  // Inline editing of business purpose
+  const [editingPurposeId, setEditingPurposeId] = useState<string | null>(null);
+  const [editingPurposeValue, setEditingPurposeValue] = useState('');
+
+  // ViolationActionButtons — track acknowledged violations
+  const [acknowledgedViolations, setAcknowledgedViolations] = useState<Set<string>>(new Set());
 
   // Summary stats
   const totalTxns = transactions.length;
@@ -195,22 +229,39 @@ export default function SpendGovernancePage() {
   const chargebackRatio = totalTxns > 0 ? ((chargedBackCount / totalTxns) * 100).toFixed(2) : '0.00';
   const totalAmount = transactions.reduce((s, t) => s + t.amount, 0);
 
-  const filtered = transactions.filter((t) => {
-    if (filter === 'flagged') return t.flagged;
-    if (filter === 'cash-like') return t.isCashLike;
-    return true;
-  });
+  // Filter transactions based on txnFilter tabs
+  const filtered = useMemo(() => {
+    return transactions.filter((t) => {
+      if (txnFilter === 'flagged') return t.flagged;
+      if (txnFilter === 'cash-like') return t.isCashLike;
+      return true;
+    });
+  }, [transactions, txnFilter]);
 
+  // Export CSV with all columns
   function handleExport() {
     setExportLoading(true);
-    // Simulate export delay
     setTimeout(() => {
+      const headers = [
+        'ID', 'Merchant', 'MCC Code', 'MCC Category', 'Amount', 'Date',
+        'Risk Score', 'Risk Level', 'Cash-Like', 'Business Purpose',
+        'Flagged', 'Charged Back',
+      ];
       const rows = [
-        ['ID', 'Merchant', 'MCC', 'Category', 'Amount', 'Date', 'Risk Score', 'Cash-Like', 'Business Purpose', 'Flagged'].join(','),
+        headers.join(','),
         ...transactions.map((t) => [
-          t.id, `"${t.merchant}"`, t.mccCode, `"${t.mccCategory}"`,
-          t.amount.toFixed(2), t.date, t.riskScore,
-          t.isCashLike ? 'Yes' : 'No', `"${t.businessPurpose}"`, t.flagged ? 'Yes' : 'No',
+          t.id,
+          `"${t.merchant}"`,
+          t.mccCode,
+          `"${t.mccCategory}"`,
+          t.amount.toFixed(2),
+          t.date,
+          t.riskScore,
+          t.riskLevel,
+          t.isCashLike ? 'Yes' : 'No',
+          `"${t.businessPurpose}"`,
+          t.flagged ? 'Yes' : 'No',
+          t.chargedBack ? 'Yes' : 'No',
         ].join(',')),
       ].join('\n');
 
@@ -224,6 +275,82 @@ export default function SpendGovernancePage() {
       setExportLoading(false);
     }, 600);
   }
+
+  // Convert page Transaction to modal Transaction shape
+  function openTransactionModal(t: Transaction) {
+    setSelectedTransaction(t);
+  }
+
+  function handleSavePurpose(txnId: string, purpose: string) {
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === txnId ? { ...t, businessPurpose: purpose } : t)),
+    );
+    setSelectedTransaction(null);
+  }
+
+  function handleMarkReviewed(txnId: string) {
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === txnId ? { ...t, flagged: false } : t)),
+    );
+    setSelectedTransaction(null);
+  }
+
+  // Inline business purpose editing
+  function handleStartEditPurpose(txn: Transaction) {
+    setEditingPurposeId(txn.id);
+    setEditingPurposeValue(txn.businessPurpose === 'Unverified' ? '' : txn.businessPurpose);
+  }
+
+  function handleSaveInlinePurpose(txnId: string) {
+    if (editingPurposeValue.trim()) {
+      setTransactions((prev) =>
+        prev.map((t) => (t.id === txnId ? { ...t, businessPurpose: editingPurposeValue.trim() } : t)),
+      );
+    }
+    setEditingPurposeId(null);
+    setEditingPurposeValue('');
+  }
+
+  function handleCancelEditPurpose() {
+    setEditingPurposeId(null);
+    setEditingPurposeValue('');
+  }
+
+  // Violation actions
+  function handleAcknowledge(violationId: string) {
+    setAcknowledgedViolations((prev) => new Set(prev).add(violationId));
+  }
+
+  function handleDocumentResponse(violationId: string) {
+    // Placeholder: in production this would open a document editor or form
+    alert(`Opening document response form for violation ${violationId}`);
+  }
+
+  // Build the modal transaction shape from page Transaction
+  const modalTransaction = selectedTransaction
+    ? {
+        id: selectedTransaction.id,
+        merchant: selectedTransaction.merchant,
+        mcc: selectedTransaction.mccCode,
+        category: selectedTransaction.mccCategory,
+        amount: selectedTransaction.amount,
+        date: selectedTransaction.date,
+        riskScore: selectedTransaction.riskScore,
+        flags: [
+          ...(selectedTransaction.isCashLike ? ['Cash-Like'] : []),
+          ...(selectedTransaction.flagged ? ['Flagged'] : []),
+          ...(selectedTransaction.chargedBack ? ['Chargeback'] : []),
+        ],
+        businessPurpose:
+          selectedTransaction.businessPurpose === 'Unverified'
+            ? null
+            : selectedTransaction.businessPurpose,
+        card: cardFilter !== 'All Cards' ? cardFilter : 'Corporate Card',
+        violations: PLACEHOLDER_VIOLATIONS
+          .filter((v) => v.merchant === selectedTransaction.merchant)
+          .map((v) => v.rule),
+      }
+    : null;
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
@@ -244,6 +371,19 @@ export default function SpendGovernancePage() {
         </button>
       </div>
 
+      {/* Client Selector — top of page, before KPI cards */}
+      <div className="mb-6">
+        <SpendClientSelector
+          selectedClient={selectedClient}
+          onClientSelect={setSelectedClient}
+          onClear={() => setSelectedClient(null)}
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          cardFilter={cardFilter}
+          onCardFilterChange={setCardFilter}
+        />
+      </div>
+
       {/* Risk Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
@@ -258,6 +398,11 @@ export default function SpendGovernancePage() {
             {card.sub && <p className="text-xs text-gray-500 mt-1">{card.sub}</p>}
           </div>
         ))}
+      </div>
+
+      {/* Spend by Category Chart — below KPI cards, above violations */}
+      <div className="mb-6">
+        <SpendByCategoryChart data={PLACEHOLDER_SPEND_BY_CATEGORY} />
       </div>
 
       {/* Network Rule Violations Alert Panel */}
@@ -285,7 +430,15 @@ export default function SpendGovernancePage() {
                   <p className="text-xs text-gray-500 whitespace-nowrap">{formatDate(v.date)}</p>
                 </div>
                 <p className="text-sm font-semibold text-gray-100 mb-0.5">{v.merchant}</p>
-                <p className="text-xs text-gray-400">{v.description}</p>
+                <p className="text-xs text-gray-400 mb-3">{v.description}</p>
+                {/* Violation Action Buttons */}
+                <ViolationActionButtons
+                  violationId={v.id}
+                  network={v.network}
+                  acknowledged={acknowledgedViolations.has(v.id)}
+                  onAcknowledge={handleAcknowledge}
+                  onDocumentResponse={handleDocumentResponse}
+                />
               </div>
             ))}
           </div>
@@ -301,9 +454,9 @@ export default function SpendGovernancePage() {
             {(['all', 'flagged', 'cash-like'] as const).map((f) => (
               <button
                 key={f}
-                onClick={() => setFilter(f)}
+                onClick={() => setTxnFilter(f)}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                  filter === f
+                  txnFilter === f
                     ? 'bg-[#0A1628] text-[#C9A84C] border border-[#C9A84C]/40'
                     : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
                 }`}
@@ -330,7 +483,8 @@ export default function SpendGovernancePage() {
               {filtered.map((t) => (
                 <tr
                   key={t.id}
-                  className={`transition-colors hover:bg-gray-800/50 ${t.flagged ? 'bg-red-950/20' : ''}`}
+                  onClick={() => openTransactionModal(t)}
+                  className={`transition-colors hover:bg-gray-800/50 cursor-pointer ${t.flagged ? 'bg-red-950/20' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <p className="font-semibold text-gray-100 whitespace-nowrap">{t.merchant}</p>
@@ -344,6 +498,12 @@ export default function SpendGovernancePage() {
                     <p className={`font-bold tabular-nums ${t.amount >= 5000 ? 'text-orange-300' : 'text-gray-100'}`}>
                       {formatCurrency(t.amount)}
                     </p>
+                    {/* Cash advance fee alert */}
+                    {isCashAdvanceCategory(t.mccCategory) && (
+                      <p className="text-xs text-amber-400 mt-1">
+                        &#x26A0; Cash advance fee likely: ~{estimateCashAdvanceFee(t.amount)} (3-5%)
+                      </p>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
                     {formatDate(t.date)}
@@ -373,10 +533,49 @@ export default function SpendGovernancePage() {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 max-w-xs">
-                    <p className={`text-xs ${t.businessPurpose === 'Unverified' ? 'text-red-400 font-semibold' : 'text-gray-400'}`}>
-                      {t.businessPurpose}
-                    </p>
+                  <td className="px-4 py-3 max-w-xs" onClick={(e) => e.stopPropagation()}>
+                    {editingPurposeId === t.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={editingPurposeValue}
+                          onChange={(e) => setEditingPurposeValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveInlinePurpose(t.id);
+                            if (e.key === 'Escape') handleCancelEditPurpose();
+                          }}
+                          autoFocus
+                          className="w-full rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-gray-100 outline-none focus:border-blue-500"
+                          placeholder="Enter business purpose..."
+                        />
+                        <button
+                          onClick={() => handleSaveInlinePurpose(t.id)}
+                          className="text-xs text-green-400 hover:text-green-300 font-semibold px-1"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={handleCancelEditPurpose}
+                          className="text-xs text-gray-500 hover:text-gray-300 px-1"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <p
+                        className={`text-xs ${
+                          t.businessPurpose === 'Unverified'
+                            ? 'text-red-400 font-semibold cursor-pointer hover:underline'
+                            : 'text-gray-400'
+                        }`}
+                        onClick={() => {
+                          if (t.businessPurpose === 'Unverified') handleStartEditPurpose(t);
+                        }}
+                        title={t.businessPurpose === 'Unverified' ? 'Click to add business purpose' : undefined}
+                      >
+                        {t.businessPurpose}
+                      </p>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -389,6 +588,15 @@ export default function SpendGovernancePage() {
           )}
         </div>
       </div>
+
+      {/* Transaction Detail Modal */}
+      <TransactionDetailModal
+        transaction={modalTransaction}
+        isOpen={selectedTransaction !== null}
+        onClose={() => setSelectedTransaction(null)}
+        onSavePurpose={handleSavePurpose}
+        onMarkReviewed={handleMarkReviewed}
+      />
     </div>
   );
 }

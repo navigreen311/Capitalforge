@@ -9,7 +9,7 @@
 // SaaS usage metering panel.
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import UsageMeter from '../../components/modules/usage-meter';
 
 // ---------------------------------------------------------------------------
@@ -149,6 +149,34 @@ const DEAL_STRUCTURE_OPTIONS: { value: DealStructure; label: string }[] = [
   { value: 'mca', label: 'Merchant Cash Advance (MCA)' },
 ];
 
+const PLACEHOLDER_CLIENTS: { name: string; defaultDescription: string }[] = [
+  { name: 'Apex Ventures LLC', defaultDescription: 'Origination fee + revenue share' },
+  { name: 'NovaTech Solutions Inc.', defaultDescription: 'Advisory flat fee — funding round facilitation' },
+  { name: 'Horizon Retail Partners', defaultDescription: 'MCA origination + servicing fee' },
+  { name: 'Summit Capital Group', defaultDescription: 'Term loan processing fee' },
+  { name: 'Blue Ridge Consulting', defaultDescription: 'LOC setup fee' },
+];
+
+const UPGRADE_TIERS = [
+  { name: 'Pro', price: '$1,200/mo', features: ['25 Active Deals', '50K API Calls', '5 Users', 'Priority Support'] },
+  { name: 'Enterprise', price: '$4,800/mo', features: ['50 Active Deals', '100K API Calls', '12 Users', 'Dedicated CSM'] },
+  { name: 'Enterprise+', price: '$9,600/mo', features: ['Unlimited Deals', '500K API Calls', 'Unlimited Users', 'SLA 99.99%'] },
+];
+
+// ---------------------------------------------------------------------------
+// Toast
+// ---------------------------------------------------------------------------
+
+function showToast(message: string) {
+  const el = document.createElement('div');
+  el.textContent = message;
+  el.className =
+    'fixed bottom-6 right-6 z-[100] px-5 py-3 rounded-xl bg-gray-800 border border-gray-700 text-sm text-gray-100 shadow-2xl animate-fade-in';
+  el.style.animation = 'fadeInUp 0.3s ease, fadeOut 0.3s ease 2.5s forwards';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -201,9 +229,11 @@ function isOverdue(dueDate: string, status: InvoiceStatus): boolean {
 
 interface GenerateInvoiceModalProps {
   onClose: () => void;
+  onSubmit: (invoice: Invoice) => void;
+  nextNumber: number;
 }
 
-function GenerateInvoiceModal({ onClose }: GenerateInvoiceModalProps) {
+function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: GenerateInvoiceModalProps) {
   const [form, setForm] = useState({
     client: '',
     dealStructure: 'flat_fee' as DealStructure,
@@ -212,14 +242,48 @@ function GenerateInvoiceModal({ onClose }: GenerateInvoiceModalProps) {
     description: '',
   });
   const [generating, setGenerating] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function handleClientChange(clientName: string) {
+    const match = PLACEHOLDER_CLIENTS.find((c) => c.name === clientName);
+    setForm({
+      ...form,
+      client: clientName,
+      description: match ? match.defaultDescription : form.description,
+    });
+    if (clientName) setErrors((e) => ({ ...e, client: '' }));
+  }
+
+  function validate(): boolean {
+    const errs: Record<string, string> = {};
+    if (!form.client) errs.client = 'Client is required';
+    if (!form.amount || Number(form.amount) <= 0) errs.amount = 'Valid amount is required';
+    if (!form.dueDate) errs.dueDate = 'Due date is required';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
 
   function handleGenerate() {
-    if (!form.client || !form.amount) return;
+    if (!validate()) return;
     setGenerating(true);
     setTimeout(() => {
+      const invNum = `INV-${String(nextNumber).padStart(4, '0')}`;
+      const newInvoice: Invoice = {
+        id: `inv_gen_${Date.now()}`,
+        invoiceNumber: invNum,
+        client: form.client,
+        amount: Number(form.amount),
+        dueDate: form.dueDate,
+        issuedDate: new Date().toISOString().split('T')[0],
+        status: 'draft',
+        dealStructure: form.dealStructure,
+        description: form.description || 'New invoice',
+      };
       setGenerating(false);
+      onSubmit(newInvoice);
+      showToast(`Invoice #${invNum} created for ${formatCurrency(Number(form.amount))}`);
       onClose();
-    }, 800);
+    }, 1000);
   }
 
   return (
@@ -237,13 +301,19 @@ function GenerateInvoiceModal({ onClose }: GenerateInvoiceModalProps) {
             <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
               Client Name
             </label>
-            <input
-              type="text"
+            <select
               value={form.client}
-              onChange={(e) => setForm({ ...form, client: e.target.value })}
-              placeholder="e.g. Apex Ventures LLC"
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
-            />
+              onChange={(e) => handleClientChange(e.target.value)}
+              className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C] ${
+                errors.client ? 'border-red-500' : 'border-gray-700'
+              }`}
+            >
+              <option value="">Select a client...</option>
+              {PLACEHOLDER_CLIENTS.map((c) => (
+                <option key={c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+            {errors.client && <p className="text-xs text-red-400 mt-1">{errors.client}</p>}
           </div>
 
           <div>
@@ -269,10 +339,16 @@ function GenerateInvoiceModal({ onClose }: GenerateInvoiceModalProps) {
               <input
                 type="number"
                 value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, amount: e.target.value });
+                  if (e.target.value) setErrors((er) => ({ ...er, amount: '' }));
+                }}
                 placeholder="0.00"
-                className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
+                className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] ${
+                  errors.amount ? 'border-red-500' : 'border-gray-700'
+                }`}
               />
+              {errors.amount && <p className="text-xs text-red-400 mt-1">{errors.amount}</p>}
             </div>
             <div>
               <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
@@ -281,9 +357,15 @@ function GenerateInvoiceModal({ onClose }: GenerateInvoiceModalProps) {
               <input
                 type="date"
                 value={form.dueDate}
-                onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-                className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
+                onChange={(e) => {
+                  setForm({ ...form, dueDate: e.target.value });
+                  if (e.target.value) setErrors((er) => ({ ...er, dueDate: '' }));
+                }}
+                className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C] ${
+                  errors.dueDate ? 'border-red-500' : 'border-gray-700'
+                }`}
               />
+              {errors.dueDate && <p className="text-xs text-red-400 mt-1">{errors.dueDate}</p>}
             </div>
           </div>
 
@@ -294,7 +376,7 @@ function GenerateInvoiceModal({ onClose }: GenerateInvoiceModalProps) {
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Invoice description…"
+              placeholder="Invoice description..."
               rows={3}
               className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] resize-none"
             />
@@ -310,10 +392,203 @@ function GenerateInvoiceModal({ onClose }: GenerateInvoiceModalProps) {
           </button>
           <button
             onClick={handleGenerate}
-            disabled={generating || !form.client || !form.amount}
+            disabled={generating}
             className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
           >
-            {generating ? 'Generating…' : 'Generate Invoice'}
+            {generating ? 'Generating...' : 'Generate Invoice'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Commission Detail Modal (inline)
+// ---------------------------------------------------------------------------
+
+interface CommissionDetailModalProps {
+  commission: Commission;
+  onClose: () => void;
+  onAction: (id: string, action: string) => void;
+}
+
+function CommissionDetailModal({ commission, onClose, onAction }: CommissionDetailModalProps) {
+  const actionLabel =
+    commission.status === 'pending' ? 'Approve' :
+    commission.status === 'approved' ? 'Mark Paid' :
+    commission.status === 'disputed' ? 'Resolve Dispute' : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Commission Details</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500 uppercase">Partner</span>
+            <span className="text-sm font-semibold text-gray-100">{commission.partner}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500 uppercase">Role</span>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded border capitalize ${ROLE_CONFIG[commission.role]}`}>
+              {commission.role}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500 uppercase">Deal</span>
+            <span className="text-sm text-gray-300">{commission.deal}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500 uppercase">Deal Amount</span>
+            <span className="text-sm font-semibold text-gray-200">{formatCurrency(commission.dealAmount)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500 uppercase">Rate</span>
+            <span className="text-sm text-gray-400">{commission.commissionRate.toFixed(1)}%</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500 uppercase">Commission</span>
+            <span className="text-sm font-bold text-[#C9A84C]">{formatCurrency(commission.commissionAmount)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500 uppercase">Due Date</span>
+            <span className="text-sm text-gray-400">{formatDate(commission.dueDate)}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-gray-500 uppercase">Status</span>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${COMMISSION_STATUS_CONFIG[commission.status].badgeClass}`}>
+              {COMMISSION_STATUS_CONFIG[commission.status].label}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+          >
+            Close
+          </button>
+          {actionLabel && (
+            <button
+              onClick={() => { onAction(commission.id, actionLabel); onClose(); }}
+              className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-sm font-semibold transition-colors"
+            >
+              {actionLabel}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Upgrade Plan Modal (inline)
+// ---------------------------------------------------------------------------
+
+interface UpgradePlanModalProps {
+  onClose: () => void;
+}
+
+function UpgradePlanModal({ onClose }: UpgradePlanModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-2xl mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Upgrade Your Plan</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+          {UPGRADE_TIERS.map((tier) => (
+            <div key={tier.name} className="rounded-xl border border-gray-700 bg-gray-800 p-4 flex flex-col">
+              <h3 className="text-sm font-bold text-white mb-1">{tier.name}</h3>
+              <p className="text-lg font-black text-[#C9A84C] mb-3">{tier.price}</p>
+              <ul className="space-y-1.5 flex-1">
+                {tier.features.map((f) => (
+                  <li key={f} className="text-xs text-gray-400 flex items-center gap-1.5">
+                    <span className="text-green-400">&#10003;</span> {f}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => { showToast(`${tier.name} plan selected -- a sales rep will follow up.`); onClose(); }}
+                className="mt-4 w-full px-3 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-xs font-semibold transition-colors"
+              >
+                Select {tier.name}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="text-center">
+          <button
+            onClick={() => { showToast('Contact sales request submitted.'); onClose(); }}
+            className="text-xs font-semibold text-gray-400 hover:text-[#C9A84C] transition-colors"
+          >
+            Need a custom plan? Contact Sales
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Plan Details Modal (inline)
+// ---------------------------------------------------------------------------
+
+interface PlanDetailsModalProps {
+  onClose: () => void;
+}
+
+function PlanDetailsModal({ onClose }: PlanDetailsModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Enterprise Plan Details</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {[
+            { label: 'Plan Name', value: 'Enterprise' },
+            { label: 'Monthly Cost', value: '$4,800 / mo' },
+            { label: 'Billing Cycle', value: 'Monthly (auto-renew)' },
+            { label: 'Next Renewal', value: 'May 1, 2026' },
+            { label: 'API Calls', value: '100,000 / mo' },
+            { label: 'Active Deals', value: '50 deals' },
+            { label: 'Document Storage', value: '5,000 docs' },
+            { label: 'User Seats', value: '12 seats' },
+            { label: 'Overage: API', value: '$0.05 per extra call' },
+            { label: 'Overage: Deals', value: '$500 per extra deal slot' },
+            { label: 'Support Level', value: 'Dedicated CSM + Priority' },
+          ].map((row) => (
+            <div key={row.label} className="flex justify-between border-b border-gray-800 pb-2">
+              <span className="text-xs text-gray-500 uppercase">{row.label}</span>
+              <span className="text-sm font-semibold text-gray-100">{row.value}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+          >
+            Close
           </button>
         </div>
       </div>
@@ -328,29 +603,137 @@ function GenerateInvoiceModal({ onClose }: GenerateInvoiceModalProps) {
 export default function BillingPage() {
   const [activeTab, setActiveTab] = useState<'invoices' | 'commissions' | 'usage'>('invoices');
   const [showModal, setShowModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceStatus | 'all'>('all');
   const [commissionFilter, setCommissionFilter] = useState<CommissionStatus | 'all'>('all');
+  const [invoices, setInvoices] = useState<Invoice[]>(PLACEHOLDER_INVOICES);
+  const [commissions, setCommissions] = useState<Commission[]>(PLACEHOLDER_COMMISSIONS);
+  const [selectedCommission, setSelectedCommission] = useState<Commission | null>(null);
+  const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
 
-  // Invoice stats
-  const totalRevenue = PLACEHOLDER_INVOICES.filter((i) => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
-  const outstandingAmount = PLACEHOLDER_INVOICES.filter((i) => i.status === 'issued' || i.status === 'overdue').reduce((s, i) => s + i.amount, 0);
-  const overdueCount = PLACEHOLDER_INVOICES.filter((i) => isOverdue(i.dueDate, i.status) || i.status === 'overdue').length;
+  // Next invoice number
+  const nextInvoiceNum = invoices.length + 1;
+
+  // Invoice stats (derived from live state)
+  const totalRevenue = invoices.filter((i) => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
+  const outstandingAmount = invoices.filter((i) => i.status === 'issued' || i.status === 'overdue').reduce((s, i) => s + i.amount, 0);
+
+  // Overdue calculation
+  const overdueInvoices = useMemo(
+    () => invoices.filter((i) => isOverdue(i.dueDate, i.status) || i.status === 'overdue'),
+    [invoices],
+  );
+  const overdueCount = overdueInvoices.length;
+  const overdueAmount = overdueInvoices.reduce((s, i) => s + i.amount, 0);
 
   // Commission stats
-  const totalCommissionsPaid = PLACEHOLDER_COMMISSIONS.filter((c) => c.status === 'paid').reduce((s, c) => s + c.commissionAmount, 0);
-  const pendingCommissions = PLACEHOLDER_COMMISSIONS.filter((c) => c.status === 'pending' || c.status === 'approved').reduce((s, c) => s + c.commissionAmount, 0);
+  const totalCommissionsPaid = commissions.filter((c) => c.status === 'paid').reduce((s, c) => s + c.commissionAmount, 0);
+  const pendingCommissions = commissions.filter((c) => c.status === 'pending' || c.status === 'approved').reduce((s, c) => s + c.commissionAmount, 0);
 
-  const filteredInvoices = PLACEHOLDER_INVOICES.filter((i) =>
-    invoiceFilter === 'all' ? true : i.status === invoiceFilter,
+  // Filtered lists
+  const filteredInvoices = useMemo(
+    () => invoices.filter((i) => invoiceFilter === 'all' ? true : i.status === invoiceFilter),
+    [invoices, invoiceFilter],
   );
 
-  const filteredCommissions = PLACEHOLDER_COMMISSIONS.filter((c) =>
-    commissionFilter === 'all' ? true : c.status === commissionFilter,
+  const filteredCommissions = useMemo(
+    () => commissions.filter((c) => commissionFilter === 'all' ? true : c.status === commissionFilter),
+    [commissions, commissionFilter],
   );
+
+  // -- Invoice actions --
+  const handleAddInvoice = useCallback((inv: Invoice) => {
+    setInvoices((prev) => [inv, ...prev]);
+  }, []);
+
+  const handleMarkPaid = useCallback((id: string) => {
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === id ? { ...inv, status: inv.status === 'paid' ? 'issued' : 'paid' as InvoiceStatus } : inv,
+      ),
+    );
+    showToast('Invoice status updated.');
+  }, []);
+
+  const handleVoidInvoice = useCallback((id: string) => {
+    setInvoices((prev) => prev.filter((inv) => inv.id !== id));
+    setVoidConfirmId(null);
+    showToast('Invoice voided and removed.');
+  }, []);
+
+  const handleViewPdf = useCallback(() => {
+    showToast('PDF download coming soon.');
+  }, []);
+
+  const handleSendReminder = useCallback((inv: Invoice) => {
+    showToast(`Reminder sent to ${inv.client} for ${inv.invoiceNumber}.`);
+  }, []);
+
+  // -- Commission actions --
+  const handleCommissionAction = useCallback((id: string, action: string) => {
+    setCommissions((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const newStatus: CommissionStatus =
+          action === 'Approve' ? 'approved' :
+          action === 'Mark Paid' ? 'paid' :
+          action === 'Resolve Dispute' ? 'approved' :
+          c.status;
+        return { ...c, status: newStatus };
+      }),
+    );
+    showToast(`Commission ${action.toLowerCase()}d successfully.`);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
-      {showModal && <GenerateInvoiceModal onClose={() => setShowModal(false)} />}
+      {/* Toast animation styles */}
+      <style>{`
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+      `}</style>
+
+      {showModal && (
+        <GenerateInvoiceModal
+          onClose={() => setShowModal(false)}
+          onSubmit={handleAddInvoice}
+          nextNumber={nextInvoiceNum}
+        />
+      )}
+      {showUpgradeModal && <UpgradePlanModal onClose={() => setShowUpgradeModal(false)} />}
+      {showPlanModal && <PlanDetailsModal onClose={() => setShowPlanModal(false)} />}
+      {selectedCommission && (
+        <CommissionDetailModal
+          commission={selectedCommission}
+          onClose={() => setSelectedCommission(null)}
+          onAction={handleCommissionAction}
+        />
+      )}
+
+      {/* Void confirmation dialog */}
+      {voidConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
+            <h3 className="text-lg font-bold text-white mb-2">Void Invoice?</h3>
+            <p className="text-sm text-gray-400 mb-5">This action will permanently remove this invoice. Are you sure?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setVoidConfirmId(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleVoidInvoice(voidConfirmId)}
+                className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition-colors"
+              >
+                Void Invoice
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -420,12 +803,25 @@ export default function BillingPage() {
             ))}
           </div>
 
+          {/* Overdue banner */}
+          {overdueCount > 0 && (
+            <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-lg border border-amber-700/50 bg-amber-950/30">
+              <span className="inline-flex items-center justify-center bg-red-600 text-white text-xs font-bold rounded-full w-6 h-6">
+                {overdueCount}
+              </span>
+              <span className="text-sm font-semibold text-amber-300">
+                Overdue ({formatCurrency(overdueAmount)})
+              </span>
+              <span className="text-xs text-amber-400/70 ml-1">— requires immediate attention</span>
+            </div>
+          )}
+
           <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-800">
-                    {['Invoice #', 'Client', 'Deal Structure', 'Amount', 'Issued', 'Due Date', 'Status', ''].map((h) => (
+                    {['Invoice #', 'Client', 'Deal Structure', 'Amount', 'Issued', 'Due Date', 'Status', 'Actions'].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
@@ -434,9 +830,13 @@ export default function BillingPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                   {filteredInvoices.map((inv) => {
-                    const statusCfg = INVOICE_STATUS_CONFIG[isOverdue(inv.dueDate, inv.status) && inv.status !== 'paid' && inv.status !== 'refunded' ? 'overdue' : inv.status];
+                    const effectivelyOverdue = isOverdue(inv.dueDate, inv.status) && inv.status !== 'paid' && inv.status !== 'refunded';
+                    const statusCfg = INVOICE_STATUS_CONFIG[effectivelyOverdue ? 'overdue' : inv.status];
+                    const rowBg = effectivelyOverdue || inv.status === 'overdue'
+                      ? 'bg-red-950/20 hover:bg-red-950/40'
+                      : 'hover:bg-gray-800/50';
                     return (
-                      <tr key={inv.id} className="hover:bg-gray-800/50 transition-colors">
+                      <tr key={inv.id} className={`${rowBg} transition-colors`}>
                         <td className="px-4 py-3">
                           <p className="font-mono text-xs text-[#C9A84C]">{inv.invoiceNumber}</p>
                         </td>
@@ -466,9 +866,42 @@ export default function BillingPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <button className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-                            View
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={handleViewPdf}
+                              className="text-xs text-gray-500 hover:text-blue-400 transition-colors"
+                              title="View PDF"
+                            >
+                              PDF
+                            </button>
+                            {(effectivelyOverdue || inv.status === 'overdue') && (
+                              <button
+                                onClick={() => handleSendReminder(inv)}
+                                className="text-xs text-gray-500 hover:text-amber-400 transition-colors"
+                                title="Send Reminder"
+                              >
+                                Remind
+                              </button>
+                            )}
+                            {inv.status !== 'refunded' && (
+                              <button
+                                onClick={() => handleMarkPaid(inv.id)}
+                                className="text-xs text-gray-500 hover:text-green-400 transition-colors"
+                                title={inv.status === 'paid' ? 'Unmark Paid' : 'Mark Paid'}
+                              >
+                                {inv.status === 'paid' ? 'Unpay' : 'Pay'}
+                              </button>
+                            )}
+                            {inv.status !== 'paid' && inv.status !== 'refunded' && (
+                              <button
+                                onClick={() => setVoidConfirmId(inv.id)}
+                                className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+                                title="Void Invoice"
+                              >
+                                Void
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -531,7 +964,11 @@ export default function BillingPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                   {filteredCommissions.map((c) => (
-                    <tr key={c.id} className="hover:bg-gray-800/50 transition-colors">
+                    <tr
+                      key={c.id}
+                      onClick={() => setSelectedCommission(c)}
+                      className="hover:bg-gray-800/50 transition-colors cursor-pointer"
+                    >
                       <td className="px-4 py-3">
                         <p className="font-semibold text-gray-100">{c.partner}</p>
                       </td>
@@ -586,7 +1023,7 @@ export default function BillingPage() {
           <div className="flex items-start justify-between mb-4">
             <div>
               <h2 className="text-sm font-bold text-gray-300 uppercase tracking-wide">SaaS Usage Metering</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Billing cycle: Apr 1 – Apr 30, 2026</p>
+              <p className="text-xs text-gray-500 mt-0.5">Billing cycle: Apr 1 - Apr 30, 2026</p>
             </div>
             <span className="text-xs font-semibold text-[#C9A84C] bg-[#0A1628] border border-[#C9A84C]/30 px-3 py-1.5 rounded-lg">
               Enterprise Plan
@@ -602,7 +1039,7 @@ export default function BillingPage() {
                 current={m.current}
                 limit={m.limit}
                 unit={m.unit}
-                onUpgrade={() => alert('Upgrade flow — connect to billing provider')}
+                onUpgrade={() => setShowUpgradeModal(true)}
               />
             ))}
           </div>
@@ -629,10 +1066,29 @@ export default function BillingPage() {
               <p className="text-xs text-gray-400">
                 Overage charges apply at $0.05 per extra API call and $500 per extra deal slot.
               </p>
-              <button className="text-xs font-semibold text-[#C9A84C] hover:text-amber-300 transition-colors">
+              <button
+                onClick={() => setShowPlanModal(true)}
+                className="text-xs font-semibold text-[#C9A84C] hover:text-amber-300 transition-colors"
+              >
                 View Full Plan →
               </button>
             </div>
+          </div>
+
+          {/* Upgrade CTA */}
+          <div className="mt-4 flex gap-3">
+            <button
+              onClick={() => setShowUpgradeModal(true)}
+              className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-sm font-semibold transition-colors"
+            >
+              Upgrade Plan
+            </button>
+            <button
+              onClick={() => setShowUpgradeModal(true)}
+              className="px-4 py-2 rounded-lg border border-[#C9A84C]/40 text-[#C9A84C] hover:bg-[#C9A84C]/10 text-sm font-semibold transition-colors"
+            >
+              Unblock Now
+            </button>
           </div>
         </div>
       )}

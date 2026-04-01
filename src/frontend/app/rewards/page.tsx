@@ -1,6 +1,7 @@
 'use client';
 
 // Metadata moved to layout or removed — client components cannot export metadata
+import { useState, useMemo, useCallback } from 'react';
 import { StatCard, SectionCard } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeStatus } from '@/components/ui/badge';
@@ -8,6 +9,16 @@ import { DataTable } from '@/components/ui/data-table';
 import type { ColumnDef } from '@/components/ui/data-table';
 import RewardsSummaryCard from '@/components/modules/rewards-summary-card';
 import type { CategoryBestCard } from '@/components/modules/rewards-summary-card';
+import {
+  RewardsClientSelector,
+  RewardsTrendChart,
+  REWARDS_TREND_PLACEHOLDER,
+  RewardsActionModal,
+  FeeRenewalCalendar,
+  RoutingOpportunityGap,
+  PointsValuationColumn,
+} from '@/components/rewards';
+import type { RewardsClient, RewardsActionCard, FeeRenewalCard } from '@/components/rewards';
 
 
 
@@ -227,6 +238,19 @@ const CATEGORY_BESTS: CategoryBestCard[] = [
   { category: 'Fuel',        cardName: 'Bank of America Bus. Cash', rewardRate: 0.03, rewardType: 'Cash Back', iconCode: 'GS' },
 ];
 
+// ─── Fee renewal calendar data ───────────────────────────────────────────────
+
+const FEE_RENEWAL_CARDS: FeeRenewalCard[] = CARD_SUMMARIES
+  .filter((c) => c.annualFee > 0)
+  .map((c, i) => ({
+    card: c.cardName,
+    issuer: c.issuer,
+    // Stagger renewal dates across the year
+    renewalDate: `2026-${String((i + 4) % 12 + 1).padStart(2, '0')}-15`,
+    annualFee: c.annualFee,
+    recommendation: c.recommendation,
+  }));
+
 // ─── Recommendation badge map ────────────────────────────────────────────────
 
 const REC_CONFIG: Record<CardRec, { label: string; status: BadgeStatus }> = {
@@ -235,128 +259,210 @@ const REC_CONFIG: Record<CardRec, { label: string; status: BadgeStatus }> = {
   cancel: { label: 'Cancel', status: 'declined' },
 };
 
+// ─── CSV export helper ──────────────────────────────────────────────────────
+
+function exportCardSummaryCSV(data: CardSummary[]) {
+  const headers = ['Card Name', 'Issuer', 'Annual Fee', 'Rewards Earned', 'Net Benefit', 'Recommendation'];
+  const rows = data.map((c) => [
+    c.cardName,
+    c.issuer,
+    c.annualFee,
+    c.annualRewardsEarned,
+    c.netBenefit,
+    c.recommendation,
+  ]);
+  const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'card-summary-report.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Table column definitions ─────────────────────────────────────────────────
 
-const ROUTE_COLUMNS: ColumnDef<SpendRoute>[] = [
-  {
-    key: 'mccCategory',
-    header: 'MCC Category',
-    sortable: true,
-    cell: (row) => (
-      <span className="font-medium text-gray-900">{row.mccCategory}</span>
-    ),
-  },
-  {
-    key: 'mccCode',
-    header: 'MCC Code',
-    sortable: false,
-    cell: (row) => (
-      <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-        {row.mccCode}
-      </span>
-    ),
-  },
-  {
-    key: 'bestCard',
-    header: 'Best Card',
-    sortable: true,
-    cell: (row) => (
-      <span className="font-semibold text-brand-navy text-sm">{row.bestCard}</span>
-    ),
-  },
-  {
-    key: 'rewardRate',
-    header: 'Rate',
-    sortable: true,
-    align: 'right',
-    cell: (row) => (
-      <span className="font-bold text-emerald-600">{row.rewardRate}</span>
-    ),
-  },
-  {
-    key: 'rewardType',
-    header: 'Type',
-    sortable: true,
-  },
-  {
-    key: 'monthlySpend',
-    header: 'Monthly Spend',
-    sortable: true,
-    align: 'right',
-    cell: (row) => (
-      <span className="font-medium text-gray-800">{row.monthlySpend}</span>
-    ),
-  },
-  {
-    key: 'projectedAnnualReward',
-    header: 'Projected Annual Reward',
-    sortable: true,
-    align: 'right',
-    cell: (row) => (
-      <span className="font-bold text-gray-900">{row.projectedAnnualReward}</span>
-    ),
-  },
-];
-
-const CARD_COLUMNS: ColumnDef<CardSummary>[] = [
-  {
-    key: 'cardName',
-    header: 'Card',
-    sortable: true,
-    cell: (row) => (
-      <div>
-        <p className="font-semibold text-gray-900 text-sm leading-tight">{row.cardName}</p>
-        <p className="text-xs text-gray-400">{row.issuer}</p>
-      </div>
-    ),
-  },
-  {
-    key: 'annualFee',
-    header: 'Annual Fee',
-    sortable: true,
-    align: 'right',
-    cell: (row) => (
-      <span className={`font-medium ${row.annualFee === 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
-        {row.annualFee === 0 ? 'No fee' : `$${row.annualFee.toLocaleString()}`}
-      </span>
-    ),
-  },
-  {
-    key: 'annualRewardsEarned',
-    header: 'Rewards Earned',
-    sortable: true,
-    align: 'right',
-    cell: (row) => (
-      <span className="font-bold text-emerald-600">
-        ${row.annualRewardsEarned.toLocaleString()}
-      </span>
-    ),
-  },
-  {
-    key: 'netBenefit',
-    header: 'Net Benefit',
-    sortable: true,
-    align: 'right',
-    cell: (row) => (
-      <span
-        className={`font-bold ${
-          row.netBenefit >= 0 ? 'text-gray-900' : 'text-red-500'
-        }`}
-      >
-        {row.netBenefit >= 0 ? '+' : ''}${row.netBenefit.toLocaleString()}
-      </span>
-    ),
-  },
-  {
-    key: 'recommendation',
-    header: 'Recommendation',
-    sortable: true,
-    cell: (row) => {
-      const cfg = REC_CONFIG[row.recommendation as CardRec];
-      return <Badge status={cfg.status} label={cfg.label} />;
+function buildRouteColumns(onSetReminder: (route: SpendRoute) => void): ColumnDef<SpendRoute>[] {
+  return [
+    {
+      key: 'mccCategory',
+      header: 'MCC Category',
+      sortable: true,
+      cell: (row) => (
+        <span className="font-medium text-gray-900">{row.mccCategory}</span>
+      ),
     },
-  },
-];
+    {
+      key: 'mccCode',
+      header: 'MCC Code',
+      sortable: false,
+      cell: (row) => (
+        <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+          {row.mccCode}
+        </span>
+      ),
+    },
+    {
+      key: 'bestCard',
+      header: 'Best Card',
+      sortable: true,
+      cell: (row) => (
+        <span className="font-semibold text-brand-navy text-sm">{row.bestCard}</span>
+      ),
+    },
+    {
+      key: 'rewardRate',
+      header: 'Rate',
+      sortable: true,
+      align: 'right',
+      cell: (row) => (
+        <span className="font-bold text-emerald-600">{row.rewardRate}</span>
+      ),
+    },
+    {
+      key: 'rewardType',
+      header: 'Type',
+      sortable: true,
+    },
+    {
+      key: 'monthlySpend',
+      header: 'Monthly Spend',
+      sortable: true,
+      align: 'right',
+      cell: (row) => (
+        <span className="font-medium text-gray-800">{row.monthlySpend}</span>
+      ),
+    },
+    {
+      key: 'projectedAnnualReward',
+      header: 'Projected Annual Reward',
+      sortable: true,
+      align: 'right',
+      cell: (row) => (
+        <span className="font-bold text-gray-900">{row.projectedAnnualReward}</span>
+      ),
+    },
+    {
+      key: '_actions',
+      header: '',
+      sortable: false,
+      align: 'right',
+      cell: (row) => (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onSetReminder(row); }}
+          className="text-xs font-medium text-brand-navy hover:text-brand-navy/80
+                     bg-brand-navy/5 hover:bg-brand-navy/10
+                     px-2.5 py-1 rounded-md transition-all duration-150
+                     whitespace-nowrap"
+        >
+          Set Reminder
+        </button>
+      ),
+    },
+  ];
+}
+
+function buildCardColumns(
+  onCancel: (card: CardSummary) => void,
+  onReview: (card: CardSummary) => void,
+): ColumnDef<CardSummary>[] {
+  return [
+    {
+      key: 'cardName',
+      header: 'Card',
+      sortable: true,
+      cell: (row) => (
+        <div>
+          <p className="font-semibold text-gray-900 text-sm leading-tight">{row.cardName}</p>
+          <p className="text-xs text-gray-400">{row.issuer}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'annualFee',
+      header: 'Annual Fee',
+      sortable: true,
+      align: 'right',
+      cell: (row) => (
+        <span className={`font-medium ${row.annualFee === 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
+          {row.annualFee === 0 ? 'No fee' : `$${row.annualFee.toLocaleString()}`}
+        </span>
+      ),
+    },
+    {
+      key: 'annualRewardsEarned',
+      header: 'Rewards Earned',
+      sortable: true,
+      align: 'right',
+      cell: (row) => (
+        <span className="font-bold text-emerald-600">
+          ${row.annualRewardsEarned.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: 'netBenefit',
+      header: 'Net Benefit',
+      sortable: true,
+      align: 'right',
+      cell: (row) => (
+        <span
+          className={`font-bold ${
+            row.netBenefit >= 0 ? 'text-gray-900' : 'text-red-500'
+          }`}
+        >
+          {row.netBenefit >= 0 ? '+' : ''}${row.netBenefit.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: 'recommendation',
+      header: 'Recommendation',
+      sortable: true,
+      cell: (row) => {
+        const cfg = REC_CONFIG[row.recommendation as CardRec];
+        return <Badge status={cfg.status} label={cfg.label} />;
+      },
+    },
+    {
+      key: '_action',
+      header: '',
+      sortable: false,
+      align: 'right',
+      cell: (row) => {
+        if (row.recommendation === 'cancel') {
+          return (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onCancel(row); }}
+              className="text-xs font-medium text-red-600 hover:text-red-700
+                         bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-md
+                         transition-colors duration-150 whitespace-nowrap"
+            >
+              Cancel Card
+            </button>
+          );
+        }
+        if (row.recommendation === 'review') {
+          return (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onReview(row); }}
+              className="text-xs font-medium text-amber-700 hover:text-amber-800
+                         bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-md
+                         transition-colors duration-150 whitespace-nowrap"
+            >
+              Review
+            </button>
+          );
+        }
+        return null;
+      },
+    },
+  ];
+}
 
 // ─── KPI totals ───────────────────────────────────────────────────────────────
 
@@ -368,8 +474,102 @@ const TOTAL_MONTHLY  = 33600; // combined monthly card spend (placeholder)
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RewardsPage() {
+  // Client selector state
+  const [selectedClient, setSelectedClient] = useState<RewardsClient | null>(null);
+
+  // Action modal state
+  const [actionModal, setActionModal] = useState<{
+    isOpen: boolean;
+    type: 'cancel' | 'negotiate';
+    card: RewardsActionCard;
+  }>({
+    isOpen: false,
+    type: 'cancel',
+    card: { name: '', issuer: '', annualFee: 0, rewardsEarned: 0, netBenefit: 0 },
+  });
+
+  // Reminder toast state
+  const [reminderToast, setReminderToast] = useState<string | null>(null);
+
+  // Card summary sort state
+  const [cardSortCol, setCardSortCol] = useState<keyof CardSummary | null>(null);
+  const [cardSortDir, setCardSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const sortedCardSummaries = useMemo(() => {
+    if (!cardSortCol) return CARD_SUMMARIES;
+    return [...CARD_SUMMARIES].sort((a, b) => {
+      const va = a[cardSortCol];
+      const vb = b[cardSortCol];
+      const aStr = va == null ? '' : String(va);
+      const bStr = vb == null ? '' : String(vb);
+      const aNum = typeof va === 'number' ? va : parseFloat(aStr.replace(/[^0-9.-]/g, ''));
+      const bNum = typeof vb === 'number' ? vb : parseFloat(bStr.replace(/[^0-9.-]/g, ''));
+      const numeric = !isNaN(aNum) && !isNaN(bNum);
+      const cmp = numeric ? aNum - bNum : aStr.localeCompare(bStr);
+      return cardSortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [cardSortCol, cardSortDir]);
+
+  const handleCardSort = useCallback((col: keyof CardSummary) => {
+    setCardSortCol((prev) => {
+      if (prev === col) {
+        setCardSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return col;
+      }
+      setCardSortDir('asc');
+      return col;
+    });
+  }, []);
+
+  const openCancelModal = useCallback((card: CardSummary) => {
+    setActionModal({
+      isOpen: true,
+      type: 'cancel',
+      card: {
+        name: card.cardName,
+        issuer: card.issuer,
+        annualFee: card.annualFee,
+        rewardsEarned: card.annualRewardsEarned,
+        netBenefit: card.netBenefit,
+      },
+    });
+  }, []);
+
+  const openReviewModal = useCallback((card: CardSummary) => {
+    setActionModal({
+      isOpen: true,
+      type: 'negotiate',
+      card: {
+        name: card.cardName,
+        issuer: card.issuer,
+        annualFee: card.annualFee,
+        rewardsEarned: card.annualRewardsEarned,
+        netBenefit: card.netBenefit,
+      },
+    });
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setActionModal((prev) => ({ ...prev, isOpen: false }));
+  }, []);
+
+  const handleSetReminder = useCallback((route: SpendRoute) => {
+    setReminderToast(`Reminder set for ${route.mccCategory} routing`);
+    setTimeout(() => setReminderToast(null), 3000);
+  }, []);
+
+  const routeColumns = useMemo(() => buildRouteColumns(handleSetReminder), [handleSetReminder]);
+  const cardColumns = useMemo(() => buildCardColumns(openCancelModal, openReviewModal), [openCancelModal, openReviewModal]);
+
   return (
     <div className="space-y-8">
+      {/* ── Client selector ─────────────────────────────────── */}
+      <RewardsClientSelector
+        selectedClient={selectedClient}
+        onClientSelect={setSelectedClient}
+        onClear={() => setSelectedClient(null)}
+      />
+
       {/* ── Page header ──────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -378,8 +578,11 @@ export default function RewardsPage() {
             Spend routing recommendations and card ROI analysis
           </p>
         </div>
-        <button className="btn-accent btn flex-shrink-0">
-          <span aria-hidden="true">↓</span>
+        <button
+          className="btn-accent btn flex-shrink-0"
+          onClick={() => exportCardSummaryCSV(sortedCardSummaries)}
+        >
+          <span aria-hidden="true">&#8595;</span>
           Export Report
         </button>
       </div>
@@ -431,6 +634,12 @@ export default function RewardsPage() {
         </div>
       </section>
 
+      {/* ── Rewards trend chart ──────────────────────────────── */}
+      <RewardsTrendChart
+        data={REWARDS_TREND_PLACEHOLDER}
+        yoyDelta="+$1,240 vs last year"
+      />
+
       {/* ── Main body ────────────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
@@ -444,13 +653,20 @@ export default function RewardsPage() {
             flushBody
           >
             <DataTable<SpendRoute>
-              columns={ROUTE_COLUMNS}
+              columns={routeColumns}
               data={SPEND_ROUTES}
               rowKey="id"
               defaultPageSize={10}
               pageSizeOptions={[10, 25]}
             />
           </SectionCard>
+
+          {/* Routing opportunity gap */}
+          <RoutingOpportunityGap
+            currentYield={15712}
+            optimalYield={18400}
+            gap={2688}
+          />
 
           {/* Card ROI table */}
           <SectionCard
@@ -459,13 +675,16 @@ export default function RewardsPage() {
             flushBody
           >
             <DataTable<CardSummary>
-              columns={CARD_COLUMNS}
-              data={CARD_SUMMARIES}
+              columns={cardColumns}
+              data={sortedCardSummaries}
               rowKey="id"
               defaultPageSize={8}
               pageSizeOptions={[8, 25]}
             />
           </SectionCard>
+
+          {/* Fee renewal calendar */}
+          <FeeRenewalCalendar cards={FEE_RENEWAL_CARDS} />
         </div>
 
         {/* ── Right: summary card (1/3) ────────────────────────── */}
@@ -498,6 +717,21 @@ export default function RewardsPage() {
           </SectionCard>
         </div>
       </div>
+
+      {/* ── Action modal ────────────────────────────────────── */}
+      <RewardsActionModal
+        isOpen={actionModal.isOpen}
+        onClose={closeModal}
+        type={actionModal.type}
+        card={actionModal.card}
+      />
+
+      {/* ── Reminder toast ──────────────────────────────────── */}
+      {reminderToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] rounded-lg bg-brand-navy px-5 py-3 text-sm font-medium text-white shadow-lg animate-fade-in">
+          {reminderToast}
+        </div>
+      )}
     </div>
   );
 }
