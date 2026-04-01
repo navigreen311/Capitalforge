@@ -15,7 +15,6 @@ const ROUTE_LABELS: Record<string, string> = {
   'compliance':         'Compliance',
   'documents':          'Documents',
   'settings':           'Settings',
-  'new':                'New Client',
 };
 
 /** Parent routes that have dynamic child segments (e.g. /clients/:id) */
@@ -42,10 +41,21 @@ function Breadcrumbs() {
       {segments.map((seg, idx) => {
         const href = '/' + segments.slice(0, idx + 1).join('/');
         const parentSeg = idx > 0 ? segments[idx - 1] : null;
-        const isDynamicChild = parentSeg !== null && DYNAMIC_ROUTE_PARENTS.has(parentSeg) && !(seg in ROUTE_LABELS);
-        const label = isDynamicChild
-          ? 'Client Details'
-          : (ROUTE_LABELS[seg] ?? seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()));
+        const isDynamicChild = parentSeg !== null && DYNAMIC_ROUTE_PARENTS.has(parentSeg) && !(seg in ROUTE_LABELS) && seg !== 'new';
+
+        // Context-aware label for "new" segment
+        let label: string;
+        if (seg === 'new') {
+          const contextLabels: Record<string, string> = {
+            applications: 'New Application',
+            clients: 'New Client',
+          };
+          label = (parentSeg && contextLabels[parentSeg]) || 'New';
+        } else if (isDynamicChild) {
+          label = parentSeg === 'applications' ? 'Application Details' : 'Client Details';
+        } else {
+          label = ROUTE_LABELS[seg] ?? seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        }
         const isLast = idx === segments.length - 1;
         return (
           <React.Fragment key={href}>

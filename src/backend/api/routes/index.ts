@@ -51,6 +51,10 @@ apiRouter.use('/businesses', kybKycRouter);
 // -- Application Pipeline --
 apiRouter.use('/', applicationRouter);
 
+// -- Application Detail (per-application sub-routes) --
+import { applicationDetailRouter } from './application-detail.routes.js';
+apiRouter.use('/applications/:appId', applicationDetailRouter);
+
 // -- Suitability --
 apiRouter.use('/businesses/:id/suitability', suitabilityRouter);
 

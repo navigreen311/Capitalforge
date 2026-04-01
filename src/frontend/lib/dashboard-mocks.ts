@@ -7,6 +7,7 @@
 // ============================================================
 
 import { getClientMockData } from './client-mocks';
+import { getApplicationMockData } from './application-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -757,6 +758,12 @@ export function getMockData(endpoint: string): unknown | null {
   // Check dashboard map first
   const dashboardData = map[endpoint];
   if (dashboardData !== undefined) return dashboardData;
+
+  // Fall through to application / optimizer mocks
+  if (endpoint.includes('/applications') || endpoint.includes('/optimizer/')) {
+    const appData = getApplicationMockData(endpoint);
+    if (appData !== null) return appData;
+  }
 
   // Fall through to client detail mocks for /api/v1/clients/* paths
   if (endpoint.includes('/clients/')) {
