@@ -30,6 +30,7 @@ interface FundingRound {
   id: string;
   businessId: string;
   businessName: string;
+  roundNumber: number;
   status: RoundStatus;
   targetAmount: number;
   obtainedAmount: number;
@@ -49,6 +50,7 @@ const PLACEHOLDER_ROUNDS: FundingRound[] = [
     id: 'fr_001',
     businessId: 'biz_001',
     businessName: 'Apex Ventures LLC',
+    roundNumber: 2,
     status: 'in_progress',
     targetAmount: 150000,
     obtainedAmount: 105000,
@@ -65,6 +67,7 @@ const PLACEHOLDER_ROUNDS: FundingRound[] = [
     id: 'fr_002',
     businessId: 'biz_004',
     businessName: 'Summit Capital Group',
+    roundNumber: 1,
     status: 'in_progress',
     targetAmount: 200000,
     obtainedAmount: 60000,
@@ -79,6 +82,7 @@ const PLACEHOLDER_ROUNDS: FundingRound[] = [
     id: 'fr_003',
     businessId: 'biz_007',
     businessName: 'Pinnacle Freight Corp',
+    roundNumber: 1,
     status: 'completed',
     targetAmount: 120000,
     obtainedAmount: 120000,
@@ -94,6 +98,7 @@ const PLACEHOLDER_ROUNDS: FundingRound[] = [
     id: 'fr_004',
     businessId: 'biz_006',
     businessName: 'Crestline Medical LLC',
+    roundNumber: 1,
     status: 'planning',
     targetAmount: 80000,
     obtainedAmount: 0,
@@ -109,10 +114,10 @@ const PLACEHOLDER_ROUNDS: FundingRound[] = [
 // ---------------------------------------------------------------------------
 
 const ROUND_STATUS_CONFIG: Record<RoundStatus, { label: string; badgeClass: string; dotClass: string }> = {
-  planning:    { label: 'Planning',    badgeClass: 'bg-gray-800 text-gray-300 border-gray-600', dotClass: 'bg-gray-400' },
-  in_progress: { label: 'In Progress', badgeClass: 'bg-blue-900 text-blue-300 border-blue-700', dotClass: 'bg-blue-400' },
-  completed:   { label: 'Completed',   badgeClass: 'bg-green-900 text-green-300 border-green-700', dotClass: 'bg-green-400' },
-  cancelled:   { label: 'Cancelled',   badgeClass: 'bg-red-900 text-red-300 border-red-700', dotClass: 'bg-red-400' },
+  planning:    { label: 'Planning',    badgeClass: 'bg-gray-100 text-gray-600 border-gray-300', dotClass: 'bg-gray-400' },
+  in_progress: { label: 'In Progress', badgeClass: 'bg-blue-50 text-blue-700 border-blue-200', dotClass: 'bg-blue-500' },
+  completed:   { label: 'Completed',   badgeClass: 'bg-green-50 text-green-700 border-green-200', dotClass: 'bg-green-500' },
+  cancelled:   { label: 'Cancelled',   badgeClass: 'bg-red-50 text-red-700 border-red-200', dotClass: 'bg-red-500' },
 };
 
 function formatCurrency(n: number) {
@@ -128,23 +133,37 @@ function daysUntil(isoDate: string): number {
   return Math.max(0, Math.ceil((new Date(isoDate).getTime() - Date.now()) / 86_400_000));
 }
 
+/** Left-border color based on urgency / status. */
+function urgencyBorderClass(round: FundingRound): string {
+  const hasUrgentApr = round.applications.some((a) => daysUntil(a.aprExpiresAt) <= 15);
+  if (hasUrgentApr) return 'border-l-red-500';
+
+  const hasWarningApr = round.applications.some((a) => daysUntil(a.aprExpiresAt) <= 60);
+  if (hasWarningApr) return 'border-l-amber-400';
+
+  if (round.status === 'in_progress') return 'border-l-blue-500';
+  if (round.status === 'completed') return 'border-l-green-500';
+  if (round.status === 'planning') return 'border-l-gray-300';
+  return 'border-l-gray-300';
+}
+
 // ---------------------------------------------------------------------------
 // Components
 // ---------------------------------------------------------------------------
 
 function CompletionBar({ obtained, target }: { obtained: number; target: number }) {
   const pct = target > 0 ? Math.min((obtained / target) * 100, 100) : 0;
-  const color = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : pct >= 30 ? 'bg-yellow-500' : 'bg-gray-600';
+  const color = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : pct >= 30 ? 'bg-yellow-500' : 'bg-gray-300';
 
   return (
     <div>
       <div className="flex justify-between text-xs mb-1">
-        <span className="text-gray-400">
-          {formatCurrency(obtained)} <span className="text-gray-600">of</span> {formatCurrency(target)}
+        <span className="text-gray-500">
+          {formatCurrency(obtained)} <span className="text-gray-400">of</span> {formatCurrency(target)}
         </span>
-        <span className="font-semibold text-gray-200">{Math.round(pct)}%</span>
+        <span className="font-semibold text-gray-700">{Math.round(pct)}%</span>
       </div>
-      <div className="w-full h-2.5 rounded-full bg-gray-800 overflow-hidden">
+      <div className="w-full h-2.5 rounded-full bg-gray-100 overflow-hidden">
         <div
           className={`h-full rounded-full ${color}`}
           style={{ width: `${pct}%`, transition: 'width 0.5s ease' }}
@@ -160,7 +179,7 @@ function AprExpiryAlerts({ apps }: { apps: FundingApplication[] }) {
 
   return (
     <div className="mt-3 space-y-2">
-      <p className="text-xs text-yellow-400 font-semibold uppercase tracking-wide">APR Expiry Alerts</p>
+      <p className="text-xs text-amber-600 font-semibold uppercase tracking-wide">APR Expiry Alerts</p>
       {urgent.map((a) => (
         <AprCountdown
           key={a.id}
@@ -215,12 +234,12 @@ export default function FundingRoundsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Funding Rounds</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <h1 className="text-2xl font-bold text-gray-900">Funding Rounds</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
             {rounds.filter((r) => r.status === 'in_progress').length} active ·{' '}
-            <span className="text-green-400 font-semibold">{formatCurrency(totalObtained)}</span> total obtained
+            <span className="text-green-600 font-semibold">{formatCurrency(totalObtained)}</span> total obtained
             {expiringAprs.length > 0 && (
-              <span className="ml-2 text-red-400 font-semibold">
+              <span className="ml-2 text-red-600 font-semibold">
                 ⚠ {expiringAprs.length} APR{expiringAprs.length !== 1 ? 's' : ''} expiring &lt;30d
               </span>
             )}
@@ -230,7 +249,7 @@ export default function FundingRoundsPage() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as RoundStatus | '')}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
+            className="cf-input"
           >
             <option value="">All Rounds</option>
             <option value="planning">Planning</option>
@@ -240,7 +259,7 @@ export default function FundingRoundsPage() {
           </select>
           <button
             onClick={() => router.push('/funding-rounds/new')}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-semibold transition-colors whitespace-nowrap"
+            className="btn btn-primary whitespace-nowrap"
           >
             + New Round
           </button>
@@ -259,19 +278,28 @@ export default function FundingRoundsPage() {
             return (
               <div
                 key={round.id}
-                className="rounded-xl border border-gray-800 bg-gray-900 p-5 hover:border-gray-700 transition-colors cursor-pointer"
+                className={`rounded-xl border border-surface-border bg-white shadow-card hover:shadow-card-hover p-5 transition-shadow cursor-pointer border-l-4 ${urgencyBorderClass(round)}`}
                 onClick={() => router.push(`/funding-rounds/${round.id}`)}
               >
                 {/* Card header */}
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <p className="font-bold text-gray-100 text-base">{round.businessName}</p>
+                    <p className="font-bold text-gray-900 text-base">
+                      Round {round.roundNumber} &mdash; {round.businessName}
+                    </p>
                     <p className="text-xs text-gray-500 mt-0.5">Advisor: {round.advisorName}</p>
                   </div>
-                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${cfg.badgeClass}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${cfg.dotClass}`} />
-                    {cfg.label}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {/* Teal round badge */}
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+                      R{round.roundNumber}
+                    </span>
+                    {/* Status badge */}
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${cfg.badgeClass}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dotClass}`} />
+                      {cfg.label}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Completion bar */}
@@ -282,25 +310,25 @@ export default function FundingRoundsPage() {
                 {/* Metadata */}
                 <div className="grid grid-cols-2 gap-3 text-xs mb-3">
                   <div>
-                    <p className="text-gray-500 mb-0.5">Started</p>
-                    <p className="text-gray-300">{formatDate(round.startedAt)}</p>
+                    <p className="text-gray-400 mb-0.5">Started</p>
+                    <p className="text-gray-700">{formatDate(round.startedAt)}</p>
                   </div>
                   <div>
-                    <p className="text-gray-500 mb-0.5">Target Close</p>
-                    <p className={`font-semibold ${daysLeft < 14 && round.status === 'in_progress' ? 'text-red-400' : 'text-gray-300'}`}>
+                    <p className="text-gray-400 mb-0.5">Target Close</p>
+                    <p className={`font-semibold ${daysLeft < 14 && round.status === 'in_progress' ? 'text-red-600' : 'text-gray-700'}`}>
                       {formatDate(round.targetCloseAt)}
                       {round.status === 'in_progress' && (
-                        <span className="text-gray-500 font-normal ml-1">({daysLeft}d)</span>
+                        <span className="text-gray-400 font-normal ml-1">({daysLeft}d)</span>
                       )}
                     </p>
                   </div>
                   <div>
-                    <p className="text-gray-500 mb-0.5">Applications</p>
-                    <p className="text-gray-300">{round.applications.length}</p>
+                    <p className="text-gray-400 mb-0.5">Applications</p>
+                    <p className="text-gray-700">{round.applications.length}</p>
                   </div>
                   <div>
-                    <p className="text-gray-500 mb-0.5">Total Target</p>
-                    <p className="text-gray-300 font-semibold">{formatCurrency(round.targetAmount)}</p>
+                    <p className="text-gray-400 mb-0.5">Total Target</p>
+                    <p className="text-gray-700 font-semibold">{formatCurrency(round.targetAmount)}</p>
                   </div>
                 </div>
 
