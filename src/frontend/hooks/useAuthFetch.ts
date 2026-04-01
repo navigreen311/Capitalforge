@@ -20,6 +20,12 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
   const serializedParams = params ? JSON.stringify(params) : undefined;
 
   const fetchData = useCallback(async () => {
+    // Guard against undefined/null in URL (clientId not yet resolved)
+    if (path.includes('undefined') || path.includes('null')) {
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
