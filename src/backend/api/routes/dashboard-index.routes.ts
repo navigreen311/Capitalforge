@@ -30,7 +30,7 @@ const SUB_ROUTES: SubRoute[] = [
   { path: '/restack-opportunities',  modulePath: './dashboard-restack.routes.js',              exportName: 'dashboardRestackRouter' },
   { path: '/upcoming-payments',      modulePath: './dashboard-payments.routes.js',             exportName: 'dashboardPaymentsRouter' },
   { path: '/compliance-deadlines',   modulePath: './dashboard-compliance-deadlines.routes.js', exportName: 'dashboardComplianceDeadlinesRouter' },
-  { path: '/committee-queue',        modulePath: './deal-committee.routes.js',                 exportName: 'dealCommitteeRouter' },
+  { path: '/committee-queue',        modulePath: './dashboard-committee.routes.js',             exportName: 'dashboardCommitteeRouter' },
   { path: '/voiceforge',             modulePath: './dashboard-voiceforge.routes.js',           exportName: 'dashboardVoiceforgeRouter' },
   { path: '/events',                 modulePath: './dashboard-events.routes.js',               exportName: 'dashboardEventsRouter' },
 ];

@@ -43,7 +43,7 @@ export function ConsentAlertBanner() {
 
     async function fetchStatus() {
       try {
-        const res = await fetch('/api/v1/dashboard/consent');
+        const res = await fetch('/api/v1/dashboard/consent-status');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json: ApiResponse = await res.json();
         if (!cancelled) {

@@ -1,32 +1,24 @@
-import type { Metadata } from 'next';
-import { StatCard, SectionCard } from '@/components/ui/card';
+'use client';
+
+import { SectionCard } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeStatus } from '@/components/ui/badge';
-import { DataTable } from '@/components/ui/data-table';
-import type { ColumnDef } from '@/components/ui/data-table';
+import {
+  StatsBar,
+  ConsentAlertBanner,
+  AprExpiryPanel,
+  ActionQueue,
+  RecentApplicationsEnhanced,
+  ActiveFundingRounds,
+  UpcomingPayments,
+  DealCommitteeQueue,
+  StateDisclosureDeadlines,
+  PortfolioRiskHeatmap,
+  RestackOpportunities,
+  VoiceForgeActivity,
+} from '@/components/dashboard';
 
-export const metadata: Metadata = {
-  title: 'Dashboard',
-};
-
-// ─── Mock data (replace with real API calls via React Query) ──────────────────
-
-interface RecentApplication {
-  id: string;
-  clientName: string;
-  type: string;
-  amount: string;
-  status: BadgeStatus;
-  submitted: string;
-}
-
-const RECENT_APPLICATIONS: RecentApplication[] = [
-  { id: 'APP-0091', clientName: 'Meridian Holdings LLC',    type: 'Term Loan',       amount: '$250,000',  status: 'review',    submitted: '2026-03-30' },
-  { id: 'APP-0090', clientName: 'Apex Ventures Inc.',       type: 'SBA 7(a)',        amount: '$500,000',  status: 'pending',   submitted: '2026-03-29' },
-  { id: 'APP-0089', clientName: 'Brightline Corp',          type: 'Credit Stack',    amount: '$120,000',  status: 'approved',  submitted: '2026-03-28' },
-  { id: 'APP-0088', clientName: 'Thornwood Capital',        type: 'Equipment',       amount: '$85,000',   status: 'processing',submitted: '2026-03-27' },
-  { id: 'APP-0087', clientName: 'Norcal Transport LLC',     type: 'Line of Credit',  amount: '$200,000',  status: 'declined',  submitted: '2026-03-26' },
-];
+// ─── Activity feed mock data (retained — no replacement component) ───────────
 
 interface ActivityItem {
   id: string;
@@ -86,100 +78,6 @@ const ACTIVITY_ITEMS: ActivityItem[] = [
   },
 ];
 
-// ─── Application table columns ────────────────────────────────────────────────
-
-const APP_COLUMNS: ColumnDef<RecentApplication>[] = [
-  {
-    key: 'id',
-    header: 'App ID',
-    sortable: true,
-    cell: (row) => (
-      <span className="font-mono text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
-        {row.id}
-      </span>
-    ),
-  },
-  {
-    key: 'clientName',
-    header: 'Client',
-    sortable: true,
-    cell: (row) => (
-      <span className="font-medium text-gray-900">{row.clientName}</span>
-    ),
-  },
-  {
-    key: 'type',
-    header: 'Type',
-    sortable: true,
-  },
-  {
-    key: 'amount',
-    header: 'Amount',
-    sortable: true,
-    align: 'right',
-    cell: (row) => (
-      <span className="font-semibold text-gray-900">{row.amount}</span>
-    ),
-  },
-  {
-    key: 'status',
-    header: 'Status',
-    sortable: true,
-    cell: (row) => <Badge status={row.status} />,
-  },
-  {
-    key: 'submitted',
-    header: 'Submitted',
-    sortable: true,
-    cell: (row) => (
-      <span className="text-gray-500 text-xs">{row.submitted}</span>
-    ),
-  },
-];
-
-// ─── Quick action button ──────────────────────────────────────────────────────
-
-interface QuickActionProps {
-  icon: string;
-  label: string;
-  description: string;
-  href: string;
-  accent?: boolean;
-}
-
-function QuickAction({ icon, label, description, href, accent }: QuickActionProps) {
-  return (
-    <a
-      href={href}
-      className={`
-        flex items-start gap-3 p-4 rounded-xl border transition-all duration-150
-        ${accent
-          ? 'bg-brand-navy text-white border-brand-navy hover:bg-brand-navy-800'
-          : 'bg-white border-surface-border hover:border-gray-300 hover:shadow-card'}
-      `}
-    >
-      <span
-        className={`
-          inline-flex items-center justify-center w-10 h-10 rounded-lg
-          text-sm font-bold flex-shrink-0
-          ${accent ? 'bg-white/10 text-brand-gold' : 'bg-surface-overlay text-brand-navy'}
-        `}
-        aria-hidden="true"
-      >
-        {icon}
-      </span>
-      <div>
-        <p className={`text-sm font-semibold ${accent ? 'text-white' : 'text-gray-900'}`}>
-          {label}
-        </p>
-        <p className={`text-xs mt-0.5 ${accent ? 'text-white/60' : 'text-gray-400'}`}>
-          {description}
-        </p>
-      </div>
-    </a>
-  );
-}
-
 // ─── Compliance score ring (SVG) ─────────────────────────────────────────────
 
 function ComplianceRing({ score }: { score: number }) {
@@ -203,7 +101,7 @@ function ComplianceRing({ score }: { score: number }) {
           stroke={color}
           strokeWidth="8"
           strokeDasharray={`${filled} ${circumference - filled}`}
-          strokeDashoffset={circumference * 0.25} // start at top
+          strokeDashoffset={circumference * 0.25}
           strokeLinecap="round"
         />
         {/* Score text */}
@@ -221,7 +119,29 @@ function ComplianceRing({ score }: { score: number }) {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Compliance row helper ───────────────────────────────────────────────────
+
+function ComplianceRow({
+  label,
+  status,
+  count,
+}: {
+  label: string;
+  status: BadgeStatus;
+  count: number;
+}) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-gray-600">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className="font-semibold text-gray-900">{count}</span>
+        <Badge status={status} size="sm" />
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const today = new Date().toLocaleDateString('en-US', {
@@ -245,114 +165,29 @@ export default function DashboardPage() {
         </a>
       </div>
 
-      {/* ── KPI Summary Cards ────────────────────────────── */}
-      <section aria-labelledby="kpi-heading">
-        <h2 id="kpi-heading" className="sr-only">Key Performance Indicators</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatCard
-            title="Active Clients"
-            value="148"
-            trendLabel="+6 this month"
-            trendDirection="up"
-            icon="CL"
-            iconBg="bg-blue-50"
-            iconColor="text-blue-700"
-            subtitle="vs. 142 last month"
-          />
-          <StatCard
-            title="Pending Applications"
-            value="23"
-            trendLabel="+4 since Monday"
-            trendDirection="up"
-            icon="AP"
-            iconBg="bg-amber-50"
-            iconColor="text-amber-700"
-            subtitle="7 need action today"
-          />
-          <StatCard
-            title="Total Funding Deployed"
-            value="$14.2M"
-            trendLabel="+$1.1M this quarter"
-            trendDirection="up"
-            icon="FR"
-            iconBg="bg-emerald-50"
-            iconColor="text-emerald-700"
-            subtitle="YTD across all rounds"
-          />
-          <StatCard
-            title="Avg. Approval Rate"
-            value="68%"
-            trendLabel="-2pts vs last quarter"
-            trendDirection="down"
-            icon="CI"
-            iconBg="bg-purple-50"
-            iconColor="text-purple-700"
-            subtitle="industry avg: 62%"
-          />
-        </div>
-      </section>
+      {/* ── Full-width: StatsBar (5 KPI cards with sparklines) ── */}
+      <StatsBar />
+
+      {/* ── Full-width: Conditional banners ──────────────── */}
+      <ConsentAlertBanner />
+      <AprExpiryPanel />
 
       {/* ── Main body — 2-col grid ───────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-        {/* ── Left: Recent Applications (2/3 width) ─────── */}
+        {/* ── Left column (2/3 width) ─────────────────────── */}
         <div className="xl:col-span-2 space-y-6">
-          <SectionCard
-            title="Recent Applications"
-            subtitle="Latest 5 submissions across all clients"
-            flushBody
-            action={
-              <a href="/applications" className="btn-outline btn btn-sm">
-                View all
-              </a>
-            }
-          >
-            <DataTable<RecentApplication>
-              columns={APP_COLUMNS}
-              data={RECENT_APPLICATIONS}
-              rowKey="id"
-              defaultPageSize={5}
-              pageSizeOptions={[5, 10, 25]}
-            />
-          </SectionCard>
-
-          {/* ── Quick Actions ─────────────────────────────── */}
-          <section aria-labelledby="quick-actions-heading">
-            <h2 id="quick-actions-heading" className="cf-section-title">Quick Actions</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <QuickAction
-                icon="AP"
-                label="New Application"
-                description="Submit a funding application for a client"
-                href="/applications/new"
-                accent
-              />
-              <QuickAction
-                icon="CL"
-                label="Add Client"
-                description="Onboard a new business entity"
-                href="/clients/new"
-              />
-              <QuickAction
-                icon="CI"
-                label="Pull Credit Report"
-                description="Request bureau data for a client"
-                href="/credit-intelligence/pull"
-              />
-              <QuickAction
-                icon="DC"
-                label="Export Dossier"
-                description="Generate a client funding package"
-                href="/documents/export"
-              />
-            </div>
-          </section>
+          <ActionQueue />
+          <RecentApplicationsEnhanced />
+          <ActiveFundingRounds />
+          <UpcomingPayments />
+          <DealCommitteeQueue />
         </div>
 
-        {/* ── Right: Activity + Compliance (1/3 width) ──── */}
+        {/* ── Right column (1/3 width) ────────────────────── */}
         <div className="space-y-6">
 
-          {/* Compliance score */}
+          {/* Compliance Health panel */}
           <SectionCard
             title="Compliance Health"
             subtitle="Aggregate score across active clients"
@@ -372,7 +207,15 @@ export default function DashboardPage() {
                 Open Compliance Center
               </a>
             </div>
+            {/* State disclosure deadlines — embedded below compliance overview */}
+            <div className="mt-4 border-t border-surface-border pt-4">
+              <StateDisclosureDeadlines />
+            </div>
           </SectionCard>
+
+          <PortfolioRiskHeatmap />
+          <RestackOpportunities />
+          <VoiceForgeActivity />
 
           {/* Activity feed */}
           <SectionCard
@@ -407,28 +250,6 @@ export default function DashboardPage() {
             </div>
           </SectionCard>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Compliance row helper ────────────────────────────────────────────────────
-
-function ComplianceRow({
-  label,
-  status,
-  count,
-}: {
-  label: string;
-  status: BadgeStatus;
-  count: number;
-}) {
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-gray-600">{label}</span>
-      <div className="flex items-center gap-2">
-        <span className="font-semibold text-gray-900">{count}</span>
-        <Badge status={status} size="sm" />
       </div>
     </div>
   );

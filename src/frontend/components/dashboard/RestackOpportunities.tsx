@@ -180,7 +180,7 @@ export function RestackOpportunities() {
 
     async function fetchOpportunities() {
       try {
-        const res = await fetch('/api/v1/dashboard/restack');
+        const res = await fetch('/api/v1/dashboard/restack-opportunities');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json: RestackApiResponse = await res.json();
         if (!cancelled) {

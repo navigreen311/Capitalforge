@@ -27,6 +27,14 @@ apiRouter.use('/health', healthRouter);
 // -- Auth (public) --
 apiRouter.use('/auth', authRouter);
 
+// -- Tenant lookup (public — needed for login flow) --
+import { tenantLookupRouter } from './tenant-lookup.routes.js';
+apiRouter.use('/tenants', tenantLookupRouter);
+
+// -- Dashboard v1 (aggregates all dashboard sub-routes) --
+import { dashboardV1Router } from './dashboard-index.routes.js';
+apiRouter.use('/v1/dashboard', dashboardV1Router);
+
 // -- Onboarding --
 apiRouter.use('/businesses', onboardingRouter);
 

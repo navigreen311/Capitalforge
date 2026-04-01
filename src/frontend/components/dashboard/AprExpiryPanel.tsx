@@ -136,7 +136,7 @@ export function AprExpiryPanel() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch('/api/v1/dashboard/apr-expiry');
+        const res = await fetch('/api/v1/dashboard/apr-expiry-alerts');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (!cancelled) {

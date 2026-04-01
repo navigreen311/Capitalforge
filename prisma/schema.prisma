@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -1105,7 +1105,7 @@ model BackupRecord {
   tenantId            String?
   backupType          String
   status              String   @default("completed")
-  sizeBytes           BigInt?
+  sizeBytes           Int?
   storageLocation     String?
   retentionDays       Int      @default(90)
   expiresAt           DateTime?

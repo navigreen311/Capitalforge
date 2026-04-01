@@ -338,7 +338,7 @@ export function PortfolioRiskHeatmap() {
     async function fetchMatrix() {
       try {
         setLoading(true);
-        const res = await fetch('/api/v1/dashboard/risk-matrix');
+        const res = await fetch('/api/v1/dashboard/portfolio-risk-matrix');
         const json = await res.json();
 
         if (!cancelled) {

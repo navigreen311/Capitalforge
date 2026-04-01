@@ -145,7 +145,7 @@ export function DealCommitteeQueue() {
 
     async function fetchQueue() {
       try {
-        const res = await fetch('/api/v1/dashboard/committee');
+        const res = await fetch('/api/v1/dashboard/committee-queue');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json: ApiResponse = await res.json();
         if (!cancelled) {

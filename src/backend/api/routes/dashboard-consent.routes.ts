@@ -1,7 +1,7 @@
 // ============================================================
 // CapitalForge — Dashboard Consent Routes
 //
-// Mounts under: /api/v1/dashboard/consent
+// Mounts under: /api/v1/dashboard/consent-status
 //
 // Routes:
 //   GET /  — Consent status summary (missing acknowledgments,
