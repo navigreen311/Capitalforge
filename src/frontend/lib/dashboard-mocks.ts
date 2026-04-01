@@ -12,6 +12,7 @@ import { getFundingRoundMockData } from './funding-round-mocks';
 import { getOptimizerMockData } from './optimizer-mocks';
 import { getDeclineMockData } from './decline-mocks';
 import { getFinancialMockData } from './financial-mocks';
+import { getCardBenefitsStmtBillingMockData } from './card-benefits-statements-billing-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -791,6 +792,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/applications') || endpoint.includes('/optimizer/')) {
     const appData = getApplicationMockData(endpoint);
     if (appData !== null) return appData;
+  }
+
+  // Fall through to card benefits, statements, and billing mocks
+  if (endpoint.includes('/card-benefits') || endpoint.includes('/statements') || endpoint.includes('/billing')) {
+    const cbsbData = getCardBenefitsStmtBillingMockData(endpoint);
+    if (cbsbData !== null) return cbsbData;
   }
 
   // Fall through to client detail mocks for /api/v1/clients/* paths
