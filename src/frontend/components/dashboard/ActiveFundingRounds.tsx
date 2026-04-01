@@ -6,7 +6,8 @@
 // status badges. Shows 5 rows with "View all" overflow link.
 // ============================================================
 
-import { useEffect, useState } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from './DashboardErrorState';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -120,36 +121,7 @@ function ProgressBar({ pct }: { pct: number }) {
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export function ActiveFundingRounds() {
-  const [data, setData] = useState<ActiveRoundsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      try {
-        const res = await fetch('/api/v1/dashboard/active-rounds');
-        const json = await res.json();
-        if (!cancelled) {
-          if (json.success) {
-            setData(json.data);
-          } else {
-            setError(json.error?.message ?? 'Failed to load active rounds');
-          }
-        }
-      } catch {
-        if (!cancelled) setError('Network error loading active rounds');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchData();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data, isLoading: loading, error, refetch } = useAuthFetch<ActiveRoundsData>('/api/v1/dashboard/active-rounds');
 
   const VISIBLE_ROWS = 5;
 
@@ -171,9 +143,7 @@ export function ActiveFundingRounds() {
       {loading && <LoadingSkeleton />}
 
       {/* Error state */}
-      {error && (
-        <p className="text-sm text-red-500 py-4 text-center">{error}</p>
-      )}
+      {error && <DashboardErrorState error={error} onRetry={refetch} />}
 
       {/* Empty state */}
       {!loading && !error && data && data.rounds.length === 0 && (
