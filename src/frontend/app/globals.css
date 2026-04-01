@@ -274,3 +274,16 @@
            hover:bg-surface-overlay hover:text-gray-900 transition-all duration-150;
   }
 }
+
+/* ────────────────────────────────────────────────────────────
+   Nav badge pop-in animation
+──────────────────────────────────────────────────────────── */
+@keyframes badge-pop-in {
+  0%   { opacity: 0; transform: scale(0.5); }
+  70%  { transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.animate-badge-pop-in {
+  animation: badge-pop-in 0.25s ease-out forwards;
+}
