@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -122,45 +124,20 @@ function LoadingSkeleton() {
 // ── Main Component ───────────────────────────────────────────
 
 export function AprExpiryPanel() {
-  const [data, setData] = useState<AprExpiryData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, refetch } = useAuthFetch<AprExpiryData>('/api/v1/dashboard/apr-expiry-alerts');
   const [activeTab, setActiveTab] = useState<AlertTier>('critical');
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
-
-  // Fetch alerts
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchAlerts() {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch('/api/v1/dashboard/apr-expiry-alerts');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (!cancelled) {
-          setData(json.data);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load APR alerts');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchAlerts();
-    return () => { cancelled = true; };
-  }, []);
 
   // Dismiss handler — logs apr_expiry.acknowledged event
   const handleDismiss = useCallback(async (alert: AprExpiryAlert) => {
     try {
+      const token = localStorage.getItem('cf_access_token');
       await fetch('/api/v1/events', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           eventType: 'apr_expiry.acknowledged',
           aggregateType: 'CardApplication',
@@ -179,23 +156,11 @@ export function AprExpiryPanel() {
   }, []);
 
   // Loading state
-  if (loading) return <LoadingSkeleton />;
+  if (isLoading) return <LoadingSkeleton />;
 
   // Error state
   if (error) {
-    return (
-      <div
-        style={{
-          borderRadius: 8,
-          border: `1px solid ${COLORS.red}`,
-          padding: 16,
-          color: COLORS.red,
-          fontSize: 14,
-        }}
-      >
-        Failed to load APR expiry alerts: {error}
-      </div>
-    );
+    return <DashboardErrorState error={error} onRetry={refetch} />;
   }
 
   if (!data) return null;
