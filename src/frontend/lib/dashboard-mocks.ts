@@ -6,6 +6,8 @@
 // Activate via NEXT_PUBLIC_USE_MOCK_DATA=true in .env.local
 // ============================================================
 
+import { getClientMockData } from './client-mocks.js';
+
 // ── Client constants ───────────────────────────────────────────────────────
 
 const CLIENTS = {
@@ -751,5 +753,15 @@ export function getMockData(endpoint: string): unknown | null {
     '/api/v1/dashboard/nav-counts': MOCK_NAV_COUNTS,
     '/api/v1/dashboard/recent-applications': MOCK_RECENT_APPLICATIONS,
   };
-  return map[endpoint] ?? null;
+
+  // Check dashboard map first
+  const dashboardData = map[endpoint];
+  if (dashboardData !== undefined) return dashboardData;
+
+  // Fall through to client detail mocks for /api/v1/clients/* paths
+  if (endpoint.includes('/clients/')) {
+    return getClientMockData(endpoint);
+  }
+
+  return null;
 }
