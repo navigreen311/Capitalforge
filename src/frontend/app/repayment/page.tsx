@@ -4,22 +4,35 @@
 // /repayment — Repayment Command Center
 //
 // Sections:
-//   1. Summary stats (total balance, monthly payment, cards, savings)
-//   2. Interest shock alerts (cards near promo expiry)
-//   3. Repayment strategy toggle (avalanche vs snowball)
-//   4. Active repayment plans table with payoff progress bars
-//   5. Payment calendar with upcoming due dates
+//   1. Client selector
+//   2. Summary stats (total balance, monthly payment, cards, savings)
+//   3. Interest shock alerts (cards near promo expiry) + actions
+//   4. Repayment strategy toggle (avalanche vs snowball)
+//   5. Active repayment plans table with payoff progress bars
+//   6. Method comparison panel (avalanche vs snowball side-by-side)
+//   7. Payment calendar with upcoming due dates
+//   8. Card detail drawer + balance transfer panel (modals)
 // ============================================================
 
 import { useState, useEffect } from 'react';
 import PaymentCalendar, { PLACEHOLDER_PAYMENTS } from '../../components/modules/payment-calendar';
 import InterestShockAlert, { PLACEHOLDER_PROMO_CARDS } from '../../components/modules/interest-shock-alert';
+import {
+  RepaymentClientSelector,
+  RepaymentCardDetailDrawer,
+  BalanceTransferPanel,
+  MethodComparisonPanel,
+  InterestShockAlertActions,
+} from '@/components/repayment';
+import type { RepaymentClient, RepaymentCardDetailPlan } from '@/components/repayment';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type Strategy = 'avalanche' | 'snowball';
+
+type AutopayStatus = 'confirmed' | 'not_set' | 'failed';
 
 interface RepaymentPlan {
   id: string;
@@ -34,6 +47,7 @@ interface RepaymentPlan {
   utilization: number; // 0–100
   status: 'on_track' | 'behind' | 'at_risk';
   promoExpiry?: string; // ISO date if promo rate
+  autopay: AutopayStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +68,7 @@ const PLACEHOLDER_PLANS: RepaymentPlan[] = [
     utilization: 74,
     status: 'at_risk',
     promoExpiry: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    autopay: 'confirmed',
   },
   {
     id: 'rp_002',
@@ -68,6 +83,7 @@ const PLACEHOLDER_PLANS: RepaymentPlan[] = [
     utilization: 61,
     status: 'behind',
     promoExpiry: new Date(Date.now() + 18 * 86_400_000).toISOString(),
+    autopay: 'not_set',
   },
   {
     id: 'rp_003',
@@ -81,6 +97,7 @@ const PLACEHOLDER_PLANS: RepaymentPlan[] = [
     payoffMonths: 11,
     utilization: 58,
     status: 'on_track',
+    autopay: 'confirmed',
   },
   {
     id: 'rp_004',
@@ -94,6 +111,7 @@ const PLACEHOLDER_PLANS: RepaymentPlan[] = [
     payoffMonths: 10,
     utilization: 32,
     status: 'on_track',
+    autopay: 'not_set',
   },
   {
     id: 'rp_005',
@@ -107,6 +125,7 @@ const PLACEHOLDER_PLANS: RepaymentPlan[] = [
     payoffMonths: 9,
     utilization: 14,
     status: 'on_track',
+    autopay: 'confirmed',
   },
   {
     id: 'rp_006',
@@ -120,8 +139,16 @@ const PLACEHOLDER_PLANS: RepaymentPlan[] = [
     payoffMonths: 10,
     utilization: 35,
     status: 'on_track',
+    autopay: 'failed',
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Placeholder comparison data for MethodComparisonPanel
+// ---------------------------------------------------------------------------
+
+const AVALANCHE_STATS = { totalInterest: 5_820, months: 11, savesVsMinimum: 3_140 };
+const SNOWBALL_STATS  = { totalInterest: 6_450, months: 12, savesVsMinimum: 2_510 };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,6 +162,12 @@ const STATUS_STYLES: Record<RepaymentPlan['status'], { bg: string; border: strin
   on_track: { bg: 'bg-green-900/40',  border: 'border-green-700',  text: 'text-green-300',  label: 'On Track' },
   behind:   { bg: 'bg-yellow-900/40', border: 'border-yellow-700', text: 'text-yellow-300', label: 'Behind'   },
   at_risk:  { bg: 'bg-red-900/40',    border: 'border-red-700',    text: 'text-red-300',    label: 'At Risk'  },
+};
+
+const AUTOPAY_DISPLAY: Record<AutopayStatus, { icon: string; text: string; className: string }> = {
+  confirmed: { icon: '\u2705', text: 'Confirmed', className: 'text-green-400' },
+  not_set:   { icon: '\u26A0\uFE0F', text: 'Not Set', className: 'text-yellow-400' },
+  failed:    { icon: '\u274C', text: 'Failed', className: 'text-red-400' },
 };
 
 function utilizationColor(pct: number): string {
@@ -156,6 +189,29 @@ function sortByStrategy(plans: RepaymentPlan[], strategy: Strategy): RepaymentPl
       ? b.apr - a.apr          // highest APR first
       : a.balance - b.balance  // lowest balance first
   );
+}
+
+/** Map a RepaymentPlan to the shape the drawer expects */
+function toDrawerPlan(plan: RepaymentPlan): RepaymentCardDetailPlan {
+  const paidPct = Math.round(((plan.creditLimit - plan.balance) / plan.creditLimit) * 100);
+  return {
+    id: plan.id,
+    card: plan.cardName,
+    issuer: plan.issuer,
+    balance: plan.balance,
+    apr: plan.apr,
+    monthlyPayment: plan.allocatedPayment,
+    minPayment: plan.minPayment,
+    payoffProgressPct: paidPct,
+    etaMonths: plan.payoffMonths,
+    status: plan.status,
+    autopay: plan.autopay,
+  };
+}
+
+/** Check if a plan has an expired promo */
+function isPromoExpired(plan: RepaymentPlan): boolean {
+  return !!plan.promoExpiry && new Date(plan.promoExpiry) < new Date();
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +236,18 @@ export default function RepaymentPage() {
   const [strategy, setStrategy] = useState<Strategy>('avalanche');
   const [plans, setPlans] = useState<RepaymentPlan[]>(PLACEHOLDER_PLANS);
 
+  // Client selector state
+  const [selectedClient, setSelectedClient] = useState<RepaymentClient | null>(null);
+
+  // Card detail drawer state
+  const [selectedPlan, setSelectedPlan] = useState<RepaymentPlan | null>(null);
+
+  // Balance transfer panel state
+  const [transferPlan, setTransferPlan] = useState<RepaymentPlan | null>(null);
+
+  // Calendar month navigation state
+  const [calendarMonth] = useState<Date>(new Date());
+
   useEffect(() => {
     // Future: fetch from API
   }, []);
@@ -196,6 +264,13 @@ export default function RepaymentPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-6">
 
+      {/* Client selector — top of page */}
+      <RepaymentClientSelector
+        selectedClient={selectedClient}
+        onClientSelect={setSelectedClient}
+        onClear={() => setSelectedClient(null)}
+      />
+
       {/* Page header */}
       <div className="flex items-start justify-between">
         <div>
@@ -205,9 +280,16 @@ export default function RepaymentPage() {
           </p>
         </div>
         {atRiskCount > 0 && (
-          <div className="flex items-center gap-2 bg-red-900/40 border border-red-700 rounded-lg px-3 py-2">
-            <span className="text-red-400 text-sm font-semibold">⚠ {atRiskCount} card{atRiskCount > 1 ? 's' : ''} at risk</span>
-          </div>
+          <button
+            onClick={() => {
+              document.getElementById('interest-shock-alerts')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="flex items-center gap-2 bg-red-900/40 border border-red-700 rounded-lg px-3 py-2 cursor-pointer hover:bg-red-900/60 transition-colors"
+          >
+            <span className="text-red-400 text-sm font-semibold">
+              ⚠ {atRiskCount} card{atRiskCount > 1 ? 's' : ''} at risk
+            </span>
+          </button>
         )}
       </div>
 
@@ -240,11 +322,53 @@ export default function RepaymentPage() {
       </div>
 
       {/* Interest shock alerts */}
-      <InterestShockAlert
-        cards={PLACEHOLDER_PROMO_CARDS}
-        minSeverity="warning"
-        compact={false}
-      />
+      <div id="interest-shock-alerts">
+        <InterestShockAlert
+          cards={PLACEHOLDER_PROMO_CARDS}
+          minSeverity="warning"
+          compact={false}
+        />
+
+        {/* Interest shock alert actions — rendered below each alert card */}
+        <div className="grid gap-4 sm:grid-cols-2 mt-4">
+          {PLACEHOLDER_PROMO_CARDS.map((card) => {
+            const days = Math.ceil((new Date(card.promoExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            // Only show actions for cards at warning or critical severity
+            if (days > 60) return null;
+            return (
+              <div
+                key={card.id}
+                className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3"
+              >
+                <p className="text-xs text-gray-400 mb-2">
+                  Actions for <span className="text-gray-200 font-medium">{card.cardName}</span>
+                </p>
+                <InterestShockAlertActions
+                  clientId={selectedClient?.id ?? 'unknown'}
+                  card={card.cardName}
+                  issuer={card.issuer}
+                  transferEligible={days <= 30}
+                  onContactClient={() => {
+                    // Future: open contact modal
+                  }}
+                  onViewPlan={() => {
+                    const matchingPlan = plans.find(
+                      (p) => p.cardName === card.cardName && p.issuer === card.issuer,
+                    );
+                    if (matchingPlan) setSelectedPlan(matchingPlan);
+                  }}
+                  onExploreTransfer={() => {
+                    const matchingPlan = plans.find(
+                      (p) => p.cardName === card.cardName && p.issuer === card.issuer,
+                    );
+                    if (matchingPlan) setTransferPlan(matchingPlan);
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Strategy toggle + repayment table */}
       <div className="rounded-xl border border-gray-800 bg-[#0A1628] overflow-hidden">
@@ -299,17 +423,23 @@ export default function RepaymentPage() {
                 <th className="text-left px-4 py-3 font-semibold min-w-[140px]">Payoff Progress</th>
                 <th className="text-left px-4 py-3 font-semibold min-w-[140px]">Utilization</th>
                 <th className="text-center px-4 py-3 font-semibold">ETA</th>
+                <th className="text-center px-4 py-3 font-semibold">Autopay</th>
                 <th className="text-center px-4 py-3 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {sorted.map((plan, idx) => {
                 const s = STATUS_STYLES[plan.status];
+                const ap = AUTOPAY_DISPLAY[plan.autopay];
                 // Payoff progress: what % of original credit limit has been freed up
                 const paidPct = Math.round(((plan.creditLimit - plan.balance) / plan.creditLimit) * 100);
 
                 return (
-                  <tr key={plan.id} className="bg-[#0A1628] hover:bg-gray-900/50 transition-colors group">
+                  <tr
+                    key={plan.id}
+                    className="bg-[#0A1628] hover:bg-gray-900/50 transition-colors group cursor-pointer"
+                    onClick={() => setSelectedPlan(plan)}
+                  >
                     {/* Priority rank */}
                     <td className="px-5 py-3">
                       <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold
@@ -325,11 +455,24 @@ export default function RepaymentPage() {
                       <p className="font-medium text-gray-100">{plan.cardName}</p>
                       <p className="text-xs text-gray-500">{plan.issuer}</p>
                       {plan.promoExpiry && (
-                        <p className={`text-[10px] font-semibold mt-0.5 ${
-                          new Date(plan.promoExpiry) < new Date() ? 'text-red-400' : 'text-yellow-400'
-                        }`}>
-                          {new Date(plan.promoExpiry) < new Date() ? 'Promo expired' : 'Promo active'}
-                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className={`text-[10px] font-semibold ${
+                            new Date(plan.promoExpiry) < new Date() ? 'text-red-400' : 'text-yellow-400'
+                          }`}>
+                            {new Date(plan.promoExpiry) < new Date() ? 'Promo expired' : 'Promo active'}
+                          </p>
+                          {isPromoExpired(plan) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTransferPlan(plan);
+                              }}
+                              className="text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 transition-colors underline"
+                            >
+                              Explore Transfer &rarr;
+                            </button>
+                          )}
+                        </div>
                       )}
                     </td>
 
@@ -389,6 +532,13 @@ export default function RepaymentPage() {
                       <span className="text-gray-200 font-medium">{plan.payoffMonths}mo</span>
                     </td>
 
+                    {/* Autopay */}
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-semibold ${ap.className}`}>
+                        {ap.icon} {ap.text}
+                      </span>
+                    </td>
+
                     {/* Status badge */}
                     <td className="px-4 py-3 text-center">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${s.bg} ${s.border} ${s.text}`}>
@@ -415,8 +565,34 @@ export default function RepaymentPage() {
         </div>
       </div>
 
+      {/* Method comparison panel — below the plans table */}
+      <MethodComparisonPanel
+        method={strategy}
+        avalanche={AVALANCHE_STATS}
+        snowball={SNOWBALL_STATS}
+      />
+
       {/* Payment calendar */}
       <PaymentCalendar payments={PLACEHOLDER_PAYMENTS} />
+
+      {/* Card detail drawer (slide-over) */}
+      <RepaymentCardDetailDrawer
+        plan={selectedPlan ? toDrawerPlan(selectedPlan) : null}
+        isOpen={selectedPlan !== null}
+        onClose={() => setSelectedPlan(null)}
+      />
+
+      {/* Balance transfer panel (modal) */}
+      {transferPlan && (
+        <BalanceTransferPanel
+          card={transferPlan.cardName}
+          issuer={transferPlan.issuer}
+          balance={transferPlan.balance}
+          currentApr={transferPlan.apr}
+          isOpen={transferPlan !== null}
+          onClose={() => setTransferPlan(null)}
+        />
+      )}
 
     </div>
   );
