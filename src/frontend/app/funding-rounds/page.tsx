@@ -211,7 +211,7 @@ export default function FundingRoundsPage() {
     .filter((a) => daysUntil(a.aprExpiresAt) < 30);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
