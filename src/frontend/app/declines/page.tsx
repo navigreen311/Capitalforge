@@ -10,7 +10,8 @@
 //   4. Adverse action notice parser upload
 // ============================================================
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -331,10 +332,24 @@ function AdverseActionParser() {
             {parseResult}
           </pre>
           <div className="flex gap-2 mt-3">
-            <button className="px-3 py-1.5 rounded-lg bg-blue-800 hover:bg-blue-700 text-xs font-semibold text-blue-200 transition-colors">
+            <button
+              onClick={() => alert('Parsed data added to decline records.')}
+              className="px-3 py-1.5 rounded-lg bg-blue-800 hover:bg-blue-700 text-xs font-semibold text-blue-200 transition-colors"
+            >
               Add to Decline Record
             </button>
-            <button className="px-3 py-1.5 rounded-lg border border-gray-700 hover:bg-gray-800 text-xs text-gray-400 transition-colors">
+            <button
+              onClick={() => {
+                const blob = new Blob([parseResult ?? ''], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `adverse-action-${fileName?.replace(/\.[^.]+$/, '') ?? 'parsed'}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="px-3 py-1.5 rounded-lg border border-gray-700 hover:bg-gray-800 text-xs text-gray-400 transition-colors"
+            >
               Export JSON
             </button>
           </div>
@@ -349,10 +364,25 @@ function AdverseActionParser() {
 // ---------------------------------------------------------------------------
 
 export default function DeclinesPage() {
+  const router = useRouter();
   const [selectedRecord, setSelectedRecord] = useState<DeclineRecord | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [reasonFilter, setReasonFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const handleLogDecline = () => {
+    showToast('Log Decline form coming soon — use the Applications pipeline to track new declines.');
+  };
+
+  const handleReapply = (item: ReapplyItem) => {
+    router.push(`/applications/new?issuer=${encodeURIComponent(item.issuer)}&card=${encodeURIComponent(item.cardProduct)}`);
+  };
 
   const filteredDeclines = DECLINE_RECORDS.filter((d) => {
     const matchStatus = statusFilter === 'all' || d.reconStatus === statusFilter;
@@ -372,6 +402,13 @@ export default function DeclinesPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-8">
 
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-6 right-6 z-50 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white shadow-lg">
+          {toast}
+        </div>
+      )}
+
       {/* ── Page header ──────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -380,7 +417,10 @@ export default function DeclinesPage() {
             {totalDeclines} total declines · {inReview} in recon review · {reconApproved} reversed · {eligibleNow} eligible to reapply
           </p>
         </div>
-        <button className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 text-sm font-semibold text-white transition-colors">
+        <button
+          onClick={handleLogDecline}
+          className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 text-sm font-semibold text-white transition-colors"
+        >
           + Log Decline
         </button>
       </div>
@@ -586,7 +626,10 @@ export default function DeclinesPage() {
 
                   {/* Reapply button */}
                   {r.eligible && (
-                    <button className="flex-shrink-0 px-2.5 py-1 rounded bg-green-900 hover:bg-green-800 text-green-300 text-xs font-semibold border border-green-700 transition-colors">
+                    <button
+                      onClick={() => handleReapply(r)}
+                      className="flex-shrink-0 px-2.5 py-1 rounded bg-green-900 hover:bg-green-800 text-green-300 text-xs font-semibold border border-green-700 transition-colors"
+                    >
                       Reapply
                     </button>
                   )}
