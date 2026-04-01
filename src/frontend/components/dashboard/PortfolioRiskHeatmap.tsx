@@ -7,6 +7,9 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
+import { SectionCard } from '@/components/ui/card';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,8 +66,8 @@ const SEVERITIES: { key: Severity; label: string }[] = [
 const SEVERITY_COLORS: Record<Severity, string> = {
   low: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
   medium: 'bg-amber-50 text-amber-700 hover:bg-amber-100',
-  high: 'bg-orange-50 text-orange-700 hover:bg-orange-100',
-  critical: 'bg-red-50 text-red-700 hover:bg-red-100',
+  high: 'bg-red-50 text-red-700 hover:bg-red-100',
+  critical: 'bg-red-100 text-red-800 hover:bg-red-200',
 };
 
 const ZERO_CELL = 'bg-gray-50 text-gray-400';
@@ -72,8 +75,8 @@ const ZERO_CELL = 'bg-gray-50 text-gray-400';
 const SEVERITY_HEADER_COLORS: Record<Severity, string> = {
   low: 'text-emerald-600',
   medium: 'text-amber-600',
-  high: 'text-orange-600',
-  critical: 'text-red-600',
+  high: 'text-red-600',
+  critical: 'text-red-700',
 };
 
 // ---------------------------------------------------------------------------
@@ -164,13 +167,41 @@ function SlideOver({
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Escape key listener
+  // Focus trap + Escape key listener
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+
+      // Focus trap: Tab cycling within the panel
+      if (e.key === 'Tab' && panelRef.current) {
+        const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+          'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     }
+
     document.addEventListener('keydown', handleKeyDown);
+
+    // Focus the close button on open
+    closeButtonRef.current?.focus();
+
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
@@ -216,6 +247,7 @@ function SlideOver({
             </p>
           </div>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
             className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
             aria-label="Close panel"
@@ -249,12 +281,6 @@ function SlideOver({
                     >
                       Contact
                     </a>
-                    <a
-                      href={`/clients/${client.id}?action=flag`}
-                      className="text-xs font-medium text-orange-600 hover:text-orange-700 px-2 py-1 rounded bg-orange-50 hover:bg-orange-100 transition-colors"
-                    >
-                      Flag
-                    </a>
                   </div>
                 </div>
               ))
@@ -263,10 +289,7 @@ function SlideOver({
                   key={id}
                   className="p-4 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
                 >
-                  <p className="font-medium text-gray-900">
-                    {/* Name not available for non-critical; show ID */}
-                    Client
-                  </p>
+                  <p className="font-medium text-gray-900">Client</p>
                   <p className="text-sm text-gray-500 mt-1 font-mono text-xs truncate">
                     {id}
                   </p>
@@ -283,12 +306,6 @@ function SlideOver({
                     >
                       Contact
                     </a>
-                    <a
-                      href={`/clients/${id}?action=flag`}
-                      className="text-xs font-medium text-orange-600 hover:text-orange-700 px-2 py-1 rounded bg-orange-50 hover:bg-orange-100 transition-colors"
-                    >
-                      Flag
-                    </a>
                   </div>
                 </div>
               ))}
@@ -299,25 +316,44 @@ function SlideOver({
 }
 
 // ---------------------------------------------------------------------------
+// Avatar initials helper
+// ---------------------------------------------------------------------------
+
+function getInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+const AVATAR_BG = [
+  'bg-red-200 text-red-800',
+  'bg-orange-200 text-orange-800',
+  'bg-amber-200 text-amber-800',
+];
+
+// ---------------------------------------------------------------------------
 // Loading skeleton
 // ---------------------------------------------------------------------------
 
 function HeatmapSkeleton() {
   return (
-    <div className="bg-white rounded-xl border border-surface-border shadow-card p-6 animate-pulse">
-      <div className="h-6 w-56 bg-gray-200 rounded mb-6" />
-      <div className="space-y-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="flex gap-3">
-            <div className="h-10 w-36 bg-gray-100 rounded" />
-            <div className="h-10 flex-1 bg-gray-100 rounded" />
-            <div className="h-10 flex-1 bg-gray-100 rounded" />
-            <div className="h-10 flex-1 bg-gray-100 rounded" />
-            <div className="h-10 flex-1 bg-gray-100 rounded" />
-          </div>
-        ))}
+    <SectionCard title="Portfolio Risk">
+      <div className="animate-pulse">
+        <div className="space-y-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex gap-3">
+              <div className="h-10 w-36 bg-gray-100 rounded" />
+              <div className="h-10 flex-1 bg-gray-100 rounded" />
+              <div className="h-10 flex-1 bg-gray-100 rounded" />
+              <div className="h-10 flex-1 bg-gray-100 rounded" />
+              <div className="h-10 flex-1 bg-gray-100 rounded" />
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+    </SectionCard>
   );
 }
 
@@ -326,42 +362,10 @@ function HeatmapSkeleton() {
 // ---------------------------------------------------------------------------
 
 export function PortfolioRiskHeatmap() {
-  const [data, setData] = useState<RiskMatrixData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, refetch } = useAuthFetch<RiskMatrixData>(
+    '/api/v1/dashboard/portfolio-risk-matrix',
+  );
   const [selection, setSelection] = useState<CellSelection | null>(null);
-
-  // Fetch data
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchMatrix() {
-      try {
-        setLoading(true);
-        const res = await fetch('/api/v1/dashboard/portfolio-risk-matrix');
-        const json = await res.json();
-
-        if (!cancelled) {
-          if (json.success) {
-            setData(json.data);
-          } else {
-            setError(json.error?.message ?? 'Failed to load risk matrix');
-          }
-          setLoading(false);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Network error');
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchMatrix();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleCellClick = useCallback(
     (riskType: string, severity: Severity, bucket: SeverityBucket) => {
@@ -376,18 +380,16 @@ export function PortfolioRiskHeatmap() {
   }, []);
 
   // Loading state
-  if (loading) return <HeatmapSkeleton />;
+  if (isLoading) return <HeatmapSkeleton />;
 
   // Error state
-  if (error || !data) {
+  if (error) {
     return (
-      <div className="bg-white rounded-xl border border-surface-border shadow-card p-6">
-        <p className="text-red-600 text-sm">
-          {error ?? 'Unable to load risk matrix.'}
-        </p>
-      </div>
+      <DashboardErrorState error={error} onRetry={refetch} />
     );
   }
+
+  if (!data) return null;
 
   const { matrix, critical_count, critical_clients } = data;
 
@@ -406,12 +408,7 @@ export function PortfolioRiskHeatmap() {
         }
       `}</style>
 
-      <div className="bg-white rounded-xl border border-surface-border shadow-card p-6">
-        {/* Header */}
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          Portfolio Risk Heatmap
-        </h2>
-
+      <SectionCard title="Portfolio Risk">
         {/* Grid table */}
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
@@ -465,19 +462,33 @@ export function PortfolioRiskHeatmap() {
         {/* Summary row */}
         {critical_count > 0 && (
           <div className="mt-4 flex items-center justify-between px-3 py-3 bg-red-50 rounded-lg border border-red-100">
-            <p className="text-sm font-medium text-red-700">
-              {critical_count} client{critical_count !== 1 ? 's' : ''} need
-              {critical_count === 1 ? 's' : ''} immediate attention
-            </p>
+            <div className="flex items-center gap-3">
+              {/* Avatar stack */}
+              <div className="flex -space-x-2">
+                {critical_clients.slice(0, 3).map((client, i) => (
+                  <span
+                    key={client.id}
+                    className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ring-2 ring-white ${AVATAR_BG[i % AVATAR_BG.length]}`}
+                    title={client.name}
+                  >
+                    {getInitials(client.name)}
+                  </span>
+                ))}
+              </div>
+              <p className="text-sm font-medium text-red-700">
+                {critical_count} client{critical_count !== 1 ? 's' : ''} need
+                {critical_count === 1 ? 's' : ''} immediate attention
+              </p>
+            </div>
             <a
               href="/clients?filter=risk:critical"
-              className="text-sm font-semibold text-red-600 hover:text-red-700 transition-colors"
+              className="text-sm font-semibold text-red-600 hover:text-red-700 transition-colors whitespace-nowrap"
             >
               Review Now &rarr;
             </a>
           </div>
         )}
-      </div>
+      </SectionCard>
 
       {/* Slide-over panel */}
       {selection && (
