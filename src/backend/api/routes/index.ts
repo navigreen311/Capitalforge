@@ -55,6 +55,10 @@ apiRouter.use('/', applicationRouter);
 import { applicationDetailRouter } from './application-detail.routes.js';
 apiRouter.use('/applications/:appId', applicationDetailRouter);
 
+// -- Funding Round Detail (per-round sub-routes) --
+import { fundingRoundDetailRouter } from './funding-round-detail.routes.js';
+apiRouter.use('/funding-rounds/:roundId', fundingRoundDetailRouter);
+
 // -- Suitability --
 apiRouter.use('/businesses/:id/suitability', suitabilityRouter);
 

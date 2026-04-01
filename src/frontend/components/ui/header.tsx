@@ -49,10 +49,15 @@ function Breadcrumbs() {
           const contextLabels: Record<string, string> = {
             applications: 'New Application',
             clients: 'New Client',
+            'funding-rounds': 'New Round',
           };
           label = (parentSeg && contextLabels[parentSeg]) || 'New';
         } else if (isDynamicChild) {
-          label = parentSeg === 'applications' ? 'Application Details' : 'Client Details';
+          const dynamicLabels: Record<string, string> = {
+            applications: 'Application Details',
+            'funding-rounds': 'Round Details',
+          };
+          label = (parentSeg && dynamicLabels[parentSeg]) || 'Client Details';
         } else {
           label = ROUTE_LABELS[seg] ?? seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
         }
