@@ -10,14 +10,21 @@ import { config } from './config/index.js';
 import logger from './config/logger.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { globalErrorHandler, notFoundHandler } from './middleware/error-handler.js';
+import { applySecurityHeaders } from './middleware/security-headers.js';
+import { sanitizeInputs } from './middleware/input-sanitizer.js';
+import { rateLimiter } from './middleware/rate-limiter.js';
+import { csrfProtection } from './middleware/csrf-protection.js';
+import { timeoutMiddleware } from './middleware/timeout.js';
+import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.js';
 import { apiRouter } from './api/routes/index.js';
 
 // ── App factory (exported for testing) ───────────────────────
 export function createApp(): express.Application {
   const app = express();
 
-  // ── Security headers ───────────────────────────────────────
+  // ── Security headers (CSP, HSTS, X-Frame-Options, etc.) ──
   app.use(helmet());
+  app.use(applySecurityHeaders);
 
   // ── CORS ──────────────────────────────────────────────────
   app.use(
@@ -25,8 +32,8 @@ export function createApp(): express.Application {
       origin: config.frontendUrl,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
-      exposedHeaders: ['X-Request-ID'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-CSRF-Token'],
+      exposedHeaders: ['X-Request-ID', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
     }),
   );
 
@@ -36,6 +43,22 @@ export function createApp(): express.Application {
 
   // ── Correlation ID (must come before route logging) ───────
   app.use(requestIdMiddleware);
+
+  // ── Request timeout (30s default, 120s uploads, 5s health) ─
+  app.use(timeoutMiddleware());
+
+  // ── Prometheus metrics collection ─────────────────────────
+  app.use(metricsMiddleware);
+  app.get('/metrics', metricsEndpoint);
+
+  // ── Input sanitization (XSS, SQL injection, path traversal) ─
+  app.use(sanitizeInputs);
+
+  // ── API rate limiting (per-tenant from SaaS plan) ─────────
+  app.use('/api', rateLimiter as any);
+
+  // ── CSRF protection (double-submit cookie for non-API) ────
+  app.use(csrfProtection);
 
   // ── Structured request logging ────────────────────────────
   app.use((req: Request, res: Response, next: NextFunction) => {

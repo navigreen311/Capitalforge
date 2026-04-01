@@ -17,6 +17,32 @@ vi.mock('@prisma/client', () => {
   };
 });
 
+// ── Mock middleware that requires external services (Redis, etc.) ──
+vi.mock('@backend/middleware/rate-limiter.js', () => ({
+  rateLimiter: (_req: any, _res: any, next: any) => next(),
+}));
+
+vi.mock('@backend/middleware/security-headers.js', () => ({
+  applySecurityHeaders: (_req: any, _res: any, next: any) => next(),
+}));
+
+vi.mock('@backend/middleware/csrf-protection.js', () => ({
+  csrfProtection: (_req: any, _res: any, next: any) => next(),
+}));
+
+vi.mock('@backend/middleware/input-sanitizer.js', () => ({
+  sanitizeInputs: (_req: any, _res: any, next: any) => next(),
+}));
+
+vi.mock('@backend/middleware/timeout.js', () => ({
+  timeoutMiddleware: () => (_req: any, _res: any, next: any) => next(),
+}));
+
+vi.mock('@backend/middleware/metrics.js', () => ({
+  metricsMiddleware: (_req: any, _res: any, next: any) => next(),
+  metricsEndpoint: (_req: any, res: any) => res.status(200).send(''),
+}));
+
 // ── Import app after mocks are set up ─────────────────────────
 // We import createApp lazily so vitest mocks take effect first.
 const { createApp } = await import('@backend/server.js');

@@ -13,8 +13,7 @@
 // ============================================================
 
 import type { Request, Response, NextFunction } from 'express';
-import { createClient, type RedisClientType } from 'redis';
-import { REDIS_URL } from '../config/index.js';
+import Redis from 'ioredis';
 import logger from '../config/logger.js';
 import type { ApiResponse } from '@shared/types/index.js';
 
@@ -42,14 +41,15 @@ const BYPASS_PATHS = new Set([
 
 // ── Redis client (singleton, lazy-connected) ──────────────────────────────────
 
-let redisClient: RedisClientType | null = null;
+let redisClient: Redis | null = null;
 let redisConnected = false;
 
-async function getRedis(): Promise<RedisClientType | null> {
+async function getRedis(): Promise<Redis | null> {
   if (redisClient && redisConnected) return redisClient;
 
   try {
-    redisClient = createClient({ url: REDIS_URL }) as RedisClientType;
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    redisClient = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
 
     redisClient.on('error', (err) => {
       logger.warn('[RateLimiter] Redis error — rate limiting degraded', {
@@ -84,7 +84,7 @@ interface BucketResult {
 }
 
 async function checkBucket(
-  redis: RedisClientType,
+  redis: Redis,
   key: string,
   limit: number,
 ): Promise<BucketResult> {
@@ -101,10 +101,7 @@ async function checkBucket(
     return {current, ttl}
   `;
 
-  const result = await redis.eval(luaScript, {
-    keys: [key],
-    arguments: [String(WINDOW_SECONDS)],
-  }) as [number, number];
+  const result = await redis.eval(luaScript, 1, key, String(WINDOW_SECONDS)) as [number, number];
 
   const count = result[0];
   const ttl = result[1];
