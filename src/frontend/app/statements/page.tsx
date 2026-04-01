@@ -8,7 +8,7 @@
 // Per-statement expandable detail rows with normalized data.
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import AnomalyAlert from '../../components/modules/anomaly-alert';
 import type { Anomaly } from '../../components/modules/anomaly-alert';
 
@@ -42,9 +42,24 @@ interface Statement {
   transactions: NormalizedTransaction[];
 }
 
+interface StatementsClient {
+  id: string;
+  legal_name: string;
+  entity_type: string;
+  state: string;
+}
+
 // ---------------------------------------------------------------------------
 // Placeholder data
 // ---------------------------------------------------------------------------
+
+const PLACEHOLDER_CLIENTS: StatementsClient[] = [
+  { id: 'st_001', legal_name: 'Apex Ventures LLC', entity_type: 'LLC', state: 'TX' },
+  { id: 'st_002', legal_name: 'NovaGo Solutions', entity_type: 'S-Corp', state: 'CA' },
+  { id: 'st_003', legal_name: 'Meridian Holdings', entity_type: 'C-Corp', state: 'NY' },
+  { id: 'st_004', legal_name: 'Brightline Corp', entity_type: 'C-Corp', state: 'FL' },
+  { id: 'st_005', legal_name: 'Thornwood Capital', entity_type: 'LLC', state: 'DE' },
+];
 
 const PLACEHOLDER_STATEMENTS: Statement[] = [
   {
@@ -181,6 +196,37 @@ const PLACEHOLDER_ANOMALIES: Anomaly[] = [
   },
 ];
 
+// Placeholder row-level transactions for expanded view
+const EXPANDED_TRANSACTIONS: Record<string, { merchant: string; date: string; amount: number; category: string; matchStatus: 'matched' | 'unmatched' | 'pending' }[]> = {
+  stmt_001: [
+    { merchant: 'AMAZON WEB SERVICES', date: '2026-03-01', amount: 4210.00, category: 'Software/SaaS', matchStatus: 'matched' },
+    { merchant: 'DELTA AIRLINES', date: '2026-03-05', amount: 1840.00, category: 'Travel', matchStatus: 'matched' },
+    { merchant: 'OFFICE DEPOT #4421', date: '2026-03-08', amount: 340.00, category: 'Office Supplies', matchStatus: 'matched' },
+    { merchant: 'GOOGLE WORKSPACE', date: '2026-03-12', amount: 285.00, category: 'Software/SaaS', matchStatus: 'matched' },
+  ],
+  stmt_002: [
+    { merchant: 'MARRIOTT HOTELS & RESORTS', date: '2026-03-02', amount: 3280.00, category: 'Travel', matchStatus: 'matched' },
+    { merchant: 'STRIPE PAYMENTS', date: '2026-03-07', amount: 12400.00, category: 'Payment Processing', matchStatus: 'unmatched' },
+    { merchant: 'ANNUAL FEE', date: '2026-03-10', amount: 695.00, category: 'Card Fee', matchStatus: 'matched' },
+    { merchant: 'SALESFORCE INC', date: '2026-03-17', amount: 6450.00, category: 'Software/SaaS', matchStatus: 'pending' },
+  ],
+  stmt_003: [
+    { merchant: 'UBER BUSINESS', date: '2026-03-18', amount: 245.00, category: 'Travel', matchStatus: 'pending' },
+    { merchant: 'SHOPIFY INC', date: '2026-03-20', amount: 1890.00, category: 'Software/SaaS', matchStatus: 'pending' },
+    { merchant: 'COSTCO WHOLESALE', date: '2026-03-22', amount: 678.00, category: 'Office Supplies', matchStatus: 'pending' },
+  ],
+  stmt_004: [
+    { merchant: 'ZOOM VIDEO COMMUNICATIONS', date: '2026-02-10', amount: 499.90, category: 'Software/SaaS', matchStatus: 'matched' },
+    { merchant: 'STAPLES BUSINESS', date: '2026-02-18', amount: 218.00, category: 'Office Supplies', matchStatus: 'matched' },
+    { merchant: 'FEDEX CORP', date: '2026-02-22', amount: 142.50, category: 'Shipping', matchStatus: 'matched' },
+  ],
+  stmt_005: [
+    { merchant: 'HILTON HOTELS', date: '2026-03-02', amount: 2100.00, category: 'Travel', matchStatus: 'pending' },
+    { merchant: 'MICROSOFT 365', date: '2026-03-05', amount: 549.00, category: 'Software/SaaS', matchStatus: 'pending' },
+    { merchant: 'USPS POSTAGE', date: '2026-03-07', amount: 89.00, category: 'Shipping', matchStatus: 'pending' },
+  ],
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -207,6 +253,12 @@ const CATEGORY_DOT: Record<string, string> = {
   'Card Fee':      'bg-red-400',
   'Payment Processing': 'bg-emerald-400',
   Shipping:        'bg-orange-400',
+};
+
+const MATCH_STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
+  matched:   { label: 'Matched',   cls: 'text-emerald-400 bg-emerald-900 border-emerald-700' },
+  unmatched: { label: 'Unmatched', cls: 'text-red-400 bg-red-900 border-red-700' },
+  pending:   { label: 'Pending',   cls: 'text-yellow-400 bg-yellow-900 border-yellow-700' },
 };
 
 function fmtCurrency(n: number) {
@@ -241,12 +293,14 @@ function IssuerBadge({ issuer }: { issuer: string }) {
   );
 }
 
-function ExpandedDetail({ stmt }: { stmt: Statement }) {
-  if (stmt.transactions.length === 0) {
+function ExpandedDetail({ stmt, onReconcile }: { stmt: Statement; onReconcile: (id: string) => void }) {
+  const txns = EXPANDED_TRANSACTIONS[stmt.id] ?? [];
+
+  if (stmt.transactions.length === 0 && txns.length === 0) {
     return (
       <div className="px-4 pb-4 pt-2">
         <p className="text-sm text-gray-500 italic">
-          {stmt.status === 'importing' ? 'Import in progress…' : 'No transaction detail available.'}
+          {stmt.status === 'importing' ? 'Import in progress...' : 'No transaction detail available.'}
         </p>
       </div>
     );
@@ -269,42 +323,633 @@ function ExpandedDetail({ stmt }: { stmt: Statement }) {
         ))}
       </div>
 
-      {/* Transactions table */}
-      <div className="rounded-lg border border-gray-800 overflow-hidden">
+      {/* Transactions sub-table */}
+      <div className="rounded-lg border border-gray-800 overflow-hidden mb-3">
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-gray-900 border-b border-gray-800">
+              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Merchant</th>
               <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Date</th>
-              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Description</th>
-              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Category</th>
-              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Business Purpose</th>
               <th className="text-right px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Amount</th>
+              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Category</th>
+              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Match Status</th>
             </tr>
           </thead>
           <tbody>
-            {stmt.transactions.map((tx, i) => (
-              <tr
-                key={i}
-                className={`border-b border-gray-800 last:border-0 ${i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-950'}`}
-              >
-                <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{fmtDate(tx.date)}</td>
-                <td className="px-3 py-2 text-gray-200 font-medium">{tx.description}</td>
-                <td className="px-3 py-2">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${CATEGORY_DOT[tx.category] ?? 'bg-gray-500'}`} />
-                    <span className="text-gray-400">{tx.category}</span>
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-gray-500 italic">
-                  {tx.businessPurpose ?? <span className="text-gray-700">—</span>}
-                </td>
-                <td className="px-3 py-2 text-right font-semibold text-gray-200 whitespace-nowrap">
-                  {fmtCurrency(tx.amount)}
-                </td>
-              </tr>
-            ))}
+            {txns.map((tx, i) => {
+              const mCfg = MATCH_STATUS_CONFIG[tx.matchStatus];
+              return (
+                <tr
+                  key={i}
+                  className={`border-b border-gray-800 last:border-0 ${i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-950'}`}
+                >
+                  <td className="px-3 py-2 text-gray-200 font-medium">{tx.merchant}</td>
+                  <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{fmtDate(tx.date)}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-gray-200 whitespace-nowrap">
+                    {fmtCurrency(tx.amount)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${CATEGORY_DOT[tx.category] ?? 'bg-gray-500'}`} />
+                      <span className="text-gray-400">{tx.category}</span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${mCfg.cls}`}>
+                      {mCfg.label}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+      </div>
+
+      {/* Mark Reconciled button */}
+      {stmt.status !== 'reconciled' && (
+        <button
+          onClick={() => onReconcile(stmt.id)}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-emerald-100 text-xs font-bold transition-colors border border-emerald-600"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          Mark Statement Reconciled
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Toast component
+// ---------------------------------------------------------------------------
+
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 animate-[slideUp_0.3s_ease-out] bg-gray-800 border border-gray-600 text-gray-100 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-3 text-sm font-medium">
+      <svg className="h-4 w-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+      {message}
+      <button onClick={onClose} className="text-gray-500 hover:text-gray-300 ml-2">
+        &#10005;
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Client Selector
+// ---------------------------------------------------------------------------
+
+function StatementsClientSelector({
+  selectedClient,
+  onClientSelect,
+  onClear,
+}: {
+  selectedClient: StatementsClient | null;
+  onClientSelect: (client: StatementsClient) => void;
+  onClear: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = PLACEHOLDER_CLIENTS.filter((c) =>
+    c.legal_name.toLowerCase().includes(query.toLowerCase()),
+  );
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setIsOpen(false);
+      inputRef.current?.blur();
+    }
+  }, []);
+
+  function handleSelect(client: StatementsClient) {
+    onClientSelect(client);
+    setQuery('');
+    setIsOpen(false);
+  }
+
+  function handleClear() {
+    onClear();
+    setQuery('');
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
+        Statement Client
+      </p>
+
+      {!selectedClient && (
+        <div className="relative">
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
+            onFocus={() => setIsOpen(true)}
+            onKeyDown={handleKeyDown}
+            placeholder="Search for a client..."
+            className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40 transition-colors"
+          />
+          {isOpen && (
+            <ul className="absolute z-20 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+              {filtered.length === 0 ? (
+                <li className="px-3 py-2 text-sm text-gray-500">No clients found</li>
+              ) : (
+                filtered.map((client) => (
+                  <li key={client.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(client)}
+                      className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-800 focus:bg-gray-800 outline-none transition-colors"
+                    >
+                      <span className="font-medium text-gray-100">{client.legal_name}</span>
+                      <span className="ml-2 text-xs text-gray-500">
+                        {client.entity_type} &middot; {client.state}
+                      </span>
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+          <p className="mt-2 text-xs text-gray-500">
+            Select a client to view their statement reconciliation data.
+          </p>
+        </div>
+      )}
+
+      {selectedClient && (
+        <div className="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-900 px-3 py-1.5">
+          <span className="text-sm font-medium text-gray-100">{selectedClient.legal_name}</span>
+          <span className="text-xs text-gray-400">
+            {selectedClient.entity_type} &middot; {selectedClient.state}
+          </span>
+          <button
+            type="button"
+            onClick={handleClear}
+            className="ml-1 flex-shrink-0 rounded-full p-0.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+            aria-label="Clear selected client"
+          >
+            &#10005;
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Upload Modal
+// ---------------------------------------------------------------------------
+
+function UploadModal({ onClose }: { onClose: () => void }) {
+  const [mode, setMode] = useState<'upload' | 'manual'>('upload');
+  const [dragOver, setDragOver] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [parsed, setParsed] = useState<{ issuer: string; card: string; date: string; balance: string; txnCount: number } | null>(null);
+
+  // Manual form state
+  const [manualIssuer, setManualIssuer] = useState('');
+  const [manualCard, setManualCard] = useState('');
+  const [manualDate, setManualDate] = useState('');
+  const [manualBalance, setManualBalance] = useState('');
+
+  function handleFileDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    simulateParse();
+  }
+
+  function handleFileSelect() {
+    simulateParse();
+  }
+
+  function simulateParse() {
+    setParsing(true);
+    setParsed(null);
+    setTimeout(() => {
+      setParsing(false);
+      setParsed({
+        issuer: 'Chase',
+        card: 'Ink Business Preferred ···4821',
+        date: 'Mar 15, 2026',
+        balance: '$48,320.00',
+        txnCount: 23,
+      });
+    }, 1000);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg mx-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+          <h2 className="text-lg font-bold text-white">Upload / Import Statement</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors text-xl leading-none">
+            &#10005;
+          </button>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="px-5 pt-4">
+          <div className="flex items-center gap-2 mb-4">
+            <button
+              onClick={() => { setMode('upload'); setParsed(null); }}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors border ${
+                mode === 'upload'
+                  ? 'bg-[#0A1628] text-[#C9A84C] border-[#C9A84C]'
+                  : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-gray-200'
+              }`}
+            >
+              Upload File
+            </button>
+            <button
+              onClick={() => { setMode('manual'); setParsed(null); }}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors border ${
+                mode === 'manual'
+                  ? 'bg-[#0A1628] text-[#C9A84C] border-[#C9A84C]'
+                  : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-gray-200'
+              }`}
+            >
+              Enter Manually
+            </button>
+          </div>
+        </div>
+
+        <div className="px-5 pb-5">
+          {mode === 'upload' && (
+            <>
+              {/* Drop zone */}
+              {!parsed && !parsing && (
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleFileDrop}
+                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+                    dragOver
+                      ? 'border-[#C9A84C] bg-[#C9A84C]/5'
+                      : 'border-gray-700 hover:border-gray-500 bg-gray-800/30'
+                  }`}
+                  onClick={handleFileSelect}
+                >
+                  <svg className="h-10 w-10 text-gray-500 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+                  </svg>
+                  <p className="text-sm text-gray-300 font-medium">
+                    Drop PDF, CSV, or image here
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">or click to browse</p>
+                  <p className="text-[10px] text-gray-600 mt-3">
+                    Supported: PDF, CSV, PNG, JPG
+                  </p>
+                </div>
+              )}
+
+              {/* Parsing animation */}
+              {parsing && (
+                <div className="border border-gray-700 rounded-xl p-8 text-center bg-gray-800/30">
+                  <div className="h-8 w-8 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-sm text-gray-300 font-medium">Parsing statement...</p>
+                  <p className="text-xs text-gray-500 mt-1">Extracting data from uploaded file</p>
+                </div>
+              )}
+
+              {/* Parsed results */}
+              {parsed && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-emerald-800 bg-emerald-950/30 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <svg className="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-sm font-bold text-emerald-300">Statement Parsed Successfully</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { label: 'Issuer', value: parsed.issuer },
+                        { label: 'Card', value: parsed.card },
+                        { label: 'Statement Date', value: parsed.date },
+                        { label: 'Closing Balance', value: parsed.balance },
+                        { label: 'Transactions', value: `${parsed.txnCount} found` },
+                      ].map(({ label, value }) => (
+                        <div key={label}>
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">{label}</p>
+                          <p className="text-xs text-gray-200 font-medium mt-0.5">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={onClose}
+                      className="flex-1 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-sm font-bold transition-colors"
+                    >
+                      Import
+                    </button>
+                    <button
+                      onClick={() => setParsed(null)}
+                      className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-bold transition-colors border border-gray-600"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {mode === 'manual' && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1">Issuer</label>
+                <input
+                  type="text"
+                  value={manualIssuer}
+                  onChange={(e) => setManualIssuer(e.target.value)}
+                  placeholder="e.g. Chase, Amex..."
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1">Card Name</label>
+                <input
+                  type="text"
+                  value={manualCard}
+                  onChange={(e) => setManualCard(e.target.value)}
+                  placeholder="e.g. Ink Business Preferred"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1">Statement Date</label>
+                  <input
+                    type="date"
+                    value={manualDate}
+                    onChange={(e) => setManualDate(e.target.value)}
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1">Closing Balance</label>
+                  <input
+                    type="text"
+                    value={manualBalance}
+                    onChange={(e) => setManualBalance(e.target.value)}
+                    placeholder="$0.00"
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="w-full py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-sm font-bold transition-colors mt-2"
+              >
+                Add Statement
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Investigation Modal
+// ---------------------------------------------------------------------------
+
+function InvestigationModal({
+  anomaly,
+  onClose,
+}: {
+  anomaly: Anomaly;
+  onClose: () => void;
+}) {
+  const [contactDone, setContactDone] = useState(false);
+  const [disputeLogged, setDisputeLogged] = useState(false);
+  const [reminderSet, setReminderSet] = useState(false);
+
+  const stepsComplete = [contactDone, disputeLogged, reminderSet].filter(Boolean).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg mx-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+          <h2 className="text-lg font-bold text-white">Investigate Anomaly</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors text-xl leading-none">
+            &#10005;
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {/* Anomaly summary */}
+          <div className="rounded-xl border border-orange-800 bg-orange-950/30 p-3">
+            <p className="text-sm font-semibold text-orange-300">{anomaly.description}</p>
+            <div className="flex gap-4 mt-2">
+              {anomaly.amount !== undefined && (
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Amount</p>
+                  <p className="text-xs text-orange-300 font-bold">{fmtCurrency(anomaly.amount)}</p>
+                </div>
+              )}
+              {anomaly.statementId && (
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Reference</p>
+                  <p className="text-xs text-gray-300 font-mono">{anomaly.statementId}</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Progress */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#C9A84C] transition-all duration-300 rounded-full"
+                style={{ width: `${(stepsComplete / 3) * 100}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-gray-500 font-semibold">{stepsComplete}/3</span>
+          </div>
+
+          {/* Step 1: Contact issuer */}
+          <div className={`rounded-xl border p-3 transition-colors ${contactDone ? 'border-emerald-800 bg-emerald-950/20' : 'border-gray-700 bg-gray-800/30'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-black ${contactDone ? 'bg-emerald-800 text-emerald-300' : 'bg-gray-700 text-gray-400'}`}>
+                    {contactDone ? '\u2713' : '1'}
+                  </span>
+                  <p className="text-sm font-semibold text-gray-200">Contact Issuer</p>
+                </div>
+                <p className="text-xs text-gray-400 mt-1 ml-7">
+                  Call {anomaly.issuer ?? 'issuer'} commercial servicing
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5 ml-7 font-mono">
+                  1-800-453-9719 (Business line)
+                </p>
+              </div>
+              <button
+                onClick={() => setContactDone(true)}
+                disabled={contactDone}
+                className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
+                  contactDone
+                    ? 'bg-emerald-900 text-emerald-400 cursor-default border border-emerald-700'
+                    : 'bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628]'
+                }`}
+              >
+                {contactDone ? 'Done' : 'Mark Done'}
+              </button>
+            </div>
+          </div>
+
+          {/* Step 2: Log dispute */}
+          <div className={`rounded-xl border p-3 transition-colors ${disputeLogged ? 'border-emerald-800 bg-emerald-950/20' : 'border-gray-700 bg-gray-800/30'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-black ${disputeLogged ? 'bg-emerald-800 text-emerald-300' : 'bg-gray-700 text-gray-400'}`}>
+                    {disputeLogged ? '\u2713' : '2'}
+                  </span>
+                  <p className="text-sm font-semibold text-gray-200">Log Dispute</p>
+                </div>
+                <p className="text-xs text-gray-400 mt-1 ml-7">
+                  Create formal dispute record for {anomaly.affectedCard}
+                </p>
+              </div>
+              <button
+                onClick={() => setDisputeLogged(true)}
+                disabled={disputeLogged}
+                className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
+                  disputeLogged
+                    ? 'bg-emerald-900 text-emerald-400 cursor-default border border-emerald-700'
+                    : 'bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628]'
+                }`}
+              >
+                {disputeLogged ? 'Logged' : 'Log Dispute'}
+              </button>
+            </div>
+          </div>
+
+          {/* Step 3: Set follow-up reminder */}
+          <div className={`rounded-xl border p-3 transition-colors ${reminderSet ? 'border-emerald-800 bg-emerald-950/20' : 'border-gray-700 bg-gray-800/30'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-black ${reminderSet ? 'bg-emerald-800 text-emerald-300' : 'bg-gray-700 text-gray-400'}`}>
+                    {reminderSet ? '\u2713' : '3'}
+                  </span>
+                  <p className="text-sm font-semibold text-gray-200">Set Follow-up Reminder</p>
+                </div>
+                <p className="text-xs text-gray-400 mt-1 ml-7">
+                  Schedule a 5 business day follow-up to check resolution status
+                </p>
+              </div>
+              <button
+                onClick={() => setReminderSet(true)}
+                disabled={reminderSet}
+                className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
+                  reminderSet
+                    ? 'bg-emerald-900 text-emerald-400 cursor-default border border-emerald-700'
+                    : 'bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628]'
+                }`}
+              >
+                {reminderSet ? 'Set' : 'Set Reminder'}
+              </button>
+            </div>
+          </div>
+
+          {/* Close / finish */}
+          {stepsComplete === 3 && (
+            <button
+              onClick={onClose}
+              className="w-full py-2.5 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-emerald-100 text-sm font-bold transition-colors border border-emerald-600"
+            >
+              Investigation Complete - Close
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dismiss Confirmation Modal
+// ---------------------------------------------------------------------------
+
+function DismissConfirmModal({
+  anomaly,
+  onConfirm,
+  onCancel,
+}: {
+  anomaly: Anomaly;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
+      <div
+        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm mx-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-gray-800">
+          <h2 className="text-base font-bold text-white">Dismiss High-Severity Alert?</h2>
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-sm text-gray-300 mb-1">{anomaly.description}</p>
+          {anomaly.amount !== undefined && (
+            <p className="text-xs text-orange-400 font-bold mb-3">Amount: {fmtCurrency(anomaly.amount)}</p>
+          )}
+          <p className="text-xs text-gray-500">
+            This is a high-severity anomaly. Are you sure you want to dismiss it without investigation?
+          </p>
+        </div>
+        <div className="flex gap-2 px-5 pb-4">
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2 rounded-lg bg-red-800 hover:bg-red-700 text-red-100 text-sm font-bold transition-colors border border-red-600"
+          >
+            Dismiss Anyway
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-bold transition-colors border border-gray-600"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -315,11 +960,22 @@ function ExpandedDetail({ stmt }: { stmt: Statement }) {
 // ---------------------------------------------------------------------------
 
 export default function StatementsPage() {
-  const [statements] = useState<Statement[]>(PLACEHOLDER_STATEMENTS);
+  const [statements, setStatements] = useState<Statement[]>(PLACEHOLDER_STATEMENTS);
   const [anomalies, setAnomalies] = useState<Anomaly[]>(PLACEHOLDER_ANOMALIES);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedStatements, setExpandedStatements] = useState<Set<string>>(new Set());
   const [filterStatus, setFilterStatus] = useState<ReconcileStatus | 'all'>('all');
   const [showAnomalies, setShowAnomalies] = useState(true);
+
+  // Modal states
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [investigationModal, setInvestigationModal] = useState<Anomaly | null>(null);
+  const [dismissConfirm, setDismissConfirm] = useState<Anomaly | null>(null);
+
+  // Client selector
+  const [selectedClient, setSelectedClient] = useState<StatementsClient | null>(null);
+
+  // Toast
+  const [toast, setToast] = useState<string | null>(null);
 
   const filtered = filterStatus === 'all'
     ? statements
@@ -331,20 +987,65 @@ export default function StatementsPage() {
   const activeAnomalies = anomalies.filter((a) => a.severity === 'critical' || a.severity === 'high');
 
   function toggleExpand(id: string) {
-    setExpandedId((prev) => (prev === id ? null : id));
+    setExpandedStatements((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   }
 
   function dismissAnomaly(id: string) {
+    const anomaly = anomalies.find((a) => a.id === id);
+    if (!anomaly) return;
+
+    if (anomaly.severity === 'high' || anomaly.severity === 'critical') {
+      setDismissConfirm(anomaly);
+      return;
+    }
+
     setAnomalies((prev) => prev.filter((a) => a.id !== id));
+    setToast('Anomaly dismissed');
   }
+
+  function confirmDismiss() {
+    if (!dismissConfirm) return;
+    setAnomalies((prev) => prev.filter((a) => a.id !== dismissConfirm.id));
+    setToast(`Dismissed: ${dismissConfirm.description.slice(0, 50)}...`);
+    setDismissConfirm(null);
+  }
+
+  function handleReconcile(stmtId: string) {
+    setStatements((prev) =>
+      prev.map((s) => (s.id === stmtId ? { ...s, status: 'reconciled' as ReconcileStatus } : s)),
+    );
+    setToast('Statement marked as reconciled');
+  }
+
+  const showToast = useCallback(() => setToast(null), []);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
 
+      {/* Client selector */}
+      <div className="mb-6">
+        <StatementsClientSelector
+          selectedClient={selectedClient}
+          onClientSelect={setSelectedClient}
+          onClear={() => setSelectedClient(null)}
+        />
+      </div>
+
       {/* Page header */}
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Statement Reconciliation</h1>
+          <h1 className="text-2xl font-bold text-white">
+            Statement Reconciliation
+            {selectedClient && <span className="text-yellow-400"> — {selectedClient.legal_name}</span>}
+          </h1>
           <p className="text-sm text-gray-400 mt-0.5">
             {statements.length} statements · {reconciledCount} reconciled
             {mismatchCount > 0 && (
@@ -360,7 +1061,7 @@ export default function StatementsPage() {
           </p>
         </div>
         <button
-          onClick={() => alert('Upload/import modal — stub')}
+          onClick={() => setUploadModalOpen(true)}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-sm font-bold transition-colors"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -417,7 +1118,7 @@ export default function StatementsPage() {
                       anomaly={a}
                       onDismiss={dismissAnomaly}
                       onAction={(anomaly) => {
-                        setExpandedId(anomaly.statementId ?? null);
+                        setInvestigationModal(anomaly);
                       }}
                     />
                   ))}
@@ -470,7 +1171,7 @@ export default function StatementsPage() {
           </thead>
           <tbody>
             {filtered.map((stmt) => {
-              const isExpanded = expandedId === stmt.id;
+              const isExpanded = expandedStatements.has(stmt.id);
               const hasAnomalies = anomalies.some((a) => a.statementId === stmt.id);
 
               return (
@@ -517,7 +1218,7 @@ export default function StatementsPage() {
                   {isExpanded && (
                     <tr key={`${stmt.id}-detail`} className="bg-gray-900">
                       <td colSpan={6} className="p-0">
-                        <ExpandedDetail stmt={stmt} />
+                        <ExpandedDetail stmt={stmt} onReconcile={handleReconcile} />
                       </td>
                     </tr>
                   )}
@@ -535,6 +1236,25 @@ export default function StatementsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Modals */}
+      {uploadModalOpen && <UploadModal onClose={() => setUploadModalOpen(false)} />}
+      {investigationModal && (
+        <InvestigationModal
+          anomaly={investigationModal}
+          onClose={() => setInvestigationModal(null)}
+        />
+      )}
+      {dismissConfirm && (
+        <DismissConfirmModal
+          anomaly={dismissConfirm}
+          onConfirm={confirmDismiss}
+          onCancel={() => setDismissConfirm(null)}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && <Toast message={toast} onClose={showToast} />}
     </div>
   );
 }
