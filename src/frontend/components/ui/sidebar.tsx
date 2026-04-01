@@ -46,7 +46,7 @@ const NAV_PILLARS: NavPillar[] = [
     title: 'Core Operations',
     defaultOpen: true,
     items: [
-      { label: 'Dashboard',      href: '/',              icon: 'DB' },
+      { label: 'Dashboard',      href: '/dashboard',     icon: 'DB' },
       { label: 'Clients',        href: '/clients',       icon: 'CL' },
       { label: 'Applications',   href: '/applications',  icon: 'AP' },
       { label: 'Funding Rounds', href: '/funding-rounds',icon: 'FR' },
@@ -175,7 +175,7 @@ interface SidebarProps {
 // ── Badge color map ─────────────────────────────────────────────────────────
 
 const BADGE_CONFIG: Record<string, { key: 'dashboardBadge' | 'applicationsBadge' | 'fundingRoundsBadge'; color: string }> = {
-  '/':              { key: 'dashboardBadge',     color: 'bg-red-500 text-white' },
+  '/dashboard':     { key: 'dashboardBadge',     color: 'bg-red-500 text-white' },
   '/applications':  { key: 'applicationsBadge',  color: 'bg-amber-500 text-white' },
   '/funding-rounds':{ key: 'fundingRoundsBadge', color: 'bg-teal-500 text-white' },
 };
@@ -186,7 +186,7 @@ export function Sidebar({ defaultExpanded = true }: SidebarProps) {
   const badges = useNavBadges();
 
   const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href);
+    href === '/dashboard' ? pathname === '/dashboard' || pathname === '/' : pathname.startsWith(href);
 
   return (
     <aside

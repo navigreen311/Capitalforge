@@ -74,7 +74,7 @@ export default function LoginPage() {
       localStorage.setItem('cf_refresh_token', refreshToken);
       localStorage.setItem('cf_user', JSON.stringify(user));
 
-      router.push('/');
+      router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
     } finally {
