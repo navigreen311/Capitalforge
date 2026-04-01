@@ -3,10 +3,11 @@
 // ============================================================
 // /documents — Document vault browser
 // Filterable list with type, business, date, legal hold status.
-// Upload button. Dossier export button.
+// Upload modal, Request from Client modal, Release Hold modal,
+// Bulk actions, View/Dossier placeholders with toasts.
 // ============================================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { documentsApi } from '../../lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,12 @@ interface DocumentRecord {
   description?: string;
 }
 
+interface ToastMessage {
+  id: number;
+  text: string;
+  type: 'success' | 'info' | 'error';
+}
+
 // ---------------------------------------------------------------------------
 // Placeholder data
 // ---------------------------------------------------------------------------
@@ -54,6 +61,16 @@ const PLACEHOLDER_DOCS: DocumentRecord[] = [
   { id: 'doc_008', businessId: 'biz_004', businessName: 'Summit Capital Group', type: 'application',             fileName: 'summit_chase_app_2026.pdf',     fileSizeBytes: 145_000,  uploadedAt: '2026-03-25T13:30:00Z', uploadedBy: 'James Okafor',    legalHold: false, tags: ['application', 'chase'] },
   { id: 'doc_009', businessId: 'biz_001', businessName: 'Apex Ventures LLC',   type: 'contract',                fileName: 'apex_advisor_agreement.pdf',    fileSizeBytes: 210_000,  uploadedAt: '2026-01-10T10:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: true,  tags: ['contract', 'legal'] },
   { id: 'doc_010', businessId: 'biz_007', businessName: 'Pinnacle Freight',    type: 'bank_statement',          fileName: 'pinnacle_bank_stmt_q4.pdf',     fileSizeBytes: 330_000,  uploadedAt: '2026-02-28T15:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: false, tags: ['bank', 'q4-2025'] },
+];
+
+const PLACEHOLDER_CLIENTS = [
+  { id: 'biz_001', name: 'Apex Ventures LLC' },
+  { id: 'biz_002', name: 'NovaTech Solutions' },
+  { id: 'biz_003', name: 'Blue Ridge Consulting' },
+  { id: 'biz_004', name: 'Summit Capital Group' },
+  { id: 'biz_005', name: 'Horizon Retail' },
+  { id: 'biz_006', name: 'Crestline Medical' },
+  { id: 'biz_007', name: 'Pinnacle Freight' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -79,6 +96,11 @@ const DOC_TYPE_ICONS: Record<DocumentType, string> = {
   compliance_check: '🔍', product_reality: '⚖️', contract: '📝', other: '📄',
 };
 
+const UPLOAD_DOC_TYPES: DocumentType[] = [
+  'bank_statement', 'consent_record', 'tax_return', 'compliance_check',
+  'contract', 'other',
+];
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1_048_576) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -92,20 +114,102 @@ function formatDate(iso: string): string {
 
 const ALL_DOC_TYPES: DocumentType[] = Object.keys(DOC_TYPE_LABELS) as DocumentType[];
 
+let _toastId = 0;
+
+// ---------------------------------------------------------------------------
+// Toast Component
+// ---------------------------------------------------------------------------
+
+function ToastContainer({ toasts, onDismiss }: { toasts: ToastMessage[]; onDismiss: (id: number) => void }) {
+  return (
+    <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2 max-w-sm">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium border flex items-center gap-3 animate-[slideIn_0.2s_ease-out] ${
+            t.type === 'success' ? 'bg-green-900/90 text-green-200 border-green-700' :
+            t.type === 'error'   ? 'bg-red-900/90 text-red-200 border-red-700' :
+                                   'bg-gray-800/90 text-gray-200 border-gray-600'
+          }`}
+        >
+          <span className="flex-1">{t.text}</span>
+          <button onClick={() => onDismiss(t.id)} className="text-gray-400 hover:text-white ml-2">&times;</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modal Backdrop
+// ---------------------------------------------------------------------------
+
+function ModalBackdrop({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function DocumentsPage() {
+  // Core state
   const [docs, setDocs] = useState<DocumentRecord[]>(PLACEHOLDER_DOCS);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
   const [businessFilter, setBusinessFilter] = useState('');
   const [legalHoldOnly, setLegalHoldOnly] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [clientSelector, setClientSelector] = useState('');
+
+  // Toasts
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = useCallback((text: string, type: ToastMessage['type'] = 'info') => {
+    const id = ++_toastId;
+    setToasts((prev) => [...prev, { id, text, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // Upload modal
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadDragOver, setUploadDragOver] = useState(false);
+  const [uploadDocType, setUploadDocType] = useState<DocumentType>('bank_statement');
+  const [uploadClient, setUploadClient] = useState('');
+  const [uploadTags, setUploadTags] = useState('');
+  const [uploadLegalHold, setUploadLegalHold] = useState(false);
+  const uploadFileRef = useRef<HTMLInputElement>(null);
+
+  // Request from Client modal
+  const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [requestClient, setRequestClient] = useState('');
+  const [requestDocType, setRequestDocType] = useState<DocumentType>('bank_statement');
+  const [requestMessage, setRequestMessage] = useState('');
+
+  // Release Hold modal
+  const [releaseHoldModal, setReleaseHoldModal] = useState<DocumentRecord | null>(null);
+  const [releaseReason, setReleaseReason] = useState('');
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Exporting state
   const [exportingId, setExportingId] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ---------------------------------------------------------------------------
+  // Data fetch (placeholder)
+  // ---------------------------------------------------------------------------
 
   useEffect(() => {
     (async () => {
@@ -123,6 +227,10 @@ export default function DocumentsPage() {
     })();
   }, [typeFilter, businessFilter]);
 
+  // ---------------------------------------------------------------------------
+  // Filtering
+  // ---------------------------------------------------------------------------
+
   const displayed = docs.filter((d) => {
     const matchSearch =
       !search ||
@@ -132,38 +240,148 @@ export default function DocumentsPage() {
     const matchType = !typeFilter || d.type === typeFilter;
     const matchBusiness = !businessFilter || d.businessId === businessFilter || d.businessName.toLowerCase().includes(businessFilter.toLowerCase());
     const matchHold = !legalHoldOnly || d.legalHold;
-    return matchSearch && matchType && matchBusiness && matchHold;
+    const matchClient = !clientSelector || d.businessId === clientSelector;
+    return matchSearch && matchType && matchBusiness && matchHold && matchClient;
   });
 
   const businesses = Array.from(new Set(docs.map((d) => d.businessName))).sort();
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      await documentsApi.upload(form);
-      // In a real app, refetch or optimistically add the new doc
-    } catch { /* silently fail in demo */ }
-    finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
+
+  const handleUploadSubmit = () => {
+    if (!uploadFile) return;
+    const client = PLACEHOLDER_CLIENTS.find((c) => c.id === uploadClient);
+    const newDoc: DocumentRecord = {
+      id: `doc_${Date.now()}`,
+      businessId: uploadClient || 'biz_001',
+      businessName: client?.name || 'Unassigned',
+      type: uploadDocType,
+      fileName: uploadFile.name,
+      fileSizeBytes: uploadFile.size,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: 'Current User',
+      legalHold: uploadLegalHold,
+      tags: uploadTags.split(',').map((t) => t.trim()).filter(Boolean),
+    };
+    setDocs((prev) => [newDoc, ...prev]);
+    showToast(`Uploaded "${uploadFile.name}" successfully`, 'success');
+    // Reset
+    setUploadModalOpen(false);
+    setUploadFile(null);
+    setUploadDocType('bank_statement');
+    setUploadClient('');
+    setUploadTags('');
+    setUploadLegalHold(false);
+  };
+
+  const handleView = () => {
+    showToast('Preview not available in development mode', 'info');
+  };
+
+  const handleDossier = (doc: DocumentRecord) => {
+    showToast(`Generating dossier for ${doc.businessName}...`, 'info');
+    setExportingId(doc.businessId);
+    setTimeout(() => {
+      setExportingId(null);
+      showToast('Dossier downloaded', 'success');
+    }, 1500);
+  };
+
+  const handleReleaseHold = () => {
+    if (!releaseHoldModal || !releaseReason.trim()) return;
+    setDocs((prev) =>
+      prev.map((d) =>
+        d.id === releaseHoldModal.id ? { ...d, legalHold: false } : d
+      )
+    );
+    showToast(`Legal hold released for "${releaseHoldModal.fileName}"`, 'success');
+    setReleaseHoldModal(null);
+    setReleaseReason('');
+  };
+
+  const handleRequestSubmit = () => {
+    if (!requestClient) return;
+    const client = PLACEHOLDER_CLIENTS.find((c) => c.id === requestClient);
+    showToast(`Document request sent to ${client?.name || 'client'}`, 'success');
+    setRequestModalOpen(false);
+    setRequestClient('');
+    setRequestDocType('bank_statement');
+    setRequestMessage('');
+  };
+
+  // Bulk actions
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === displayed.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayed.map((d) => d.id)));
     }
   };
 
-  const handleExportDossier = async (businessId: string) => {
-    setExportingId(businessId);
-    try {
-      await documentsApi.exportDossier(businessId);
-      // Real implementation would trigger a download
-    } catch { /* silently fail in demo */ }
-    finally { setExportingId(null); }
+  const handleBulkDownload = () => {
+    showToast(`Downloading ${selectedIds.size} document(s)...`, 'info');
+    setSelectedIds(new Set());
   };
+
+  const handleBulkAddTag = () => {
+    const tag = prompt('Enter tag to add:');
+    if (!tag) return;
+    setDocs((prev) =>
+      prev.map((d) =>
+        selectedIds.has(d.id) ? { ...d, tags: [...d.tags, tag.trim()] } : d
+      )
+    );
+    showToast(`Tag "${tag.trim()}" added to ${selectedIds.size} document(s)`, 'success');
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkAssign = () => {
+    const clientId = prompt('Enter client/business ID to assign (e.g., biz_001):');
+    if (!clientId) return;
+    const client = PLACEHOLDER_CLIENTS.find((c) => c.id === clientId);
+    if (!client) { showToast('Client not found', 'error'); return; }
+    setDocs((prev) =>
+      prev.map((d) =>
+        selectedIds.has(d.id) ? { ...d, businessId: client.id, businessName: client.name } : d
+      )
+    );
+    showToast(`${selectedIds.size} document(s) assigned to ${client.name}`, 'success');
+    setSelectedIds(new Set());
+  };
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
+      {/* Toast container */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      {/* Client selector */}
+      <div className="mb-4">
+        <select
+          value={clientSelector}
+          onChange={(e) => setClientSelector(e.target.value)}
+          className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500 min-w-[240px]"
+        >
+          <option value="">All Clients</option>
+          {PLACEHOLDER_CLIENTS.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
@@ -173,24 +391,18 @@ export default function DocumentsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.jpg,.png,.json,.csv"
-            onChange={handleUpload}
-            className="hidden"
-            id="doc-upload"
-          />
-          <label
-            htmlFor="doc-upload"
-            className={`px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold cursor-pointer transition-colors ${
-              uploading
-                ? 'bg-gray-800 text-gray-500'
-                : 'bg-gray-800 text-gray-200 hover:bg-gray-700 hover:text-white'
-            }`}
+          <button
+            onClick={() => setUploadModalOpen(true)}
+            className="px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold cursor-pointer transition-colors bg-gray-800 text-gray-200 hover:bg-gray-700 hover:text-white"
           >
-            {uploading ? 'Uploading…' : '↑ Upload'}
-          </label>
+            ↑ Upload
+          </button>
+          <button
+            onClick={() => setRequestModalOpen(true)}
+            className="px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold cursor-pointer transition-colors bg-gray-800 text-gray-200 hover:bg-gray-700 hover:text-white"
+          >
+            📩 Request from Client
+          </button>
         </div>
       </div>
 
@@ -198,7 +410,7 @@ export default function DocumentsPage() {
       <div className="flex flex-wrap gap-3 mb-6">
         <input
           type="text"
-          placeholder="Search filename, business, tag…"
+          placeholder="Search filename, business, tag..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[220px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-500"
@@ -236,9 +448,9 @@ export default function DocumentsPage() {
           Legal Hold Only
         </label>
 
-        {(search || typeFilter || businessFilter || legalHoldOnly) && (
+        {(search || typeFilter || businessFilter || legalHoldOnly || clientSelector) && (
           <button
-            onClick={() => { setSearch(''); setTypeFilter(''); setBusinessFilter(''); setLegalHoldOnly(false); }}
+            onClick={() => { setSearch(''); setTypeFilter(''); setBusinessFilter(''); setLegalHoldOnly(false); setClientSelector(''); }}
             className="px-3 py-2 rounded-lg border border-gray-700 text-sm text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
           >
             Clear
@@ -246,9 +458,30 @@ export default function DocumentsPage() {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 mb-4 px-4 py-3 rounded-xl bg-blue-950/60 border border-blue-800">
+          <span className="text-sm text-blue-300 font-medium">{selectedIds.size} selected</span>
+          <div className="flex gap-2 ml-4">
+            <button onClick={handleBulkDownload} className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-200 hover:bg-gray-700 transition-colors">
+              Download
+            </button>
+            <button onClick={handleBulkAddTag} className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-200 hover:bg-gray-700 transition-colors">
+              Add Tag
+            </button>
+            <button onClick={handleBulkAssign} className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-200 hover:bg-gray-700 transition-colors">
+              Assign to Client
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Document list */}
       {loading ? (
-        <p className="text-center text-gray-500 py-12">Loading documents…</p>
+        <p className="text-center text-gray-500 py-12">Loading documents...</p>
       ) : displayed.length === 0 ? (
         <div className="text-center py-16 text-gray-600">
           <p className="text-4xl mb-3">📄</p>
@@ -259,6 +492,14 @@ export default function DocumentsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-900 text-gray-400 text-xs uppercase tracking-wide">
+                <th className="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === displayed.length && displayed.length > 0}
+                    onChange={toggleSelectAll}
+                    className="accent-blue-500"
+                  />
+                </th>
                 <th className="text-left px-4 py-3 font-semibold">Document</th>
                 <th className="text-left px-4 py-3 font-semibold">Type</th>
                 <th className="text-left px-4 py-3 font-semibold">Business</th>
@@ -270,7 +511,17 @@ export default function DocumentsPage() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {displayed.map((doc) => (
-                <tr key={doc.id} className="bg-gray-950 hover:bg-gray-900 transition-colors group">
+                <tr key={doc.id} className={`transition-colors group ${selectedIds.has(doc.id) ? 'bg-blue-950/30' : 'bg-gray-950 hover:bg-gray-900'}`}>
+                  {/* Checkbox */}
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(doc.id)}
+                      onChange={() => toggleSelect(doc.id)}
+                      className="accent-blue-500"
+                    />
+                  </td>
+
                   {/* Filename + tags */}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -323,23 +574,34 @@ export default function DocumentsPage() {
                         Hold
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-600">—</span>
+                      <span className="text-xs text-gray-600">---</span>
                     )}
                   </td>
 
                   {/* Actions */}
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                      <button
+                        onClick={handleView}
+                        className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                      >
                         View
                       </button>
                       <button
-                        onClick={() => handleExportDossier(doc.businessId)}
+                        onClick={() => handleDossier(doc)}
                         disabled={exportingId === doc.businessId}
                         className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50"
                       >
-                        {exportingId === doc.businessId ? 'Exporting…' : 'Dossier'}
+                        {exportingId === doc.businessId ? 'Exporting...' : 'Dossier'}
                       </button>
+                      {doc.legalHold && (
+                        <button
+                          onClick={() => { setReleaseHoldModal(doc); setReleaseReason(''); }}
+                          className="text-xs text-orange-400 hover:text-orange-300 transition-colors"
+                        >
+                          Release Hold
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -355,6 +617,233 @@ export default function DocumentsPage() {
           <span>Total size: {formatBytes(displayed.reduce((s, d) => s + d.fileSizeBytes, 0))}</span>
           <span>Legal holds: {displayed.filter((d) => d.legalHold).length}</span>
         </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* Upload Modal                                                      */}
+      {/* ================================================================= */}
+      {uploadModalOpen && (
+        <ModalBackdrop onClose={() => setUploadModalOpen(false)}>
+          <div className="p-6">
+            <h2 className="text-lg font-bold text-white mb-4">Upload Document</h2>
+
+            {/* Drop zone */}
+            <div
+              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors mb-4 ${
+                uploadDragOver ? 'border-blue-500 bg-blue-950/30' : 'border-gray-700 bg-gray-800/50 hover:border-gray-500'
+              }`}
+              onDragOver={(e) => { e.preventDefault(); setUploadDragOver(true); }}
+              onDragLeave={() => setUploadDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setUploadDragOver(false);
+                const file = e.dataTransfer.files[0];
+                if (file) setUploadFile(file);
+              }}
+              onClick={() => uploadFileRef.current?.click()}
+            >
+              <input
+                ref={uploadFileRef}
+                type="file"
+                accept=".pdf,.jpg,.png,.json,.csv,.doc,.docx,.xlsx"
+                onChange={(e) => { if (e.target.files?.[0]) setUploadFile(e.target.files[0]); }}
+                className="hidden"
+              />
+              {uploadFile ? (
+                <div>
+                  <p className="text-sm text-gray-200 font-medium">{uploadFile.name}</p>
+                  <p className="text-xs text-gray-500 mt-1">{formatBytes(uploadFile.size)}</p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-2xl mb-2">📁</p>
+                  <p className="text-sm text-gray-400">Drag and drop a file here, or click to browse</p>
+                  <p className="text-xs text-gray-600 mt-1">PDF, JPG, PNG, JSON, CSV, DOC, XLSX</p>
+                </div>
+              )}
+            </div>
+
+            {/* Document type */}
+            <label className="block mb-3">
+              <span className="text-xs text-gray-400 mb-1 block">Document Type</span>
+              <select
+                value={uploadDocType}
+                onChange={(e) => setUploadDocType(e.target.value as DocumentType)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
+              >
+                {UPLOAD_DOC_TYPES.map((t) => (
+                  <option key={t} value={t}>{DOC_TYPE_LABELS[t]}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Client selector */}
+            <label className="block mb-3">
+              <span className="text-xs text-gray-400 mb-1 block">Client</span>
+              <select
+                value={uploadClient}
+                onChange={(e) => setUploadClient(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">Select client...</option>
+                {PLACEHOLDER_CLIENTS.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Tags */}
+            <label className="block mb-3">
+              <span className="text-xs text-gray-400 mb-1 block">Tags (comma-separated)</span>
+              <input
+                type="text"
+                value={uploadTags}
+                onChange={(e) => setUploadTags(e.target.value)}
+                placeholder="e.g. bank, q1-2026, review"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-500"
+              />
+            </label>
+
+            {/* Legal hold */}
+            <label className="flex items-center gap-2 mb-5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={uploadLegalHold}
+                onChange={(e) => setUploadLegalHold(e.target.checked)}
+                className="accent-blue-500"
+              />
+              <span className="text-sm text-gray-300">Place on legal hold</span>
+            </label>
+
+            {/* Actions */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setUploadModalOpen(false)}
+                className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUploadSubmit}
+                disabled={!uploadFile}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-sm font-semibold text-white hover:bg-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Upload Document
+              </button>
+            </div>
+          </div>
+        </ModalBackdrop>
+      )}
+
+      {/* ================================================================= */}
+      {/* Request from Client Modal                                         */}
+      {/* ================================================================= */}
+      {requestModalOpen && (
+        <ModalBackdrop onClose={() => setRequestModalOpen(false)}>
+          <div className="p-6">
+            <h2 className="text-lg font-bold text-white mb-4">Request Document from Client</h2>
+
+            {/* Client selector */}
+            <label className="block mb-3">
+              <span className="text-xs text-gray-400 mb-1 block">Client</span>
+              <select
+                value={requestClient}
+                onChange={(e) => setRequestClient(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">Select client...</option>
+                {PLACEHOLDER_CLIENTS.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Document type */}
+            <label className="block mb-3">
+              <span className="text-xs text-gray-400 mb-1 block">Document Type</span>
+              <select
+                value={requestDocType}
+                onChange={(e) => setRequestDocType(e.target.value as DocumentType)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
+              >
+                {ALL_DOC_TYPES.map((t) => (
+                  <option key={t} value={t}>{DOC_TYPE_LABELS[t]}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Message */}
+            <label className="block mb-5">
+              <span className="text-xs text-gray-400 mb-1 block">Message</span>
+              <textarea
+                value={requestMessage}
+                onChange={(e) => setRequestMessage(e.target.value)}
+                rows={3}
+                placeholder="Please provide your most recent bank statement..."
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+              />
+            </label>
+
+            {/* Actions */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setRequestModalOpen(false)}
+                className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRequestSubmit}
+                disabled={!requestClient}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-sm font-semibold text-white hover:bg-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Send Request
+              </button>
+            </div>
+          </div>
+        </ModalBackdrop>
+      )}
+
+      {/* ================================================================= */}
+      {/* Release Legal Hold Modal                                          */}
+      {/* ================================================================= */}
+      {releaseHoldModal && (
+        <ModalBackdrop onClose={() => setReleaseHoldModal(null)}>
+          <div className="p-6">
+            <h2 className="text-lg font-bold text-white mb-2">Release Legal Hold</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Releasing hold on <span className="text-gray-200 font-medium">{releaseHoldModal.fileName}</span>
+            </p>
+
+            <label className="block mb-5">
+              <span className="text-xs text-gray-400 mb-1 block">Documented Reason (required)</span>
+              <textarea
+                value={releaseReason}
+                onChange={(e) => setReleaseReason(e.target.value)}
+                rows={3}
+                placeholder="Provide the reason for releasing this legal hold..."
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+                required
+              />
+            </label>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setReleaseHoldModal(null)}
+                className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReleaseHold}
+                disabled={!releaseReason.trim()}
+                className="px-4 py-2 rounded-lg bg-orange-600 text-sm font-semibold text-white hover:bg-orange-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Release Hold
+              </button>
+            </div>
+          </div>
+        </ModalBackdrop>
       )}
     </div>
   );
