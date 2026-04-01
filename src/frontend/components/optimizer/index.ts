@@ -1,11 +1,15 @@
+export { OptimizerClientSelector } from './OptimizerClientSelector';
+export type { OptimizerClient } from './OptimizerClientSelector';
 export { ScoreBreakdownPanel } from './ScoreBreakdownPanel';
 export { SuitabilityAssessmentPanel } from './SuitabilityAssessmentPanel';
 export type { SuitabilityAssessmentPanelProps } from './SuitabilityAssessmentPanel';
-export {
-  OptimizationHistory,
-  saveOptimizationRun,
-  getOptimizationHistory,
-} from './OptimizationHistory';
+export { StackSummaryPanel } from './StackSummaryPanel';
+export { AprExpiryTimeline } from './AprExpiryTimeline';
+export { OptimizerResultsActions } from './OptimizerResultsActions';
+export { OptimizationHistory, saveOptimizationRun, getOptimizationHistory } from './OptimizationHistory';
 export type { HistoryRun } from './OptimizationHistory';
+export { OptimizerInputAdditions } from './OptimizerInputAdditions';
 export { ExistingCardsGrouped } from './ExistingCardsGrouped';
 export type { CardOption } from './ExistingCardsGrouped';
+export { SaveFundingPlanButton } from './SaveFundingPlanButton';
+export { SequencingSummary } from './SequencingSummary';
