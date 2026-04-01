@@ -13,6 +13,7 @@ import { getOptimizerMockData } from './optimizer-mocks';
 import { getDeclineMockData } from './decline-mocks';
 import { getFinancialMockData } from './financial-mocks';
 import { getCardBenefitsStmtBillingMockData } from './card-benefits-statements-billing-mocks';
+import { getTaxSimSandboxMockData } from './tax-simulator-sandbox-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -798,6 +799,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/card-benefits') || endpoint.includes('/statements') || endpoint.includes('/billing')) {
     const cbsbData = getCardBenefitsStmtBillingMockData(endpoint);
     if (cbsbData !== null) return cbsbData;
+  }
+
+  // Fall through to tax, simulator, and sandbox mocks
+  if (endpoint.includes('/tax/') || endpoint.includes('/simulator/') || endpoint.includes('/sandbox/')) {
+    const tssMockData = getTaxSimSandboxMockData(endpoint);
+    if (tssMockData !== null) return tssMockData;
   }
 
   // Fall through to client detail mocks for /api/v1/clients/* paths
