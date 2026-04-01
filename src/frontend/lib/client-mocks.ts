@@ -64,22 +64,22 @@ const MOCK_ACKNOWLEDGMENTS = [
 
 const MOCK_ACH_AUTHORIZATION = {
   status: 'authorized' as const,
+  clientName: 'Meridian Holdings LLC',
   authorizedAmount: 5000,
-  frequency: 'monthly' as const,
-  authorizationDate: '2026-01-09',
-  bankLast4: '4521',
-  bankName: 'Chase Business Checking',
-  debitHistory: [
-    { date: '2026-03-01', amount: 1200, status: 'processed' as const, reference: 'ACH-2026-0301' },
-    { date: '2026-02-01', amount: 1200, status: 'processed' as const, reference: 'ACH-2026-0201' },
-    { date: '2026-01-15', amount: 800, status: 'failed' as const, reference: 'ACH-2026-0115' },
-    { date: '2026-01-02', amount: 1200, status: 'processed' as const, reference: 'ACH-2026-0102' },
-    { date: '2025-12-15', amount: 1200, status: 'processed' as const, reference: 'ACH-2025-1215' },
-    { date: '2025-12-01', amount: 1200, status: 'processed' as const, reference: 'ACH-2025-1201' },
+  authorizedFrequency: 'Monthly',
+  authorizationDate: 'Jan 9, 2026',
+  bankAccountLast4: '4521',
+  bankName: 'Chase',
+  accountType: 'Business Checking',
+  debits: [
+    { id: 'dbt-1', date: 'Mar 1, 2026', amount: 1200, status: 'processed' as const, referenceNumber: 'ACH-2026-0301' },
+    { id: 'dbt-2', date: 'Feb 1, 2026', amount: 1200, status: 'processed' as const, referenceNumber: 'ACH-2026-0201' },
+    { id: 'dbt-3', date: 'Jan 15, 2026', amount: 800, status: 'failed' as const, referenceNumber: 'ACH-2026-0115' },
+    { id: 'dbt-4', date: 'Jan 2, 2026', amount: 1200, status: 'processed' as const, referenceNumber: 'ACH-2026-0102' },
+    { id: 'dbt-5', date: 'Dec 15, 2025', amount: 1200, status: 'processed' as const, referenceNumber: 'ACH-2025-1215' },
+    { id: 'dbt-6', date: 'Dec 1, 2025', amount: 1200, status: 'processed' as const, referenceNumber: 'ACH-2025-1201' },
   ],
-  toleranceStatus: 'ok' as const,
-  toleranceMessage: 'All debits within authorized parameters',
-  last_updated: new Date().toISOString(),
+  toleranceAlerts: [],
 };
 
 // ── Business Credit ───────────────────────────────────────────
