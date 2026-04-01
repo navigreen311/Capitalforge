@@ -8,6 +8,7 @@
 
 import { getClientMockData } from './client-mocks';
 import { getApplicationMockData } from './application-mocks';
+import { getFundingRoundMockData } from './funding-round-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -758,6 +759,12 @@ export function getMockData(endpoint: string): unknown | null {
   // Check dashboard map first
   const dashboardData = map[endpoint];
   if (dashboardData !== undefined) return dashboardData;
+
+  // Fall through to funding round / optimizer round mocks
+  if (endpoint.includes('/funding-rounds/') || endpoint.includes('/optimizer/round')) {
+    const roundData = getFundingRoundMockData(endpoint);
+    if (roundData !== null) return roundData;
+  }
 
   // Fall through to application / optimizer mocks
   if (endpoint.includes('/applications') || endpoint.includes('/optimizer/')) {
