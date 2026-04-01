@@ -28,11 +28,10 @@ export type {
   WizardStepComponentProps,
 } from './wizard/ApplicationWizardShell';
 
-// TODO: Export these components once they are created:
-// export { ApplicationFilterBar } from './ApplicationFilterBar';
-// export { ApplicationTableView } from './ApplicationTableView';
-// export { WizardStep1SelectClient } from './wizard/WizardStep1SelectClient';
-// export { WizardStep2AssignRound } from './wizard/WizardStep2AssignRound';
-// export { WizardStep3SelectCard } from './wizard/WizardStep3SelectCard';
-// export { WizardStep4BusinessPurpose } from './wizard/WizardStep4BusinessPurpose';
-// export { WizardStep5ReviewConfirm } from './wizard/WizardStep5ReviewConfirm';
+export { ApplicationFilterBar } from './ApplicationFilterBar';
+export { default as ApplicationTableView } from './ApplicationTableView';
+export { default as WizardStep1SelectClient } from './wizard/WizardStep1SelectClient';
+export { default as WizardStep2AssignRound } from './wizard/WizardStep2AssignRound';
+export { default as WizardStep3SelectCard } from './wizard/WizardStep3SelectCard';
+export { default as WizardStep4BusinessPurpose } from './wizard/WizardStep4BusinessPurpose';
+export { default as WizardStep5ReviewConfirm } from './wizard/WizardStep5ReviewConfirm';

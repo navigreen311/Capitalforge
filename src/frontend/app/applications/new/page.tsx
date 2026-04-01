@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SectionCard } from '@/components/ui/card';
 
@@ -18,7 +18,15 @@ const ISSUERS = [
 
 // ── Page ───────────────────────────────────────────────────────
 
-export default function NewApplicationPage() {
+export default function NewApplicationPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-6 text-center text-gray-400">Loading...</div>}>
+      <NewApplicationPage />
+    </Suspense>
+  );
+}
+
+function NewApplicationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const prefillClientId = searchParams.get('client_id') ?? '';
