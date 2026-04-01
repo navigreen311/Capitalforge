@@ -11,16 +11,26 @@ import PipelineScreen from '../screens/PipelineScreen';
 import AlertsScreen from '../screens/AlertsScreen';
 import LoginScreen from '../screens/LoginScreen';
 import DocumentCaptureScreen from '../screens/DocumentCaptureScreen';
+import CreditDashboardScreen from '../screens/client/CreditDashboardScreen';
+import RepaymentCalendarScreen from '../screens/client/RepaymentCalendarScreen';
+import DocumentUploadScreen from '../screens/client/DocumentUploadScreen';
+import FundingProgressScreen from '../screens/client/FundingProgressScreen';
 
 // ─── Tab Icon (text-based placeholder, replace with icon library if desired) ──
 
 function TabIcon({ label, focused }: { label: string; focused: boolean }) {
   const icons: Record<string, string> = {
+    // Advisor tabs
     Dashboard: '⊞',
     Clients: '◎',
     Pipeline: '≡',
     Alerts: '◉',
     Profile: '⊙',
+    // Client tabs
+    Credit: '◈',
+    Repayment: '◷',
+    Funding: '▲',
+    Documents: '⊟',
   };
   return (
     <Text style={{ fontSize: 20, color: focused ? Colors.gold : Colors.gray400 }}>
@@ -45,8 +55,16 @@ export type MainTabParamList = {
   Profile: undefined;
 };
 
+export type ClientTabParamList = {
+  Credit: undefined;
+  Repayment: undefined;
+  Funding: undefined;
+  Documents: undefined;
+};
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
+const ClientTab = createBottomTabNavigator<ClientTabParamList>();
 
 // ─── Profile Placeholder ──────────────────────────────────────────────────────
 
@@ -59,41 +77,76 @@ function ProfileScreen() {
   );
 }
 
+// ─── Shared tab screenOptions factory ────────────────────────────────────────
+
+const sharedTabScreenOptions = (route: { name: string }) => ({
+  tabBarIcon: ({ focused }: { focused: boolean }) => (
+    <TabIcon label={route.name} focused={focused} />
+  ),
+  tabBarActiveTintColor: Colors.gold,
+  tabBarInactiveTintColor: Colors.gray400,
+  tabBarStyle: {
+    backgroundColor: Colors.navy,
+    borderTopColor: Colors.navyMid,
+    borderTopWidth: 1,
+    paddingBottom: 6,
+    paddingTop: 4,
+    height: 64,
+  },
+  tabBarLabelStyle: {
+    fontSize: 11,
+    fontWeight: '500' as const,
+  },
+  headerStyle: {
+    backgroundColor: Colors.navy,
+  },
+  headerTintColor: Colors.white,
+  headerTitleStyle: {
+    fontWeight: '700' as const,
+    color: Colors.white,
+  },
+  headerRight: () => (
+    <Text style={{ color: Colors.gold, fontSize: 16, marginRight: 16 }}>CF</Text>
+  ),
+});
+
+// ─── Client Tab Navigator ─────────────────────────────────────────────────────
+
+function ClientTabs() {
+  return (
+    <ClientTab.Navigator
+      screenOptions={({ route }) => sharedTabScreenOptions(route)}
+    >
+      <ClientTab.Screen
+        name="Credit"
+        component={CreditDashboardScreen}
+        options={{ title: 'My Credit' }}
+      />
+      <ClientTab.Screen
+        name="Repayment"
+        component={RepaymentCalendarScreen}
+        options={{ title: 'Repayment' }}
+      />
+      <ClientTab.Screen
+        name="Funding"
+        component={FundingProgressScreen}
+        options={{ title: 'Funding' }}
+      />
+      <ClientTab.Screen
+        name="Documents"
+        component={DocumentUploadScreen}
+        options={{ title: 'Documents' }}
+      />
+    </ClientTab.Navigator>
+  );
+}
+
 // ─── Main Tab Navigator ───────────────────────────────────────────────────────
 
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused }) => (
-          <TabIcon label={route.name} focused={focused} />
-        ),
-        tabBarActiveTintColor: Colors.gold,
-        tabBarInactiveTintColor: Colors.gray400,
-        tabBarStyle: {
-          backgroundColor: Colors.navy,
-          borderTopColor: Colors.navyMid,
-          borderTopWidth: 1,
-          paddingBottom: 6,
-          paddingTop: 4,
-          height: 64,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '500',
-        },
-        headerStyle: {
-          backgroundColor: Colors.navy,
-        },
-        headerTintColor: Colors.white,
-        headerTitleStyle: {
-          fontWeight: '700',
-          color: Colors.white,
-        },
-        headerRight: () => (
-          <Text style={{ color: Colors.gold, fontSize: 16, marginRight: 16 }}>CF</Text>
-        ),
-      })}
+      screenOptions={({ route }) => sharedTabScreenOptions(route)}
     >
       <Tab.Screen
         name="Dashboard"
@@ -126,13 +179,24 @@ function MainTabs() {
 
 // ─── Root Navigator ───────────────────────────────────────────────────────────
 
-export default function AppNavigator({ isAuthenticated }: { isAuthenticated: boolean }) {
+export type UserRole = 'advisor' | 'client';
+
+export default function AppNavigator({
+  isAuthenticated,
+  userRole = 'advisor',
+}: {
+  isAuthenticated: boolean;
+  userRole?: UserRole;
+}) {
+  // Choose the correct tab navigator based on role
+  const MainComponent = userRole === 'client' ? ClientTabs : MainTabs;
+
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {isAuthenticated ? (
           <>
-            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen name="Main" component={MainComponent} />
             <Stack.Screen
               name="DocumentCapture"
               component={DocumentCaptureScreen}
