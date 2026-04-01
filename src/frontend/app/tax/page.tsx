@@ -62,7 +62,7 @@ const DATA_BY_YEAR: Record<
   }
 > = {
   2025: {
-    atiLimit: 30_pct_ati(2_840_000),
+    atiLimit: pct30_ati(2_840_000),
     totalInterest: 92_400,
     totalDeductible: 78_200,
     carryforwardAmount: 14_200,
@@ -90,7 +90,7 @@ const DATA_BY_YEAR: Record<
     ],
   },
   2024: {
-    atiLimit: 30_pct_ati(2_540_000),
+    atiLimit: pct30_ati(2_540_000),
     totalInterest: 74_800,
     totalDeductible: 68_200,
     carryforwardAmount: 6_600,
@@ -119,7 +119,7 @@ const DATA_BY_YEAR: Record<
   },
 };
 
-function 30_pct_ati(ati: number) { return Math.round(ati * 0.3); }
+function pct30_ati(ati: number) { return Math.round(ati * 0.3); }
 
 // ---------------------------------------------------------------------------
 // Helpers

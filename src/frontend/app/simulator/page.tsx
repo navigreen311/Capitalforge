@@ -174,7 +174,7 @@ function ResultsPanel({ projections, alternatives }: { projections: RoundProject
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
           { label: 'Total Capital Available',  value: totalCapital,  sub: '5-round strategy',      up: true  },
-          { label: 'Avg Approval Probability', value: `${projections.length ? Math.round(projections.reduce((s, r) => s + r.approvalPct, 0) / projections.length : 0}%`, sub: 'Across all rounds', up: true },
+          { label: 'Avg Approval Probability', value: `${projections.length ? Math.round(projections.reduce((s, r) => s + r.approvalPct, 0) / projections.length) : 0}%`, sub: 'Across all rounds', up: true },
           { label: 'Interest Rate Shock',      value: interestShock, sub: 'APR delta vs. baseline', up: false },
           { label: 'Rounds to Target',         value: '4',           sub: '$150k threshold',        up: true  },
         ].map((card) => (

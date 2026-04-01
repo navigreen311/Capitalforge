@@ -238,21 +238,18 @@ export function sanitizeInputs(
       req.body = sanitizeObject(req.body) as typeof req.body;
     }
 
-    // Query-string values are strings or string arrays
+    // Query-string values — Express 5 makes req.query read-only,
+    // so we sanitize in-place rather than replacing the object.
     const rawQuery = req.query as Record<string, unknown>;
-    const sanitizedQuery: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(rawQuery)) {
-      sanitizedQuery[key] = sanitizeObject(val);
+      rawQuery[key] = sanitizeObject(val);
     }
-    req.query = sanitizedQuery as typeof req.query;
 
-    // Route params
+    // Route params — same approach for Express 5 compatibility
     const rawParams = req.params as Record<string, string>;
-    const sanitizedParams: Record<string, string> = {};
     for (const [key, val] of Object.entries(rawParams)) {
-      sanitizedParams[key] = sanitizeObject(val) as string;
+      rawParams[key] = sanitizeObject(val) as string;
     }
-    req.params = sanitizedParams as typeof req.params;
 
     next();
   } catch (err) {

@@ -77,8 +77,8 @@ const jsonFormat = winston.format.combine(
 const devFormat = winston.format.combine(
   winston.format.timestamp({ format: 'HH:mm:ss' }),
   winston.format.errors({ stack: true }),
+  winston.format.colorize({ all: true }),
   piiMaskingFormat(),
-  winston.format.colorize(),
   winston.format.printf(({ timestamp, level, message, requestId, tenantId, ...rest }) => {
     const ctx = [requestId && `req:${requestId}`, tenantId && `tenant:${tenantId}`]
       .filter(Boolean)

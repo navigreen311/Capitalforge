@@ -39,17 +39,40 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // STUB — replace with real API call: POST /api/auth/login
+      // Resolve tenant ID from the demo tenant slug
+      const tenantRes = await fetch('/api/tenants/by-slug/demo-advisors');
+      let tenantId: string;
+      if (tenantRes.ok) {
+        const tenantData = await tenantRes.json();
+        tenantId = tenantData.data?.id;
+      } else {
+        // Fallback: fetch first available tenant
+        const tenantsRes = await fetch('/api/tenants');
+        const tenantsData = tenantsRes.ok ? await tenantsRes.json() : null;
+        tenantId = tenantsData?.data?.[0]?.id;
+      }
+
+      if (!tenantId) {
+        throw new Error('No tenant found. Please contact your administrator.');
+      }
+
       const res = await fetch('/api/auth/login', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: form.email, password: form.password }),
+        body:    JSON.stringify({ email: form.email, password: form.password, tenantId }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error((data as { error?: string }).error ?? 'Invalid email or password');
+        throw new Error((data as { error?: { message?: string }}).error?.message ?? 'Invalid email or password');
       }
+
+      // Store tokens for authenticated requests
+      const { accessToken, refreshToken, user } = (data as { data: { accessToken: string; refreshToken: string; user: { id: string; firstName: string } } }).data;
+      localStorage.setItem('cf_access_token', accessToken);
+      localStorage.setItem('cf_refresh_token', refreshToken);
+      localStorage.setItem('cf_user', JSON.stringify(user));
 
       router.push('/');
     } catch (err) {

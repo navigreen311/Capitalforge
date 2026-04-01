@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { CollapsibleSection } from './collapsible-section';
+import { useNavBadges } from '@/components/dashboard/NavBadgeProvider';
 
 // ─── Icon placeholders ───────────────────────────────────────────────────────
 // Two-letter monograms render without an icon library dependency.
@@ -31,6 +32,7 @@ interface NavItem {
   href: string;
   icon: string;
   badge?: string | number;
+  badgeColor?: string;
 }
 
 interface NavPillar {
@@ -150,11 +152,11 @@ function NavLink({ item, active, expanded }: NavLinkProps) {
         <span className="flex-1 truncate">{item.label}</span>
       )}
 
-      {expanded && item.badge !== undefined && (
+      {expanded && item.badge !== undefined && item.badge !== 0 && (
         <span
-          className="ml-auto flex-shrink-0 min-w-[1.25rem] h-5 px-1.5
-                     rounded-full bg-brand-gold text-brand-navy
-                     text-[10px] font-bold flex items-center justify-center"
+          className={`ml-auto flex-shrink-0 min-w-[1.25rem] h-5 px-1.5
+                     rounded-full text-[10px] font-bold flex items-center justify-center
+                     animate-badge-pop-in ${item.badgeColor || 'bg-brand-gold text-brand-navy'}`}
         >
           {item.badge}
         </span>
@@ -170,9 +172,18 @@ interface SidebarProps {
   defaultExpanded?: boolean;
 }
 
+// ── Badge color map ─────────────────────────────────────────────────────────
+
+const BADGE_CONFIG: Record<string, { key: 'dashboardBadge' | 'applicationsBadge' | 'fundingRoundsBadge'; color: string }> = {
+  '/':              { key: 'dashboardBadge',     color: 'bg-red-500 text-white' },
+  '/applications':  { key: 'applicationsBadge',  color: 'bg-amber-500 text-white' },
+  '/funding-rounds':{ key: 'fundingRoundsBadge', color: 'bg-teal-500 text-white' },
+};
+
 export function Sidebar({ defaultExpanded = true }: SidebarProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const pathname = usePathname();
+  const badges = useNavBadges();
 
   const isActive = (href: string) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href);
@@ -231,14 +242,20 @@ export function Sidebar({ defaultExpanded = true }: SidebarProps) {
               defaultOpen={pillar.defaultOpen || containsActive}
               sidebarExpanded={expanded}
             >
-              {pillar.items.map((item) => (
-                <NavLink
-                  key={item.href}
-                  item={item}
-                  active={isActive(item.href)}
-                  expanded={expanded}
-                />
-              ))}
+              {pillar.items.map((item) => {
+                const cfg = BADGE_CONFIG[item.href];
+                const enriched = cfg
+                  ? { ...item, badge: badges[cfg.key], badgeColor: cfg.color }
+                  : item;
+                return (
+                  <NavLink
+                    key={item.href}
+                    item={enriched}
+                    active={isActive(item.href)}
+                    expanded={expanded}
+                  />
+                );
+              })}
             </CollapsibleSection>
           );
         })}

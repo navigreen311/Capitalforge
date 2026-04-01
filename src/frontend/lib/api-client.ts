@@ -42,7 +42,7 @@ export class ApiRequestError extends Error {
 
 // ─── Token management ─────────────────────────────────────────────────────────
 
-const TOKEN_KEY = 'cf_token';
+const TOKEN_KEY = 'cf_access_token';
 
 export function setAuthToken(token: string): void {
   if (typeof window !== 'undefined') localStorage.setItem(TOKEN_KEY, token);
@@ -139,11 +139,8 @@ async function request<T>(
     clearTimeout(timeoutId);
   }
 
-  // 401 — clear credentials and redirect to login
-  if (response.status === 401) {
-    clearAuthToken();
-    if (typeof window !== 'undefined') window.location.href = '/login';
-  }
+  // 401 — throw ApiRequestError so callers (e.g. useAuthFetch) can handle retry logic.
+  // Do NOT redirect to login here; let the hook decide after attempting a token refresh.
 
   // Parse response
   const contentType = response.headers.get('content-type') ?? '';
