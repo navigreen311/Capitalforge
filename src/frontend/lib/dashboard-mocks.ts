@@ -11,6 +11,7 @@ import { getApplicationMockData } from './application-mocks';
 import { getFundingRoundMockData } from './funding-round-mocks';
 import { getOptimizerMockData } from './optimizer-mocks';
 import { getDeclineMockData } from './decline-mocks';
+import { getFinancialMockData } from './financial-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -761,6 +762,12 @@ export function getMockData(endpoint: string): unknown | null {
   // Check dashboard map first
   const dashboardData = map[endpoint];
   if (dashboardData !== undefined) return dashboardData;
+
+  // Fall through to financial control mocks (repayment, spend governance, rewards)
+  if (endpoint.includes('/repayment') || endpoint.includes('/spend-governance') || endpoint.includes('/rewards')) {
+    const financialData = getFinancialMockData(endpoint);
+    if (financialData !== null) return financialData;
+  }
 
   // Fall through to decline mocks
   if (endpoint.includes('/declines')) {
