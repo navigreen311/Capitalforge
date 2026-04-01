@@ -616,7 +616,7 @@ export function VisuallyHidden({
   as: Tag = 'span',
 }: {
   children: ReactNode;
-  as?: keyof JSX.IntrinsicElements;
+  as?: keyof React.JSX.IntrinsicElements;
 }) {
   return (
     <Tag className="sr-only">

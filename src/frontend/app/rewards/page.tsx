@@ -1,4 +1,6 @@
-import type { Metadata } from 'next';
+'use client';
+
+// Metadata moved to layout or removed — client components cannot export metadata
 import { StatCard, SectionCard } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeStatus } from '@/components/ui/badge';
@@ -7,15 +9,14 @@ import type { ColumnDef } from '@/components/ui/data-table';
 import RewardsSummaryCard from '@/components/modules/rewards-summary-card';
 import type { CategoryBestCard } from '@/components/modules/rewards-summary-card';
 
-export const metadata: Metadata = {
-  title: 'Rewards Optimization',
-};
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type CardRec = 'keep' | 'review' | 'cancel';
 
 interface SpendRoute {
+  [key: string]: unknown;
   id: string;
   mccCategory: string;
   mccCode: string;
@@ -27,6 +28,7 @@ interface SpendRoute {
 }
 
 interface CardSummary {
+  [key: string]: unknown;
   id: string;
   cardName: string;
   issuer: string;
