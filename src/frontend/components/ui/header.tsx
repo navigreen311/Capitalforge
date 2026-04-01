@@ -21,7 +21,8 @@ function Breadcrumbs() {
   const pathname = usePathname();
   const segments = pathname.split('/').filter(Boolean);
 
-  if (segments.length === 0) {
+  // At root or /dashboard — show single "Dashboard" breadcrumb
+  if (segments.length === 0 || (segments.length === 1 && segments[0] === 'dashboard')) {
     return (
       <nav aria-label="Breadcrumb">
         <span className="text-sm font-semibold text-gray-900">Dashboard</span>
@@ -31,7 +32,7 @@ function Breadcrumbs() {
 
   return (
     <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
-      <Link href="/" className="text-gray-400 hover:text-gray-700 transition-colors">
+      <Link href="/dashboard" className="text-gray-400 hover:text-gray-700 transition-colors">
         Dashboard
       </Link>
       {segments.map((seg, idx) => {
