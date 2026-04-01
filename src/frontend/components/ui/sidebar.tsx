@@ -52,7 +52,7 @@ const NAV_PILLARS: NavPillar[] = [
       { label: 'Funding Rounds', href: '/funding-rounds',icon: 'FR' },
       { label: 'Optimizer',      href: '/optimizer',     icon: 'OP' },
       { label: 'Declines',       href: '/declines',      icon: 'DC' },
-      { label: 'Credit Builder', href: '/credit-builder',icon: 'CB' },
+      { label: 'Biz Credit Builder', href: '/credit-builder',icon: 'CB' },
     ],
   },
   {

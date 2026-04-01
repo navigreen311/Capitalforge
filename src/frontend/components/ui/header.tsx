@@ -12,6 +12,7 @@ const ROUTE_LABELS: Record<string, string> = {
   'applications':       'Applications',
   'funding-rounds':     'Funding Rounds',
   'credit-intelligence':'Credit Intelligence',
+  'credit-builder':     'Business Credit Builder',
   'compliance':         'Compliance',
   'documents':          'Documents',
   'settings':           'Settings',

@@ -5,6 +5,11 @@
 // Used when NEXT_PUBLIC_USE_MOCK_DATA=true.
 // ============================================================
 
+import {
+  MOCK_CREDIT_BUILDER_PROGRESS,
+  MOCK_TRADELINES,
+} from './credit-builder-mocks';
+
 function daysFromNow(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -200,6 +205,8 @@ export const CLIENT_MOCK_MAP: Record<string, unknown> = {
   'clients/{id}/repayment': MOCK_REPAYMENT,
   'clients/{id}/timeline': MOCK_TIMELINE,
   'clients/{id}/compliance/status': MOCK_COMPLIANCE_STATUS,
+  'clients/{id}/credit-builder-progress': MOCK_CREDIT_BUILDER_PROGRESS,
+  'clients/{id}/tradelines': MOCK_TRADELINES,
 };
 
 // ── Resolver ──────────────────────────────────────────────────
