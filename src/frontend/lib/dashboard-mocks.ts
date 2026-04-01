@@ -6,7 +6,7 @@
 // Activate via NEXT_PUBLIC_USE_MOCK_DATA=true in .env.local
 // ============================================================
 
-import { getClientMockData } from './client-mocks.js';
+import { getClientMockData } from './client-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
