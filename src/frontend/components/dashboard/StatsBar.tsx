@@ -5,6 +5,8 @@
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -291,7 +293,9 @@ function KpiCard({
       </div>
 
       {/* Sparkline */}
-      <Sparkline data={sparkline} color={config.accentHex} />
+      {sparkline && sparkline.length > 0 && (
+        <Sparkline data={sparkline} color={config.accentHex} />
+      )}
     </a>
   );
 }
@@ -299,31 +303,15 @@ function KpiCard({
 // ── StatsBar (main export) ──────────────────────────────────────────────────
 
 export function StatsBar() {
-  const [data, setData] = useState<KpiData | null>(null);
+  const { data, isLoading, error, refetch } = useAuthFetch<KpiData>('/api/v1/dashboard/kpi-summary');
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchKpi() {
-      try {
-        const res = await fetch('/api/v1/dashboard/kpi-summary');
-        const json = await res.json();
-        if (!cancelled && json.success) {
-          setData(json.data);
-        }
-      } catch {
-        // Silently handle fetch errors — cards stay in skeleton state
-      }
-    }
-
-    fetchKpi();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Error state
+  if (error) {
+    return <DashboardErrorState error={error} onRetry={refetch} />;
+  }
 
   // Loading state
-  if (!data) {
+  if (isLoading || !data) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         {CARDS.map((card) => (
