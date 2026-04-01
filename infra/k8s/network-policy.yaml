@@ -1,0 +1,311 @@
+# =============================================================================
+# CapitalForge — Network Policies
+#
+# Default posture: deny all ingress and egress for every pod in the namespace,
+# then explicitly allow only the required traffic paths:
+#
+#   Internet → ingress-nginx  (handled by nginx ingress, not modelled here)
+#   nginx ingress → frontend  :3000
+#   nginx ingress → backend   :4000
+#   frontend      → backend   :4000
+#   backend       → postgres  :5432
+#   backend       → redis     :6379
+#   All pods      → kube-dns  :53 (UDP+TCP) — required for service discovery
+#   CronJob pods  → backend   :4000
+#
+# Prerequisites:
+#   - A CNI that enforces NetworkPolicy must be installed on the EKS cluster.
+#     AWS VPC CNI alone does NOT enforce NetworkPolicy; install Calico or use
+#     the EKS Network Policy feature (available on VPC CNI v1.14+):
+#       aws eks update-addon --cluster-name <cluster> --addon-name vpc-cni \
+#         --configuration-values '{"enableNetworkPolicy": "true"}'
+#
+# Label assumptions:
+#   - postgres pods are labelled: app.kubernetes.io/name=postgres
+#   - redis pods are labelled:    app.kubernetes.io/name=redis
+#   - nginx ingress controller runs in namespace: ingress-nginx
+#     with label: app.kubernetes.io/name=ingress-nginx
+#   If your postgres/redis live outside the cluster (RDS/ElastiCache), the
+#   postgres/redis egress policies below should be replaced with CIDR-based
+#   egress rules matching your VPC private CIDR.
+# =============================================================================
+
+# ── 1. Default deny — all ingress for every pod in this namespace ─────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}   # applies to ALL pods
+  policyTypes:
+    - Ingress
+
+---
+# ── 2. Default deny — all egress for every pod ───────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+
+---
+# ── 3. Allow DNS for all pods (required for service discovery) ────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# ── 4. Frontend: allow ingress from nginx ingress controller ──────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - port: 3000
+          protocol: TCP
+
+---
+# ── 5. Frontend: allow egress only to backend ─────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend-egress
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+      ports:
+        - port: 4000
+          protocol: TCP
+
+---
+# ── 6. Backend: allow ingress from nginx ingress controller and frontend ───────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-backend
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # From ingress-nginx controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - port: 4000
+          protocol: TCP
+    # From frontend pods (SSR server-side fetches)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: frontend
+      ports:
+        - port: 4000
+          protocol: TCP
+    # From CronJob pods (APR expiry checker, backup trigger)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: apr-expiry-checker
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: db-backup
+      ports:
+        - port: 4000
+          protocol: TCP
+
+---
+# ── 7. Backend: allow egress to postgres ─────────────────────────────────────
+# If using Amazon RDS (outside the cluster), replace podSelector with an
+# ipBlock CIDR matching your RDS private IP range.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-postgres-egress
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    # RDS (external) — uncomment and set your RDS CIDR:
+    # - to:
+    #     - ipBlock:
+    #         cidr: 10.0.0.0/16   # replace with your VPC private CIDR
+    #   ports:
+    #     - port: 5432
+    #       protocol: TCP
+
+---
+# ── 8. Backend: allow egress to redis ────────────────────────────────────────
+# If using Amazon ElastiCache (outside the cluster), replace podSelector with
+# an ipBlock CIDR.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-redis-egress
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    # ElastiCache (external) — uncomment and set your ElastiCache CIDR:
+    # - to:
+    #     - ipBlock:
+    #         cidr: 10.0.0.0/16
+    #   ports:
+    #     - port: 6379
+    #       protocol: TCP
+
+---
+# ── 9. Backend: allow egress to external HTTPS APIs ──────────────────────────
+# Required for Plaid, Stripe, Anthropic, Twilio, DocuSign, Auth0, AWS S3 etc.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-external-egress
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+
+---
+# ── 10. Backup CronJob: allow egress to postgres and external HTTPS (S3) ─────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backup-egress
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: db-backup
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: db-backup
+  policyTypes:
+    - Egress
+  egress:
+    # To postgres (in-cluster or external via CIDR as above)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    # To S3 over HTTPS
+    - ports:
+        - port: 443
+          protocol: TCP

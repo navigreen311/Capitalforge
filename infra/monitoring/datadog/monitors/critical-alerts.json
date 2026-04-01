@@ -1,0 +1,196 @@
+{
+  "_comment": "CapitalForge — Datadog Monitor Definitions. Import via Terraform datadog_monitor resource or 'datadog-ci monitor upload'. All thresholds are P1 unless noted.",
+  "monitors": [
+    {
+      "name": "[CapitalForge] P1 — HTTP 5xx Error Rate > 1%",
+      "type": "metric alert",
+      "query": "sum(last_5m):( sum:capitalforge.http_errors_total{env:production,status_class:5xx}.as_count() / sum:capitalforge.http_requests_total{env:production}.as_count() ) * 100 > 1",
+      "message": "## HTTP 5xx Error Rate Exceeded SLA\n\n**Current rate:** {{value}}%\n**Threshold:** 1%\n\n### Immediate actions\n1. Check recent deployments: `kubectl rollout history deployment/capitalforge-backend -n production`\n2. Tail error logs: `kubectl logs -l app=capitalforge-backend -n production --since=5m | grep ERROR`\n3. Check Sentry for new error groups: https://sentry.io/organizations/capitalforge/issues/\n4. If deployment-related, rollback: `kubectl rollout undo deployment/capitalforge-backend -n production`\n\n@pagerduty-capitalforge-p1 @slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:critical", "team:platform"],
+      "options": {
+        "notify_audit": true,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 15,
+        "timeout_h": 1,
+        "thresholds": {
+          "critical": 1,
+          "warning": 0.5
+        },
+        "evaluation_delay": 60,
+        "new_group_delay": 60,
+        "include_tags": true,
+        "priority": 1
+      }
+    },
+    {
+      "name": "[CapitalForge] P1 — p95 Latency > 2s",
+      "type": "metric alert",
+      "query": "avg(last_10m):p95:capitalforge.http_request_duration_seconds{env:production} * 1000 > 2000",
+      "message": "## p95 Latency SLA Breach\n\n**Current p95:** {{value}} ms\n**Threshold:** 2000 ms\n\n### Immediate actions\n1. Identify slow routes: check Datadog APM traces filtered to p95 > 2s\n2. Check database slow query log: `SELECT query, mean_exec_time FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 20;`\n3. Check Redis latency: `redis-cli --latency -h $REDIS_HOST`\n4. Check for CPU/memory saturation on backend pods\n5. Scale up if resource-bound: `kubectl scale deployment/capitalforge-backend --replicas=6 -n production`\n\n@pagerduty-capitalforge-p1 @slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:critical", "team:platform"],
+      "options": {
+        "notify_audit": true,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 15,
+        "timeout_h": 1,
+        "thresholds": {
+          "critical": 2000,
+          "warning": 1500
+        },
+        "evaluation_delay": 60,
+        "include_tags": true,
+        "priority": 1
+      }
+    },
+    {
+      "name": "[CapitalForge] P1 — Database Connection Pool Exhausted",
+      "type": "metric alert",
+      "query": "avg(last_5m):( avg:capitalforge.db_pool_connections{state:active,env:production} / avg:capitalforge.db_pool_size_max{env:production} ) * 100 > 90",
+      "message": "## Database Connection Pool Near Exhaustion\n\n**Pool utilization:** {{value}}%\n**Action required immediately** — new requests will fail when pool reaches 100%.\n\n### Immediate actions\n1. Check current connection count: `SELECT count(*) FROM pg_stat_activity WHERE datname = 'capitalforge';`\n2. Identify idle connections: `SELECT pid, state, query_start, query FROM pg_stat_activity WHERE state = 'idle' ORDER BY query_start;`\n3. Kill long-running idle connections if safe: `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle' AND query_start < NOW() - INTERVAL '10 minutes';`\n4. Consider temporary pool size increase in Prisma config\n5. Check for connection leaks in recent deployments\n\n@pagerduty-capitalforge-p1 @slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:critical", "team:platform", "component:database"],
+      "options": {
+        "notify_audit": true,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 10,
+        "thresholds": {
+          "critical": 90,
+          "warning": 75
+        },
+        "include_tags": true,
+        "priority": 1
+      }
+    },
+    {
+      "name": "[CapitalForge] P1 — Redis Out of Memory",
+      "type": "metric alert",
+      "query": "avg(last_5m):( avg:redis.mem.used{env:production} / avg:redis.mem.maxmemory{env:production} ) * 100 > 85",
+      "message": "## Redis Memory Utilization Critical\n\n**Memory utilization:** {{value}}%\n**Risk:** Redis will begin evicting keys or refusing writes, causing BullMQ queue loss and session failures.\n\n### Immediate actions\n1. Check memory breakdown: `redis-cli info memory`\n2. Check largest keys: `redis-cli --bigkeys`\n3. Check TTL distribution: `redis-cli info keyspace`\n4. Review BullMQ job retention settings — reduce `keepLogs` if excessive\n5. If queue data is stale, flush completed jobs: `redis-cli DEL bull:*:completed`\n6. Emergency: increase Redis maxmemory via Terraform and apply\n\n@pagerduty-capitalforge-p1 @slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:critical", "team:platform", "component:redis"],
+      "options": {
+        "notify_audit": true,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 10,
+        "thresholds": {
+          "critical": 85,
+          "warning": 70
+        },
+        "include_tags": true,
+        "priority": 1
+      }
+    },
+    {
+      "name": "[CapitalForge] P1 — Deployment Failure Detected",
+      "type": "event alert",
+      "query": "events('sources:kubernetes priority:normal status:error tags:env:production,reason:Failed').rollup('count').by('pod_name').last('10m') > 3",
+      "message": "## Kubernetes Deployment Failure\n\n**Failed pod restarts detected** in production namespace.\n\n### Immediate actions\n1. Check pod status: `kubectl get pods -n production | grep -v Running`\n2. Inspect failing pod: `kubectl describe pod {{pod_name}} -n production`\n3. Check recent logs: `kubectl logs {{pod_name}} -n production --previous`\n4. Check deployment events: `kubectl get events -n production --sort-by='.lastTimestamp' | tail -20`\n5. If image pull failure: verify ECR credentials and image tag\n6. Rollback if needed: `kubectl rollout undo deployment/capitalforge-backend -n production`\n\n@pagerduty-capitalforge-p1 @slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:critical", "team:platform", "component:kubernetes"],
+      "options": {
+        "notify_audit": true,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 20,
+        "include_tags": true,
+        "priority": 1
+      }
+    },
+    {
+      "name": "[CapitalForge] P1 — Unauthorized ACH Debit Detected",
+      "type": "metric alert",
+      "query": "sum(last_5m):sum:capitalforge.ach_unauthorized_total{env:production}.as_count() > 0",
+      "message": "## CRITICAL: Unauthorized ACH Debit Detected\n\n**Count:** {{value}} unauthorized debit(s) detected in the last 5 minutes.\n\n**This is a Regulation E compliance event.** ACH disputes have strict timelines.\n\n### Immediate actions (DO NOT DELAY)\n1. Identify affected transactions in the audit ledger immediately\n2. Notify Compliance Officer — SLA: within 1 hour of detection\n3. Initiate ACH return process with issuing bank (NACHA R10/R11)\n4. Preserve all ledger_events records for regulatory inquiry\n5. Document timeline in incident log\n6. Notify affected customer within required timeframe per Reg E\n\n### Escalation\n- Compliance Officer: @compliance-officer\n- Legal Counsel on-call: see PagerDuty policy `capitalforge-compliance`\n\n@pagerduty-capitalforge-compliance @slack-capitalforge-compliance @slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:critical", "team:compliance", "regulatory:reg-e"],
+      "options": {
+        "notify_audit": true,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 5,
+        "timeout_h": 0,
+        "thresholds": {
+          "critical": 0
+        },
+        "include_tags": true,
+        "priority": 1
+      }
+    },
+    {
+      "name": "[CapitalForge] P2 — Consent Gate Failure Rate Elevated",
+      "type": "metric alert",
+      "query": "sum(last_15m):sum:capitalforge.consent_gate_failure_total{env:production}.as_count() > 10",
+      "message": "## Consent Gate Failures Elevated\n\n**Failures:** {{value}} in the last 15 minutes.\n\nConsent gate failures indicate clients cannot proceed through TCPA-required consent flows. This may indicate a bug in the consent service or a configuration issue.\n\n### Investigation steps\n1. Check consent service logs for error patterns\n2. Verify consent template versions are current: `GET /api/businesses/:id/consents`\n3. Check if a recent deployment changed consent schema\n4. Review Sentry for consent-related errors\n\n@pagerduty-capitalforge-p2 @slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:high", "team:compliance", "regulatory:tcpa"],
+      "options": {
+        "notify_audit": true,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 30,
+        "thresholds": {
+          "critical": 10,
+          "warning": 3
+        },
+        "include_tags": true,
+        "priority": 2
+      }
+    },
+    {
+      "name": "[CapitalForge] P2 — Compliance Check Failure Rate Elevated",
+      "type": "metric alert",
+      "query": "sum(last_15m):sum:capitalforge.compliance_check_failure_total{env:production}.as_count() > 5",
+      "message": "## Compliance Check Failures Elevated\n\n**Failures:** {{value}} in the last 15 minutes.\n\nThese are unexpected failures in compliance verification logic (not user-triggered no-go blocks). This may indicate a service integration failure or data integrity issue.\n\n### Investigation steps\n1. Check compliance service logs\n2. Verify OFAC/sanctions screening API health\n3. Check for schema validation errors in compliance dossier\n4. Review Sentry compliance error group\n\n@pagerduty-capitalforge-p2 @slack-capitalforge-compliance",
+      "tags": ["service:capitalforge", "env:production", "severity:high", "team:compliance"],
+      "options": {
+        "notify_audit": true,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 30,
+        "thresholds": {
+          "critical": 5,
+          "warning": 2
+        },
+        "include_tags": true,
+        "priority": 2
+      }
+    },
+    {
+      "name": "[CapitalForge] P3 — BullMQ Queue Stalled Jobs",
+      "type": "metric alert",
+      "query": "sum(last_10m):sum:capitalforge.queue_stalled_jobs{env:production} by {queue_name} > 5",
+      "message": "## BullMQ Stalled Jobs Detected\n\n**Queue:** {{queue_name.name}}\n**Stalled count:** {{value}}\n\nStalled jobs may indicate a worker crash mid-processing. Background jobs (APR alerts, restack triggers) may be delayed.\n\n### Investigation steps\n1. Check worker pod health: `kubectl get pods -l app=capitalforge-worker -n production`\n2. Inspect stalled job IDs in Redis\n3. Review worker logs for unhandled rejections\n4. Manually retry stalled jobs if safe\n\n@slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:medium", "team:platform", "component:bullmq"],
+      "options": {
+        "notify_audit": false,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 60,
+        "thresholds": {
+          "critical": 5,
+          "warning": 2
+        },
+        "include_tags": true,
+        "priority": 3
+      }
+    },
+    {
+      "name": "[CapitalForge] P3 — High Memory Usage on Backend Pods",
+      "type": "metric alert",
+      "query": "avg(last_10m):avg:kubernetes.memory.usage{deployment:capitalforge-backend,env:production} / avg:kubernetes.memory.limits{deployment:capitalforge-backend,env:production} * 100 > 80",
+      "message": "## Backend Pod Memory Usage High\n\n**Memory utilization:** {{value}}% of limit\n\nPods approaching memory limit risk OOM kills and crash loops.\n\n### Investigation steps\n1. Check node-level memory: `kubectl top nodes`\n2. Check pod-level memory: `kubectl top pods -l app=capitalforge-backend -n production`\n3. Check for memory leaks in recent deployments\n4. Consider increasing memory limits if legitimate growth\n\n@slack-capitalforge-alerts",
+      "tags": ["service:capitalforge", "env:production", "severity:medium", "team:platform"],
+      "options": {
+        "notify_audit": false,
+        "require_full_window": false,
+        "notify_no_data": false,
+        "renotify_interval": 60,
+        "thresholds": {
+          "critical": 80,
+          "warning": 65
+        },
+        "include_tags": true,
+        "priority": 3
+      }
+    }
+  ]
+}

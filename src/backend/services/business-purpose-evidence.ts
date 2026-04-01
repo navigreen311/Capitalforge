@@ -246,6 +246,8 @@ export interface TaxExportResult {
   periodEnd: string;
   lines: TaxExportLine[];
   summary: TaxExportSummary;
+  /** Convenience array form of summary.byCategory — same data, easier to iterate */
+  categorySummaries: CategorySummary[];
 }
 
 export interface TaxExportSummary {
@@ -693,6 +695,7 @@ export class BusinessPurposeEvidenceService {
         missingEvidenceCount,
         byCategory: categoryAccumulator,
       },
+      categorySummaries: Object.values(categoryAccumulator),
     };
   }
 }

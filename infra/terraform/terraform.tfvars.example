@@ -1,0 +1,53 @@
+# ─── terraform.tfvars.example ─────────────────────────────────
+# Copy this file to terraform.tfvars and fill in real values.
+# NEVER commit terraform.tfvars to version control.
+# ──────────────────────────────────────────────────────────────
+
+# Global
+aws_region   = "us-east-1"
+project_name = "corporate-funding-stack"
+environment  = "staging"  # "staging" or "production"
+
+# Application domain — must have an ACM certificate issued
+domain_name         = "app.example.com"
+acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Networking
+vpc_cidr              = "10.0.0.0/16"
+enable_nat_gateway_ha = false  # set true for production to avoid single-AZ NAT SPOF
+
+# ECS — Backend
+backend_image             = "123456789012.dkr.ecr.us-east-1.amazonaws.com/corporate-funding-stack-backend"
+backend_image_tag         = "v1.0.0"
+backend_port              = 3000
+backend_cpu               = 512    # 0.5 vCPU
+backend_memory            = 1024   # 1 GB
+backend_desired_count     = 2
+backend_health_check_path = "/health"
+
+# ECS — Frontend
+frontend_image         = "123456789012.dkr.ecr.us-east-1.amazonaws.com/corporate-funding-stack-frontend"
+frontend_image_tag     = "v1.0.0"
+frontend_port          = 3001
+frontend_cpu           = 512    # 0.5 vCPU
+frontend_memory        = 1024   # 1 GB
+frontend_desired_count = 2
+
+# RDS PostgreSQL
+db_instance_class        = "db.t3.medium"
+db_name                  = "appdb"
+db_username              = "dbadmin"
+db_allocated_storage     = 20    # GiB
+db_max_allocated_storage = 100   # GiB autoscaling ceiling
+db_multi_az              = true
+
+# ElastiCache Redis
+redis_node_type       = "cache.t3.micro"
+redis_num_cache_nodes = 2   # 2 nodes enables Multi-AZ
+
+# Monitoring & Alerts
+alert_email_addresses = [
+  "ops-team@example.com",
+  "on-call@example.com"
+]
+log_retention_days = 30

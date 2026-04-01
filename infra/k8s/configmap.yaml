@@ -1,0 +1,42 @@
+# =============================================================================
+# CapitalForge — ConfigMap
+# Non-sensitive runtime configuration injected into backend and frontend pods.
+# Secrets (DATABASE_URL, JWT_SECRET, API keys, etc.) live in secrets.yaml.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: capitalforge-config
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # ── Application ────────────────────────────────────────────────────────────
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+
+  # ── URLs ──────────────────────────────────────────────────────────────────
+  # Update FRONTEND_URL to your actual domain before deploying.
+  FRONTEND_URL: "https://app.capitalforge.io"
+  NEXT_PUBLIC_APP_URL: "https://app.capitalforge.io"
+  NEXT_PUBLIC_API_URL: "/api"
+
+  # ── Auth token lifetimes (non-secret) ─────────────────────────────────────
+  JWT_EXPIRY: "15m"
+  REFRESH_TOKEN_EXPIRY: "7d"
+
+  # ── AWS (region only — credentials in Secret) ─────────────────────────────
+  AWS_REGION: "us-east-1"
+  S3_BUCKET_NAME: "capitalforge-documents"
+
+  # ── Backup ────────────────────────────────────────────────────────────────
+  BACKUP_DIR: "/var/backups/capitalforge"
+  RETENTION_DAYS: "90"
+  S3_REGION: "us-east-1"
+
+  # ── Redis tuning (non-secret) ─────────────────────────────────────────────
+  REDIS_MAXMEMORY: "512mb"
+
+  # ── Next.js ───────────────────────────────────────────────────────────────
+  NEXT_TELEMETRY_DISABLED: "1"

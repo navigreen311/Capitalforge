@@ -1,0 +1,25 @@
+# =============================================================================
+# CapitalForge — Frontend Service (ClusterIP)
+# Exposes the frontend Deployment internally on port 3000.
+# The ingress routes /* traffic to this Service:
+#   http://frontend.capitalforge.svc.cluster.local:3000
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP

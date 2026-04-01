@@ -1,0 +1,472 @@
+{
+  "title": "CapitalForge — Platform Overview",
+  "description": "Golden signals, compliance health, and infrastructure status for the CapitalForge platform.",
+  "layout_type": "ordered",
+  "reflow_type": "fixed",
+  "tags": ["service:capitalforge", "env:production", "team:platform"],
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": ["production", "staging"],
+      "default": "production"
+    },
+    {
+      "name": "service",
+      "prefix": "service",
+      "available_values": ["capitalforge-backend", "capitalforge-frontend"],
+      "default": "*"
+    }
+  ],
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Golden Signals",
+        "widgets": [
+          {
+            "id": 10,
+            "definition": {
+              "type": "timeseries",
+              "title": "Request Rate (req/s)",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "per_second(query1)",
+                      "alias": "Requests / sec"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.http_requests_total{env:$env,service:$service}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": {
+                    "palette": "dog_classic",
+                    "line_type": "solid",
+                    "line_width": "normal"
+                  }
+                }
+              ],
+              "yaxis": { "include_zero": true },
+              "markers": [
+                {
+                  "value": "y = 1000",
+                  "display_type": "warning dashed",
+                  "label": "High traffic threshold"
+                }
+              ]
+            }
+          },
+          {
+            "id": 11,
+            "definition": {
+              "type": "timeseries",
+              "title": "HTTP 5xx Error Rate (%)",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "(query_5xx / query_total) * 100",
+                      "alias": "5xx Rate %"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "name": "query_5xx",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.http_errors_total{env:$env,status_class:5xx}.as_count()"
+                    },
+                    {
+                      "name": "query_total",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.http_requests_total{env:$env}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": {
+                    "palette": "warm",
+                    "line_type": "solid",
+                    "line_width": "normal"
+                  }
+                }
+              ],
+              "yaxis": { "include_zero": true, "max": "10" },
+              "markers": [
+                {
+                  "value": "y = 1",
+                  "display_type": "error dashed",
+                  "label": "SLA threshold (1%)"
+                }
+              ]
+            }
+          },
+          {
+            "id": 12,
+            "definition": {
+              "type": "timeseries",
+              "title": "p95 Latency (ms)",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "query1 * 1000",
+                      "alias": "p95 ms"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "p95:capitalforge.http_request_duration_seconds{env:$env,service:$service}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": {
+                    "palette": "purple",
+                    "line_type": "solid",
+                    "line_width": "normal"
+                  }
+                }
+              ],
+              "yaxis": { "include_zero": true },
+              "markers": [
+                {
+                  "value": "y = 2000",
+                  "display_type": "error dashed",
+                  "label": "SLA threshold (2 s)"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Business Metrics",
+        "widgets": [
+          {
+            "id": 20,
+            "definition": {
+              "type": "query_value",
+              "title": "Active Users (1 h)",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "query1" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.active_users{env:$env}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0,
+              "autoscale": true
+            }
+          },
+          {
+            "id": 21,
+            "definition": {
+              "type": "query_value",
+              "title": "Pending Applications",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "query1" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.applications_pending{env:$env}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0,
+              "autoscale": true,
+              "custom_links": [
+                {
+                  "label": "View Applications",
+                  "link": "https://capitalforge.internal/admin/applications"
+                }
+              ]
+            }
+          },
+          {
+            "id": 22,
+            "definition": {
+              "type": "timeseries",
+              "title": "Application Submissions (per hour)",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "per_hour(query1)",
+                      "alias": "Submissions"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.application_submitted_total{env:$env}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "green", "line_type": "solid" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 23,
+            "definition": {
+              "type": "timeseries",
+              "title": "APR Alerts Pending",
+              "description": "Open APR expiry alerts awaiting client action (60 / 30 / 15-day windows)",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "query1", "alias": "Pending APR Alerts" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.apr_alerts_pending{env:$env} by {window}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "warm", "line_type": "solid" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Compliance Health",
+        "widgets": [
+          {
+            "id": 30,
+            "definition": {
+              "type": "query_value",
+              "title": "Compliance Score (%)",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "query1" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:capitalforge.compliance_score{env:$env}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 1,
+              "autoscale": false,
+              "custom_unit": "%",
+              "conditional_formats": [
+                { "comparator": ">=", "value": 99, "palette": "green_on_white" },
+                { "comparator": ">=", "value": 95, "palette": "yellow_on_white" },
+                { "comparator": "<",  "value": 95, "palette": "red_on_white" }
+              ]
+            }
+          },
+          {
+            "id": 31,
+            "definition": {
+              "type": "timeseries",
+              "title": "Consent Gate Failures",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "per_minute(query1)", "alias": "Failures / min" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.consent_gate_failure_total{env:$env}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "red", "line_type": "solid" }
+                }
+              ],
+              "markers": [
+                { "value": "y = 0", "display_type": "ok dashed", "label": "Target: zero" }
+              ]
+            }
+          },
+          {
+            "id": 32,
+            "definition": {
+              "type": "timeseries",
+              "title": "Unauthorized ACH Detections",
+              "description": "Count of ACH debits flagged as unauthorized by ACH Control service",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "query1", "alias": "Unauthorized Debits" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.ach_unauthorized_total{env:$env}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "red", "line_type": "solid" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 33,
+            "definition": {
+              "type": "timeseries",
+              "title": "Suitability No-Go Blocks",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "query1", "alias": "No-Go Blocks" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.suitability_nogo_total{env:$env}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "orange", "line_type": "solid" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Infrastructure",
+        "widgets": [
+          {
+            "id": 40,
+            "definition": {
+              "type": "timeseries",
+              "title": "Database Connections (active / pool max)",
+              "requests": [
+                {
+                  "formulas": [
+                    { "formula": "query_active", "alias": "Active" },
+                    { "formula": "query_max",    "alias": "Pool Max" }
+                  ],
+                  "queries": [
+                    {
+                      "name": "query_active",
+                      "data_source": "metrics",
+                      "query": "avg:capitalforge.db_pool_connections{state:active,env:$env}"
+                    },
+                    {
+                      "name": "query_max",
+                      "data_source": "metrics",
+                      "query": "avg:capitalforge.db_pool_size_max{env:$env}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "cool", "line_type": "solid" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 41,
+            "definition": {
+              "type": "timeseries",
+              "title": "Redis Memory Used (MB)",
+              "requests": [
+                {
+                  "formulas": [
+                    { "formula": "query1 / 1048576", "alias": "MB Used" }
+                  ],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:redis.mem.used{env:$env}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "purple", "line_type": "solid" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 42,
+            "definition": {
+              "type": "timeseries",
+              "title": "Active HTTP Connections",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "query1", "alias": "Active Connections" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:capitalforge.active_connections{env:$env}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "dog_classic", "line_type": "solid" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 43,
+            "definition": {
+              "type": "timeseries",
+              "title": "BullMQ Queue Depth (by queue)",
+              "requests": [
+                {
+                  "formulas": [{ "formula": "query1", "alias": "Waiting Jobs" }],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:capitalforge.queue_depth{env:$env} by {queue_name}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": { "palette": "cool", "line_type": "solid" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

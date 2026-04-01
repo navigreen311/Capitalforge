@@ -1,0 +1,110 @@
+# =============================================================================
+# CapitalForge — CronJob: APR Expiry Checker
+#
+# Runs hourly to detect funding offers and credit lines whose promotional APR
+# windows are expiring, then dispatches alerts via the backend job queue
+# (BullMQ) or direct API call.
+#
+# The checker calls the internal backend endpoint:
+#   POST /api/jobs/apr-expiry-check
+#
+# This endpoint is guarded by a shared CRON_SECRET header so that only
+# internal cluster callers (this CronJob) can trigger it.
+#
+# Environment variables:
+#   BACKEND_INTERNAL_URL — base URL for the backend service inside the cluster
+#   CRON_SECRET          — shared secret token for internal cron endpoints
+#                          (add to capitalforge-secrets)
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: apr-expiry-checker
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: apr-expiry-checker
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # Every hour on the hour
+  schedule: "0 * * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 120
+
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300   # 5-minute hard timeout per run
+
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: capitalforge
+            app.kubernetes.io/component: apr-expiry-checker
+        spec:
+          restartPolicy: OnFailure
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+
+          containers:
+            - name: apr-checker
+              # Lightweight curl image — no app runtime needed since we trigger
+              # the job via the backend HTTP API.
+              image: curlimages/curl:8.6.0
+              imagePullPolicy: IfNotPresent
+
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Starting APR expiry check..."
+
+                  RESPONSE=$(curl \
+                    --silent \
+                    --show-error \
+                    --fail \
+                    --max-time 60 \
+                    --retry 2 \
+                    --retry-delay 5 \
+                    --request POST \
+                    --header "Content-Type: application/json" \
+                    --header "X-Cron-Secret: ${CRON_SECRET}" \
+                    "${BACKEND_INTERNAL_URL}/api/jobs/apr-expiry-check")
+
+                  echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] APR check complete. Response: ${RESPONSE}"
+
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "64Mi"
+
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+
+              env:
+                # Backend ClusterIP DNS — matches the backend Service name
+                - name: BACKEND_INTERNAL_URL
+                  value: "http://backend.capitalforge.svc.cluster.local:4000"
+                - name: CRON_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: capitalforge-secrets
+                      key: CRON_SECRET
+                      # optional: true if not yet defined in secrets.yaml
+                      optional: true

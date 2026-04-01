@@ -1,0 +1,225 @@
+{
+  "_comment": "CapitalForge PagerDuty Escalation Policies. Import via Terraform pagerduty_escalation_policy resource or PagerDuty REST API. Replace all YOUR_* placeholders with real PagerDuty user/schedule IDs.",
+  "services": [
+    {
+      "name": "capitalforge-platform",
+      "description": "Core platform alerts — API, infrastructure, deployments",
+      "escalation_policy": "capitalforge-platform-escalation",
+      "alert_creation": "create_alerts_and_incidents",
+      "auto_resolve_timeout": 14400,
+      "acknowledgement_timeout": 1800,
+      "incident_urgency_rule": {
+        "type": "use_support_hours",
+        "during_support_hours": { "type": "constant", "urgency": "high" },
+        "outside_support_hours": { "type": "constant", "urgency": "high" }
+      }
+    },
+    {
+      "name": "capitalforge-compliance",
+      "description": "Compliance and regulatory alerts — ACH, consent, suitability",
+      "escalation_policy": "capitalforge-compliance-escalation",
+      "alert_creation": "create_alerts_and_incidents",
+      "auto_resolve_timeout": 0,
+      "acknowledgement_timeout": 600,
+      "incident_urgency_rule": {
+        "type": "constant",
+        "urgency": "high"
+      }
+    }
+  ],
+  "schedules": [
+    {
+      "name": "capitalforge-platform-oncall",
+      "description": "Platform engineering on-call rotation — 7-day shifts",
+      "time_zone": "America/New_York",
+      "layers": [
+        {
+          "name": "Primary On-Call",
+          "rotation_type": "weekly",
+          "rotation_turn_length_seconds": 604800,
+          "start": "2026-01-05T09:00:00-05:00",
+          "users": [
+            { "type": "user_reference", "id": "YOUR_ENGINEER_1_ID" },
+            { "type": "user_reference", "id": "YOUR_ENGINEER_2_ID" },
+            { "type": "user_reference", "id": "YOUR_ENGINEER_3_ID" }
+          ]
+        },
+        {
+          "name": "Secondary On-Call (Shadow)",
+          "rotation_type": "weekly",
+          "rotation_turn_length_seconds": 604800,
+          "start": "2026-01-05T09:00:00-05:00",
+          "users": [
+            { "type": "user_reference", "id": "YOUR_ENGINEER_2_ID" },
+            { "type": "user_reference", "id": "YOUR_ENGINEER_3_ID" },
+            { "type": "user_reference", "id": "YOUR_ENGINEER_1_ID" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "capitalforge-compliance-oncall",
+      "description": "Compliance officer on-call — weekday business hours + emergency pager",
+      "time_zone": "America/New_York",
+      "layers": [
+        {
+          "name": "Compliance Officer",
+          "rotation_type": "weekly",
+          "rotation_turn_length_seconds": 604800,
+          "start": "2026-01-05T09:00:00-05:00",
+          "users": [
+            { "type": "user_reference", "id": "YOUR_COMPLIANCE_OFFICER_ID" },
+            { "type": "user_reference", "id": "YOUR_COMPLIANCE_BACKUP_ID" }
+          ]
+        }
+      ]
+    }
+  ],
+  "escalation_policies": [
+    {
+      "name": "capitalforge-platform-escalation",
+      "description": "Platform engineering escalation — P1 immediate, P2 15 min, P3 business hours, P4 next sprint",
+      "num_loops": 3,
+      "rules": [
+        {
+          "_severity": "P1",
+          "_description": "Critical — immediate page. 5 minutes to acknowledge before escalation.",
+          "escalation_delay_in_minutes": 5,
+          "targets": [
+            {
+              "type": "schedule_reference",
+              "id": "capitalforge-platform-oncall",
+              "_note": "Primary on-call engineer"
+            }
+          ]
+        },
+        {
+          "_severity": "P1 — escalation if un-ack'd",
+          "_description": "Escalate to secondary + engineering manager after 5 min silence.",
+          "escalation_delay_in_minutes": 10,
+          "targets": [
+            {
+              "type": "schedule_reference",
+              "id": "capitalforge-platform-oncall",
+              "_layer": "Secondary On-Call (Shadow)"
+            },
+            {
+              "type": "user_reference",
+              "id": "YOUR_ENG_MANAGER_ID",
+              "_note": "Engineering manager"
+            }
+          ]
+        },
+        {
+          "_severity": "P2",
+          "_description": "High — 15-minute response window before escalation to manager.",
+          "escalation_delay_in_minutes": 15,
+          "targets": [
+            {
+              "type": "schedule_reference",
+              "id": "capitalforge-platform-oncall"
+            }
+          ]
+        },
+        {
+          "_severity": "P3",
+          "_description": "Medium — business hours only. Notify Slack channel, no pager.",
+          "escalation_delay_in_minutes": 480,
+          "targets": [
+            {
+              "type": "user_reference",
+              "id": "YOUR_ENGINEER_1_ID",
+              "_note": "Business hours coverage"
+            }
+          ]
+        },
+        {
+          "_severity": "P4",
+          "_description": "Low — next sprint. Ticketed in backlog, no immediate page.",
+          "escalation_delay_in_minutes": 10080,
+          "targets": [
+            {
+              "type": "user_reference",
+              "id": "YOUR_TECH_LEAD_ID",
+              "_note": "Tech lead reviews at sprint planning"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "capitalforge-compliance-escalation",
+      "description": "Compliance escalation — immediate for all regulatory events (P1). No delay loops.",
+      "num_loops": 5,
+      "rules": [
+        {
+          "_severity": "P1 — Compliance",
+          "_description": "Immediate page to compliance officer AND legal counsel. No delay loops.",
+          "escalation_delay_in_minutes": 5,
+          "targets": [
+            {
+              "type": "schedule_reference",
+              "id": "capitalforge-compliance-oncall"
+            },
+            {
+              "type": "user_reference",
+              "id": "YOUR_COMPLIANCE_OFFICER_ID"
+            }
+          ]
+        },
+        {
+          "_severity": "P1 — Compliance escalation",
+          "_description": "Escalate to CEO/Legal after 10 min for critical regulatory events.",
+          "escalation_delay_in_minutes": 10,
+          "targets": [
+            {
+              "type": "user_reference",
+              "id": "YOUR_CEO_ID",
+              "_note": "CEO — for ACH unauthorized and UDAP violations only"
+            },
+            {
+              "type": "user_reference",
+              "id": "YOUR_LEGAL_COUNSEL_ID",
+              "_note": "Legal counsel on-call"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "notification_rules": {
+    "_description": "Default notification rules per severity. Apply to all users in on-call schedules.",
+    "P1": {
+      "methods": ["phone", "push", "sms", "email"],
+      "delay_minutes": 0
+    },
+    "P2": {
+      "methods": ["push", "sms", "email"],
+      "delay_minutes": 0
+    },
+    "P3": {
+      "methods": ["push", "email"],
+      "delay_minutes": 0,
+      "high_urgency_only": false
+    },
+    "P4": {
+      "methods": ["email"],
+      "delay_minutes": 30
+    }
+  },
+  "integrations": {
+    "datadog": {
+      "_description": "Datadog → PagerDuty webhook. Configure in Datadog Integration Settings.",
+      "service_key": "YOUR_PAGERDUTY_DATADOG_INTEGRATION_KEY",
+      "endpoint": "https://events.pagerduty.com/integration/YOUR_INTEGRATION_KEY/enqueue"
+    },
+    "slack": {
+      "_description": "PagerDuty Slack App. Channels map to service/severity.",
+      "channels": {
+        "capitalforge-alerts": "P1, P2 — all services",
+        "capitalforge-compliance": "P1 — compliance service only",
+        "capitalforge-oncall": "On-call handoff notifications"
+      }
+    }
+  }
+}

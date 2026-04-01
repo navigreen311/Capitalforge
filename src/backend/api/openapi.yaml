@@ -1,0 +1,3390 @@
+openapi: 3.1.0
+
+info:
+  title: CapitalForge API
+  version: 2.0.0
+  description: |
+    CapitalForge is a multi-tenant B2B lending-stack platform that guides small
+    businesses from credit profiling through card-stack optimisation, funding
+    rounds, compliance, billing, and AI-assisted document intelligence.
+
+    **Authentication** — All protected endpoints require a Bearer JWT obtained
+    from `POST /api/auth/login`. Include it as:
+    ```
+    Authorization: Bearer <accessToken>
+    ```
+    Tokens expire after 15 minutes. Use `POST /api/auth/refresh` to rotate.
+
+    **Tenant scoping** — Every resource is isolated by `tenantId` encoded in
+    the JWT. Passing an `X-Tenant-Id` header is also accepted in dev/test mode.
+
+  contact:
+    name: CapitalForge Platform Engineering
+    email: platform@capitalforge.io
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:4000/api
+    description: Local development
+  - url: https://staging-api.capitalforge.io/api
+    description: Staging
+  - url: https://api.capitalforge.io/api
+    description: Production
+
+security:
+  - bearerAuth: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tags
+# ─────────────────────────────────────────────────────────────────────────────
+tags:
+  - name: Auth
+    description: Authentication — login, register, token rotation, logout
+  - name: Core Operations
+    description: Business onboarding, KYB/KYC, application pipeline, credit intelligence, funding rounds
+  - name: Financial Control
+    description: Repayments, ACH, spend governance, cost calculator, card-stack optimizer, billing & invoices
+  - name: Compliance & Governance
+    description: Compliance checks, consent, contracts, complaints, regulatory, governance cadence, fair-lending
+  - name: Platform & SaaS
+    description: Admin, tenants, webhooks, integrations, API keys, observability, deal committee
+  - name: VoiceForge
+    description: Outbound telephony, campaign outreach, transcript compliance scanning
+  - name: VisionAudioForge
+    description: Document OCR, bank-statement ingestion, adverse-action parsing, ID liveness detection, AI agent orchestration
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reusable components
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256-signed JWT. Obtain via POST /api/auth/login.
+
+  parameters:
+    businessId:
+      name: id
+      in: path
+      required: true
+      description: UUID of the Business resource
+      schema:
+        type: string
+        format: uuid
+    roundId:
+      name: id
+      in: path
+      required: true
+      description: UUID of the FundingRound resource
+      schema:
+        type: string
+        format: uuid
+    documentId:
+      name: id
+      in: path
+      required: true
+      description: UUID of the Document resource
+      schema:
+        type: string
+        format: uuid
+    page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    pageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 20
+
+  schemas:
+
+    # ── Envelope ────────────────────────────────────────────────────────────
+    ApiResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        data:
+          description: Present on success; shape varies by endpoint
+        error:
+          $ref: '#/components/schemas/ApiError'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          example: Invalid request body.
+        details:
+          description: Field-level validation errors or additional context
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+
+    # ── Auth ────────────────────────────────────────────────────────────────
+    LoginRequest:
+      type: object
+      required: [email, password, tenantId]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        tenantId:
+          type: string
+          format: uuid
+
+    RegisterRequest:
+      type: object
+      required: [email, password, firstName, lastName, tenantId]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        tenantId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [advisor, client, compliance_officer, readonly, tenant_admin]
+
+    AuthTokens:
+      type: object
+      required: [accessToken, refreshToken]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+
+    AuthUser:
+      type: object
+      required: [id, email, tenantId, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        tenantId:
+          type: string
+          format: uuid
+        role:
+          type: string
+
+    # ── Business / Onboarding ────────────────────────────────────────────────
+    Business:
+      type: object
+      required: [id, tenantId, legalName, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        legalName:
+          type: string
+          example: Acme Widgets LLC
+        dba:
+          type: string
+        entityType:
+          type: string
+          enum: [LLC, S_CORP, C_CORP, SOLE_PROP, PARTNERSHIP, NON_PROFIT]
+        ein:
+          type: string
+          pattern: ^\d{2}-\d{7}$
+        naicsCode:
+          type: string
+        monthlyRevenue:
+          type: number
+          format: double
+        yearsInBusiness:
+          type: number
+        state:
+          type: string
+          maxLength: 2
+        status:
+          type: string
+          enum: [pending, active, suspended, closed]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateBusinessRequest:
+      type: object
+      required: [legalName, entityType, state]
+      properties:
+        legalName:
+          type: string
+        dba:
+          type: string
+        entityType:
+          type: string
+          enum: [LLC, S_CORP, C_CORP, SOLE_PROP, PARTNERSHIP, NON_PROFIT]
+        ein:
+          type: string
+        naicsCode:
+          type: string
+        monthlyRevenue:
+          type: number
+        yearsInBusiness:
+          type: number
+        state:
+          type: string
+          maxLength: 2
+
+    ReadinessScore:
+      type: object
+      required: [score, track, trackLabel]
+      properties:
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        track:
+          type: string
+          enum: [starter, emerging, established, advanced]
+        trackLabel:
+          type: string
+        componentScores:
+          type: object
+          additionalProperties:
+            type: number
+        gaps:
+          type: array
+          items:
+            type: string
+        summary:
+          type: string
+
+    Owner:
+      type: object
+      required: [id, businessId, firstName, lastName, ownershipPercent]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        firstName:
+          type: string
+        lastName:
+          type: string
+        ownershipPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        personalCreditScore:
+          type: integer
+          minimum: 300
+          maximum: 850
+        ssn:
+          type: string
+          writeOnly: true
+
+    # ── Credit ───────────────────────────────────────────────────────────────
+    CreditProfile:
+      type: object
+      required: [id, businessId, bureau, score, pulledAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        bureau:
+          type: string
+          enum: [experian, equifax, transunion, dun_bradstreet, lexisnexis]
+        profileType:
+          type: string
+          enum: [personal, business]
+        score:
+          type: integer
+        factors:
+          type: array
+          items:
+            type: string
+        utilizationRate:
+          type: number
+        derogatoryMarks:
+          type: integer
+        pulledAt:
+          type: string
+          format: date-time
+
+    CreditPullRequest:
+      type: object
+      required: [bureaus, profileType]
+      properties:
+        bureaus:
+          type: array
+          items:
+            type: string
+            enum: [experian, equifax, transunion, dun_bradstreet, lexisnexis]
+          minItems: 1
+        profileType:
+          type: string
+          enum: [personal, business]
+        useCache:
+          type: boolean
+          default: false
+
+    # ── Card Application ─────────────────────────────────────────────────────
+    CardApplication:
+      type: object
+      required: [id, businessId, roundId, issuer, productName, status, appliedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        roundId:
+          type: string
+          format: uuid
+        issuer:
+          type: string
+        productName:
+          type: string
+        creditLimitRequested:
+          type: number
+        creditLimitApproved:
+          type: number
+        annualFee:
+          type: number
+        aprIntroPercent:
+          type: number
+        aprRegularPercent:
+          type: number
+        signupBonusValue:
+          type: number
+        status:
+          type: string
+          enum: [pending, approved, declined, cancelled, withdrawn]
+        appliedAt:
+          type: string
+          format: date-time
+        decisionAt:
+          type: string
+          format: date-time
+
+    # ── Funding Round ────────────────────────────────────────────────────────
+    FundingRound:
+      type: object
+      required: [id, businessId, tenantId, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        targetCredit:
+          type: number
+        targetCardCount:
+          type: integer
+        issuerMixStrategy:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [planning, in_progress, completed, cancelled]
+        aprExpiryDate:
+          type: string
+          format: date-time
+        totalCreditApproved:
+          type: number
+        cardsApproved:
+          type: integer
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRoundRequest:
+      type: object
+      properties:
+        targetCredit:
+          type: number
+          minimum: 0
+        targetCardCount:
+          type: integer
+          minimum: 1
+        issuerMixStrategy:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+          maxLength: 1000
+
+    # ── Consent ──────────────────────────────────────────────────────────────
+    ConsentRecord:
+      type: object
+      required: [id, businessId, consentType, status, capturedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        consentType:
+          type: string
+          enum: [credit_pull, tcpa, esign, data_sharing, marketing]
+        status:
+          type: string
+          enum: [active, revoked, expired]
+        ipAddress:
+          type: string
+        userAgent:
+          type: string
+        capturedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+
+    # ── Compliance Check ─────────────────────────────────────────────────────
+    ComplianceCheck:
+      type: object
+      required: [id, businessId, checkType, result, performedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        checkType:
+          type: string
+          enum: [ofac, bsa_aml, state_license, usury_ceiling, kyb, kyc, adverse_action]
+        result:
+          type: string
+          enum: [pass, fail, review, pending]
+        riskScore:
+          type: number
+          minimum: 0
+          maximum: 100
+        flags:
+          type: array
+          items:
+            type: string
+        details:
+          type: object
+        performedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+
+    # ── Document ─────────────────────────────────────────────────────────────
+    Document:
+      type: object
+      required: [id, tenantId, businessId, category, fileName, status, uploadedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum: [bank_statement, adverse_action_letter, contract, kyb_document, receipt_invoice, id_document, unknown]
+        fileName:
+          type: string
+        mimeType:
+          type: string
+        fileSizeBytes:
+          type: integer
+        status:
+          type: string
+          enum: [pending, processing, processed, failed, archived]
+        uploadedBy:
+          type: string
+        vaultPath:
+          type: string
+        uploadedAt:
+          type: string
+          format: date-time
+
+    # ── Invoice ──────────────────────────────────────────────────────────────
+    Invoice:
+      type: object
+      required: [id, businessId, tenantId, amountCents, currency, status, issuedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        amountCents:
+          type: integer
+          minimum: 0
+        currency:
+          type: string
+          default: USD
+        description:
+          type: string
+        lineItems:
+          type: array
+          items:
+            type: object
+            properties:
+              description:
+                type: string
+              amountCents:
+                type: integer
+              quantity:
+                type: integer
+        status:
+          type: string
+          enum: [draft, outstanding, paid, voided, past_due]
+        dueAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+        issuedAt:
+          type: string
+          format: date-time
+
+    # ── Complaint ────────────────────────────────────────────────────────────
+    Complaint:
+      type: object
+      required: [id, businessId, tenantId, category, description, status, submittedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum: [billing_dispute, compliance_violation, service_issue, fraud, other]
+        description:
+          type: string
+        status:
+          type: string
+          enum: [open, under_review, resolved, escalated, closed]
+        assignedTo:
+          type: string
+        resolutionNotes:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+
+    # ── Partner ──────────────────────────────────────────────────────────────
+    Partner:
+      type: object
+      required: [id, tenantId, name, partnerType, status, onboardedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        partnerType:
+          type: string
+          enum: [referral, vendor, integration, subprocessor, white_label]
+        contactEmail:
+          type: string
+          format: email
+        contractUrl:
+          type: string
+        riskTier:
+          type: string
+          enum: [low, medium, high, critical]
+        status:
+          type: string
+          enum: [active, pending_review, suspended, terminated]
+        onboardedAt:
+          type: string
+          format: date-time
+        renewalDueAt:
+          type: string
+          format: date-time
+
+    # ── VoiceForge ───────────────────────────────────────────────────────────
+    CallRecord:
+      type: object
+      required: [id, tenantId, businessId, toPhoneNumber, fromPhoneNumber, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        advisorId:
+          type: string
+          format: uuid
+        toPhoneNumber:
+          type: string
+        fromPhoneNumber:
+          type: string
+        purpose:
+          type: string
+        campaignType:
+          type: string
+          enum: [apr_expiry, repayment_reminder, restack_consultation]
+        campaignId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [initiated, in_progress, completed, failed, blocked_consent]
+        durationSeconds:
+          type: integer
+        twilioCallSid:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+
+    OutreachCampaignResult:
+      type: object
+      required: [campaignId, callsInitiated, consentBlocked]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        callsInitiated:
+          type: integer
+        consentBlocked:
+          type: integer
+        errors:
+          type: integer
+
+    CallComplianceScanResult:
+      type: object
+      required: [scanId, callId, riskScore, riskLevel, violationCount, complianceStatus]
+      properties:
+        scanId:
+          type: string
+          format: uuid
+        callId:
+          type: string
+          format: uuid
+        advisorId:
+          type: string
+          format: uuid
+        riskScore:
+          type: number
+          minimum: 0
+          maximum: 100
+        riskLevel:
+          type: string
+          enum: [low, medium, high, critical]
+        violationCount:
+          type: integer
+        violations:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              description:
+                type: string
+              severity:
+                type: string
+                enum: [info, warning, error, critical]
+        complianceStatus:
+          type: string
+          enum: [compliant, non_compliant, needs_review]
+        scannedAt:
+          type: string
+          format: date-time
+
+    # ── VisionAudioForge ─────────────────────────────────────────────────────
+    ProcessDocumentResult:
+      type: object
+      required: [processingId, category, status, processingMs]
+      properties:
+        processingId:
+          type: string
+          format: uuid
+        vaultDocumentId:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum: [bank_statement, adverse_action_letter, contract, kyb_document, receipt_invoice, id_document, unknown]
+        status:
+          type: string
+          enum: [success, partial, failed]
+        extractedData:
+          type: object
+          description: Structured fields extracted by OCR
+        processingMs:
+          type: integer
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    AgentRunResult:
+      type: object
+      required: [runId, agentType, approvalStatus, triggeredAt]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        agentType:
+          type: string
+          enum: [statement, kyb, contract, acknowledgment, evidence_bundle]
+        approvalStatus:
+          type: string
+          enum: [pending_approval, approved, rejected, auto_approved]
+        businessId:
+          type: string
+          format: uuid
+        triggeredBy:
+          type: string
+        payload:
+          type: object
+        output:
+          type: object
+        triggeredAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    IdLivenessResult:
+      type: object
+      required: [processingId, livenessData]
+      properties:
+        processingId:
+          type: string
+          format: uuid
+        livenessData:
+          type: object
+          required: [livenessVerdict, livenessScore]
+          properties:
+            livenessVerdict:
+              type: string
+              enum: [live, spoof, inconclusive]
+            livenessScore:
+              type: number
+              minimum: 0
+              maximum: 1
+            documentAuthenticity:
+              type: string
+              enum: [authentic, tampered, inconclusive]
+            faceMatchScore:
+              type: number
+
+    # ── Repayment / ACH ──────────────────────────────────────────────────────
+    RepaymentSchedule:
+      type: object
+      required: [id, businessId, totalAmountCents, installments]
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+          format: uuid
+        totalAmountCents:
+          type: integer
+        currency:
+          type: string
+          default: USD
+        installments:
+          type: array
+          items:
+            type: object
+            properties:
+              dueDate:
+                type: string
+                format: date
+              amountCents:
+                type: integer
+              status:
+                type: string
+                enum: [scheduled, processing, paid, failed, waived]
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    Forbidden:
+      description: Authenticated but insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    ValidationError:
+      description: Request body or query parameters failed validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paths
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # AUTH
+  # ══════════════════════════════════════════════════════════════════════════
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: authLogin
+      summary: Authenticate and obtain JWT pair
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/AuthUser'
+                          accessToken:
+                            type: string
+                          refreshToken:
+                            type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: authRegister
+      summary: Register a new user under an existing tenant
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/AuthUser'
+                          accessToken:
+                            type: string
+                          refreshToken:
+                            type: string
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: authRefresh
+      summary: Rotate refresh token and issue new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthTokens'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: authLogout
+      summary: Invalidate the current refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          loggedOut:
+                            type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # CORE OPERATIONS — Businesses / Onboarding
+  # ══════════════════════════════════════════════════════════════════════════
+
+  /businesses:
+    post:
+      tags: [Core Operations]
+      operationId: createBusiness
+      summary: Onboard a new business
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBusinessRequest'
+      responses:
+        '201':
+          description: Business created with initial readiness score
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          business:
+                            $ref: '#/components/schemas/Business'
+                          fundingReadiness:
+                            $ref: '#/components/schemas/ReadinessScore'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /businesses/{id}:
+    get:
+      tags: [Core Operations]
+      operationId: getBusinessById
+      summary: Retrieve a business by ID
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Business record
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          business:
+                            $ref: '#/components/schemas/Business'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Core Operations]
+      operationId: updateBusiness
+      summary: Update business profile fields
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBusinessRequest'
+      responses:
+        '200':
+          description: Updated business
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          business:
+                            $ref: '#/components/schemas/Business'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /businesses/{id}/owners:
+    post:
+      tags: [Core Operations]
+      operationId: addOwner
+      summary: Add a beneficial owner to a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Owner'
+                - type: object
+                  properties:
+                    personalCreditScore:
+                      type: integer
+      responses:
+        '201':
+          description: Owner added
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          owner:
+                            $ref: '#/components/schemas/Owner'
+                          updatedReadiness:
+                            $ref: '#/components/schemas/ReadinessScore'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /businesses/{id}/readiness:
+    get:
+      tags: [Core Operations]
+      operationId: getReadinessScore
+      summary: Get the current funding readiness score
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Readiness score
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReadinessScore'
+
+  /businesses/{id}/kyb:
+    post:
+      tags: [Core Operations]
+      operationId: submitKyb
+      summary: Initiate KYB verification for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum: [middesk, stripe_identity, manual]
+                documents:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '202':
+          description: KYB verification initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/kyc:
+    post:
+      tags: [Core Operations]
+      operationId: submitKyc
+      summary: Initiate KYC verification for a business owner
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId]
+              properties:
+                ownerId:
+                  type: string
+                  format: uuid
+                provider:
+                  type: string
+                  enum: [persona, stripe_identity, manual]
+      responses:
+        '202':
+          description: KYC verification initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ── Credit Intelligence ────────────────────────────────────────────────────
+
+  /businesses/{id}/credit:
+    get:
+      tags: [Core Operations]
+      operationId: getCreditProfiles
+      summary: List all credit profiles for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Credit profiles list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CreditProfile'
+
+  /businesses/{id}/credit/pull:
+    post:
+      tags: [Core Operations]
+      operationId: pullCreditProfiles
+      summary: Trigger a fresh bureau credit pull
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditPullRequest'
+      responses:
+        '201':
+          description: Credit pull initiated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CreditProfile'
+
+  /businesses/{id}/credit/roadmap:
+    get:
+      tags: [Core Operations]
+      operationId: getCreditRoadmap
+      summary: Get a prioritised credit optimisation roadmap
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Optimisation roadmap
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ── Funding Rounds ─────────────────────────────────────────────────────────
+
+  /businesses/{id}/rounds:
+    post:
+      tags: [Core Operations]
+      operationId: createFundingRound
+      summary: Create a new funding round for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoundRequest'
+      responses:
+        '201':
+          description: Funding round created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FundingRound'
+    get:
+      tags: [Core Operations]
+      operationId: listFundingRounds
+      summary: List all funding rounds for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Funding rounds list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FundingRound'
+
+  /businesses/{id}/rounds/compare:
+    get:
+      tags: [Core Operations]
+      operationId: compareRounds
+      summary: Cross-round comparison metrics
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Comparison data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/rounds/round2-eligibility:
+    get:
+      tags: [Core Operations]
+      operationId: getRound2Eligibility
+      summary: Check Round 2 eligibility criteria
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Eligibility assessment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /rounds/{id}:
+    get:
+      tags: [Core Operations]
+      operationId: getFundingRound
+      summary: Get a single funding round with its card applications
+      parameters:
+        - $ref: '#/components/parameters/roundId'
+      responses:
+        '200':
+          description: Round detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FundingRound'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Core Operations]
+      operationId: updateFundingRound
+      summary: Update a funding round
+      parameters:
+        - $ref: '#/components/parameters/roundId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoundRequest'
+      responses:
+        '200':
+          description: Updated round
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FundingRound'
+
+  /rounds/{id}/complete:
+    post:
+      tags: [Core Operations]
+      operationId: completeFundingRound
+      summary: Mark a funding round as complete and compute metrics
+      parameters:
+        - $ref: '#/components/parameters/roundId'
+      responses:
+        '200':
+          description: Round completed with metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ── Card Applications ───────────────────────────────────────────────────────
+
+  /businesses/{id}/applications:
+    get:
+      tags: [Core Operations]
+      operationId: listApplications
+      summary: List all card applications for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+        - name: roundId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, declined, cancelled, withdrawn]
+      responses:
+        '200':
+          description: Applications list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CardApplication'
+
+  # ── Suitability & Cost ─────────────────────────────────────────────────────
+
+  /businesses/{id}/suitability:
+    get:
+      tags: [Core Operations]
+      operationId: getSuitabilityAssessment
+      summary: Retrieve suitability assessment for card-stack funding
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Suitability result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/cost:
+    get:
+      tags: [Financial Control]
+      operationId: calculateCost
+      summary: Calculate total cost of capital for a proposed stack
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+        - name: creditAmount
+          in: query
+          schema:
+            type: number
+        - name: termMonths
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cost analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/optimize:
+    get:
+      tags: [Financial Control]
+      operationId: optimizeCardStack
+      summary: Get AI-optimised card-stacking recommendations
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+        - name: targetCredit
+          in: query
+          schema:
+            type: number
+        - name: maxCards
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Optimisation recommendations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # FINANCIAL CONTROL
+  # ══════════════════════════════════════════════════════════════════════════
+
+  /businesses/{id}/repayments:
+    get:
+      tags: [Financial Control]
+      operationId: getRepaymentSchedule
+      summary: Retrieve the repayment schedule for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Repayment schedule
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RepaymentSchedule'
+    post:
+      tags: [Financial Control]
+      operationId: createRepaymentSchedule
+      summary: Create a repayment schedule
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [totalAmountCents, installments]
+              properties:
+                totalAmountCents:
+                  type: integer
+                currency:
+                  type: string
+                  default: USD
+                installments:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      dueDate:
+                        type: string
+                        format: date
+                      amountCents:
+                        type: integer
+      responses:
+        '201':
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/ach:
+    post:
+      tags: [Financial Control]
+      operationId: initiateAchTransfer
+      summary: Initiate an ACH debit or credit transfer
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountCents, direction, bankAccountId]
+              properties:
+                amountCents:
+                  type: integer
+                direction:
+                  type: string
+                  enum: [debit, credit]
+                bankAccountId:
+                  type: string
+                  format: uuid
+                description:
+                  type: string
+                scheduledDate:
+                  type: string
+                  format: date
+      responses:
+        '202':
+          description: ACH transfer initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/spend-governance:
+    get:
+      tags: [Financial Control]
+      operationId: getSpendGovernance
+      summary: Retrieve spend governance policies and current utilisation
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Spend governance details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    post:
+      tags: [Financial Control]
+      operationId: setSpendGovernance
+      summary: Set or update spend governance policies
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthlySpendCapCents:
+                  type: integer
+                categoryLimits:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                alertThresholdPercent:
+                  type: number
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/invoices:
+    post:
+      tags: [Financial Control]
+      operationId: generateInvoice
+      summary: Generate a new invoice for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountCents, description]
+              properties:
+                amountCents:
+                  type: integer
+                description:
+                  type: string
+                dueAt:
+                  type: string
+                  format: date-time
+                lineItems:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      description:
+                        type: string
+                      amountCents:
+                        type: integer
+                      quantity:
+                        type: integer
+      responses:
+        '201':
+          description: Invoice generated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Invoice'
+    get:
+      tags: [Financial Control]
+      operationId: listInvoices
+      summary: List invoices for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, outstanding, paid, voided, past_due]
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Invoices list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Invoice'
+
+  /invoices/{id}:
+    get:
+      tags: [Financial Control]
+      operationId: getInvoice
+      summary: Get a single invoice by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Invoice
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Invoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /invoices/{id}/pay:
+    post:
+      tags: [Financial Control]
+      operationId: markInvoicePaid
+      summary: Mark an invoice as paid
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paidAt:
+                  type: string
+                  format: date-time
+                paymentReference:
+                  type: string
+      responses:
+        '200':
+          description: Invoice updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # COMPLIANCE & GOVERNANCE
+  # ══════════════════════════════════════════════════════════════════════════
+
+  /businesses/{id}/compliance/risk-score:
+    get:
+      tags: [Compliance & Governance]
+      operationId: getComplianceRiskScore
+      summary: Retrieve the current compliance risk score for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Risk score
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/compliance/check:
+    post:
+      tags: [Compliance & Governance]
+      operationId: runComplianceCheck
+      summary: Run a compliance check (OFAC, BSA/AML, state-law, usury, etc.)
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [checkType]
+              properties:
+                checkType:
+                  type: string
+                  enum: [ofac, bsa_aml, state_license, usury_ceiling, kyb, kyc, adverse_action]
+                context:
+                  type: object
+      responses:
+        '200':
+          description: Compliance check result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ComplianceCheck'
+
+  /compliance/state-laws/{state}:
+    get:
+      tags: [Compliance & Governance]
+      operationId: getStateLaw
+      summary: Retrieve state-specific lending law profile
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 2
+            example: CA
+      responses:
+        '200':
+          description: State law profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /businesses/{id}/consent:
+    post:
+      tags: [Compliance & Governance]
+      operationId: captureConsent
+      summary: Capture a consent record for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [consentType]
+              properties:
+                consentType:
+                  type: string
+                  enum: [credit_pull, tcpa, esign, data_sharing, marketing]
+                ipAddress:
+                  type: string
+                userAgent:
+                  type: string
+      responses:
+        '201':
+          description: Consent captured
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ConsentRecord'
+    get:
+      tags: [Compliance & Governance]
+      operationId: listConsents
+      summary: List consent records for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+        - name: consentType
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, revoked, expired]
+      responses:
+        '200':
+          description: Consent records
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ConsentRecord'
+
+  /consent/{consentId}/revoke:
+    delete:
+      tags: [Compliance & Governance]
+      operationId: revokeConsent
+      summary: Revoke a consent record
+      parameters:
+        - name: consentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Consent revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /businesses/{id}/acknowledgments:
+    post:
+      tags: [Compliance & Governance]
+      operationId: createAcknowledgment
+      summary: Record a disclosure acknowledgment
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [disclosureType, version]
+              properties:
+                disclosureType:
+                  type: string
+                version:
+                  type: string
+                ipAddress:
+                  type: string
+                signedAt:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Acknowledgment recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    get:
+      tags: [Compliance & Governance]
+      operationId: listAcknowledgments
+      summary: List disclosure acknowledgments for a business
+      parameters:
+        - $ref: '#/components/parameters/businessId'
+      responses:
+        '200':
+          description: Acknowledgments list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /complaints:
+    post:
+      tags: [Compliance & Governance]
+      operationId: createComplaint
+      summary: Submit a new complaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [businessId, category, description]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                category:
+                  type: string
+                  enum: [billing_dispute, compliance_violation, service_issue, fraud, other]
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Complaint created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Complaint'
+    get:
+      tags: [Compliance & Governance]
+      operationId: listComplaints
+      summary: List complaints with optional filters
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Complaints list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Complaint'
+
+  /complaints/{id}:
+    put:
+      tags: [Compliance & Governance]
+      operationId: updateComplaint
+      summary: Update a complaint status or resolution
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [open, under_review, resolved, escalated, closed]
+                assignedTo:
+                  type: string
+                resolutionNotes:
+                  type: string
+      responses:
+        '200':
+          description: Complaint updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /complaints/analytics:
+    get:
+      tags: [Compliance & Governance]
+      operationId: getComplaintAnalytics
+      summary: Aggregate complaint analytics for the tenant
+      responses:
+        '200':
+          description: Complaint analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /contracts/analyze:
+    post:
+      tags: [Compliance & Governance]
+      operationId: analyzeContract
+      summary: AI-powered contract analysis for red flags and risk scoring
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileContent, mimeType, fileName]
+              properties:
+                fileContent:
+                  type: string
+                  description: Base64-encoded file content
+                mimeType:
+                  type: string
+                fileName:
+                  type: string
+                contractType:
+                  type: string
+      responses:
+        '200':
+          description: Analysis result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /fair-lending/dashboard:
+    get:
+      tags: [Compliance & Governance]
+      operationId: getFairLendingDashboard
+      summary: Fair-lending HMDA/ECOA summary dashboard
+      responses:
+        '200':
+          description: Fair-lending metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /ai-governance/decisions:
+    get:
+      tags: [Compliance & Governance]
+      operationId: listAiDecisions
+      summary: List AI-model decision audit log
+      parameters:
+        - name: modelVersion
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: AI decision log
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    post:
+      tags: [Compliance & Governance]
+      operationId: recordAiDecision
+      summary: Record an AI-model decision for audit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modelName, modelVersion, input, output]
+              properties:
+                modelName:
+                  type: string
+                modelVersion:
+                  type: string
+                input:
+                  type: object
+                output:
+                  type: object
+                businessId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /governance/cadence/upcoming:
+    get:
+      tags: [Compliance & Governance]
+      operationId: getUpcomingGovernanceReviews
+      summary: List upcoming governance review items
+      responses:
+        '200':
+          description: Upcoming reviews
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /governance/cadence/overdue:
+    get:
+      tags: [Compliance & Governance]
+      operationId: getOverdueGovernanceReviews
+      summary: List overdue governance review items
+      responses:
+        '200':
+          description: Overdue reviews
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # PLATFORM & SAAS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  /documents:
+    post:
+      tags: [Platform & SaaS]
+      operationId: uploadDocument
+      summary: Upload a document to the vault
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileContent, mimeType, fileName, businessId]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                fileContent:
+                  type: string
+                  description: Base64-encoded file content
+                mimeType:
+                  type: string
+                fileName:
+                  type: string
+                category:
+                  type: string
+                  enum: [bank_statement, adverse_action_letter, contract, kyb_document, receipt_invoice, id_document, unknown]
+                uploadedBy:
+                  type: string
+      responses:
+        '201':
+          description: Document uploaded
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Document'
+
+  /documents/{id}:
+    get:
+      tags: [Platform & SaaS]
+      operationId: getDocument
+      summary: Retrieve document metadata
+      parameters:
+        - $ref: '#/components/parameters/documentId'
+      responses:
+        '200':
+          description: Document metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Document'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Platform & SaaS]
+      operationId: deleteDocument
+      summary: Archive / soft-delete a document
+      parameters:
+        - $ref: '#/components/parameters/documentId'
+      responses:
+        '200':
+          description: Document archived
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /partners:
+    post:
+      tags: [Platform & SaaS]
+      operationId: onboardPartner
+      summary: Onboard a new partner or vendor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, partnerType, contactEmail]
+              properties:
+                name:
+                  type: string
+                partnerType:
+                  type: string
+                  enum: [referral, vendor, integration, subprocessor, white_label]
+                contactEmail:
+                  type: string
+                  format: email
+                contractUrl:
+                  type: string
+                riskTier:
+                  type: string
+                  enum: [low, medium, high, critical]
+      responses:
+        '201':
+          description: Partner onboarded
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Partner'
+    get:
+      tags: [Platform & SaaS]
+      operationId: listPartners
+      summary: List all partners for the tenant
+      parameters:
+        - name: partnerType
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Partners list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Partner'
+
+  /partners/{id}:
+    put:
+      tags: [Platform & SaaS]
+      operationId: updatePartner
+      summary: Update partner details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Partner'
+      responses:
+        '200':
+          description: Partner updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /partners/{id}/scorecard:
+    get:
+      tags: [Platform & SaaS]
+      operationId: getPartnerScorecard
+      summary: Get vendor performance scorecard
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Vendor scorecard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /admin/tenants:
+    post:
+      tags: [Platform & SaaS]
+      operationId: createTenant
+      summary: Create a new tenant (super-admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, subdomain, planName]
+              properties:
+                name:
+                  type: string
+                subdomain:
+                  type: string
+                planName:
+                  type: string
+                  enum: [starter, growth, professional, enterprise]
+                contactEmail:
+                  type: string
+                  format: email
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    get:
+      tags: [Platform & SaaS]
+      operationId: listTenants
+      summary: List all tenants
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Tenants list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /tenants/{tenantId}/plan:
+    get:
+      tags: [Platform & SaaS]
+      operationId: getTenantPlan
+      summary: Get the active subscription plan and entitlements
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Plan and entitlements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /tenants/{tenantId}/usage:
+    get:
+      tags: [Platform & SaaS]
+      operationId: getTenantUsage
+      summary: Get current billing-period usage snapshot
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Usage snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /api-keys:
+    post:
+      tags: [Platform & SaaS]
+      operationId: createApiKey
+      summary: Create a new API key for programmatic access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                expiresAt:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: API key created (plaintext shown once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    get:
+      tags: [Platform & SaaS]
+      operationId: listApiKeys
+      summary: List API keys for the tenant
+      responses:
+        '200':
+          description: API keys (no plaintext)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /webhooks/subscriptions:
+    post:
+      tags: [Platform & SaaS]
+      operationId: createWebhookSubscription
+      summary: Register a webhook endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+                  example: ['application.approved', 'round.completed']
+                signingSecret:
+                  type: string
+      responses:
+        '201':
+          description: Subscription registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    get:
+      tags: [Platform & SaaS]
+      operationId: listWebhookSubscriptions
+      summary: List webhook subscriptions
+      responses:
+        '200':
+          description: Subscriptions list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /webhooks/subscriptions/{id}:
+    delete:
+      tags: [Platform & SaaS]
+      operationId: deleteWebhookSubscription
+      summary: Remove a webhook subscription
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /observability/health:
+    get:
+      tags: [Platform & SaaS]
+      operationId: getObservabilityHealth
+      summary: System-wide health check (DB, queue, integrations)
+      security: []
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded, unhealthy]
+                  checks:
+                    type: object
+
+  /integrations/{provider}/connect:
+    post:
+      tags: [Platform & SaaS]
+      operationId: connectIntegration
+      summary: Connect a third-party integration (Plaid, Stripe, DocuSign, Twilio)
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [plaid, stripe, docusign, twilio, middesk]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Provider-specific OAuth or API credentials
+              additionalProperties: true
+      responses:
+        '200':
+          description: Integration connected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /integrations/{provider}/disconnect:
+    delete:
+      tags: [Platform & SaaS]
+      operationId: disconnectIntegration
+      summary: Disconnect a third-party integration
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Integration disconnected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ── Deal Committee ──────────────────────────────────────────────────────────
+
+  /deal-committee/sessions:
+    post:
+      tags: [Platform & SaaS]
+      operationId: createDealCommitteeSession
+      summary: Create a deal-committee review session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [businessId, applicationId]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                applicationId:
+                  type: string
+                  format: uuid
+                reviewers:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /deal-committee/sessions/{id}/vote:
+    post:
+      tags: [Platform & SaaS]
+      operationId: submitDealCommitteeVote
+      summary: Submit a vote on a deal-committee session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vote]
+              properties:
+                vote:
+                  type: string
+                  enum: [approve, decline, defer]
+                rationale:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Vote recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # VOICEFORGE
+  # ══════════════════════════════════════════════════════════════════════════
+
+  /voiceforge/calls:
+    post:
+      tags: [VoiceForge]
+      operationId: initiateCall
+      summary: Initiate an outbound call with TCPA consent enforcement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [businessId, toPhoneNumber, fromPhoneNumber, purpose]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                toPhoneNumber:
+                  type: string
+                fromPhoneNumber:
+                  type: string
+                advisorId:
+                  type: string
+                  format: uuid
+                purpose:
+                  type: string
+                  maxLength: 500
+                campaignType:
+                  type: string
+                  enum: [apr_expiry, repayment_reminder, restack_consultation]
+                campaignId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Call initiated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CallRecord'
+        '403':
+          description: TCPA consent blocked
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      error:
+                        type: object
+                        properties:
+                          code:
+                            type: string
+                            example: TCPA_CONSENT_BLOCKED
+                          reason:
+                            type: string
+    get:
+      tags: [VoiceForge]
+      operationId: listCalls
+      summary: List call records for the tenant
+      parameters:
+        - name: businessId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: advisorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignType
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Call records
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/CallRecord'
+                          total:
+                            type: integer
+                          page:
+                            type: integer
+                          pageSize:
+                            type: integer
+
+  /voiceforge/calls/{id}:
+    get:
+      tags: [VoiceForge]
+      operationId: getCall
+      summary: Retrieve a single call record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Call record
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CallRecord'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /voiceforge/calls/{id}/end:
+    post:
+      tags: [VoiceForge]
+      operationId: endCall
+      summary: End an in-progress call and persist duration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Call ended
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CallRecord'
+
+  /voiceforge/outreach/apr-expiry:
+    post:
+      tags: [VoiceForge]
+      operationId: triggerAprExpiryOutreach
+      summary: Trigger the APR expiry outreach campaign for the tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromPhoneNumber]
+              properties:
+                fromPhoneNumber:
+                  type: string
+                advisorId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Campaign initiated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OutreachCampaignResult'
+
+  /voiceforge/outreach/restack:
+    post:
+      tags: [VoiceForge]
+      operationId: triggerRestackOutreach
+      summary: Trigger the re-stack consultation scheduling campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromPhoneNumber]
+              properties:
+                fromPhoneNumber:
+                  type: string
+                advisorId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Campaign initiated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OutreachCampaignResult'
+
+  /voiceforge/compliance/scan-transcript:
+    post:
+      tags: [VoiceForge]
+      operationId: scanTranscript
+      summary: Scan a call transcript for compliance violations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [callId, advisorId, businessId, transcriptText]
+              properties:
+                callId:
+                  type: string
+                  format: uuid
+                advisorId:
+                  type: string
+                  format: uuid
+                businessId:
+                  type: string
+                  format: uuid
+                transcriptText:
+                  type: string
+                  maxLength: 500000
+                isLive:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Scan result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CallComplianceScanResult'
+
+  /voiceforge/compliance/qa/{advisorId}:
+    get:
+      tags: [VoiceForge]
+      operationId: getAdvisorQaSummary
+      summary: Get QA score summary for an advisor
+      parameters:
+        - name: advisorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: QA summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # VISIONAUDIOFORGE
+  # ══════════════════════════════════════════════════════════════════════════
+
+  /vaf/process:
+    post:
+      tags: [VisionAudioForge]
+      operationId: processDocument
+      summary: Central document ingestion — OCR and structured data extraction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileContent, mimeType, fileName]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                uploadedBy:
+                  type: string
+                fileContent:
+                  type: string
+                  description: Base64-encoded document bytes
+                mimeType:
+                  type: string
+                fileName:
+                  type: string
+                  maxLength: 500
+                category:
+                  type: string
+                  enum: [bank_statement, adverse_action_letter, contract, kyb_document, receipt_invoice, id_document, unknown]
+                autoFile:
+                  type: boolean
+                  default: false
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Processing result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProcessDocumentResult'
+
+  /vaf/results/{id}:
+    get:
+      tags: [VisionAudioForge]
+      operationId: getProcessingResult
+      summary: Retrieve a prior document processing result
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: processingId returned by POST /vaf/process
+      responses:
+        '200':
+          description: Processing result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProcessDocumentResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /vaf/agents/{agentType}/run:
+    post:
+      tags: [VisionAudioForge]
+      operationId: triggerAgentRun
+      summary: Trigger a maker-checker AI agent run
+      parameters:
+        - name: agentType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [statement, kyb, contract, acknowledgment, evidence_bundle]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [triggeredBy, payload]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                triggeredBy:
+                  type: string
+                payload:
+                  type: object
+                requireApproval:
+                  type: boolean
+                  default: true
+      responses:
+        '202':
+          description: Agent run queued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgentRunResult'
+
+  /vaf/agents/status:
+    get:
+      tags: [VisionAudioForge]
+      operationId: listAgentRuns
+      summary: List all agent runs (optionally filter by agentType)
+      parameters:
+        - name: agentType
+          in: query
+          schema:
+            type: string
+            enum: [statement, kyb, contract, acknowledgment, evidence_bundle]
+      responses:
+        '200':
+          description: Agent runs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AgentRunResult'
+
+  /vaf/ocr/statement:
+    post:
+      tags: [VisionAudioForge]
+      operationId: ingestStatement
+      summary: Ingest a bank or credit-card statement and extract transactions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [businessId, fileContent, mimeType, fileName]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                fileContent:
+                  type: string
+                  description: Base64-encoded statement
+                mimeType:
+                  type: string
+                fileName:
+                  type: string
+                uploadedBy:
+                  type: string
+      responses:
+        '200':
+          description: Statement ingested with extracted transactions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProcessDocumentResult'
+
+  /vaf/ocr/adverse-action:
+    post:
+      tags: [VisionAudioForge]
+      operationId: parseAdverseAction
+      summary: Parse an adverse-action denial letter and extract regulatory reasons
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [businessId, fileContent, mimeType, fileName]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                fileContent:
+                  type: string
+                  description: Base64-encoded letter
+                mimeType:
+                  type: string
+                fileName:
+                  type: string
+                uploadedBy:
+                  type: string
+      responses:
+        '200':
+          description: Adverse action parsed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProcessDocumentResult'
+
+  /vaf/verify/id-liveness:
+    post:
+      tags: [VisionAudioForge]
+      operationId: verifyIdLiveness
+      summary: Biometric ID liveness detection and document authenticity check
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idImageContent, mimeType, fileName]
+              properties:
+                businessId:
+                  type: string
+                  format: uuid
+                uploadedBy:
+                  type: string
+                idImageContent:
+                  type: string
+                  description: Base64-encoded ID photograph
+                mimeType:
+                  type: string
+                fileName:
+                  type: string
+                referencePhotoContent:
+                  type: string
+                  description: Optional base64-encoded selfie for face match
+      responses:
+        '200':
+          description: Liveness detection result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/IdLivenessResult'
+
+  # ── Health ──────────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [Platform & SaaS]
+      operationId: healthCheck
+      summary: Basic liveness probe
+      security: []
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  uptime:
+                    type: number
+                  timestamp:
+                    type: string
+                    format: date-time

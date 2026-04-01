@@ -1,0 +1,127 @@
+# =============================================================================
+# CapitalForge — Ingress (nginx ingress controller)
+#
+# Prerequisites on EKS:
+#   - ingress-nginx deployed (helm install ingress-nginx ingress-nginx/ingress-nginx)
+#   - cert-manager deployed for automatic TLS via Let's Encrypt
+#   - A ClusterIssuer named `letsencrypt-prod` configured
+#
+# Routing:
+#   /api/*   → backend Service  :4000
+#   /*       → frontend Service :3000
+#
+# Rate limiting:
+#   - Global: 100 req/s per IP (burst to 200)
+#   - /api/*: 50 req/s per IP (burst to 100) — tighter for the API surface
+#
+# Update `host` to your actual domain before applying.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: capitalforge
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # ── Ingress class ────────────────────────────────────────────────────────
+    kubernetes.io/ingress.class: "nginx"
+
+    # ── TLS / cert-manager ───────────────────────────────────────────────────
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # ── SSL redirect ─────────────────────────────────────────────────────────
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # ── HSTS (6 months, include subdomains) ──────────────────────────────────
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=15768000; includeSubDomains; preload";
+
+    # ── Rate limiting (global) ────────────────────────────────────────────────
+    # Each unique IP is limited to 100 req/s; burst allows up to 200 queued.
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+
+    # ── Proxy timeouts ────────────────────────────────────────────────────────
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # ── Use-forwarded-headers (needed behind AWS NLB/ALB) ────────────────────
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+
+    # ── CORS is handled by the backend — disable nginx CORS passthrough ───────
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        # Replace with your actual domain
+        - app.capitalforge.io
+      secretName: capitalforge-tls
+  rules:
+    - host: app.capitalforge.io
+      http:
+        paths:
+          # ── API traffic → backend ────────────────────────────────────────
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  name: http
+
+          # ── Everything else → frontend ───────────────────────────────────
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  name: http
+
+---
+# ── Per-path rate limiting for /api/* ─────────────────────────────────────────
+# A separate Ingress resource targeting only /api so we can apply a stricter
+# rate limit annotation without affecting the frontend route.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: capitalforge-api-ratelimit
+  namespace: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/component: api-ratelimit
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Stricter rate limit for API endpoints
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app.capitalforge.io
+      secretName: capitalforge-tls
+  rules:
+    - host: app.capitalforge.io
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  name: http

@@ -1,0 +1,328 @@
+# ============================================================
+# CapitalForge — Prometheus Alerting Rules
+# Deploy via: kubectl apply -f prometheus-rules.yaml -n monitoring
+# Requires: kube-prometheus-stack (Prometheus Operator)
+# ============================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: capitalforge-alerts
+  namespace: monitoring
+  labels:
+    app: capitalforge
+    prometheus: kube-prometheus
+    role: alert-rules
+    team: platform
+
+spec:
+  groups:
+
+    # ── SLA / Golden Signals ───────────────────────────────────
+    - name: capitalforge.sla
+      interval: 30s
+      rules:
+
+        # 5-minute rolling 5xx error rate > 1 % of total traffic
+        - alert: CapitalForge5xxRateHigh
+          expr: |
+            (
+              sum(rate(capitalforge_http_errors_total{status_class="5xx",env="production"}[5m]))
+              /
+              sum(rate(capitalforge_http_requests_total{env="production"}[5m]))
+            ) * 100 > 1
+          for: 2m
+          labels:
+            severity: critical
+            service: capitalforge-backend
+            team: platform
+            priority: P1
+          annotations:
+            summary: "CapitalForge 5xx error rate above SLA ({{ $value | printf \"%.2f\" }}%)"
+            description: "HTTP 5xx error rate is {{ $value | printf \"%.2f\" }}% over the last 5 minutes. SLA threshold is 1%. Check recent deployments and application logs."
+            runbook_url: "https://docs.capitalforge.internal/runbooks/5xx-rate"
+            dashboard_url: "https://grafana.capitalforge.internal/d/capitalforge-overview"
+
+        # p95 latency > 2 s (10-minute window to avoid transient spikes)
+        - alert: CapitalForgeP95LatencyHigh
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (
+                rate(capitalforge_http_request_duration_seconds_bucket{env="production"}[10m])
+              )
+            ) * 1000 > 2000
+          for: 5m
+          labels:
+            severity: critical
+            service: capitalforge-backend
+            team: platform
+            priority: P1
+          annotations:
+            summary: "CapitalForge p95 latency above SLA ({{ $value | printf \"%.0f\" }} ms)"
+            description: "p95 request latency is {{ $value | printf \"%.0f\" }} ms. SLA threshold is 2000 ms. Investigate database slow queries and resource saturation."
+            runbook_url: "https://docs.capitalforge.internal/runbooks/high-latency"
+
+        # p99 latency > 5 s (warning only)
+        - alert: CapitalForgeP99LatencyWarning
+          expr: |
+            histogram_quantile(0.99,
+              sum by (le) (
+                rate(capitalforge_http_request_duration_seconds_bucket{env="production"}[10m])
+              )
+            ) * 1000 > 5000
+          for: 5m
+          labels:
+            severity: warning
+            service: capitalforge-backend
+            team: platform
+            priority: P2
+          annotations:
+            summary: "CapitalForge p99 latency elevated ({{ $value | printf \"%.0f\" }} ms)"
+            description: "p99 request latency is {{ $value | printf \"%.0f\" }} ms, indicating tail-latency issues affecting a minority of requests."
+
+        # Error budget burn rate — fast burn (1 h window)
+        # 5 % budget consumed in 1 h = 100x burn rate
+        - alert: CapitalForgeErrorBudgetBurning
+          expr: |
+            (
+              sum(rate(capitalforge_http_errors_total{status_class="5xx",env="production"}[1h]))
+              /
+              sum(rate(capitalforge_http_requests_total{env="production"}[1h]))
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            service: capitalforge-backend
+            team: platform
+            priority: P2
+          annotations:
+            summary: "Error budget burning fast ({{ $value | printf \"%.1f\" }}% error rate over 1h)"
+            description: "Sustained error rate above 5% — SLA error budget will be exhausted if not addressed."
+
+    # ── Infrastructure ─────────────────────────────────────────
+    - name: capitalforge.infrastructure
+      interval: 30s
+      rules:
+
+        # DB connection pool > 90 % utilization
+        - alert: CapitalForgeDBPoolExhausted
+          expr: |
+            (
+              capitalforge_db_pool_connections{state="active",env="production"}
+              /
+              capitalforge_db_pool_size_max{env="production"}
+            ) * 100 > 90
+          for: 2m
+          labels:
+            severity: critical
+            service: capitalforge-backend
+            component: database
+            team: platform
+            priority: P1
+          annotations:
+            summary: "Database connection pool nearly exhausted ({{ $value | printf \"%.0f\" }}%)"
+            description: "PostgreSQL connection pool utilization is {{ $value | printf \"%.0f\" }}%. New requests will fail when pool is 100% occupied."
+            runbook_url: "https://docs.capitalforge.internal/runbooks/db-pool-exhausted"
+
+        # DB connection pool > 75% (warning)
+        - alert: CapitalForgeDBPoolHigh
+          expr: |
+            (
+              capitalforge_db_pool_connections{state="active",env="production"}
+              /
+              capitalforge_db_pool_size_max{env="production"}
+            ) * 100 > 75
+          for: 5m
+          labels:
+            severity: warning
+            service: capitalforge-backend
+            component: database
+            team: platform
+            priority: P2
+          annotations:
+            summary: "Database connection pool utilization high ({{ $value | printf \"%.0f\" }}%)"
+
+        # Redis memory > 85% of maxmemory
+        - alert: CapitalForgeRedisMemoryCritical
+          expr: |
+            (redis_memory_used_bytes{env="production"} / redis_memory_max_bytes{env="production"}) * 100 > 85
+          for: 2m
+          labels:
+            severity: critical
+            service: capitalforge-backend
+            component: redis
+            team: platform
+            priority: P1
+          annotations:
+            summary: "Redis memory critically high ({{ $value | printf \"%.0f\" }}%)"
+            description: "Redis memory at {{ $value | printf \"%.0f\" }}% of maxmemory. Eviction or write failures imminent."
+            runbook_url: "https://docs.capitalforge.internal/runbooks/redis-oom"
+
+        # Redis memory > 70% (warning)
+        - alert: CapitalForgeRedisMemoryHigh
+          expr: |
+            (redis_memory_used_bytes{env="production"} / redis_memory_max_bytes{env="production"}) * 100 > 70
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+            team: platform
+            priority: P3
+
+        # Active connections > 5000 (indicates traffic spike or leak)
+        - alert: CapitalForgeHighActiveConnections
+          expr: capitalforge_active_connections{env="production"} > 5000
+          for: 3m
+          labels:
+            severity: warning
+            service: capitalforge-backend
+            team: platform
+            priority: P2
+          annotations:
+            summary: "Active HTTP connections unusually high ({{ $value }})"
+            description: "{{ $value }} active connections. Investigate for connection leaks or traffic spike."
+
+        # BullMQ queue depth — any queue > 500 waiting jobs
+        - alert: CapitalForgeBullMQQueueDepthHigh
+          expr: capitalforge_queue_depth{env="production"} > 500
+          for: 5m
+          labels:
+            severity: warning
+            service: capitalforge-worker
+            component: bullmq
+            team: platform
+            priority: P3
+          annotations:
+            summary: "BullMQ queue {{ $labels.queue_name }} backlog high ({{ $value }} jobs)"
+            description: "Queue {{ $labels.queue_name }} has {{ $value }} waiting jobs. Workers may be underscaled or stalled."
+
+    # ── Compliance & Regulatory ────────────────────────────────
+    - name: capitalforge.compliance
+      interval: 15s
+      rules:
+
+        # SLA: compliance score must stay >= 99%
+        - alert: CapitalForgeComplianceScoreDegraded
+          expr: capitalforge_compliance_score{env="production"} < 99
+          for: 5m
+          labels:
+            severity: critical
+            service: capitalforge-backend
+            team: compliance
+            priority: P1
+            regulatory: "true"
+          annotations:
+            summary: "Compliance score below SLA ({{ $value | printf \"%.1f\" }}%)"
+            description: "Platform compliance score is {{ $value | printf \"%.1f\" }}%. Target is 99%. Investigate compliance check failures and consent gate issues."
+            runbook_url: "https://docs.capitalforge.internal/runbooks/compliance-score"
+
+        # Any consent gate failure (TCPA compliance gate)
+        - alert: CapitalForgeConsentGateFailure
+          expr: increase(capitalforge_consent_gate_failure_total{env="production"}[5m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+            service: capitalforge-backend
+            team: compliance
+            priority: P2
+            regulatory: tcpa
+          annotations:
+            summary: "Consent gate failures detected ({{ $value }} in 5 min)"
+            description: "TCPA consent gate is failing for {{ $value }} requests. Clients cannot proceed through consent flows. Check consent service and template versions."
+            runbook_url: "https://docs.capitalforge.internal/runbooks/consent-gate-failure"
+
+        # Any unauthorized ACH debit — IMMEDIATE / zero tolerance
+        - alert: CapitalForgeUnauthorizedACHDetected
+          expr: increase(capitalforge_ach_unauthorized_total{env="production"}[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+            service: capitalforge-backend
+            team: compliance
+            priority: P1
+            regulatory: reg-e
+          annotations:
+            summary: "CRITICAL: Unauthorized ACH debit detected ({{ $value }} event(s))"
+            description: "{{ $value }} unauthorized ACH debit(s) detected. This is a Regulation E compliance event. Compliance officer must be notified within 1 hour. Initiate ACH return immediately."
+            runbook_url: "https://docs.capitalforge.internal/runbooks/unauthorized-ach"
+
+        # Compliance check failures (internal errors, not no-go blocks)
+        - alert: CapitalForgeComplianceCheckFailures
+          expr: increase(capitalforge_compliance_check_failure_total{env="production"}[15m]) > 5
+          for: 0m
+          labels:
+            severity: warning
+            service: capitalforge-backend
+            team: compliance
+            priority: P2
+          annotations:
+            summary: "Compliance check failures elevated ({{ $value }} in 15 min)"
+            description: "{{ $value }} compliance check failures in the last 15 minutes. These are system errors, not user no-go blocks. Check OFAC API health and compliance service logs."
+
+        # Suitability no-go override rate > 5% of no-go decisions
+        # (High override rate may indicate suitability engine mis-configuration)
+        - alert: CapitalForgeSuitabilityOverrideRateHigh
+          expr: |
+            (
+              increase(capitalforge_suitability_override_total{env="production"}[1h])
+              /
+              (increase(capitalforge_suitability_nogo_total{env="production"}[1h]) + 1)
+            ) * 100 > 5
+          for: 15m
+          labels:
+            severity: warning
+            service: capitalforge-backend
+            team: compliance
+            priority: P3
+          annotations:
+            summary: "Suitability no-go override rate elevated ({{ $value | printf \"%.1f\" }}%)"
+            description: "{{ $value | printf \"%.1f\" }}% of suitability no-go decisions are being overridden by supervisors. Review override audit log for patterns."
+
+    # ── Availability ───────────────────────────────────────────
+    - name: capitalforge.availability
+      interval: 30s
+      rules:
+
+        # Backend pod count below minimum (should have >= 2 pods)
+        - alert: CapitalForgeBackendPodsLow
+          expr: |
+            kube_deployment_status_replicas_available{
+              deployment="capitalforge-backend",
+              namespace="production"
+            } < 2
+          for: 2m
+          labels:
+            severity: critical
+            service: capitalforge-backend
+            team: platform
+            priority: P1
+          annotations:
+            summary: "CapitalForge backend available pod count low ({{ $value }})"
+            description: "Only {{ $value }} backend pod(s) available. Minimum is 2 for HA. Service may be degraded."
+
+        # Health check endpoint returning non-200
+        - alert: CapitalForgeHealthCheckFailing
+          expr: |
+            probe_success{job="blackbox-capitalforge",instance=~".*capitalforge.*health.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: capitalforge-backend
+            team: platform
+            priority: P1
+          annotations:
+            summary: "CapitalForge health check failing"
+            description: "The /api/health endpoint is not returning 200. The service may be completely down."
+
+        # Certificate expiry within 14 days
+        - alert: CapitalForgeCertExpiringSoon
+          expr: |
+            (probe_ssl_earliest_cert_expiry{job="blackbox-capitalforge"} - time()) / 86400 < 14
+          for: 1h
+          labels:
+            severity: warning
+            team: platform
+            priority: P3
+          annotations:
+            summary: "TLS certificate expiring in {{ $value | printf \"%.0f\" }} days"
+            description: "The TLS certificate for CapitalForge expires in {{ $value | printf \"%.0f\" }} days. Renew before expiry to avoid downtime."

@@ -1,0 +1,13 @@
+# =============================================================================
+# CapitalForge — Kubernetes Namespace
+# All workloads for this application run inside the `capitalforge` namespace
+# to provide resource isolation and simplified RBAC scoping.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capitalforge
+  labels:
+    app.kubernetes.io/name: capitalforge
+    app.kubernetes.io/managed-by: kustomize
+    environment: production

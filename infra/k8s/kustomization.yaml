@@ -1,0 +1,72 @@
+# =============================================================================
+# CapitalForge — Kustomize Root Configuration
+#
+# Build the full manifest set:
+#   kubectl kustomize infra/k8s/ | kubectl apply -f -
+#
+# Or apply directly:
+#   kubectl apply -k infra/k8s/
+#
+# To override the image tag at deploy time (recommended for CI/CD):
+#   kustomize edit set image capitalforge/backend=<ecr-uri>:<git-sha>
+#   kustomize edit set image capitalforge/frontend=<ecr-uri>:<git-sha>
+#   kubectl apply -k infra/k8s/
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: capitalforge
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - backend-deployment.yaml
+  - frontend-deployment.yaml
+  - backend-service.yaml
+  - frontend-service.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - cronjob-backup.yaml
+  - cronjob-apr-alerts.yaml
+  - network-policy.yaml
+
+# ── Common labels applied to every resource ───────────────────────────────────
+commonLabels:
+  app.kubernetes.io/part-of: capitalforge
+  app.kubernetes.io/managed-by: kustomize
+
+# ── Image overrides ───────────────────────────────────────────────────────────
+# Update newName and newTag via CI/CD:
+#   kustomize edit set image capitalforge/backend=<account>.dkr.ecr.us-east-1.amazonaws.com/capitalforge/backend:<tag>
+images:
+  - name: capitalforge/backend
+    newName: capitalforge/backend
+    newTag: latest
+  - name: capitalforge/frontend
+    newName: capitalforge/frontend
+    newTag: latest
+
+# ── ConfigMap generator — injects backup.sh into the backup CronJob ──────────
+# This replaces the stub ConfigMap in cronjob-backup.yaml with real content.
+# kustomize builds the ConfigMap from the file at build time.
+configMapGenerator:
+  - name: capitalforge-backup-scripts
+    namespace: capitalforge
+    behavior: replace
+    files:
+      - backup.sh=../../scripts/backup.sh
+    options:
+      disableNameSuffixHash: true
+
+# ── Patches ───────────────────────────────────────────────────────────────────
+# Example: override replica count for a staging overlay
+# patches:
+#   - target:
+#       kind: Deployment
+#       name: backend
+#     patch: |-
+#       - op: replace
+#         path: /spec/replicas
+#         value: 1

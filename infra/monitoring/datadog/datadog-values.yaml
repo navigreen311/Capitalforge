@@ -1,0 +1,214 @@
+# ============================================================
+# CapitalForge — Datadog Agent Helm Values
+# Cluster: capitalforge-prod (EKS)
+# Chart: datadog/datadog  >= 3.60.0
+# Ref: https://github.com/DataDog/helm-charts/tree/main/charts/datadog
+# ============================================================
+
+datadog:
+  # ── Identity ──────────────────────────────────────────────
+  site: datadoghq.com
+  # API key is injected via k8s Secret "datadog-secret" (key: api-key).
+  # DO NOT hard-code the API key here.
+  apiKeyExistingSecret: datadog-secret
+  appKeyExistingSecret: datadog-secret   # key: app-key
+
+  clusterName: capitalforge-prod
+  env: production
+
+  tags:
+    - "service:capitalforge"
+    - "team:platform"
+    - "env:production"
+    - "region:us-east-1"
+
+  # ── APM / Tracing ─────────────────────────────────────────
+  apm:
+    portEnabled: true
+    # UDS socket reduces latency over TCP
+    socketEnabled: true
+    socketPath: /var/run/datadog/apm.socket
+
+  tracing:
+    enabled: true
+
+  # ── Log Collection ────────────────────────────────────────
+  logs:
+    enabled: true
+    containerCollectAll: true
+    containerCollectUsingFiles: true
+
+  # Structured JSON log processing — matches CapitalForge winston format
+  logLevel: INFO
+
+  # Auto-enrich container logs with pod/namespace/container tags
+  containerLogs:
+    podAnnotationsAsTags:
+      app.kubernetes.io/name: service
+      app.kubernetes.io/version: version
+
+  # ── Custom Metrics ────────────────────────────────────────
+  # DogStatsD receives custom metrics from the Express /metrics middleware
+  dogstatsd:
+    enabled: true
+    useSocketVolume: true
+    socketPath: /var/run/datadog/dsd.socket
+    # Accept metrics from any pod in the namespace
+    nonLocalTraffic: false
+    port: 8125
+
+  # ── Process & Network Monitoring ──────────────────────────
+  processAgent:
+    enabled: true
+    processCollection: true
+    processDiscovery: true
+
+  networkMonitoring:
+    enabled: true
+
+  # ── Runtime Security (CSM) ────────────────────────────────
+  securityAgent:
+    runtime:
+      enabled: true
+      syscallMonitor:
+        enabled: true
+
+  # ── Kubernetes State Metrics ──────────────────────────────
+  kubeStateMetricsEnabled: true
+  kubeStateMetricsCore:
+    enabled: true
+
+  # ── Cluster-level checks ──────────────────────────────────
+  clusterChecks:
+    enabled: true
+
+  # ── Admission Controller (auto-instrumentation) ───────────
+  admissionController:
+    enabled: true
+    mutateUnlabelled: false
+
+  # ── RUM — Real User Monitoring (frontend) ─────────────────
+  # RUM is configured client-side (see sentry-frontend.ts for Sentry layer).
+  # Datadog RUM is enabled via the browser SDK injected in Next.js.
+  # These values declare the RUM application metadata used in dashboards.
+  rum:
+    # Application ID and Client Token are set as env vars in the frontend
+    # deployment manifest, not here.  Reference only.
+    applicationId: "YOUR_RUM_APPLICATION_ID_HERE"
+    clientToken: "YOUR_RUM_CLIENT_TOKEN_HERE"
+    sessionSampleRate: 100
+    sessionReplaySampleRate: 20       # 20 % of sessions get full replay
+    trackUserInteractions: true
+    trackResources: true
+    trackLongTasks: true
+    defaultPrivacyLevel: "mask-user-input"   # PII protection
+    service: capitalforge-frontend
+    env: production
+
+  # ── Integrations ──────────────────────────────────────────
+  # PostgreSQL
+  confd:
+    postgres.yaml: |-
+      init_config: {}
+      instances:
+        - host: "%%env_DB_HOST%%"
+          port: 5432
+          username: datadog
+          password: "%%env_DD_POSTGRES_PASSWORD%%"
+          dbname: capitalforge
+          collect_activity_metrics: true
+          collect_default_db: true
+          collect_schemas: true
+          tags:
+            - "db:capitalforge"
+            - "env:production"
+
+    redis.yaml: |-
+      init_config: {}
+      instances:
+        - host: "%%env_REDIS_HOST%%"
+          port: 6379
+          password: "%%env_DD_REDIS_PASSWORD%%"
+          keys:
+            - "bull:*"
+          tags:
+            - "cache:redis"
+            - "env:production"
+
+    # Express /metrics endpoint (Prometheus-format scrape)
+    openmetrics.yaml: |-
+      init_config: {}
+      instances:
+        - openmetrics_endpoint: "http://capitalforge-backend:4000/metrics"
+          namespace: capitalforge
+          metrics:
+            - http_requests_total
+            - http_request_duration_seconds
+            - http_errors_total
+            - active_connections
+            - db_pool_connections
+            - redis_memory_used_bytes
+          tags:
+            - "service:capitalforge-backend"
+
+# ── Agent DaemonSet settings ──────────────────────────────────
+agents:
+  image:
+    tag: "7"   # Use Datadog Agent 7.x
+
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Mount DogStatsD and APM sockets into application pods
+  volumes:
+    - name: dsdsocket
+      hostPath:
+        path: /var/run/datadog/
+    - name: apmsocket
+      hostPath:
+        path: /var/run/datadog/
+
+  volumeMounts:
+    - name: dsdsocket
+      mountPath: /var/run/datadog
+      readOnly: false
+
+# ── Cluster Agent ─────────────────────────────────────────────
+clusterAgent:
+  enabled: true
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+  admissionController:
+    enabled: true
+    mutateUnlabelled: false
+
+# ── Node Feature Detection ────────────────────────────────────
+providers:
+  eks:
+    ec2:
+      useHostnameFromFile: false
+
+# ── RBAC ──────────────────────────────────────────────────────
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: datadog-agent

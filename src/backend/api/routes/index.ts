@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import { healthRouter } from './health.routes.js';
 import authRouter from './auth.routes.js';
+import { openApiRouter } from './openapi.routes.js';
 import { createAcknowledgmentRouter } from './acknowledgment.routes.js';
 import { onboardingRouter } from './onboarding.routes.js';
 import { optimizerRouter } from './optimizer.routes.js';
@@ -16,6 +17,9 @@ import { suitabilityRouter } from './suitability.routes.js';
 import { costCalculatorRouter } from './cost-calculator.routes.js';
 
 export const apiRouter = Router();
+
+// -- OpenAPI docs (public) --
+apiRouter.use('/', openApiRouter);
 
 // -- Health (public) --
 apiRouter.use('/health', healthRouter);
@@ -170,3 +174,32 @@ apiRouter.use('/', voiceForgeRouter);
 // POST /api/vaf/verify/id-liveness
 import { visionAudioForgeRouter } from './visionaudioforge.routes.js';
 apiRouter.use('/', visionAudioForgeRouter);
+
+// ── Webhooks — Subscriptions, Delivery Log & Test ────────────────
+// POST   /api/webhooks/subscriptions        — register subscription
+// GET    /api/webhooks/subscriptions        — list subscriptions
+// DELETE /api/webhooks/subscriptions/:id    — remove subscription
+// GET    /api/webhooks/deliveries           — delivery log
+// POST   /api/webhooks/test                 — test delivery
+import { webhooksRouter } from './webhooks.routes.js';
+apiRouter.use('/webhooks', webhooksRouter);
+
+// ── Operating Model Governance Layer ─────────────────────────
+// GET  /api/governance/reference-data              — list entities per domain
+// POST /api/governance/reference-data              — create/submit/approve/activate ref data version
+// GET  /api/governance/releases                    — list staged deployments
+// POST /api/governance/releases                    — create, advance, rollback, set feature flag, preview
+// GET  /api/governance/releases/:id                — get single release
+// GET  /api/governance/support/incidents           — list incidents (filter by severity/status)
+// POST /api/governance/support/incidents           — create incident
+// GET  /api/governance/support/incidents/:id       — get incident
+// PATCH /api/governance/support/incidents/:id      — update incident
+// GET  /api/governance/support/status/:tenantId    — tenant health / status page
+// GET  /api/governance/support/sla-policies        — SLA policy table
+// GET  /api/governance/cadence/upcoming            — upcoming governance reviews
+// GET  /api/governance/cadence/overdue             — overdue items
+// POST /api/governance/cadence/schedule            — schedule review (7 sub-actions)
+// PATCH /api/governance/cadence/:id/complete       — mark review complete
+// POST /api/governance/cadence/reminders/process   — dispatch pending reminders (cron)
+import { governanceRouter } from './governance.routes.js';
+apiRouter.use('/governance', governanceRouter);
