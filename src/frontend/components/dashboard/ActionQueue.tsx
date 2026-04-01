@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from './DashboardErrorState';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -130,39 +132,26 @@ function ActionQueueSkeleton() {
 // ── Component ────────────────────────────────────────────────
 
 export function ActionQueue() {
+  const { data: fetchedData, isLoading: loading, error: fetchError, refetch } = useAuthFetch<ActionQueueData>('/api/v1/dashboard/action-queue');
   const [data, setData] = useState<ActionQueueData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
 
-  const fetchQueue = useCallback(async () => {
-    try {
-      const res = await fetch('/api/v1/dashboard/action-queue');
-      const json = await res.json();
-      if (json.success) {
-        setData(json.data);
-        setError(null);
-      } else {
-        setError(json.error?.message ?? 'Failed to load action queue');
-      }
-    } catch {
-      setError('Unable to connect to the server');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // Sync local state from fetched data (local state needed for optimistic updates)
   useEffect(() => {
-    fetchQueue();
-  }, [fetchQueue]);
+    if (fetchedData) setData(fetchedData);
+  }, [fetchedData]);
 
   const markComplete = async (task: ActionTask) => {
     setCompletingIds((prev) => new Set(prev).add(task.id));
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
       await fetch('/api/v1/events', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           eventType: 'task.completed',
           aggregateType: 'action_queue',
@@ -218,19 +207,17 @@ export function ActionQueue() {
 
         {loading && <ActionQueueSkeleton />}
 
-        {error && !loading && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </div>
+        {fetchError && !loading && (
+          <DashboardErrorState error={fetchError} onRetry={refetch} />
         )}
 
-        {!loading && !error && data && data.tasks.length === 0 && (
+        {!loading && !fetchError && data && data.tasks.length === 0 && (
           <div className="rounded-lg border border-surface-border bg-gray-50 p-6 text-center text-sm text-gray-500">
             No pending actions — you&apos;re all caught up!
           </div>
         )}
 
-        {!loading && !error && data && data.tasks.length > 0 && (
+        {!loading && !fetchError && data && data.tasks.length > 0 && (
           <div className="space-y-2">
             {visibleTasks.map((task) => {
               const typeColor = TYPE_COLORS[task.type] ?? {
