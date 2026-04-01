@@ -48,7 +48,7 @@ export const dashboardConsentRouter = Router();
 // GET / — consent status summary
 dashboardConsentRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const tenantId = (req as any).tenantContext?.tenantId;
+    const tenantId = (req as any).tenant?.tenantId;
     if (!tenantId) {
       const body: ApiResponse = {
         success: false,

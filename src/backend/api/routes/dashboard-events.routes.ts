@@ -68,7 +68,7 @@ dashboardEventsRouter.post(
       }
 
       // ── Tenant scoping ─────────────────────────────────────────────────
-      const tenantId = req.tenantContext?.tenantId;
+      const tenantId = req.tenant?.tenantId;
       if (!tenantId) {
         res.status(401).json({
           success: false,
@@ -77,7 +77,7 @@ dashboardEventsRouter.post(
         return;
       }
 
-      const userId = req.tenantContext?.userId ?? 'system';
+      const userId = req.tenant?.userId ?? 'system';
       const aggregateId = (payload as Record<string, unknown>).aggregateId as string
         ?? (payload as Record<string, unknown>).id as string
         ?? randomUUID();

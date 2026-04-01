@@ -107,7 +107,7 @@ export const dashboardComplianceDeadlinesRouter = Router();
 // GET / — state disclosure deadlines for next 30 days
 dashboardComplianceDeadlinesRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const tenantId = (req as any).tenantContext?.tenantId;
+    const tenantId = (req as any).tenant?.tenantId;
     if (!tenantId) {
       const body: ApiResponse = {
         success: false,

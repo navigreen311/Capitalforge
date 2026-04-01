@@ -9,8 +9,12 @@
 
 import { Router } from 'express';
 import logger from '../../config/logger.js';
+import { requireAuth } from '../../middleware/auth.middleware.js';
 
 export const dashboardV1Router = Router();
+
+// All dashboard routes require authentication
+dashboardV1Router.use(requireAuth);
 
 // ── Helper: safely mount a sub-router ─────────────────────────────────────
 

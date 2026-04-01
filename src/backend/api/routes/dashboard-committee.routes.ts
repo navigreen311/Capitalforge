@@ -19,7 +19,7 @@ function getPrisma(): PrismaClient {
 // ── Helper: extract tenantId from authenticated request ─────────────────────
 
 function getTenantId(req: Request): string {
-  const tenantId = req.tenantContext?.tenantId;
+  const tenantId = req.tenant?.tenantId;
   if (!tenantId) {
     throw new Error('Authentication context missing.');
   }

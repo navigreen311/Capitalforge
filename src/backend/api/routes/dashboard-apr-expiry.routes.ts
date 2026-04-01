@@ -67,7 +67,7 @@ dashboardAprExpiryRouter.get(
   '/',
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const tenantId = (req as Request & { tenantContext?: { tenantId: string } }).tenantContext?.tenantId;
+      const tenantId = (req as any).tenant?.tenantId;
 
       if (!tenantId) {
         const body: ApiResponse = {
