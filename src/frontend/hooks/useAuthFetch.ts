@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { apiClient, ApiRequestError } from '@/lib/api-client';
 import { shouldUseMocks, getMockData } from '@/lib/dashboard-mocks';
 
@@ -17,24 +17,28 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [error, setError] = useState<AuthFetchError | null>(null);
 
-  // Serialize params to avoid infinite re-renders when callers pass object literals
   const serializedParams = params ? JSON.stringify(params) : undefined;
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
-    // Mock data shortcut — return immediately without hitting the API
+    // ── Mock data shortcut — checked FIRST, before any auth logic ──
     if (shouldUseMocks()) {
       const mock = getMockData(path);
       if (mock !== null) {
+        // Simulate realistic network delay
+        await new Promise((r) => setTimeout(r, 300 + Math.random() * 200));
         setData(mock as T);
         setIsLoading(false);
         setIsAuthLoading(false);
         return;
       }
+      // No mock found for this path — fall through to real API
+      console.warn(`[useAuthFetch] No mock data for: ${path}`);
     }
 
+    // ── Real API call ──
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
       setIsAuthLoading(false);
@@ -49,13 +53,15 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
       const result = await apiClient.get<T>(path.replace('/api', ''), { params: parsedParams });
       if (result.success) {
         setData(result.data as T);
+      } else {
+        // API returned success: false
+        setError({ type: 'server_error', message: 'Unexpected response format' });
       }
     } catch (err) {
-      // On 401, attempt a single token refresh before giving up
-      if (err instanceof ApiRequestError && err.statusCode === 401) {
+      if (err instanceof ApiRequestError && (err.statusCode === 401 || err.statusCode === 403)) {
+        // Try token refresh once
         const refreshed = await attemptTokenRefresh();
         if (refreshed) {
-          // Retry original request once with the new token
           try {
             const parsedParams = serializedParams ? JSON.parse(serializedParams) : undefined;
             const retryResult = await apiClient.get<T>(path.replace('/api', ''), { params: parsedParams });
@@ -65,18 +71,11 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
               return;
             }
           } catch (retryErr) {
-            // Retry failed — fall through to error handling below
-            if (retryErr instanceof ApiRequestError) {
-              setError({
-                type: retryErr.statusCode === 401 || retryErr.statusCode === 403
-                  ? 'auth_required'
-                  : 'server_error',
-                message: retryErr.message,
-                status: retryErr.statusCode,
-              });
-            } else {
-              setError({ type: 'network_error', message: 'Connection issue' });
-            }
+            setError({
+              type: 'auth_required',
+              message: retryErr instanceof ApiRequestError ? retryErr.message : 'Authentication failed',
+              status: retryErr instanceof ApiRequestError ? retryErr.statusCode : undefined,
+            });
             console.error(`[useAuthFetch] retry ${path}:`, retryErr);
             setIsLoading(false);
             return;
@@ -87,11 +86,7 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
           return;
         }
       } else if (err instanceof ApiRequestError) {
-        if (err.statusCode === 403) {
-          setError({ type: 'auth_required', message: 'Authentication required', status: err.statusCode });
-        } else {
-          setError({ type: 'server_error', message: err.message, status: err.statusCode });
-        }
+        setError({ type: 'server_error', message: err.message, status: err.statusCode });
       } else {
         setError({ type: 'network_error', message: 'Connection issue' });
       }
@@ -99,7 +94,6 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
     } finally {
       setIsLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, serializedParams]);
 
   useEffect(() => { fetchData(); }, [fetchData]);

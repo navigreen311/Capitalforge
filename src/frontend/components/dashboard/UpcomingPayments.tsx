@@ -344,12 +344,12 @@ export function UpcomingPayments() {
   }, [data, selectedDay]);
 
   // ── Loading ───────────────────────────────────────────────────
-  if (isLoading) return <Skeleton />;
+  if (isLoading) return <div style={{ minHeight: 160 }}><Skeleton /></div>;
 
   // ── Error ─────────────────────────────────────────────────────
   if (error) {
     return (
-      <section aria-label="Upcoming Payments">
+      <section aria-label="Upcoming Payments" style={{ minHeight: 160 }}>
         <DashboardErrorState error={error} onRetry={refetch} />
       </section>
     );
