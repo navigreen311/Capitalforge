@@ -15,6 +15,7 @@ import { getFinancialMockData } from './financial-mocks';
 import { getCardBenefitsStmtBillingMockData } from './card-benefits-statements-billing-mocks';
 import { getTaxSimSandboxMockData } from './tax-simulator-sandbox-mocks';
 import { getHardshipCompDocsMockData } from './hardship-compliance-docs-contracts-mocks';
+import { getDiscCompRegMockData } from './disclosures-complaints-regulatory-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -806,6 +807,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/tax/') || endpoint.includes('/simulator/') || endpoint.includes('/sandbox/')) {
     const tssMockData = getTaxSimSandboxMockData(endpoint);
     if (tssMockData !== null) return tssMockData;
+  }
+
+  // Fall through to disclosures, complaints, and regulatory mocks
+  if (endpoint.includes('/disclosures') || endpoint.includes('/complaints') || endpoint.includes('/regulatory')) {
+    const dcrData = getDiscCompRegMockData(endpoint);
+    if (dcrData !== null) return dcrData;
   }
 
   // Fall through to hardship, compliance, documents, and contracts mocks

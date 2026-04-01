@@ -7,7 +7,7 @@
 // Licensing status summary. AML readiness gauge.
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +51,13 @@ interface LicenseRecord {
 // ---------------------------------------------------------------------------
 // Placeholder data
 // ---------------------------------------------------------------------------
+
+const CLIENTS = [
+  { id: 'cl_001', name: 'Apex Capital Partners' },
+  { id: 'cl_002', name: 'BlueVine Merchant Services' },
+  { id: 'cl_003', name: 'Cedar Financial Group' },
+  { id: 'cl_004', name: 'Delta Funding Corp' },
+];
 
 const PLACEHOLDER_ALERTS: RegulatoryAlert[] = [
   {
@@ -132,21 +139,33 @@ const PLACEHOLDER_FLOWS: FundsFlowItem[] = [
 const PLACEHOLDER_LICENSES: LicenseRecord[] = [
   { jurisdiction: 'CA', licenseType: 'Commercial Financing License',      licenseNumber: 'CFL-60DX-2024',  status: 'active',  expiresAt: '2027-06-30' },
   { jurisdiction: 'NY', licenseType: 'Premium Finance Agency',             licenseNumber: 'PFA-NY-0441',    status: 'active',  expiresAt: '2026-12-31' },
-  { jurisdiction: 'TX', licenseType: 'Credit Access Business',             licenseNumber: 'CAB-TX-8821',    status: 'pending', expiresAt: '—'          },
+  { jurisdiction: 'TX', licenseType: 'Credit Access Business',             licenseNumber: 'CAB-TX-8821',    status: 'pending', expiresAt: '\u2014'          },
   { jurisdiction: 'FL', licenseType: 'Consumer Finance Company',           licenseNumber: 'CFC-FL-1103',    status: 'active',  expiresAt: '2026-09-30' },
   { jurisdiction: 'IL', licenseType: 'Retail Installment Sales Act',       licenseNumber: 'RISA-IL-0772',   status: 'expired', expiresAt: '2025-12-31' },
-  { jurisdiction: 'WA', licenseType: 'Commercial Lending Exemption',       licenseNumber: 'N/A',            status: 'exempt',  expiresAt: '—'          },
+  { jurisdiction: 'WA', licenseType: 'Commercial Lending Exemption',       licenseNumber: 'N/A',            status: 'exempt',  expiresAt: '\u2014'          },
 ];
 
 // AML readiness pillars: score 0–100 each
 const AML_PILLARS = [
-  { label: 'Customer Due Diligence',  score: 91 },
-  { label: 'Transaction Monitoring',  score: 78 },
-  { label: 'SAR Filing Readiness',    score: 84 },
-  { label: 'Sanctions Screening',     score: 96 },
-  { label: 'Record Retention',        score: 70 },
-  { label: 'Training & Awareness',    score: 63 },
+  { label: 'Customer Due Diligence',  score: 91, improvePath: '/compliance/training' },
+  { label: 'Transaction Monitoring',  score: 78, improvePath: '/compliance/training' },
+  { label: 'SAR Filing Readiness',    score: 84, improvePath: '/documents' },
+  { label: 'Sanctions Screening',     score: 96, improvePath: '/compliance/training' },
+  { label: 'Record Retention',        score: 70, improvePath: '/documents' },
+  { label: 'Training & Awareness',    score: 63, improvePath: '/compliance/training' },
 ];
+
+// ---------------------------------------------------------------------------
+// AML module path mapping for "Improve" links
+// ---------------------------------------------------------------------------
+const AML_IMPROVE_MAP: Record<string, string> = {
+  'Customer Due Diligence': '/compliance/training',
+  'Transaction Monitoring': '/compliance/training',
+  'SAR Filing Readiness': '/documents',
+  'Sanctions Screening': '/compliance/training',
+  'Record Retention': '/documents',
+  'Training & Awareness': '/compliance/training',
+};
 
 // ---------------------------------------------------------------------------
 // Config helpers
@@ -189,6 +208,22 @@ const SOURCE_CONFIG: Record<AlertSource, { cls: string }> = {
   OCC:      { cls: 'bg-teal-950 text-teal-300 border-teal-800' },
 };
 
+// Module -> route mapping for "Go to Affected Module"
+const MODULE_ROUTES: Record<string, string> = {
+  'Underwriting': '/underwriting',
+  'Disclosures': '/disclosures',
+  'Onboarding': '/onboarding',
+  'Card Issuance': '/card-issuance',
+  'Treasury': '/treasury',
+  'Marketing': '/marketing',
+  'MCA Workflow': '/mca',
+  'Broker Portal': '/broker-portal',
+  'Reporting': '/reporting',
+  'AML Engine': '/aml',
+  'KYB': '/kyb',
+  'Vendor Management': '/vendor-management',
+};
+
 function formatDate(s: string) {
   try { return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
   catch { return s; }
@@ -202,6 +237,24 @@ function amlColor(score: number) {
   if (score >= 80) return '#22c55e';
   if (score >= 60) return '#eab308';
   return '#ef4444';
+}
+
+function daysBetween(dateStr: string, now: Date): number {
+  const d = new Date(dateStr);
+  return Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// ---------------------------------------------------------------------------
+// Toast component
+// ---------------------------------------------------------------------------
+
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  return (
+    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-gray-800 border border-gray-700 text-gray-100 px-5 py-3 rounded-xl shadow-2xl animate-fade-in">
+      <span className="text-sm font-medium">{message}</span>
+      <button onClick={onClose} className="text-gray-400 hover:text-white text-lg leading-none">&times;</button>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -257,34 +310,293 @@ function AmlGauge({ score }: { score: number }) {
 // ---------------------------------------------------------------------------
 
 export default function RegulatoryPage() {
-  const [alerts] = useState<RegulatoryAlert[]>(PLACEHOLDER_ALERTS);
+  const [alerts, setAlerts] = useState<RegulatoryAlert[]>(PLACEHOLDER_ALERTS);
   const [flows] = useState<FundsFlowItem[]>(PLACEHOLDER_FLOWS);
   const [licenses] = useState<LicenseRecord[]>(PLACEHOLDER_LICENSES);
-  const [expandedAlert, setExpandedAlert] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<AlertStatus | 'all'>('all');
+  const [selectedClient, setSelectedClient] = useState(CLIENTS[0].id);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  const newCount     = alerts.filter((a) => a.status === 'new').length;
-  const criticalCount= alerts.filter((a) => a.impactLevel === 'critical').length;
-  const flaggedFlows = flows.filter((f) => f.flagged).length;
+  // Alert action modal
+  const [selectedAlert, setSelectedAlert] = useState<RegulatoryAlert | null>(null);
+  const [alertNotes, setAlertNotes] = useState('');
+
+  // Flow review modal
+  const [flowReviewModal, setFlowReviewModal] = useState<FundsFlowItem | null>(null);
+  const [flowRationale, setFlowRationale] = useState('');
+
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  }, []);
+
+  const newCount      = alerts.filter((a) => a.status === 'new').length;
+  const reviewedCount = alerts.filter((a) => a.status === 'reviewed').length;
+  const actionedCount = alerts.filter((a) => a.status === 'actioned').length;
+  const criticalCount = alerts.filter((a) => a.impactLevel === 'critical').length;
+  const flaggedFlows  = flows.filter((f) => f.flagged).length;
   const expiredLicenses = licenses.filter((l) => l.status === 'expired').length;
-  const amlScore     = amlOverall(AML_PILLARS);
+  const amlScore      = amlOverall(AML_PILLARS);
 
   const visibleAlerts = statusFilter === 'all' ? alerts : alerts.filter((a) => a.status === statusFilter);
 
+  // Tab counts
+  const tabCounts: Record<string, number> = {
+    all: alerts.length,
+    new: newCount,
+    reviewed: reviewedCount,
+    actioned: actionedCount,
+  };
+
+  // License renewal calendar: licenses expiring within 120 days
+  const now = new Date();
+  const renewalCalendar = useMemo(() => {
+    return licenses
+      .filter((l) => {
+        if (l.expiresAt === '\u2014' || l.expiresAt === '—') return false;
+        const days = daysBetween(l.expiresAt, now);
+        return days <= 120; // includes already-expired (negative days)
+      })
+      .sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [licenses]);
+
+  // Export CSV handler
+  const handleExportReport = useCallback(() => {
+    const headers = ['ID', 'Title', 'Source', 'Impact Score', 'Impact Level', 'Affected Modules', 'Status', 'Issued Date', 'Summary'];
+    const rows = alerts.map((a) => [
+      a.id,
+      `"${a.title.replace(/"/g, '""')}"`,
+      a.source,
+      String(a.impactScore),
+      a.impactLevel,
+      `"${a.affectedModules.join(', ')}"`,
+      a.status,
+      a.issuedDate,
+      `"${a.summary.replace(/"/g, '""')}"`,
+    ]);
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `regulatory-alerts-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('Regulatory alerts CSV exported successfully');
+  }, [alerts, showToast]);
+
+  // Alert status advancement
+  const advanceAlertStatus = useCallback((alertId: string, newStatus: AlertStatus) => {
+    setAlerts((prev) =>
+      prev.map((a) => (a.id === alertId ? { ...a, status: newStatus } : a))
+    );
+    const statusLabel = STATUS_CONFIG[newStatus].label;
+    showToast(`Alert marked as ${statusLabel}`);
+    setSelectedAlert(null);
+  }, [showToast]);
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
+      {/* Toast */}
+      {toastMsg && <Toast message={toastMsg} onClose={() => setToastMsg(null)} />}
+
+      {/* ── Alert Action Modal ─────────────────────────────── */}
+      {selectedAlert && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setSelectedAlert(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-white leading-snug">{selectedAlert.title}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded border ${SOURCE_CONFIG[selectedAlert.source].cls}`}>
+                    {selectedAlert.source}
+                  </span>
+                  <span className="text-xs text-gray-400">{formatDate(selectedAlert.issuedDate)}</span>
+                </div>
+              </div>
+              <button onClick={() => setSelectedAlert(null)} className="text-gray-400 hover:text-white text-xl leading-none ml-3">&times;</button>
+            </div>
+
+            <p className="text-sm text-gray-300 mb-4 leading-relaxed">{selectedAlert.summary}</p>
+
+            {/* Impact */}
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-xs text-gray-400 uppercase font-semibold">Impact</span>
+              <ImpactBar score={selectedAlert.impactScore} level={selectedAlert.impactLevel} />
+              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${IMPACT_CONFIG[selectedAlert.impactLevel].badgeClass}`}>
+                {selectedAlert.impactLevel}
+              </span>
+            </div>
+
+            {/* Affected Modules */}
+            <div className="mb-4">
+              <p className="text-xs text-gray-400 uppercase font-semibold mb-1.5">Affected Modules</p>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedAlert.affectedModules.map((m) => (
+                  <a
+                    key={m}
+                    href={MODULE_ROUTES[m] || '#'}
+                    className="text-xs bg-gray-800 text-blue-300 border border-gray-700 px-2 py-1 rounded hover:bg-gray-700 hover:text-blue-200 transition-colors"
+                  >
+                    {m} &rarr;
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* Current Status */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xs text-gray-400 uppercase font-semibold">Status</span>
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_CONFIG[selectedAlert.status].cls}`}>
+                {STATUS_CONFIG[selectedAlert.status].label}
+              </span>
+            </div>
+
+            {/* Notes */}
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">Notes</label>
+              <textarea
+                value={alertNotes}
+                onChange={(e) => setAlertNotes(e.target.value)}
+                placeholder="Add internal notes..."
+                className="w-full h-20 rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200 px-3 py-2 placeholder-gray-500 focus:outline-none focus:border-yellow-600 resize-none"
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap gap-2">
+              {selectedAlert.status === 'new' && (
+                <button
+                  onClick={() => advanceAlertStatus(selectedAlert.id, 'reviewed')}
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-semibold text-white transition-colors"
+                >
+                  Mark as Reviewed
+                </button>
+              )}
+              {selectedAlert.status === 'reviewed' && (
+                <button
+                  onClick={() => advanceAlertStatus(selectedAlert.id, 'actioned')}
+                  className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-sm font-semibold text-white transition-colors"
+                >
+                  Mark as Actioned
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  showToast(`Alert assigned to advisor`);
+                  setSelectedAlert(null);
+                }}
+                className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm font-semibold text-gray-200 transition-colors"
+              >
+                Assign to Advisor
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Flow Review Modal ──────────────────────────────── */}
+      {flowReviewModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setFlowReviewModal(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">Review Classification</h3>
+              <button onClick={() => setFlowReviewModal(null)} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            <div className="space-y-3 mb-4">
+              <div>
+                <p className="text-xs text-gray-400 uppercase font-semibold">Flow Name</p>
+                <p className="text-sm text-gray-100 font-medium">{flowReviewModal.name}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 uppercase font-semibold">Regulation</p>
+                <p className="text-sm text-gray-300">{flowReviewModal.regRef}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 uppercase font-semibold">Current Classification</p>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${FLOW_CLASS_CONFIG[flowReviewModal.classification].cls}`}>
+                  {FLOW_CLASS_CONFIG[flowReviewModal.classification].label}
+                </span>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 uppercase font-semibold">Volume</p>
+                <p className="text-sm text-gray-200 font-semibold tabular-nums">{flowReviewModal.volume}</p>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">Rationale</label>
+              <textarea
+                value={flowRationale}
+                onChange={(e) => setFlowRationale(e.target.value)}
+                placeholder="Explain classification rationale..."
+                className="w-full h-20 rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200 px-3 py-2 placeholder-gray-500 focus:outline-none focus:border-yellow-600 resize-none"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  showToast(`Classification approved for "${flowReviewModal.name}"`);
+                  setFlowReviewModal(null);
+                  setFlowRationale('');
+                }}
+                className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-sm font-semibold text-white transition-colors"
+              >
+                Approve Classification
+              </button>
+              <button
+                onClick={() => {
+                  showToast(`"${flowReviewModal.name}" escalated to Legal`);
+                  setFlowReviewModal(null);
+                  setFlowRationale('');
+                }}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm font-semibold text-white transition-colors"
+              >
+                Escalate to Legal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Client Selector ───────────────────────────────── */}
+      <div className="mb-6">
+        <label className="block text-xs text-gray-400 uppercase font-semibold tracking-wide mb-1.5">Client</label>
+        <select
+          value={selectedClient}
+          onChange={(e) => {
+            setSelectedClient(e.target.value);
+            const client = CLIENTS.find((c) => c.id === e.target.value);
+            showToast(`Switched to ${client?.name}`);
+          }}
+          className="bg-gray-900 border border-gray-700 text-gray-100 text-sm rounded-lg px-4 py-2.5 focus:outline-none focus:border-yellow-600 min-w-[260px] appearance-none cursor-pointer"
+        >
+          {CLIENTS.map((c) => (
+            <option key={c.id} value={c.id} className="bg-gray-900 text-gray-100">{c.name}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Regulatory Intelligence</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {alerts.length} alerts · {newCount} new
+            {alerts.length} alerts &middot; {newCount} new
             {criticalCount > 0 && (
-              <span className="ml-2 text-red-400 font-semibold">⚠ {criticalCount} critical</span>
+              <span className="ml-2 text-red-400 font-semibold">{'\u26A0'} {criticalCount} critical</span>
             )}
           </p>
         </div>
-        <button className="px-4 py-2 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-sm font-semibold text-black transition-colors">
+        <button
+          onClick={handleExportReport}
+          className="px-4 py-2 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-sm font-semibold text-black transition-colors"
+        >
           Export Report
         </button>
       </div>
@@ -307,13 +619,13 @@ export default function RegulatoryPage() {
       {/* Main grid: alerts table (left) + AML gauge (right) */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
 
-        {/* ── Alerts table ──────────────────────────────── */}
+        {/* -- Alerts table -------------------------------- */}
         <div className="xl:col-span-2 rounded-xl border border-gray-800 bg-gray-900 p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
               Regulatory Alerts
             </h2>
-            {/* Status filter pills */}
+            {/* Status filter pills with counts */}
             <div className="flex gap-1">
               {(['all', 'new', 'reviewed', 'actioned'] as const).map((f) => (
                 <button
@@ -326,6 +638,7 @@ export default function RegulatoryPage() {
                   }`}
                 >
                   {f === 'all' ? 'All' : STATUS_CONFIG[f].label}
+                  <span className="ml-1 opacity-70">({tabCounts[f]})</span>
                 </button>
               ))}
             </div>
@@ -343,63 +656,52 @@ export default function RegulatoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleAlerts.map((alert) => {
-                  const isExpanded = expandedAlert === alert.id;
-                  return (
-                    <>
-                      <tr
-                        key={alert.id}
-                        className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/40 transition-colors"
-                        onClick={() => setExpandedAlert(isExpanded ? null : alert.id)}
-                      >
-                        <td className="py-3 pr-4">
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded border ${SOURCE_CONFIG[alert.source].cls}`}>
-                            {alert.source}
+                {visibleAlerts.map((alert) => (
+                  <tr
+                    key={alert.id}
+                    className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/40 transition-colors"
+                    onClick={() => {
+                      setSelectedAlert(alert);
+                      setAlertNotes('');
+                    }}
+                  >
+                    <td className="py-3 pr-4">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded border ${SOURCE_CONFIG[alert.source].cls}`}>
+                        {alert.source}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <p className="font-medium text-gray-100 text-xs leading-snug max-w-[220px]">{alert.title}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{formatDate(alert.issuedDate)}</p>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <ImpactBar score={alert.impactScore} level={alert.impactLevel} />
+                      <span className={`mt-1 inline-block text-xs font-semibold px-1.5 py-0.5 rounded border ${IMPACT_CONFIG[alert.impactLevel].badgeClass}`}>
+                        {alert.impactLevel}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <div className="flex flex-wrap gap-1">
+                        {alert.affectedModules.map((m) => (
+                          <span key={m} className="text-xs bg-gray-800 text-gray-400 border border-gray-700 px-1.5 py-0.5 rounded">
+                            {m}
                           </span>
-                        </td>
-                        <td className="py-3 pr-4">
-                          <p className="font-medium text-gray-100 text-xs leading-snug max-w-[220px]">{alert.title}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">{formatDate(alert.issuedDate)}</p>
-                        </td>
-                        <td className="py-3 pr-4">
-                          <ImpactBar score={alert.impactScore} level={alert.impactLevel} />
-                          <span className={`mt-1 inline-block text-xs font-semibold px-1.5 py-0.5 rounded border ${IMPACT_CONFIG[alert.impactLevel].badgeClass}`}>
-                            {alert.impactLevel}
-                          </span>
-                        </td>
-                        <td className="py-3 pr-4">
-                          <div className="flex flex-wrap gap-1">
-                            {alert.affectedModules.map((m) => (
-                              <span key={m} className="text-xs bg-gray-800 text-gray-400 border border-gray-700 px-1.5 py-0.5 rounded">
-                                {m}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="py-3">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_CONFIG[alert.status].cls}`}>
-                            {STATUS_CONFIG[alert.status].label}
-                          </span>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr key={`${alert.id}-expanded`} className="bg-gray-900/80">
-                          <td colSpan={5} className="px-4 pb-3 pt-2">
-                            <p className="text-xs text-gray-300 leading-relaxed border-l-2 border-yellow-600 pl-3">
-                              {alert.summary}
-                            </p>
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  );
-                })}
+                        ))}
+                      </div>
+                    </td>
+                    <td className="py-3">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_CONFIG[alert.status].cls}`}>
+                        {STATUS_CONFIG[alert.status].label}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* ── AML Readiness Gauge ────────────────────────── */}
+        {/* -- AML Readiness Gauge -------------------------------- */}
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
           <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-4">
             AML Readiness
@@ -410,11 +712,22 @@ export default function RegulatoryPage() {
           <div className="space-y-3">
             {AML_PILLARS.map((p) => {
               const color = amlColor(p.score);
+              const needsImprove = p.score < 75;
               return (
                 <div key={p.label}>
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-gray-400">{p.label}</span>
-                    <span className="font-semibold tabular-nums" style={{ color }}>{p.score}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold tabular-nums" style={{ color }}>{p.score}</span>
+                      {needsImprove && (
+                        <a
+                          href={AML_IMPROVE_MAP[p.label] || '/compliance/training'}
+                          className="text-yellow-400 hover:text-yellow-300 font-semibold transition-colors"
+                        >
+                          Improve &rarr;
+                        </a>
+                      )}
+                    </div>
                   </div>
                   <div className="w-full h-1.5 rounded-full bg-gray-800 overflow-hidden">
                     <div
@@ -430,9 +743,9 @@ export default function RegulatoryPage() {
       </div>
 
       {/* Funds-flow classification + Licensing */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
 
-        {/* ── Funds-Flow Classification ──────────────────── */}
+        {/* -- Funds-Flow Classification -------------------------------- */}
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
@@ -460,7 +773,15 @@ export default function RegulatoryPage() {
                         {cls.label}
                       </span>
                       {f.flagged && (
-                        <span className="text-xs font-bold text-orange-400">&#x26A0; Review</span>
+                        <button
+                          onClick={() => {
+                            setFlowReviewModal(f);
+                            setFlowRationale('');
+                          }}
+                          className="text-xs font-bold text-orange-400 bg-orange-950 border border-orange-700 px-2 py-0.5 rounded hover:bg-orange-900 transition-colors"
+                        >
+                          {'\u26A0'} Review Classification
+                        </button>
                       )}
                     </div>
                     <p className="text-sm font-medium text-gray-100 truncate">{f.name}</p>
@@ -475,7 +796,7 @@ export default function RegulatoryPage() {
           </div>
         </div>
 
-        {/* ── Licensing Status Summary ───────────────────── */}
+        {/* -- Licensing Status Summary -------------------------------- */}
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
@@ -502,7 +823,8 @@ export default function RegulatoryPage() {
                   <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide pr-3">License Type</th>
                   <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide pr-3">Number</th>
                   <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide pr-3">Expires</th>
-                  <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide">Status</th>
+                  <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide pr-3">Status</th>
+                  <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -518,12 +840,40 @@ export default function RegulatoryPage() {
                       <td className="py-2.5 pr-3 text-xs text-gray-300 max-w-[160px]">{l.licenseType}</td>
                       <td className="py-2.5 pr-3 text-xs text-gray-400 font-mono">{l.licenseNumber}</td>
                       <td className="py-2.5 pr-3 text-xs text-gray-400 tabular-nums">{l.expiresAt}</td>
-                      <td className="py-2.5">
+                      <td className="py-2.5 pr-3">
                         <div className="flex items-center gap-1.5">
                           <span className={`h-1.5 w-1.5 rounded-full ${cfg.dotClass}`} />
                           <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${cfg.cls}`}>
                             {cfg.label}
                           </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5">
+                        <div className="flex gap-1.5 flex-wrap">
+                          {l.status === 'expired' && (
+                            <>
+                              <button
+                                onClick={() => showToast(`Renewal initiated for ${l.jurisdiction} ${l.licenseType}`)}
+                                className="text-xs font-bold px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+                              >
+                                Initiate Renewal
+                              </button>
+                              <button
+                                onClick={() => showToast(`Contacting ${l.jurisdiction} regulator...`)}
+                                className="text-xs font-semibold px-2.5 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors"
+                              >
+                                Contact Regulator
+                              </button>
+                            </>
+                          )}
+                          {l.status === 'pending' && (
+                            <button
+                              onClick={() => showToast(`Tracking application for ${l.jurisdiction} ${l.licenseType}`)}
+                              className="text-xs font-semibold px-2.5 py-1 rounded bg-yellow-700 hover:bg-yellow-600 text-yellow-100 transition-colors"
+                            >
+                              Track Application
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -534,6 +884,68 @@ export default function RegulatoryPage() {
           </div>
         </div>
       </div>
+
+      {/* ── License Renewal Calendar ─────────────────────────── */}
+      {renewalCalendar.length > 0 && (
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 mb-6">
+          <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-4">
+            License Renewal Calendar
+            <span className="ml-2 text-xs text-gray-500 normal-case font-normal">Expiring within 120 days</span>
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-800">
+                  <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide pr-4">State</th>
+                  <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide pr-4">License Type</th>
+                  <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide pr-4">Expiry Date</th>
+                  <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide pr-4">Days Remaining</th>
+                  <th className="pb-2 text-left text-xs text-gray-400 font-semibold uppercase tracking-wide">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {renewalCalendar.map((l, i) => {
+                  const days = daysBetween(l.expiresAt, now);
+                  const isExpired = days <= 0;
+                  return (
+                    <tr key={i} className="border-b border-gray-800/50">
+                      <td className="py-2.5 pr-4">
+                        <span className="text-xs font-bold bg-gray-800 text-gray-200 border border-gray-700 px-2 py-0.5 rounded">
+                          {l.jurisdiction}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-xs text-gray-300">{l.licenseType}</td>
+                      <td className="py-2.5 pr-4 text-xs text-gray-400 tabular-nums">{formatDate(l.expiresAt)}</td>
+                      <td className="py-2.5 pr-4">
+                        <span className={`text-xs font-bold tabular-nums ${isExpired ? 'text-red-400' : days <= 30 ? 'text-orange-400' : 'text-yellow-400'}`}>
+                          {isExpired ? `${Math.abs(days)} days overdue` : `${days} days`}
+                        </span>
+                      </td>
+                      <td className="py-2.5">
+                        {isExpired ? (
+                          <button
+                            onClick={() => showToast(`Urgent renewal initiated for ${l.jurisdiction} ${l.licenseType}`)}
+                            className="text-xs font-bold px-3 py-1 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+                          >
+                            Renew Now
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => showToast(`Renewal planned for ${l.jurisdiction} ${l.licenseType}`)}
+                            className="text-xs font-semibold px-3 py-1 rounded bg-yellow-700 hover:bg-yellow-600 text-yellow-100 transition-colors"
+                          >
+                            Plan Renewal
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
