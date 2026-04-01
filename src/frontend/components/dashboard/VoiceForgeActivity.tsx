@@ -8,7 +8,9 @@
 // when the integration is not connected.
 // ============================================================
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -35,12 +37,6 @@ interface VoiceForgeData {
   compliance_flags: ComplianceFlag[];
   qa_scores: { average: number; distribution: number[] };
   last_updated: string;
-}
-
-interface ApiResponse {
-  success: boolean;
-  data?: VoiceForgeData;
-  error?: { code: string; message: string };
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -74,38 +70,8 @@ function flagBadgeColor(flagType: string): string {
 // ── Component ────────────────────────────────────────────────
 
 export function VoiceForgeActivity() {
-  const [data, setData] = useState<VoiceForgeData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, refetch } = useAuthFetch<VoiceForgeData>('/api/v1/dashboard/voiceforge');
   const [pausedOverrides, setPausedOverrides] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      try {
-        const res = await fetch('/api/v1/dashboard/voiceforge');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json: ApiResponse = await res.json();
-        if (!cancelled) {
-          if (json.success && json.data) {
-            setData(json.data);
-          } else {
-            setError(json.error?.message ?? 'Failed to load VoiceForge data');
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Network error');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchData();
-    return () => { cancelled = true; };
-  }, []);
 
   function togglePause(campaignId: string, currentlyPaused: boolean) {
     setPausedOverrides((prev) => ({
@@ -120,7 +86,7 @@ export function VoiceForgeActivity() {
 
   // ── Loading skeleton ─────────────────────────────────────────
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         <div className="animate-pulse space-y-4">
@@ -144,9 +110,10 @@ export function VoiceForgeActivity() {
 
   if (error || !data) {
     return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <p className="text-sm text-gray-500">Unable to load VoiceForge activity.</p>
-      </div>
+      <DashboardErrorState
+        error={error ?? { type: 'server_error', message: 'Unable to load VoiceForge activity' }}
+        onRetry={refetch}
+      />
     );
   }
 
@@ -155,16 +122,10 @@ export function VoiceForgeActivity() {
   if (!data.connected) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100">
-            <span className="text-sm font-bold text-indigo-700">VF</span>
-          </div>
-          <h3 className="text-base font-semibold text-gray-900">VoiceForge Activity</h3>
-        </div>
-        <div className="text-center py-8">
-          <p className="text-sm text-gray-500 mb-4">
-            Connect VoiceForge to see call stats, campaigns, and QA scores.
-          </p>
+        <DashboardErrorState
+          error={{ type: 'not_configured', message: 'VoiceForge integration needs to be connected' }}
+        />
+        <div className="text-center mt-4">
           <a
             href="/settings/integrations/voiceforge"
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
