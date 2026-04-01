@@ -8,8 +8,9 @@
 // loading skeleton and empty state handling.
 // ============================================================
 
-import { useEffect, useState } from 'react';
 import { SectionCard } from '../ui/card';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -28,12 +29,6 @@ interface RestackData {
   total_pipeline_value: number;
   opportunities: RestackOpportunity[];
   last_updated: string;
-}
-
-interface RestackApiResponse {
-  success: boolean;
-  data?: RestackData;
-  error?: { code: string; message: string };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -171,37 +166,9 @@ function OpportunityRow({ opp }: { opp: RestackOpportunity }) {
 // ── Main component ──────────────────────────────────────────────────────────
 
 export function RestackOpportunities() {
-  const [data, setData] = useState<RestackData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchOpportunities() {
-      try {
-        const res = await fetch('/api/v1/dashboard/restack-opportunities');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json: RestackApiResponse = await res.json();
-        if (!cancelled) {
-          if (json.success && json.data) {
-            setData(json.data);
-          } else {
-            setError(json.error?.message ?? 'Failed to load re-stack opportunities');
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Network error');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchOpportunities();
-    return () => { cancelled = true; };
-  }, []);
+  const { data, isLoading, error, refetch } = useAuthFetch<RestackData>(
+    '/api/v1/dashboard/restack-opportunities',
+  );
 
   // ── Header action: pipeline value badge ───────────────────────────────────
 
@@ -216,19 +183,19 @@ export function RestackOpportunities() {
       title="Re-Stack Opportunities"
       action={pipelineAction}
     >
-      {loading && <LoadingSkeleton />}
+      {isLoading && <LoadingSkeleton />}
 
       {error && (
-        <p className="text-sm text-red-500 py-4">{error}</p>
+        <DashboardErrorState error={error} onRetry={refetch} />
       )}
 
-      {!loading && !error && data && data.opportunities.length === 0 && (
+      {!isLoading && !error && data && data.opportunities.length === 0 && (
         <p className="text-sm text-gray-400 py-6 text-center">
           No clients ready for re-stack — next bureau refresh in {hoursUntilNextBureauRefresh()} hours.
         </p>
       )}
 
-      {!loading && !error && data && data.opportunities.length > 0 && (
+      {!isLoading && !error && data && data.opportunities.length > 0 && (
         <div>
           {data.opportunities.map((opp) => (
             <OpportunityRow key={opp.client_id} opp={opp} />
