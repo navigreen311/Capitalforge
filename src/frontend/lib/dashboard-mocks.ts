@@ -14,6 +14,7 @@ import { getDeclineMockData } from './decline-mocks';
 import { getFinancialMockData } from './financial-mocks';
 import { getCardBenefitsStmtBillingMockData } from './card-benefits-statements-billing-mocks';
 import { getTaxSimSandboxMockData } from './tax-simulator-sandbox-mocks';
+import { getHardshipCompDocsMockData } from './hardship-compliance-docs-contracts-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -805,6 +806,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/tax/') || endpoint.includes('/simulator/') || endpoint.includes('/sandbox/')) {
     const tssMockData = getTaxSimSandboxMockData(endpoint);
     if (tssMockData !== null) return tssMockData;
+  }
+
+  // Fall through to hardship, compliance, documents, and contracts mocks
+  if (endpoint.includes('/hardship') || endpoint.includes('/compliance') || endpoint.includes('/documents') || endpoint.includes('/contracts')) {
+    const hcdcData = getHardshipCompDocsMockData(endpoint);
+    if (hcdcData !== null) return hcdcData;
   }
 
   // Fall through to client detail mocks for /api/v1/clients/* paths
