@@ -9,7 +9,9 @@
 // "Send Reminders" button opens modal with client consent list
 // ============================================================
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +22,7 @@ interface PaymentItem {
   amount: number;
   payment_type: 'autopay' | 'manual';
   status: 'upcoming' | 'paid' | 'missed';
+  tcpa_consent?: boolean;
 }
 
 type DayStatus = 'all_autopay' | 'some_manual' | 'has_missed';
@@ -45,12 +48,6 @@ interface UpcomingPaymentsData {
   last_updated: string;
 }
 
-interface ApiResponse {
-  success: boolean;
-  data?: UpcomingPaymentsData;
-  error?: { code: string; message: string };
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatCurrency(amount: number): string {
@@ -71,23 +68,49 @@ const STATUS_LABEL: Record<DayStatus, string> = {
   has_missed: 'Has missed',
 };
 
+const PAYMENT_STATUS_CHIP: Record<string, string> = {
+  upcoming: 'text-blue-600 bg-blue-50',
+  paid: 'text-emerald-600 bg-emerald-50',
+  missed: 'text-red-600 bg-red-50',
+};
+
 // ── Loading skeleton ────────────────────────────────────────────────────────
 
 function Skeleton() {
   return (
-    <div className="bg-white rounded-xl border border-surface-border shadow-card p-6 animate-pulse">
-      {/* Summary row skeleton */}
-      <div className="flex items-center gap-6 mb-4">
-        <div className="h-4 w-28 bg-gray-200 rounded" />
-        <div className="h-4 w-24 bg-gray-200 rounded" />
-        <div className="h-4 w-32 bg-gray-200 rounded" />
+    <section aria-label="Upcoming Payments">
+      <div className="bg-white rounded-xl border border-surface-border shadow-card p-6 animate-pulse">
+        {/* Title skeleton */}
+        <div className="h-5 w-40 bg-gray-200 rounded mb-4" />
+        {/* Summary row skeleton */}
+        <div className="flex items-center gap-6 mb-4">
+          <div className="h-4 w-28 bg-gray-200 rounded" />
+          <div className="h-4 w-24 bg-gray-200 rounded" />
+          <div className="h-4 w-32 bg-gray-200 rounded" />
+        </div>
+        {/* Day strip skeleton */}
+        <div className="flex gap-3 overflow-hidden">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="min-w-[120px] h-24 bg-gray-100 rounded-lg" />
+          ))}
+        </div>
       </div>
-      {/* Day strip skeleton */}
-      <div className="flex gap-3 overflow-hidden">
-        {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="min-w-[120px] h-24 bg-gray-100 rounded-lg" />
-        ))}
+    </section>
+  );
+}
+
+// ── Empty state ─────────────────────────────────────────────────────────────
+
+function EmptyState() {
+  return (
+    <div className="text-center py-8">
+      <div className="text-2xl mb-2" aria-hidden="true">
+        📅
       </div>
+      <p className="text-sm font-medium text-gray-700">No upcoming payments</p>
+      <p className="text-xs text-gray-500 mt-1">
+        Payment data will appear here once clients have scheduled payments.
+      </p>
     </div>
   );
 }
@@ -97,9 +120,11 @@ function Skeleton() {
 function ReminderModal({
   payments,
   onClose,
+  onSent,
 }: {
   payments: PaymentItem[];
   onClose: () => void;
+  onSent: () => void;
 }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -118,24 +143,32 @@ function ReminderModal({
     (p) => p.payment_type === 'manual' && p.status !== 'paid',
   );
 
+  // Eligible = has TCPA consent
+  const eligible = remindable.filter((p) => p.tcpa_consent !== false);
+  const ineligible = remindable.filter((p) => p.tcpa_consent === false);
+
   async function handleSendReminders() {
+    if (eligible.length === 0) return;
     setSending(true);
     try {
-      await fetch('/api/v1/events', {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/v1/voiceforge/send-reminders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          event_type: 'payment_reminder.sent',
-          payload: {
-            timestamp: new Date().toISOString(),
-            client_ids: remindable.map((p) => p.client_id),
-            count: remindable.length,
-          },
+          client_ids: eligible.map((p) => p.client_id),
+          count: eligible.length,
         }),
       });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setSent(true);
-    } catch {
-      // Best-effort; user sees the modal state
+      onSent();
+    } catch (err) {
+      console.error('[UpcomingPayments] send reminders failed:', err);
     } finally {
       setSending(false);
     }
@@ -171,16 +204,35 @@ function ReminderModal({
         ) : (
           <>
             <p className="text-sm text-gray-600 mb-3">
-              {remindable.length} client{remindable.length !== 1 ? 's' : ''} with manual payments:
+              Clients with manual payments due in the next 3 days:
             </p>
             <ul className="divide-y divide-gray-100 max-h-60 overflow-y-auto mb-4">
-              {remindable.map((p, i) => (
+              {eligible.map((p, i) => (
                 <li key={`${p.client_id}-${p.issuer}-${i}`} className="py-2 flex items-center justify-between">
-                  <div>
+                  <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-900">{p.client_name}</span>
-                    <span className="text-xs text-gray-500 ml-2">{p.issuer}</span>
+                    <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      Consent
+                    </span>
                   </div>
                   <span className="text-sm font-semibold text-gray-700">
+                    ${p.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                </li>
+              ))}
+              {ineligible.map((p, i) => (
+                <li
+                  key={`no-consent-${p.client_id}-${p.issuer}-${i}`}
+                  className="py-2 flex items-center justify-between opacity-50"
+                  title="TCPA consent required to send reminders"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-500">{p.client_name}</span>
+                    <span className="text-xs font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                      Consent required
+                    </span>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-400">
                     ${p.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </span>
                 </li>
@@ -197,12 +249,14 @@ function ReminderModal({
             ) : (
               <button
                 onClick={handleSendReminders}
-                disabled={sending}
+                disabled={sending || eligible.length === 0}
                 className="w-full bg-brand-navy text-white text-sm font-semibold py-2.5 px-4 rounded-lg
                            hover:bg-brand-navy/90 disabled:opacity-50 transition-colors"
                 type="button"
               >
-                {sending ? 'Sending...' : `Send ${remindable.length} Reminder${remindable.length !== 1 ? 's' : ''}`}
+                {sending
+                  ? 'Sending...'
+                  : `Send to ${eligible.length} eligible client${eligible.length !== 1 ? 's' : ''}`}
               </button>
             )}
           </>
@@ -227,13 +281,11 @@ function DayCard({
 }) {
   const baseClasses = 'min-w-[120px] p-3 rounded-lg border cursor-pointer transition-all duration-150 flex-shrink-0';
   const todayClasses = isToday
-    ? 'bg-brand-navy text-white border-brand-navy'
+    ? 'border-2 border-brand-navy bg-brand-navy/5'
     : 'bg-white border-surface-border hover:border-gray-300';
-  const selectedClasses = isSelected && !isToday ? 'ring-2 ring-brand-navy/40' : '';
+  const selectedClasses = isSelected ? 'ring-2 ring-brand-navy/40' : '';
 
-  const dotColor = isToday && day.status === 'all_autopay'
-    ? 'bg-emerald-300'
-    : STATUS_DOT[day.status];
+  const dotColor = STATUS_DOT[day.status];
 
   return (
     <button
@@ -244,17 +296,22 @@ function DayCard({
       aria-pressed={isSelected}
     >
       <div className="flex items-center justify-between mb-1.5">
-        <span className={`text-xs font-semibold uppercase tracking-wide ${isToday ? 'text-white/80' : 'text-gray-500'}`}>
+        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
           {day.day_label}
         </span>
         {day.payment_count > 0 && (
           <span className={`w-2 h-2 rounded-full ${dotColor}`} aria-hidden="true" />
         )}
       </div>
-      <p className={`text-lg font-bold leading-tight ${isToday ? 'text-white' : 'text-gray-900'}`}>
+      {isToday && (
+        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-navy mb-0.5 block">
+          Today
+        </span>
+      )}
+      <p className="text-lg font-bold leading-tight text-gray-900">
         {formatCurrency(day.total_amount)}
       </p>
-      <p className={`text-xs mt-0.5 ${isToday ? 'text-white/70' : 'text-gray-400'}`}>
+      <p className="text-xs mt-0.5 text-gray-400">
         {day.payment_count} payment{day.payment_count !== 1 ? 's' : ''}
       </p>
     </button>
@@ -264,190 +321,202 @@ function DayCard({
 // ── Main Export ──────────────────────────────────────────────────────────────
 
 export function UpcomingPayments() {
-  const [data, setData] = useState<UpcomingPaymentsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, refetch } = useAuthFetch<UpcomingPaymentsData>(
+    '/api/v1/dashboard/upcoming-payments',
+  );
+
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [showReminderModal, setShowReminderModal] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchPayments() {
-      try {
-        const res = await fetch('/api/v1/dashboard/upcoming-payments?days=7');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json: ApiResponse = await res.json();
-        if (!cancelled) {
-          if (json.success && json.data) {
-            setData(json.data);
-            // Auto-select today
-            if (json.data.days.length > 0) {
-              setSelectedDay(json.data.days[0].date);
-            }
-          } else {
-            setError(json.error?.message ?? 'Failed to load payments');
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Network error');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchPayments();
-    return () => { cancelled = true; };
-  }, []);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const handleCloseModal = useCallback(() => setShowReminderModal(false), []);
 
+  const handleRemindersSent = useCallback(() => {
+    setToastMessage('Reminders sent successfully!');
+    setTimeout(() => setToastMessage(null), 4000);
+  }, []);
+
+  // Auto-select today on first data load
+  useEffect(() => {
+    if (data && data.days.length > 0 && selectedDay === null) {
+      setSelectedDay(data.days[0].date);
+    }
+  }, [data, selectedDay]);
+
   // ── Loading ───────────────────────────────────────────────────
-  if (loading) return <Skeleton />;
+  if (isLoading) return <Skeleton />;
 
   // ── Error ─────────────────────────────────────────────────────
-  if (error || !data) return null;
+  if (error) {
+    return (
+      <section aria-label="Upcoming Payments">
+        <DashboardErrorState error={error} onRetry={refetch} />
+      </section>
+    );
+  }
+
+  // ── No data ───────────────────────────────────────────────────
+  if (!data || data.days.length === 0) {
+    return (
+      <section aria-label="Upcoming Payments">
+        <div className="bg-white rounded-xl border border-surface-border shadow-card p-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-4">Upcoming Payments</h2>
+          <EmptyState />
+        </div>
+      </section>
+    );
+  }
 
   const selectedBucket = data.days.find((d) => d.date === selectedDay);
   const todayStr = data.days[0]?.date;
 
-  // Collect all manual/upcoming payments for the reminder modal
-  const allManualPayments = data.days.flatMap((d) =>
-    d.payments.filter((p) => p.payment_type === 'manual' && p.status !== 'paid'),
-  );
+  // Collect manual/upcoming payments from the next 3 days for the reminder modal
+  const reminderPayments = data.days
+    .slice(0, 3)
+    .flatMap((d) =>
+      d.payments.filter((p) => p.payment_type === 'manual' && p.status !== 'paid'),
+    );
 
   return (
-    <div className="bg-white rounded-xl border border-surface-border shadow-card p-6">
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base font-semibold text-gray-900">Upcoming Payments</h2>
-        {data.week_summary.manual_reminders_needed > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowReminderModal(true)}
-            className="text-xs font-semibold text-brand-navy bg-brand-navy/10 px-3 py-1.5 rounded-lg
-                       hover:bg-brand-navy/20 transition-colors"
-          >
-            Send Reminders ({data.week_summary.manual_reminders_needed})
-          </button>
+    <section aria-label="Upcoming Payments">
+      <div className="bg-white rounded-xl border border-surface-border shadow-card p-6 relative">
+        {/* ── Toast notification ──────────────────────────────── */}
+        {toastMessage && (
+          <div className="absolute top-4 right-4 flex items-center gap-2 bg-emerald-50 text-emerald-700 text-sm font-medium px-4 py-2 rounded-lg border border-emerald-200 shadow-sm z-10 animate-in fade-in">
+            <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {toastMessage}
+          </div>
+        )}
+
+        {/* ── Header ──────────────────────────────────────────── */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-gray-900">Upcoming Payments</h2>
+          {data.week_summary.manual_reminders_needed > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowReminderModal(true)}
+              className="text-xs font-semibold text-brand-navy bg-brand-navy/10 px-3 py-1.5 rounded-lg
+                         hover:bg-brand-navy/20 transition-colors"
+            >
+              Send Reminders
+            </button>
+          )}
+        </div>
+
+        {/* ── Summary row — "This Week" ──────────────────────── */}
+        <div className="flex items-center gap-6 mb-4 text-sm">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            This Week
+          </span>
+          <div>
+            <span className="text-gray-500">Total Due: </span>
+            <span className="font-semibold text-gray-900">
+              {formatCurrency(data.week_summary.total_due)}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-500">Autopay: </span>
+            <span className="font-semibold text-emerald-600">
+              {data.week_summary.autopay_pct}%
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-500">Manual: </span>
+            <span className={`font-semibold ${data.week_summary.manual_reminders_needed > 0 ? 'text-amber-600' : 'text-gray-900'}`}>
+              {data.week_summary.manual_reminders_needed} reminder{data.week_summary.manual_reminders_needed !== 1 ? 's' : ''} needed
+            </span>
+          </div>
+        </div>
+
+        {/* ── 7-Day Strip ─────────────────────────────────────── */}
+        <div className="overflow-x-auto flex gap-3 pb-2">
+          {data.days.map((day) => (
+            <DayCard
+              key={day.date}
+              day={day}
+              isToday={day.date === todayStr}
+              isSelected={day.date === selectedDay}
+              onClick={() => setSelectedDay(day.date === selectedDay ? null : day.date)}
+            />
+          ))}
+        </div>
+
+        {/* ── Legend ───────────────────────────────────────────── */}
+        <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
+          {(['all_autopay', 'some_manual', 'has_missed'] as DayStatus[]).map((s) => (
+            <div key={s} className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${STATUS_DOT[s]}`} aria-hidden="true" />
+              <span>{STATUS_LABEL[s]}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Expanded Payment List ─────────────────────────────── */}
+        {selectedBucket && selectedBucket.payments.length > 0 && (
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <h3 className="text-sm font-medium text-gray-700 mb-2">
+              {selectedBucket.day_label} — {selectedBucket.payment_count} payment{selectedBucket.payment_count !== 1 ? 's' : ''}
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-400 border-b border-gray-100">
+                    <th className="pb-2 font-medium">Client</th>
+                    <th className="pb-2 font-medium">Card Issuer</th>
+                    <th className="pb-2 font-medium text-right">Amount</th>
+                    <th className="pb-2 font-medium">Type</th>
+                    <th className="pb-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {selectedBucket.payments.map((p, i) => (
+                    <tr key={`${p.client_id}-${p.issuer}-${i}`}>
+                      <td className="py-2 font-medium text-gray-900">{p.client_name}</td>
+                      <td className="py-2 text-gray-500">{p.issuer}</td>
+                      <td className="py-2 text-right font-semibold text-gray-700">
+                        ${p.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-2">
+                        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                          p.payment_type === 'autopay'
+                            ? 'text-emerald-600 bg-emerald-50'
+                            : 'text-amber-600 bg-amber-50'
+                        }`}>
+                          {p.payment_type === 'autopay' ? 'Autopay' : 'Manual'}
+                        </span>
+                      </td>
+                      <td className="py-2">
+                        <span className={`text-xs font-medium px-1.5 py-0.5 rounded capitalize ${PAYMENT_STATUS_CHIP[p.status] ?? ''}`}>
+                          {p.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {selectedBucket && selectedBucket.payments.length === 0 && (
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <p className="text-sm text-gray-400 text-center py-2">
+              No payments due on {selectedBucket.day_label}
+            </p>
+          </div>
+        )}
+
+        {/* ── Reminder Modal ──────────────────────────────────── */}
+        {showReminderModal && (
+          <ReminderModal
+            payments={reminderPayments}
+            onClose={handleCloseModal}
+            onSent={handleRemindersSent}
+          />
         )}
       </div>
-
-      {/* ── Summary row ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-6 mb-4 text-sm">
-        <div>
-          <span className="text-gray-500">Total Due: </span>
-          <span className="font-semibold text-gray-900">
-            {formatCurrency(data.week_summary.total_due)}
-          </span>
-        </div>
-        <div>
-          <span className="text-gray-500">Autopay: </span>
-          <span className="font-semibold text-emerald-600">
-            {data.week_summary.autopay_pct}%
-          </span>
-        </div>
-        <div>
-          <span className="text-gray-500">Manual: </span>
-          <span className={`font-semibold ${data.week_summary.manual_reminders_needed > 0 ? 'text-amber-600' : 'text-gray-900'}`}>
-            {data.week_summary.manual_reminders_needed} reminder{data.week_summary.manual_reminders_needed !== 1 ? 's' : ''} needed
-          </span>
-        </div>
-      </div>
-
-      {/* ── 7-Day Strip ─────────────────────────────────────────── */}
-      <div className="overflow-x-auto flex gap-3 pb-2">
-        {data.days.map((day) => (
-          <DayCard
-            key={day.date}
-            day={day}
-            isToday={day.date === todayStr}
-            isSelected={day.date === selectedDay}
-            onClick={() => setSelectedDay(day.date === selectedDay ? null : day.date)}
-          />
-        ))}
-      </div>
-
-      {/* ── Legend ───────────────────────────────────────────────── */}
-      <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
-        {(['all_autopay', 'some_manual', 'has_missed'] as DayStatus[]).map((s) => (
-          <div key={s} className="flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full ${STATUS_DOT[s]}`} aria-hidden="true" />
-            <span>{STATUS_LABEL[s]}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Expanded Payment List ───────────────────────────────── */}
-      {selectedBucket && selectedBucket.payments.length > 0 && (
-        <div className="mt-4 border-t border-gray-100 pt-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">
-            {selectedBucket.day_label} — {selectedBucket.payment_count} payment{selectedBucket.payment_count !== 1 ? 's' : ''}
-          </h3>
-          <ul className="divide-y divide-gray-50">
-            {selectedBucket.payments.map((p, i) => (
-              <li
-                key={`${p.client_id}-${p.issuer}-${i}`}
-                className="flex items-center justify-between py-2"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                      p.status === 'paid'
-                        ? 'bg-emerald-500'
-                        : p.status === 'missed'
-                          ? 'bg-red-500'
-                          : p.payment_type === 'autopay'
-                            ? 'bg-emerald-400'
-                            : 'bg-amber-400'
-                    }`}
-                    aria-hidden="true"
-                  />
-                  <div className="min-w-0">
-                    <span className="text-sm font-medium text-gray-900 truncate block">
-                      {p.client_name}
-                    </span>
-                    <span className="text-xs text-gray-400">
-                      {p.issuer} — {p.payment_type === 'autopay' ? 'Autopay' : 'Manual'}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-sm font-semibold text-gray-700">
-                    ${p.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                  {p.status === 'missed' && (
-                    <span className="text-xs font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
-                      Missed
-                    </span>
-                  )}
-                  {p.status === 'paid' && (
-                    <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                      Paid
-                    </span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {selectedBucket && selectedBucket.payments.length === 0 && (
-        <div className="mt-4 border-t border-gray-100 pt-4">
-          <p className="text-sm text-gray-400 text-center py-2">No payments due on {selectedBucket.day_label}</p>
-        </div>
-      )}
-
-      {/* ── Reminder Modal ──────────────────────────────────────── */}
-      {showReminderModal && (
-        <ReminderModal
-          payments={allManualPayments}
-          onClose={handleCloseModal}
-        />
-      )}
-    </div>
+    </section>
   );
 }
