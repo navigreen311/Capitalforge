@@ -10,6 +10,7 @@ import { getClientMockData } from './client-mocks';
 import { getApplicationMockData } from './application-mocks';
 import { getFundingRoundMockData } from './funding-round-mocks';
 import { getOptimizerMockData } from './optimizer-mocks';
+import { getDeclineMockData } from './decline-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -760,6 +761,12 @@ export function getMockData(endpoint: string): unknown | null {
   // Check dashboard map first
   const dashboardData = map[endpoint];
   if (dashboardData !== undefined) return dashboardData;
+
+  // Fall through to decline mocks
+  if (endpoint.includes('/declines')) {
+    const declineData = getDeclineMockData(endpoint);
+    if (declineData !== null) return declineData;
+  }
 
   // Fall through to optimizer mocks (run, clients, history)
   if (endpoint.includes('/optimizer/')) {
