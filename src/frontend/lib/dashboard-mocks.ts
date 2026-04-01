@@ -9,6 +9,7 @@
 import { getClientMockData } from './client-mocks';
 import { getApplicationMockData } from './application-mocks';
 import { getFundingRoundMockData } from './funding-round-mocks';
+import { getOptimizerMockData } from './optimizer-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -759,6 +760,12 @@ export function getMockData(endpoint: string): unknown | null {
   // Check dashboard map first
   const dashboardData = map[endpoint];
   if (dashboardData !== undefined) return dashboardData;
+
+  // Fall through to optimizer mocks (run, clients, history)
+  if (endpoint.includes('/optimizer/')) {
+    const optimizerData = getOptimizerMockData(endpoint);
+    if (optimizerData !== null) return optimizerData;
+  }
 
   // Fall through to funding round / optimizer round mocks
   if (endpoint.includes('/funding-rounds/') || endpoint.includes('/optimizer/round')) {
