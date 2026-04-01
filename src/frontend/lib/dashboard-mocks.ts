@@ -711,6 +711,19 @@ export const MOCK_NAV_COUNTS = {
   fundingRoundsBadge: MOCK_ACTIVE_ROUNDS.total_count,
 };
 
+// ── Recent Applications ─────────────────────────────────────────────────────
+
+const MOCK_RECENT_APPLICATIONS = {
+  applications: [
+    { id: 'APP-0091', clientName: 'Meridian Holdings LLC', clientId: 'c-001', type: 'Term Loan', amount: '$250,000', status: 'review', submitted: '2026-03-30', round: 'R2', roundId: 'r-001', consent: 'complete' },
+    { id: 'APP-0090', clientName: 'Apex Ventures Inc.', clientId: 'c-002', type: 'SBA 7(a)', amount: '$500,000', status: 'pending', submitted: '2026-03-29', round: 'R1', roundId: 'r-002', consent: 'pending' },
+    { id: 'APP-0089', clientName: 'Brightline Corp', clientId: 'c-003', type: 'Credit Stack', amount: '$120,000', status: 'approved', submitted: '2026-03-28', round: 'R1', roundId: 'r-003', consent: 'complete' },
+    { id: 'APP-0088', clientName: 'Thornwood Capital', clientId: 'c-004', type: 'Equipment', amount: '$85,000', status: 'blocked', submitted: '2026-03-27', round: 'R1', roundId: 'r-004', consent: 'blocked', consentTooltip: 'Missing Product-Reality Acknowledgment' },
+    { id: 'APP-0087', clientName: 'Norcal Transport LLC', clientId: 'c-005', type: 'Line of Credit', amount: '$200,000', status: 'declined', submitted: '2026-03-26', round: 'R3', roundId: 'r-005', consent: 'complete' },
+  ],
+  total: 5,
+};
+
 // ── Feature flag: should we use mocks? ─────────────────────────────────────
 
 export function shouldUseMocks(): boolean {
@@ -736,6 +749,7 @@ export function getMockData(endpoint: string): unknown | null {
     '/api/v1/dashboard/committee-queue': MOCK_COMMITTEE_QUEUE,
     '/api/v1/dashboard/voiceforge': MOCK_VOICEFORGE,
     '/api/v1/dashboard/nav-counts': MOCK_NAV_COUNTS,
+    '/api/v1/dashboard/recent-applications': MOCK_RECENT_APPLICATIONS,
   };
   return map[endpoint] ?? null;
 }

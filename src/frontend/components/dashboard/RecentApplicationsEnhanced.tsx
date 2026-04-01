@@ -4,12 +4,17 @@
 // RecentApplicationsEnhanced — Full-featured applications table
 //
 // Self-contained dashboard component with inline filtering,
-// consent chips, round links, kebab actions menu, and
-// loading skeleton.
+// consent chips, round links, kebab actions menu with keyboard
+// navigation, and loading skeleton.
+// Uses useAuthFetch for data fetching and DashboardErrorState
+// for error display.
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { apiClient } from '@/lib/api-client';
 import { DashboardBadge, type DashboardBadgeStatus } from './DashboardBadge';
+import { DashboardErrorState } from './DashboardErrorState';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,15 +34,10 @@ interface Application {
   consentTooltip?: string;
 }
 
-// ── Mock Data ──────────────────────────────────────────────────────────────
-
-const APPS: Application[] = [
-  { id: 'APP-0091', clientName: 'Meridian Holdings LLC', clientId: 'c-001', type: 'Term Loan', amount: '$250,000', status: 'review', submitted: '2026-03-30', round: 'R2', roundId: 'r-001', consent: 'complete' },
-  { id: 'APP-0090', clientName: 'Apex Ventures Inc.', clientId: 'c-002', type: 'SBA 7(a)', amount: '$500,000', status: 'pending', submitted: '2026-03-29', round: 'R1', roundId: 'r-002', consent: 'pending' },
-  { id: 'APP-0089', clientName: 'Brightline Corp', clientId: 'c-003', type: 'Credit Stack', amount: '$120,000', status: 'approved', submitted: '2026-03-28', round: 'R1', roundId: 'r-003', consent: 'complete' },
-  { id: 'APP-0088', clientName: 'Thornwood Capital', clientId: 'c-004', type: 'Equipment', amount: '$85,000', status: 'blocked', submitted: '2026-03-27', round: 'R1', roundId: 'r-004', consent: 'blocked', consentTooltip: 'Missing Product-Reality Acknowledgment' },
-  { id: 'APP-0087', clientName: 'Norcal Transport LLC', clientId: 'c-005', type: 'Line of Credit', amount: '$200,000', status: 'declined', submitted: '2026-03-26', round: 'R3', roundId: 'r-005', consent: 'complete' },
-];
+interface ApplicationsResponse {
+  applications: Application[];
+  total: number;
+}
 
 // ── Consent Chip ───────────────────────────────────────────────────────────
 
@@ -66,20 +66,63 @@ function ConsentChip({ status, tooltip }: { status: ConsentStatus; tooltip?: str
 
 // ── Kebab Actions Menu ─────────────────────────────────────────────────────
 
-const MENU_ITEMS = [
-  'View Application',
-  'View Client',
-  'Flag for Review',
-  'Export Dossier',
-  'Contact Client',
-] as const;
+interface MenuAction {
+  label: string;
+  href?: string;
+  onClick?: () => Promise<void> | void;
+}
 
-function KebabMenu({ appId }: { appId: string }) {
+function buildMenuActions(app: Application, onFlagSuccess: () => void): MenuAction[] {
+  return [
+    {
+      label: 'View Application',
+      href: `/applications/${app.id}`,
+    },
+    {
+      label: 'View Client',
+      href: `/clients/${app.clientId}`,
+    },
+    {
+      label: 'Flag for Review',
+      onClick: async () => {
+        try {
+          await apiClient.post(`/v1/applications/${app.id}/flag`);
+          onFlagSuccess();
+        } catch {
+          // Error is handled inline — toast shown by caller
+        }
+      },
+    },
+    {
+      label: 'Export Dossier',
+      href: `/documents/export?app_id=${app.id}`,
+    },
+    {
+      label: 'Contact Client',
+      href: `/voiceforge/outreach?client_id=${app.clientId}`,
+    },
+  ];
+}
+
+function KebabMenu({ app }: { app: Application }) {
   const [open, setOpen] = useState(false);
+  const [focusIndex, setFocusIndex] = useState(-1);
+  const [toast, setToast] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<(HTMLAnchorElement | HTMLButtonElement | null)[]>([]);
 
-  // Close on click-outside
+  const actions = useMemo(
+    () =>
+      buildMenuActions(app, () => {
+        setToast(`${app.id} flagged for review`);
+        setOpen(false);
+        setTimeout(() => setToast(null), 3000);
+      }),
+    [app],
+  );
+
+  // Close on click-outside or Escape
   useEffect(() => {
     if (!open) return;
 
@@ -91,11 +134,16 @@ function KebabMenu({ appId }: { appId: string }) {
         !buttonRef.current.contains(e.target as Node)
       ) {
         setOpen(false);
+        setFocusIndex(-1);
       }
     }
 
     function handleEscape(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        setFocusIndex(-1);
+        buttonRef.current?.focus();
+      }
     }
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -106,13 +154,60 @@ function KebabMenu({ appId }: { appId: string }) {
     };
   }, [open]);
 
+  // Focus the active menu item when focusIndex changes
+  useEffect(() => {
+    if (open && focusIndex >= 0) {
+      itemRefs.current[focusIndex]?.focus();
+    }
+  }, [open, focusIndex]);
+
+  function handleToggle() {
+    const next = !open;
+    setOpen(next);
+    if (next) {
+      setFocusIndex(0);
+    } else {
+      setFocusIndex(-1);
+    }
+  }
+
+  function handleMenuKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusIndex((prev) => (prev + 1) % actions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusIndex((prev) => (prev - 1 + actions.length) % actions.length);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setFocusIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setFocusIndex(actions.length - 1);
+    } else if (e.key === 'Tab') {
+      setOpen(false);
+      setFocusIndex(-1);
+    }
+  }
+
+  function handleItemClick(action: MenuAction) {
+    if (action.onClick) {
+      action.onClick();
+    }
+    // For href actions, navigation happens via the anchor — just close
+    if (!action.onClick) {
+      setOpen(false);
+      setFocusIndex(-1);
+    }
+  }
+
   return (
     <div className="relative">
       <button
         ref={buttonRef}
-        onClick={() => setOpen((prev) => !prev)}
-        className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-        aria-label={`Actions for ${appId}`}
+        onClick={handleToggle}
+        className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all"
+        aria-label={`Actions for ${app.id}`}
         aria-haspopup="true"
         aria-expanded={open}
       >
@@ -124,17 +219,48 @@ function KebabMenu({ appId }: { appId: string }) {
           ref={menuRef}
           className="absolute right-0 top-full mt-1 z-50 w-48 bg-white rounded-lg shadow-lg border border-surface-border py-1"
           role="menu"
+          onKeyDown={handleMenuKeyDown}
         >
-          {MENU_ITEMS.map((item) => (
-            <button
-              key={item}
-              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-              role="menuitem"
-              onClick={() => setOpen(false)}
-            >
-              {item}
-            </button>
-          ))}
+          {actions.map((action, idx) => {
+            const commonClasses =
+              'w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-100 focus:outline-none transition-colors';
+
+            if (action.href) {
+              return (
+                <a
+                  key={action.label}
+                  ref={(el) => { itemRefs.current[idx] = el; }}
+                  href={action.href}
+                  className={`block ${commonClasses}`}
+                  role="menuitem"
+                  tabIndex={focusIndex === idx ? 0 : -1}
+                  onClick={() => handleItemClick(action)}
+                >
+                  {action.label}
+                </a>
+              );
+            }
+
+            return (
+              <button
+                key={action.label}
+                ref={(el) => { itemRefs.current[idx] = el; }}
+                className={commonClasses}
+                role="menuitem"
+                tabIndex={focusIndex === idx ? 0 : -1}
+                onClick={() => handleItemClick(action)}
+              >
+                {action.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Confirmation toast */}
+      {toast && (
+        <div className="absolute right-0 top-full mt-10 z-50 w-56 bg-emerald-600 text-white text-xs font-medium px-3 py-2 rounded-lg shadow-lg">
+          {toast}
         </div>
       )}
     </div>
@@ -250,29 +376,35 @@ function TableSkeleton() {
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function RecentApplicationsEnhanced() {
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading, error, refetch } = useAuthFetch<ApplicationsResponse>(
+    '/api/v1/dashboard/recent-applications',
+  );
+
   const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  // Simulate loading state
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 600);
-    return () => clearTimeout(timer);
-  }, []);
+  const applications = data?.applications ?? [];
 
   // Filtered data
   const filtered = useMemo(() => {
-    return APPS.filter((app) => {
+    return applications.filter((app) => {
       if (statusFilter && app.status !== statusFilter) return false;
       if (typeFilter && app.type !== typeFilter) return false;
       if (dateFrom && app.submitted < dateFrom) return false;
       if (dateTo && app.submitted > dateTo) return false;
       return true;
     });
-  }, [statusFilter, typeFilter, dateFrom, dateTo]);
+  }, [applications, statusFilter, typeFilter, dateFrom, dateTo]);
+
+  // ── Error state ───────────────────────────────────────────────
+  if (error) {
+    return (
+      <DashboardErrorState error={error} onRetry={refetch} />
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl border border-surface-border shadow-card overflow-hidden">
@@ -314,7 +446,7 @@ export function RecentApplicationsEnhanced() {
       )}
 
       {/* Table content */}
-      {loading ? (
+      {isLoading ? (
         <TableSkeleton />
       ) : (
         <div className="overflow-x-auto">
@@ -343,7 +475,7 @@ export function RecentApplicationsEnhanced() {
                 filtered.map((app) => (
                   <tr
                     key={app.id}
-                    className="hover:bg-gray-50/50 transition-colors"
+                    className="group hover:bg-gray-50/50 transition-colors"
                   >
                     {/* App ID */}
                     <td className="px-6 py-3 whitespace-nowrap">
@@ -402,7 +534,7 @@ export function RecentApplicationsEnhanced() {
 
                     {/* Actions */}
                     <td className="px-6 py-3 whitespace-nowrap text-right">
-                      <KebabMenu appId={app.id} />
+                      <KebabMenu app={app} />
                     </td>
                   </tr>
                 ))

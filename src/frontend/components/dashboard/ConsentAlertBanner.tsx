@@ -5,10 +5,16 @@
 //
 // Shows a slim green banner when all clients are compliant,
 // or an amber/red alert bar when issues need attention.
-// Dismissible per session; reappears on page refresh.
+// Dismissible per session via sessionStorage; reappears on
+// next session if issues remain outstanding.
+// Uses useAuthFetch for data fetching and DashboardErrorState
+// for error display.
 // ============================================================
 
 import { useEffect, useState } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { apiClient } from '@/lib/api-client';
+import { DashboardErrorState } from './DashboardErrorState';
 
 interface ConsentIssueItem {
   client_id: string;
@@ -26,48 +32,21 @@ interface ConsentStatusData {
   last_updated: string;
 }
 
-interface ApiResponse {
-  success: boolean;
-  data?: ConsentStatusData;
-  error?: { code: string; message: string };
-}
+const DISMISS_KEY = 'cf_consent_banner_dismissed';
 
 export function ConsentAlertBanner() {
-  const [data, setData] = useState<ConsentStatusData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  const { data, isLoading, error, refetch } = useAuthFetch<ConsentStatusData>(
+    '/api/v1/dashboard/consent-status',
+  );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchStatus() {
-      try {
-        const res = await fetch('/api/v1/dashboard/consent-status');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json: ApiResponse = await res.json();
-        if (!cancelled) {
-          if (json.success && json.data) {
-            setData(json.data);
-          } else {
-            setError(json.error?.message ?? 'Failed to load consent status');
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Network error');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchStatus();
-    return () => { cancelled = true; };
-  }, []);
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return sessionStorage.getItem(DISMISS_KEY) === 'true';
+  });
 
   async function handleDismiss() {
     setDismissed(true);
+    sessionStorage.setItem(DISMISS_KEY, 'true');
 
     const outstandingCount =
       (data?.missing_acknowledgments ?? 0) +
@@ -75,17 +54,13 @@ export function ConsentAlertBanner() {
       (data?.blocked_applications ?? 0);
 
     try {
-      await fetch('/api/v1/events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event_type: 'consent_alert.dismissed',
-          payload: {
-            advisor_id: 'current', // resolved server-side from JWT
-            timestamp: new Date().toISOString(),
-            outstanding_count: outstandingCount,
-          },
-        }),
+      await apiClient.post('/v1/events', {
+        event_type: 'consent_alert.dismissed',
+        payload: {
+          advisor_id: 'current', // resolved server-side from JWT
+          timestamp: new Date().toISOString(),
+          outstanding_count: outstandingCount,
+        },
       });
     } catch {
       // fire-and-forget; dismissal still takes effect locally
@@ -94,7 +69,7 @@ export function ConsentAlertBanner() {
 
   // ── Loading skeleton ─────────────────────────────────────────
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="animate-pulse rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 h-10">
         <div className="h-4 w-64 rounded bg-gray-200" />
@@ -102,9 +77,15 @@ export function ConsentAlertBanner() {
     );
   }
 
-  // ── Error / no data ──────────────────────────────────────────
+  // ── Error state ─────────────────────────────────────────────
 
-  if (error || !data) return null;
+  if (error) {
+    return <DashboardErrorState error={error} onRetry={refetch} />;
+  }
+
+  // ── No data ─────────────────────────────────────────────────
+
+  if (!data) return null;
 
   // ── Dismissed ────────────────────────────────────────────────
 
@@ -124,7 +105,7 @@ export function ConsentAlertBanner() {
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <span className="text-sm font-medium">All consents and acknowledgments are up to date</span>
+        <span className="text-sm font-medium">All consents and acknowledgments current &#x2713;</span>
       </div>
     );
   }
