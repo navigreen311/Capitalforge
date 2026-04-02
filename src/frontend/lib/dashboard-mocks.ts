@@ -19,6 +19,7 @@ import { getDiscCompRegMockData } from './disclosures-complaints-regulatory-mock
 import { getCommTrainDealMockData } from './comm-training-deal-mocks';
 import { getDecFLAIMockData } from './decisions-fairlending-aigovernance-mocks';
 import { getCrmPortfolioPartnersMockData } from './crm-portfolio-partners-mocks';
+import { getRefIssWfMockData } from './referrals-issuers-workflows-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -834,6 +835,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/hardship') || endpoint.includes('/compliance') || endpoint.includes('/documents') || endpoint.includes('/contracts')) {
     const hcdcData = getHardshipCompDocsMockData(endpoint);
     if (hcdcData !== null) return hcdcData;
+  }
+
+  // Fall through to referrals, issuers, and workflows mocks
+  if (endpoint.includes('/referrals/') || endpoint.includes('/issuers/') || endpoint.includes('/workflows/')) {
+    const riwData = getRefIssWfMockData(endpoint);
+    if (riwData !== null) return riwData;
   }
 
   // Fall through to CRM, portfolio analytics, and partners mocks
