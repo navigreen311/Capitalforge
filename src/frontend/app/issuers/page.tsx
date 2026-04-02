@@ -19,6 +19,20 @@ import { useState } from 'react';
 
 type TrendDirection = 'improving' | 'declining' | 'stable';
 type DrawerTab = 'overview' | 'velocity' | 'contactLog' | 'reconHistory' | 'approvalIntel';
+type PageTab = 'directory' | 'recon' | 'creditUnions';
+
+interface CreditUnionEntry {
+  id: string;
+  cuName: string;
+  loanOfficer: string;
+  directLine: string;
+  membershipType: string;
+  minFico: number;
+  ongoingApr: string;
+  tier: 'platinum' | 'gold' | 'silver' | 'standard';
+  relationshipScore: number;
+  lastContact: string;
+}
 
 interface IssuerContact {
   id: string;
@@ -292,6 +306,67 @@ const CLIENTS = [
   { id: 'cl_003', name: 'David Lee' },
   { id: 'cl_004', name: 'Emily Rodriguez' },
   { id: 'cl_005', name: 'James Wilson' },
+];
+
+// ---------------------------------------------------------------------------
+// Credit Union data
+// ---------------------------------------------------------------------------
+
+const CU_DIRECTORY: CreditUnionEntry[] = [
+  {
+    id: 'cu_001', cuName: 'Navy Federal', loanOfficer: 'Business Lending Dept',
+    directLine: '1-888-842-6328', membershipType: 'Military/Family',
+    minFico: 680, ongoingApr: '11.24%–18.00%', tier: 'platinum',
+    relationshipScore: 91, lastContact: '2026-03-28',
+  },
+  {
+    id: 'cu_002', cuName: 'PenFed', loanOfficer: 'Business Lending Dept',
+    directLine: '1-800-247-5626', membershipType: 'Open ($17)',
+    minFico: 660, ongoingApr: '12.49%–17.99%', tier: 'gold',
+    relationshipScore: 76, lastContact: '2026-03-22',
+  },
+  {
+    id: 'cu_003', cuName: 'Alliant', loanOfficer: 'Business Lending Dept',
+    directLine: '1-800-328-1935', membershipType: 'Open ($10)',
+    minFico: 640, ongoingApr: '11.99%–21.49%', tier: 'gold',
+    relationshipScore: 68, lastContact: '2026-03-18',
+  },
+  {
+    id: 'cu_004', cuName: 'DCU', loanOfficer: 'Business Lending Dept',
+    directLine: '1-800-328-8797', membershipType: 'Open ($10)',
+    minFico: 650, ongoingApr: '10.75%–18.00%', tier: 'silver',
+    relationshipScore: 62, lastContact: '2026-03-14',
+  },
+  {
+    id: 'cu_005', cuName: 'First Tech', loanOfficer: 'Business Lending Dept',
+    directLine: '1-855-855-8805', membershipType: 'Tech/$15',
+    minFico: 660, ongoingApr: '9.49%–18.00%', tier: 'silver',
+    relationshipScore: 58, lastContact: '2026-03-10',
+  },
+  {
+    id: 'cu_006', cuName: 'BECU', loanOfficer: 'Business Lending Dept',
+    directLine: '1-800-233-2328', membershipType: 'WA State/$5',
+    minFico: 640, ongoingApr: '10.40%–18.00%', tier: 'standard',
+    relationshipScore: 52, lastContact: '2026-03-05',
+  },
+];
+
+const CU_CONTACT_NOTES = [
+  {
+    id: 'cn_001',
+    cu: 'Navy Federal',
+    note: 'Navy Federal — John Martinez, Business Lending, strong relationship, prioritizes applicants with direct deposit. Best reached Tue–Thu mornings.',
+  },
+  {
+    id: 'cn_002',
+    cu: 'PenFed',
+    note: 'PenFed — Carla Jensen, Lending Ops, responsive on email. Open to balance transfers from other CUs. Membership via $17 donation to qualifying org.',
+  },
+  {
+    id: 'cn_003',
+    cu: 'Alliant',
+    note: 'Alliant — Derek Shaw, Member Services, prefers phone calls after 2pm CT. Good approval rates for members with 6+ months tenure.',
+  },
 ];
 
 // Approval intelligence placeholder data
@@ -1081,10 +1156,12 @@ function LogReconModal({ contacts, onClose, onSubmit }: { contacts: IssuerContac
 // ---------------------------------------------------------------------------
 
 export default function IssuersPage() {
+  const [pageTab, setPageTab] = useState<PageTab>('directory');
   const [contactSearch, setContactSearch] = useState('');
   const [selectedTier, setSelectedTier] = useState<string>('all');
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [contacts, setContacts] = useState<IssuerContact[]>(INITIAL_CONTACTS);
+  const [selectedCU, setSelectedCU] = useState<CreditUnionEntry | null>(null);
 
   // Drawer
   const [selectedIssuer, setSelectedIssuer] = useState<IssuerContact | null>(null);
@@ -1182,7 +1259,29 @@ export default function IssuersPage() {
         </div>
       </div>
 
-      {/* -- Section 1: Contact Directory -- */}
+      {/* -- Page Tabs -- */}
+      <div className="flex gap-1 border-b border-gray-800">
+        {([
+          { key: 'directory' as PageTab, label: 'Contact Directory' },
+          { key: 'recon' as PageTab, label: 'Reconsideration Outcomes' },
+          { key: 'creditUnions' as PageTab, label: 'Credit Unions' },
+        ]).map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setPageTab(tab.key)}
+            className={`px-5 py-2.5 text-sm font-semibold transition-colors border-b-2 -mb-px ${
+              pageTab === tab.key
+                ? 'border-yellow-500 text-yellow-400'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* -- Tab: Contact Directory -- */}
+      {pageTab === 'directory' && (
       <section>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h2 className="text-base font-semibold text-gray-200">Contact Directory</h2>
@@ -1278,8 +1377,10 @@ export default function IssuersPage() {
           </table>
         </div>
       </section>
+      )}
 
-      {/* -- Section 2 & 3 side-by-side -- */}
+      {/* -- Tab: Reconsideration Outcomes -- */}
+      {pageTab === 'recon' && (
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
         {/* Section 2: Reconsideration Outcomes */}
@@ -1400,6 +1501,145 @@ export default function IssuersPage() {
           </p>
         </section>
       </div>
+      )}
+
+      {/* -- Tab: Credit Unions -- */}
+      {pageTab === 'creditUnions' && (
+      <>
+        {/* CU Detail Drawer */}
+        {selectedCU && (
+          <div className="fixed inset-0 z-50 flex justify-end">
+            <div className="absolute inset-0 bg-black/60" onClick={() => setSelectedCU(null)} />
+            <div className="relative w-full max-w-md bg-gray-900 border-l border-gray-800 overflow-y-auto p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">{selectedCU.cuName}</h3>
+                <button onClick={() => setSelectedCU(null)} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+              </div>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between"><span className="text-gray-400">Loan Officer</span><span className="text-gray-100">{selectedCU.loanOfficer}</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Direct Line</span><span className="text-gray-100">{selectedCU.directLine}</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Membership</span><span className="text-gray-100">{selectedCU.membershipType}</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Min FICO (member)</span><span className="text-gray-100">{selectedCU.minFico}</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Ongoing APR</span><span className="text-gray-100">{selectedCU.ongoingApr}</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Tier</span><span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${tierBadge(selectedCU.tier)}`}>{selectedCU.tier}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Relationship Score</span>
+                  <span className="font-bold" style={{ color: scoreColor(selectedCU.relationshipScore) }}>{selectedCU.relationshipScore}</span>
+                </div>
+                <div className="flex justify-between"><span className="text-gray-400">Last Contact</span><span className="text-gray-100">{selectedCU.lastContact}</span></div>
+              </div>
+              {/* CU-specific contact note if available */}
+              {CU_CONTACT_NOTES.filter(n => n.cu === selectedCU.cuName).map(n => (
+                <div key={n.id} className="mt-4 p-3 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-300 leading-relaxed">
+                  {n.note}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* CU Directory Table */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold text-gray-200">CU Directory</h2>
+          </div>
+          <div className="rounded-xl border border-gray-800 overflow-x-auto">
+            <table className="w-full text-sm min-w-[1060px]">
+              <thead>
+                <tr className="border-b border-gray-800 bg-gray-900">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">CU Name</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Loan Officer</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Direct Line</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Membership Type</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Min FICO</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Ongoing APR</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Tier</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Relationship</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Last Contact</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {CU_DIRECTORY.map((cu) => (
+                  <tr
+                    key={cu.id}
+                    className="hover:bg-gray-900/60 transition-colors cursor-pointer"
+                    onClick={() => setSelectedCU(cu)}
+                  >
+                    <td className="px-4 py-3">
+                      <span className="font-semibold text-white">{cu.cuName}</span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-300">{cu.loanOfficer}</td>
+                    <td className="px-4 py-3 text-gray-300 font-mono text-xs">{cu.directLine}</td>
+                    <td className="px-4 py-3 text-gray-300">{cu.membershipType}</td>
+                    <td className="px-4 py-3 text-center text-gray-200 font-semibold">{cu.minFico}</td>
+                    <td className="px-4 py-3 text-gray-300">{cu.ongoingApr}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${tierBadge(cu.tier)}`}>
+                        {cu.tier}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="w-16 h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${cu.relationshipScore}%`, backgroundColor: scoreColor(cu.relationshipScore) }}
+                          />
+                        </div>
+                        <span className="text-xs font-bold" style={{ color: scoreColor(cu.relationshipScore) }}>
+                          {cu.relationshipScore}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{cu.lastContact}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* CU Intelligence Panel */}
+        <section className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+          <h2 className="text-base font-semibold text-gray-200 mb-1">CU Intelligence Panel</h2>
+          <p className="text-xs text-gray-500 mb-5">Aggregated credit union membership and approval metrics</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="rounded-lg bg-gray-800 border border-gray-700 p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Members Acquired</p>
+              <p className="text-2xl font-bold text-white">24</p>
+              <p className="text-xs text-gray-500 mt-1">across 6 CUs</p>
+            </div>
+            <div className="rounded-lg bg-gray-800 border border-gray-700 p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Avg CU Approval Rate</p>
+              <p className="text-2xl font-bold text-green-400">71%</p>
+              <p className="text-xs text-gray-500 mt-1">vs 65% bank avg</p>
+            </div>
+            <div className="rounded-lg bg-gray-800 border border-gray-700 p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Avg CU Credit Limit</p>
+              <p className="text-2xl font-bold text-yellow-400">$12,400</p>
+            </div>
+            <div className="rounded-lg bg-gray-800 border border-gray-700 p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Most Popular CU</p>
+              <p className="text-lg font-bold text-white">Navy Federal</p>
+              <p className="text-xs text-gray-500 mt-1">12 members</p>
+            </div>
+          </div>
+        </section>
+
+        {/* CU Contact Notes */}
+        <section className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+          <h2 className="text-base font-semibold text-gray-200 mb-1">CU Contact Notes</h2>
+          <p className="text-xs text-gray-500 mb-4">Relationship notes and contact intelligence</p>
+          <div className="space-y-3">
+            {CU_CONTACT_NOTES.map((note) => (
+              <div key={note.id} className="rounded-lg border border-gray-700 bg-gray-800 px-4 py-3">
+                <p className="text-sm text-gray-200 leading-relaxed">{note.note}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </>
+      )}
     </div>
   );
 }
