@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
+import InitiateCallModal from '@/components/voiceforge/InitiateCallModal';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -127,6 +128,8 @@ export function AprExpiryPanel() {
   const { data, isLoading, error, refetch } = useAuthFetch<AprExpiryData>('/api/v1/dashboard/apr-expiry-alerts');
   const [activeTab, setActiveTab] = useState<AlertTier>('critical');
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [initiateCallState, setInitiateCallState] = useState<{ clientId: string; clientName: string } | null>(null);
+  const [callInitiatedMap, setCallInitiatedMap] = useState<Record<string, string>>({});
 
   // Dismiss handler — logs apr_expiry.acknowledged event
   const handleDismiss = useCallback(async (alert: AprExpiryAlert) => {
@@ -326,25 +329,38 @@ export function AprExpiryPanel() {
 
                 {/* Actions */}
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                  <button
-                    onClick={() => {
-                      window.alert(`Contacting ${alert.client_name} via VoiceForge...`);
-                      window.location.href = `/platform/voiceforge`;
-                    }}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: 6,
-                      background: COLORS.navy,
-                      color: COLORS.white,
-                      fontSize: 13,
-                      fontWeight: 500,
-                      border: 'none',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Contact Client
-                  </button>
+                  {callInitiatedMap[alert.client_id] ? (
+                    <span
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 6,
+                        background: '#065F46',
+                        color: COLORS.white,
+                        fontSize: 12,
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Call initiated {callInitiatedMap[alert.client_id]}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setInitiateCallState({ clientId: alert.client_id, clientName: alert.client_name })}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 6,
+                        background: COLORS.navy,
+                        color: COLORS.white,
+                        fontSize: 13,
+                        fontWeight: 500,
+                        border: 'none',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Contact Client
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDismiss(alert)}
                     title="Dismiss alert"
@@ -380,6 +396,23 @@ export function AprExpiryPanel() {
       >
         Last updated: {new Date(data.last_updated).toLocaleTimeString()}
       </div>
+
+      {/* Initiate Call Modal */}
+      <InitiateCallModal
+        open={!!initiateCallState}
+        onClose={() => setInitiateCallState(null)}
+        onCallInitiated={() => {
+          if (initiateCallState) {
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            setCallInitiatedMap((prev) => ({ ...prev, [initiateCallState.clientId]: now }));
+            setInitiateCallState(null);
+          }
+        }}
+        defaultClientName={initiateCallState?.clientName}
+        lockClient
+        defaultPurpose="APR Expiry Warning"
+        lockPurpose
+      />
     </div>
   );
 }

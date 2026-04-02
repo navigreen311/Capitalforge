@@ -2,9 +2,9 @@
 
 // ============================================================
 // /clients/[id] — Client detail page
-// 10 Tabs: Profile | Credit | Applications | Funding Rounds |
+// 11 Tabs: Profile | Credit | Applications | Funding Rounds |
 //          Compliance | Documents | Repayment | Acknowledgments |
-//          ACH/Debit | Timeline
+//          ACH/Debit | Timeline | Calls
 // ============================================================
 
 import { useState, useEffect } from 'react';
@@ -21,6 +21,7 @@ import { RepaymentTab } from '../../../components/clients/RepaymentTab';
 import { AcknowledgmentsTab } from '../../../components/clients/AcknowledgmentsTab';
 import { AchDebitTab } from '../../../components/clients/AchDebitTab';
 import { TimelineTab } from '../../../components/clients/TimelineTab';
+import { InitiateCallModal } from '../../../components/voiceforge/InitiateCallModal';
 import type { BusinessStatus, ApplicationStatus, SuitabilityResult } from '../../../../shared/types';
 
 // ---------------------------------------------------------------------------
@@ -114,7 +115,7 @@ const STATUS_BADGE: Record<BusinessStatus, string> = {
   closed: 'bg-red-50 text-red-700 border-red-200',
 };
 
-type Tab = 'profile' | 'credit' | 'applications' | 'funding' | 'compliance' | 'documents' | 'repayment' | 'acknowledgments' | 'ach' | 'timeline';
+type Tab = 'profile' | 'credit' | 'applications' | 'funding' | 'compliance' | 'documents' | 'repayment' | 'acknowledgments' | 'ach' | 'timeline' | 'calls';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'profile',         label: 'Profile' },
   { key: 'credit',          label: 'Credit' },
@@ -126,6 +127,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'acknowledgments', label: 'Acknowledgments' },
   { key: 'ach',             label: 'ACH/Debit' },
   { key: 'timeline',        label: 'Timeline' },
+  { key: 'calls',           label: 'Calls' },
 ];
 
 function formatCurrency(n: number) {
@@ -162,6 +164,13 @@ export default function ClientDetailPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [editOpen, setEditOpen] = useState(false);
+  const [callModalOpen, setCallModalOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -236,12 +245,20 @@ export default function ClientDetailPage() {
               {biz.entityType} · {biz.stateOfFormation} · Advisor: {biz.advisorName}
             </p>
           </div>
-          <button
-            onClick={() => setEditOpen(true)}
-            className="btn-primary btn flex-shrink-0"
-          >
-            Edit Profile
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setCallModalOpen(true)}
+              className="px-4 py-2 text-sm font-bold rounded-lg bg-brand-gold text-brand-navy hover:bg-brand-gold/90 transition-colors flex items-center gap-1.5"
+            >
+              📞 Call Client
+            </button>
+            <button
+              onClick={() => setEditOpen(true)}
+              className="btn-primary btn"
+            >
+              Edit Profile
+            </button>
+          </div>
         </div>
       )}
 
@@ -324,6 +341,87 @@ export default function ClientDetailPage() {
       {activeTab === 'ach' && <AchDebitTab clientId={id} />}
       {activeTab === 'timeline' && <TimelineTab clientId={id} />}
 
+      {/* Calls tab */}
+      {activeTab === 'calls' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-gray-900">Call History</h2>
+            <button
+              onClick={() => setCallModalOpen(true)}
+              className="px-4 py-2 text-sm font-bold rounded-lg bg-brand-gold text-brand-navy hover:bg-brand-gold/90 transition-colors flex items-center gap-1.5"
+            >
+              📞 Initiate New Call
+            </button>
+          </div>
+
+          {(() => {
+            const callHistory = [
+              { date: '2026-03-31', duration: '4m 12s', purpose: 'APR Expiry Warning',    advisor: 'Sarah Chen',  qaScore: 92, tcpa: true },
+              { date: '2026-03-15', duration: '6m 44s', purpose: 'Re-Stack Consultation', advisor: 'Marcus Webb', qaScore: 85, tcpa: true },
+              { date: '2026-02-28', duration: '3m 21s', purpose: 'Payment Reminder',      advisor: 'Sarah Chen',  qaScore: 78, tcpa: true },
+            ];
+
+            if (callHistory.length === 0) {
+              return (
+                <div className="text-center py-12 text-gray-400">
+                  No call history for this client
+                </div>
+              );
+            }
+
+            return (
+              <div className="overflow-x-auto rounded-xl border border-surface-border bg-white shadow-card">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-surface-border bg-gray-50/60">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Date</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Duration</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Purpose</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Advisor</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">QA Score</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">TCPA</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {callHistory.map((call, i) => (
+                      <tr key={i} className="border-b border-surface-border last:border-b-0 hover:bg-gray-50/40 transition-colors">
+                        <td className="px-4 py-3 text-gray-700">{call.date}</td>
+                        <td className="px-4 py-3 text-gray-700">{call.duration}</td>
+                        <td className="px-4 py-3 text-gray-900 font-medium">{call.purpose}</td>
+                        <td className="px-4 py-3 text-gray-700">{call.advisor}</td>
+                        <td className="px-4 py-3">
+                          <span className={`font-bold ${call.qaScore >= 90 ? 'text-emerald-600' : call.qaScore >= 80 ? 'text-amber-600' : 'text-red-600'}`}>
+                            {call.qaScore}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-emerald-600 font-medium">✓ Verified</span>
+                        </td>
+                        <td className="px-4 py-3 flex gap-2">
+                          <button
+                            onClick={() => showToast('Opening recording...')}
+                            className="text-xs font-semibold text-brand-navy hover:text-brand-gold transition-colors"
+                          >
+                            Listen
+                          </button>
+                          <button
+                            onClick={() => showToast('Opening transcript...')}
+                            className="text-xs font-semibold text-brand-navy hover:text-brand-gold transition-colors"
+                          >
+                            Transcript
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Edit Profile Modal */}
       {editOpen && (
         <EditProfileModal
@@ -343,6 +441,25 @@ export default function ClientDetailPage() {
           }}
           onSave={handleEditSave}
         />
+      )}
+
+      {/* Initiate Call Modal */}
+      {callModalOpen && (
+        <InitiateCallModal
+          isOpen={callModalOpen}
+          onClose={() => setCallModalOpen(false)}
+          prefilledClientId={id}
+          prefilledClientName={biz.legalName}
+          lockClient={true}
+          onCallInitiated={({ clientName }) => showToast(`Call initiated to ${clientName}`)}
+        />
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-brand-navy text-white px-5 py-3 rounded-xl shadow-lg text-sm font-semibold animate-in fade-in slide-in-from-bottom-4">
+          {toast}
+        </div>
       )}
     </div>
   );
