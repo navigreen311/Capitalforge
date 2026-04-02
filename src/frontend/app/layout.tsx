@@ -3,6 +3,8 @@ import './globals.css';
 import { Sidebar } from '@/components/ui/sidebar';
 import { Header } from '@/components/ui/header';
 import { NavBadgeProvider } from '@/components/dashboard/NavBadgeProvider';
+import { ErrorBoundary } from '@/components/global/ErrorBoundary';
+import { ToastProvider } from '@/components/global/ToastProvider';
 
 // ─── Metadata ────────────────────────────────────────────────────────────────
 
@@ -53,29 +55,33 @@ export default function RootLayout({ children }: RootLayoutProps) {
           │          │                                     │
           └──────────┴────────────────────────────────────┘
         */}
-        <NavBadgeProvider>
-          <div className="cf-layout">
-            {/* Left sidebar — navigation */}
-            <Sidebar />
+        <ToastProvider>
+          <NavBadgeProvider>
+            <div className="cf-layout">
+              {/* Left sidebar — navigation */}
+              <Sidebar />
 
-            {/* Right panel — header + page content */}
-            <div className="cf-main min-w-0">
-              {/* Sticky top header */}
-              <Header />
+              {/* Right panel — header + page content */}
+              <div className="cf-main min-w-0">
+                {/* Sticky top header */}
+                <Header />
 
-              {/* Page content */}
-              <main
-                id="main-content"
-                className="cf-content"
-                aria-label="Main content"
-              >
-                <div className="max-w-screen-2xl mx-auto w-full animate-fade-in">
-                  {children}
-                </div>
-              </main>
+                {/* Page content */}
+                <main
+                  id="main-content"
+                  className="cf-content"
+                  aria-label="Main content"
+                >
+                  <ErrorBoundary>
+                    <div className="max-w-screen-2xl mx-auto w-full animate-fade-in">
+                      {children}
+                    </div>
+                  </ErrorBoundary>
+                </main>
+              </div>
             </div>
-          </div>
-        </NavBadgeProvider>
+          </NavBadgeProvider>
+        </ToastProvider>
       </body>
     </html>
   );
