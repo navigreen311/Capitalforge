@@ -155,7 +155,7 @@ export function ConsentAlertBanner() {
 
       <div className="flex items-center gap-2 flex-shrink-0">
         <a
-          href="/compliance/consent-center"
+          href="/compliance"
           className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${buttonClass}`}
         >
           Review Consent Queue

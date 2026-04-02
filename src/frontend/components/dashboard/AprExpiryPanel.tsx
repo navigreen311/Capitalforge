@@ -326,8 +326,11 @@ export function AprExpiryPanel() {
 
                 {/* Actions */}
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                  <a
-                    href={`/voiceforge/outreach?client_id=${alert.client_id}`}
+                  <button
+                    onClick={() => {
+                      window.alert(`Contacting ${alert.client_name} via VoiceForge...`);
+                      window.location.href = `/platform/voiceforge`;
+                    }}
                     style={{
                       padding: '6px 14px',
                       borderRadius: 6,
@@ -335,12 +338,13 @@ export function AprExpiryPanel() {
                       color: COLORS.white,
                       fontSize: 13,
                       fontWeight: 500,
-                      textDecoration: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
                       whiteSpace: 'nowrap',
                     }}
                   >
                     Contact Client
-                  </a>
+                  </button>
                   <button
                     onClick={() => handleDismiss(alert)}
                     title="Dismiss alert"

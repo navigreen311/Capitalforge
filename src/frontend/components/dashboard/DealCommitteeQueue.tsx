@@ -241,7 +241,7 @@ export function DealCommitteeQueue() {
                 {/* Review button */}
                 <td className="px-4 py-3">
                   <a
-                    href={`/applications/${deal.application_id}/committee`}
+                    href="/applications"
                     className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
                   >
                     Review Deal

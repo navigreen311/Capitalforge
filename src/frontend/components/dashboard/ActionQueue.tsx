@@ -54,6 +54,19 @@ const TYPE_MONOGRAMS: Record<string, string> = {
 
 const VISIBLE_COUNT = 5;
 
+/** Map potentially broken API-provided action URLs to working routes */
+function resolveActionUrl(url: string): string {
+  if (url.startsWith('/compliance/consent-center')) return '/compliance';
+  if (url.startsWith('/voiceforge/outreach')) return '/platform/voiceforge';
+  if (url.startsWith('/voiceforge/')) return '/platform/voiceforge';
+  // /clients/{id}/documents -> /clients/{id}
+  if (/^\/clients\/[^/]+\/documents/.test(url)) {
+    const clientId = url.split('/')[2];
+    return `/clients/${clientId}`;
+  }
+  return url;
+}
+
 // ── Quick Actions ────────────────────────────────────────────
 
 interface QuickActionItem {
@@ -82,13 +95,13 @@ const QUICK_ACTIONS: QuickActionItem[] = [
     icon: 'CI',
     label: 'Pull Credit Report',
     description: 'Request bureau data for a client',
-    href: '/credit-intelligence/pull',
+    href: '/credit-builder',
   },
   {
     icon: 'DC',
     label: 'Export Dossier',
     description: 'Generate a client funding package',
-    href: '/documents/export',
+    href: '/documents',
   },
 ];
 
@@ -262,7 +275,7 @@ export function ActionQueue() {
 
                   {/* Action button */}
                   <a
-                    href={task.action_url}
+                    href={resolveActionUrl(task.action_url)}
                     className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-brand-navy text-white hover:bg-brand-navy-800 transition-colors flex-shrink-0"
                   >
                     {task.action_label}

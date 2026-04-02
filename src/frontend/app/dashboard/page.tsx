@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { SectionCard } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeStatus } from '@/components/ui/badge';
@@ -147,6 +148,12 @@ export default function DashboardPage() {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
+  const [markAllLabel, setMarkAllLabel] = useState('Mark all read');
+
+  function handleMarkAllRead() {
+    setMarkAllLabel('\u2713 Marked');
+    setTimeout(() => setMarkAllLabel('Mark all read'), 2000);
+  }
 
   return (
     <div className="space-y-8">
@@ -221,8 +228,11 @@ export default function DashboardPage() {
           <SectionCard
             title="Recent Activity"
             action={
-              <button className="text-xs text-brand-gold-600 hover:underline">
-                Mark all read
+              <button
+                className="text-xs text-brand-gold-600 hover:underline"
+                onClick={handleMarkAllRead}
+              >
+                {markAllLabel}
               </button>
             }
           >

@@ -127,7 +127,7 @@ export function VoiceForgeActivity() {
         />
         <div className="text-center mt-4">
           <a
-            href="/settings/integrations/voiceforge"
+            href="/settings"
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
           >
             Connect VoiceForge
@@ -230,7 +230,7 @@ export function VoiceForgeActivity() {
                 </span>
               </div>
               <a
-                href={`/voiceforge/calls/${flag.call_id}`}
+                href="/platform/voiceforge"
                 className="flex-shrink-0 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
               >
                 Review Call
