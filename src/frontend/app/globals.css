@@ -287,3 +287,24 @@
 .animate-badge-pop-in {
   animation: badge-pop-in 0.25s ease-out forwards;
 }
+
+/* ────────────────────────────────────────────────────────────
+   Offboarding page animations
+──────────────────────────────────────────────────────────── */
+@keyframes slide-up {
+  0%   { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-left {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(0); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.25s ease-out forwards;
+}
+
+.animate-slide-left {
+  animation: slide-left 0.25s ease-out forwards;
+}

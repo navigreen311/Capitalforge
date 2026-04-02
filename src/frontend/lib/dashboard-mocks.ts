@@ -21,6 +21,7 @@ import { getDecFLAIMockData } from './decisions-fairlending-aigovernance-mocks';
 import { getCrmPortfolioPartnersMockData } from './crm-portfolio-partners-mocks';
 import { getRefIssWfMockData } from './referrals-issuers-workflows-mocks';
 import { getSettingsReportsMTMockData } from './settings-reports-multitenant-mocks';
+import { getOffboardingLineageMockData } from './offboarding-datalineage-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -854,6 +855,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/settings/') || endpoint.includes('/reports/') || endpoint.includes('/tenants/')) {
     const srmtData = getSettingsReportsMTMockData(endpoint);
     if (srmtData !== null) return srmtData;
+  }
+
+  // Fall through to offboarding and data lineage mocks
+  if (endpoint.includes('/offboarding/') || endpoint.includes('/lineage/')) {
+    const olData = getOffboardingLineageMockData(endpoint);
+    if (olData !== null) return olData;
   }
 
   // Fall through to client detail mocks for /api/v1/clients/* paths
