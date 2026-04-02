@@ -8,10 +8,11 @@
 // ============================================================
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import InitiateCallModal from '@/components/voiceforge/InitiateCallModal';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type SessionStatus = 'Active' | 'Completed' | 'Failed';
+type SessionStatus = 'Active' | 'Completed' | 'Failed' | 'Queued';
 type CampaignStatus = 'Active' | 'Paused';
 type FlagSeverity = 'CRITICAL' | 'WARNING';
 type FlagState = 'unresolved' | 'acknowledged' | 'resolved';
@@ -231,6 +232,7 @@ function scoreColor(score: number): string {
 function statusBadge(status: SessionStatus): string {
   if (status === 'Active') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
   if (status === 'Completed') return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+  if (status === 'Queued') return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
   return 'bg-red-500/20 text-red-400 border-red-500/30';
 }
 
@@ -469,6 +471,10 @@ export default function VoiceForgePage() {
   // Feature 9: Transcript sample expand with Meridian details
   const [meridianTranscriptExpanded, setMeridianTranscriptExpanded] = useState(false);
 
+  // Initiate Call modal + dynamic sessions
+  const [initiateCallOpen, setInitiateCallOpen] = useState(false);
+  const [dynamicSessions, setDynamicSessions] = useState<VoiceSession[]>([]);
+
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
@@ -581,6 +587,32 @@ export default function VoiceForgePage() {
   const openTranscript = (sessionId: string) => {
     setSelectedTranscript(sessionId);
     setQaCollapsed(false);
+  };
+
+  const handleCallInitiated = (data: { clientName: string; purpose: string }) => {
+    const newId = `VS-${String(SESSIONS.length + dynamicSessions.length + 1).padStart(3, '0')}`;
+    const newSession: VoiceSession = {
+      id: newId,
+      client: data.clientName,
+      status: 'Queued',
+      duration: '0m 0s',
+      advisor: 'Auto-assigned',
+      purpose: data.purpose,
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      qaScore: 0,
+      tcpaConsent: 'verified',
+      transcript: '',
+    };
+    setDynamicSessions((prev) => [newSession, ...prev]);
+    showToast(`Call initiated — ${data.clientName} · ${data.purpose}`);
+    setInitiateCallOpen(false);
+
+    // Auto-transition from Queued to Active after 5 seconds
+    setTimeout(() => {
+      setDynamicSessions((prev) =>
+        prev.map((s) => (s.id === newId ? { ...s, status: 'Active' as SessionStatus } : s)),
+      );
+    }, 5000);
   };
 
   // ── Render waveform bars ─────────────────────────────────
@@ -1164,6 +1196,12 @@ export default function VoiceForgePage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setInitiateCallOpen(true)}
+              className="px-4 py-2 text-sm font-semibold rounded-lg bg-amber-500 text-gray-950 hover:bg-amber-400 transition-colors"
+            >
+              + Initiate Call
+            </button>
             <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
               Mock Mode
@@ -1196,7 +1234,15 @@ export default function VoiceForgePage() {
         <section className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
             <h2 className="text-base font-semibold text-white">Active Voice Sessions</h2>
-            <span className="text-xs text-gray-500">{SESSIONS.length} sessions</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setInitiateCallOpen(true)}
+                className="px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md hover:bg-amber-500/20 transition-colors"
+              >
+                + New Call
+              </button>
+              <span className="text-xs text-gray-500">{SESSIONS.length + dynamicSessions.length} sessions</span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1213,6 +1259,23 @@ export default function VoiceForgePage() {
                 </tr>
               </thead>
               <tbody>
+                {dynamicSessions.map((s) => (
+                  <tr key={s.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+                    <td className="px-5 py-3 font-medium text-white">{s.client}</td>
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${statusBadge(s.status)}`}>
+                        {s.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{s.duration}</td>
+                    <td className="px-5 py-3 text-gray-300">{s.advisor}</td>
+                    <td className="px-5 py-3 text-gray-400">{s.purpose}</td>
+                    <td className="px-5 py-3">
+                      <span className="text-emerald-400 text-xs font-medium">{'\u2713'} Verified</span>
+                    </td>
+                    <td className="px-5 py-3 text-right text-xs text-gray-500">—</td>
+                  </tr>
+                ))}
                 {SESSIONS.map((s) => (
                   <>
                     <tr key={s.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
@@ -1564,6 +1627,13 @@ export default function VoiceForgePage() {
           )}
         </section>
       </main>
+
+      {/* ── Initiate Call Modal ─────────────────────────────────── */}
+      <InitiateCallModal
+        open={initiateCallOpen}
+        onClose={() => setInitiateCallOpen(false)}
+        onCallInitiated={handleCallInitiated}
+      />
 
       {/* ── Global animation styles ────────────────────────────── */}
       <style jsx global>{`
