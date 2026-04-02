@@ -17,7 +17,7 @@ import PartnerScorecard from '../../components/modules/partner-scorecard';
 // Types
 // ---------------------------------------------------------------------------
 
-type PartnerType = 'referral' | 'broker' | 'processor' | 'attorney';
+type PartnerType = 'referral' | 'broker' | 'processor' | 'attorney' | 'credit_union';
 type DueDiligenceStatus = 'pending' | 'in_review' | 'approved' | 'flagged' | 'expired';
 
 interface Partner {
@@ -43,6 +43,7 @@ interface Partner {
   riskTier?: string;
   certifications?: string[];
   reviewCycle?: string;
+  membersReferred?: number;
 }
 
 interface Subprocessor {
@@ -205,6 +206,56 @@ const PLACEHOLDER_PARTNERS: Partner[] = [
     certifications: ['SOC 2'],
     reviewCycle: 'Semi-annual',
   },
+  {
+    id: 'prt_007',
+    name: 'Navy Federal CU',
+    type: 'credit_union',
+    complianceScore: 88,
+    complaintsScore: 91,
+    dueDiligenceScore: 85,
+    contractScore: 90,
+    dueDiligenceStatus: 'approved',
+    nextReviewDate: '2026-11-15',
+    contactName: 'Lt. Cmdr. Amy Reeves',
+    contactEmail: 'areeves@navyfederal.org',
+    jurisdiction: 'VA',
+    activeContracts: 2,
+    totalFeesPaid: 98500,
+    phone: '(703) 555-0188',
+    website: 'navyfederal.org',
+    services: ['Loan Origination', 'Credit Analysis'],
+    feeStructure: '% of funding',
+    referralCode: 'NFCU-2026-G1',
+    riskTier: 'Low',
+    certifications: ['SOC 2', 'NCUA Certified'],
+    reviewCycle: 'Annual',
+    membersReferred: 1247,
+  },
+  {
+    id: 'prt_008',
+    name: 'PenFed CU',
+    type: 'credit_union',
+    complianceScore: 82,
+    complaintsScore: 85,
+    dueDiligenceScore: 80,
+    contractScore: 84,
+    dueDiligenceStatus: 'approved',
+    nextReviewDate: '2026-10-01',
+    contactName: 'David Nguyen',
+    contactEmail: 'dnguyen@penfed.org',
+    jurisdiction: 'VA',
+    activeContracts: 1,
+    totalFeesPaid: 54200,
+    phone: '(571) 555-0234',
+    website: 'penfed.org',
+    services: ['Loan Origination', 'Underwriting'],
+    feeStructure: 'Flat fee',
+    referralCode: 'PFC-2026-H4',
+    riskTier: 'Low',
+    certifications: ['SOC 2'],
+    reviewCycle: 'Semi-annual',
+    membersReferred: 834,
+  },
 ];
 
 const PLACEHOLDER_SUBPROCESSORS: Subprocessor[] = [
@@ -264,7 +315,7 @@ const PLACEHOLDER_SUBPROCESSORS: Subprocessor[] = [
 // Constants
 // ---------------------------------------------------------------------------
 
-const PARTNER_TYPES: PartnerType[] = ['referral', 'broker', 'processor', 'attorney'];
+const PARTNER_TYPES: PartnerType[] = ['referral', 'broker', 'processor', 'attorney', 'credit_union'];
 const DD_STATUSES: DueDiligenceStatus[] = ['pending', 'in_review', 'approved', 'flagged', 'expired'];
 
 const ALL_SERVICES = [
@@ -303,7 +354,8 @@ const PARTNER_TYPE_CONFIG: Record<PartnerType, { label: string; badgeClass: stri
   referral:  { label: 'Referral',  badgeClass: 'bg-blue-900 text-blue-300 border-blue-700' },
   broker:    { label: 'Broker',    badgeClass: 'bg-purple-900 text-purple-300 border-purple-700' },
   processor: { label: 'Processor', badgeClass: 'bg-amber-900 text-amber-300 border-amber-700' },
-  attorney:  { label: 'Attorney',  badgeClass: 'bg-teal-900 text-teal-300 border-teal-700' },
+  attorney:     { label: 'Attorney',     badgeClass: 'bg-teal-900 text-teal-300 border-teal-700' },
+  credit_union: { label: 'Credit Union', badgeClass: 'bg-cyan-900 text-cyan-300 border-cyan-700' },
 };
 
 const DD_STATUS_CONFIG: Record<DueDiligenceStatus, { label: string; badgeClass: string }> = {
@@ -1283,6 +1335,11 @@ export default function PartnersPage() {
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${PARTNER_TYPE_CONFIG[partner.type].badgeClass}`}>
                             {PARTNER_TYPE_CONFIG[partner.type].label}
                           </span>
+                          {partner.type === 'credit_union' && (
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full border bg-teal-800 text-teal-200 border-teal-600">
+                              CU
+                            </span>
+                          )}
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${DD_STATUS_CONFIG[partner.dueDiligenceStatus].badgeClass}`}>
                             {DD_STATUS_CONFIG[partner.dueDiligenceStatus].label}
                           </span>
@@ -1296,6 +1353,9 @@ export default function PartnersPage() {
                           <span>{partner.contactName}</span>
                           <span>{partner.jurisdiction}</span>
                           <span>{partner.activeContracts} contract{partner.activeContracts !== 1 ? 's' : ''}</span>
+                          {partner.type === 'credit_union' && partner.membersReferred != null && (
+                            <span className="text-cyan-400 font-semibold">Members Referred: {partner.membersReferred.toLocaleString()}</span>
+                          )}
                           <span>Review: {formatDate(partner.nextReviewDate)}</span>
                         </div>
                       </div>

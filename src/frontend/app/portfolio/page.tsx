@@ -342,6 +342,43 @@ function ApprovalBenchmarks() {
           </table>
         </div>
       </div>
+
+      {/* Approval Rate by Issuer Type */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-800">
+          <h3 className="text-sm font-semibold text-gray-200">Approval Rate by Issuer Type</h3>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* Credit Unions */}
+          <div>
+            <div className="flex items-center justify-between text-sm mb-1">
+              <span className="text-gray-300">Credit Unions</span>
+              <span className="font-bold text-emerald-400 tabular-nums">71%</span>
+            </div>
+            <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full" style={{ width: '71%' }} />
+            </div>
+          </div>
+          {/* Major Banks */}
+          <div>
+            <div className="flex items-center justify-between text-sm mb-1">
+              <span className="text-gray-300">Major Banks</span>
+              <span className="font-bold text-blue-400 tabular-nums">65%</span>
+            </div>
+            <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full" style={{ width: '65%' }} />
+            </div>
+          </div>
+          {/* Combined */}
+          <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-800">
+            <span className="text-gray-400">All Issuers (Combined)</span>
+            <span className="font-bold text-gray-200 tabular-nums">67%</span>
+          </div>
+          <p className="text-xs text-teal-400 italic">
+            CU approval rate exceeds bank rate by 6 percentage points
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -942,6 +979,34 @@ export default function PortfolioPage() {
           <button className="px-4 py-2 rounded-lg border border-gray-700 text-gray-300 text-sm font-medium hover:bg-gray-800 transition-colors">
             Export Report
           </button>
+        </div>
+      </div>
+
+      {/* ── KPI Cards ──────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Overall Approval</p>
+          <p className="text-2xl font-black text-emerald-400">67%</p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Active Issuers</p>
+          <p className="text-2xl font-black text-gray-100">7</p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Avg FICO</p>
+          <p className="text-2xl font-black text-blue-400">714</p>
+        </div>
+        {/* CU vs Bank Mix */}
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">CU vs Bank Mix</p>
+          <p className="text-2xl font-black text-teal-400">CU Mix: 22%</p>
+          <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden mt-2">
+            <div className="h-full rounded-full flex">
+              <div className="h-full bg-teal-500" style={{ width: '22%' }} />
+              <div className="h-full bg-blue-500" style={{ width: '78%' }} />
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-500 mt-1">Target: 20-30%</p>
         </div>
       </div>
 
