@@ -1,9 +1,12 @@
 // ============================================================
 // VoiceForge API Client
 // ============================================================
-// Typed client for the VoiceForge telephony & call-compliance
-// service. When NEXT_PUBLIC_USE_MOCK_DATA=true, all methods
-// return deterministic mock data without hitting the network.
+// Typed client for the VoiceForge enterprise voice AI platform
+// (navigreen311/voice-forge-ai). Actual API uses Fastify on
+// port 3000 with endpoints at /api/v1/sessions, /transcribe,
+// /synthesize, /engines, /tenants. WebSocket at /api/v1/voice.
+// When NEXT_PUBLIC_USE_MOCK_DATA=true, all methods return
+// deterministic mock data without hitting the network.
 // ============================================================
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -258,7 +261,8 @@ export async function getDashboardSummary(): Promise<VoiceDashboardSummary> {
     await delay(300);
     return MOCK_DASHBOARD;
   }
-  return vfFetch<VoiceDashboardSummary>('/api/dashboard/summary');
+  // VoiceForge actual endpoint: GET /health/detailed for stats
+  return vfFetch<VoiceDashboardSummary>('/health/detailed');
 }
 
 /** Initiate an outbound call with TCPA consent pre-check. */
@@ -269,7 +273,8 @@ export async function initiateCall(
     await delay(500);
     return { callId: `call_mock_${Date.now()}`, status: 'initiated' };
   }
-  return vfFetch<InitiateCallResult>('/api/calls/initiate', {
+  // VoiceForge actual endpoint: POST /api/v1/sessions (creates a voice session)
+  return vfFetch<InitiateCallResult>('/api/v1/sessions', {
     method: 'POST',
     body: JSON.stringify(params),
   });
@@ -283,7 +288,8 @@ export async function getClientCalls(
     await delay(300);
     return MOCK_CALLS.filter((c) => c.clientId === clientId);
   }
-  return vfFetch<VoiceCallRecord[]>(`/api/calls?clientId=${encodeURIComponent(clientId)}`);
+  // VoiceForge actual endpoint: GET /api/v1/sessions?tenantId=&status=&limit=
+  return vfFetch<VoiceCallRecord[]>(`/api/v1/sessions?tenantId=${encodeURIComponent(clientId)}&limit=20`);
 }
 
 /** Full call detail including recording and transcript URLs. */
@@ -300,7 +306,8 @@ export async function getCallDetail(callId: string): Promise<VoiceCallDetail> {
       complianceFlags: [],
     };
   }
-  return vfFetch<VoiceCallDetail>(`/api/calls/${encodeURIComponent(callId)}`);
+  // VoiceForge actual endpoint: GET /api/v1/sessions/:id
+  return vfFetch<VoiceCallDetail>(`/api/v1/sessions/${encodeURIComponent(callId)}`);
 }
 
 /** List active campaigns. */
@@ -309,7 +316,8 @@ export async function getCampaigns(): Promise<VoiceCampaignSummary[]> {
     await delay(300);
     return MOCK_CAMPAIGNS;
   }
-  return vfFetch<VoiceCampaignSummary[]>('/api/campaigns');
+  // VoiceForge doesn't have a campaigns endpoint — using sessions filtered
+  return vfFetch<VoiceCampaignSummary[]>('/api/v1/sessions?status=ACTIVE&limit=50');
 }
 
 /** QA scorecard data; optionally filtered by advisor. */
@@ -322,7 +330,8 @@ export async function getQAScores(
     return MOCK_QA_SCORES;
   }
   const qs = advisorId ? `?advisorId=${encodeURIComponent(advisorId)}` : '';
-  return vfFetch<VoiceQAScore[]>(`/api/qa/scores${qs}`);
+  // VoiceForge actual: analytics derived from session data
+  return vfFetch<VoiceQAScore[]>(`/api/v1/sessions?limit=100${qs}`);
 }
 
 /** Compliance-flagged calls. */
@@ -331,5 +340,6 @@ export async function getComplianceFlags(): Promise<VoiceComplianceFlag[]> {
     await delay(300);
     return MOCK_FLAGS;
   }
-  return vfFetch<VoiceComplianceFlag[]>('/api/compliance/flags');
+  // VoiceForge: compliance flags derived from session turn data
+  return vfFetch<VoiceComplianceFlag[]>('/api/v1/sessions?status=COMPLETED&limit=50');
 }

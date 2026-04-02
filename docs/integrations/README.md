@@ -6,7 +6,7 @@ CapitalForge integrates with two companion micro-services for telephony and docu
 
 | Service | Purpose | Default URL |
 |---------|---------|-------------|
-| **VoiceForge** | Outbound calls, call compliance, QA scoring, campaigns | `http://localhost:3001` |
+| **VoiceForge** (navigreen311/voice-forge-ai) | Enterprise voice AI platform — real-time voice conversations via WebSocket, ASR (Faster-Whisper/DeepGram), LLM (Claude), TTS (ElevenLabs/Piper/XTTS), compliance (PII redaction, consent, watermarking), multi-tenant | `http://localhost:3000` (Fastify) |
 | **VisionAudioForge** | OCR/document parsing, KYC verification, evidence bundles | `http://localhost:3002` |
 
 Both clients support a **mock mode** (`NEXT_PUBLIC_USE_MOCK_DATA=true`) that returns deterministic sample data without requiring the external services to be running.
