@@ -18,6 +18,8 @@ export interface FunnelStage {
 interface PipelineFunnelProps {
   stages: FunnelStage[];
   className?: string;
+  onStageClick?: (key: string) => void;
+  selectedStage?: string | null;
 }
 
 // ─── Color interpolation (navy → gold) ───────────────────────────────────────
@@ -62,9 +64,11 @@ interface StageBarProps {
   maxCount: number;
   index: number;
   totalStages: number;
+  onClick?: () => void;
+  selected?: boolean;
 }
 
-function StageBar({ stage, maxCount, index, totalStages }: StageBarProps) {
+function StageBar({ stage, maxCount, index, totalStages, onClick, selected }: StageBarProps) {
   // Width shrinks from 100% (index 0) to 52% (last stage)
   const minWidthPct = 52;
   const widthPct = 100 - ((100 - minWidthPct) / (totalStages - 1)) * index;
@@ -73,10 +77,13 @@ function StageBar({ stage, maxCount, index, totalStages }: StageBarProps) {
 
   return (
     <div
-      className="mx-auto rounded-lg flex items-center justify-between px-5 py-3 transition-all duration-300"
+      className={`mx-auto rounded-lg flex items-center justify-between px-5 py-3 transition-all duration-300 ${
+        onClick ? 'cursor-pointer hover:brightness-125' : ''
+      } ${selected ? 'ring-2 ring-[#C9A84C] ring-offset-1 ring-offset-gray-900' : ''}`}
       style={{ width: `${widthPct}%`, backgroundColor: bgColor }}
       role="listitem"
       aria-label={`${stage.label}: ${stage.count} clients`}
+      onClick={onClick}
     >
       {/* Left: label */}
       <div>
@@ -103,7 +110,7 @@ function StageBar({ stage, maxCount, index, totalStages }: StageBarProps) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function PipelineFunnel({ stages, className = '' }: PipelineFunnelProps) {
+export default function PipelineFunnel({ stages, className = '', onStageClick, selectedStage }: PipelineFunnelProps) {
   const maxCount = Math.max(...stages.map((s) => s.count), 1);
 
   return (
@@ -119,6 +126,8 @@ export default function PipelineFunnel({ stages, className = '' }: PipelineFunne
             maxCount={maxCount}
             index={i}
             totalStages={stages.length}
+            onClick={onStageClick ? () => onStageClick(stage.key) : undefined}
+            selected={selectedStage === stage.key}
           />
           {i < stages.length - 1 && (
             <ConversionArrow from={stage.count} to={stages[i + 1].count} />

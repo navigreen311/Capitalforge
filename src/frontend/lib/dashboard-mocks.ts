@@ -18,6 +18,7 @@ import { getHardshipCompDocsMockData } from './hardship-compliance-docs-contract
 import { getDiscCompRegMockData } from './disclosures-complaints-regulatory-mocks';
 import { getCommTrainDealMockData } from './comm-training-deal-mocks';
 import { getDecFLAIMockData } from './decisions-fairlending-aigovernance-mocks';
+import { getCrmPortfolioPartnersMockData } from './crm-portfolio-partners-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -833,6 +834,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/hardship') || endpoint.includes('/compliance') || endpoint.includes('/documents') || endpoint.includes('/contracts')) {
     const hcdcData = getHardshipCompDocsMockData(endpoint);
     if (hcdcData !== null) return hcdcData;
+  }
+
+  // Fall through to CRM, portfolio analytics, and partners mocks
+  if (endpoint.includes('/crm/') || endpoint.includes('/analytics/') || endpoint.includes('/partners/')) {
+    const crmData = getCrmPortfolioPartnersMockData(endpoint);
+    if (crmData !== null) return crmData;
   }
 
   // Fall through to client detail mocks for /api/v1/clients/* paths
