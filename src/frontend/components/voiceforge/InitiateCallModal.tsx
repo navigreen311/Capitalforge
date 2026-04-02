@@ -1,44 +1,62 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { FocusTrap } from '@/components/ui/focus-trap';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface InitiateCallModalProps {
-  /** Primary open flag — supports both `isOpen` and `open` */
   isOpen?: boolean;
-  /** Alias for isOpen */
   open?: boolean;
   onClose: () => void;
   prefilledClientId?: string;
   prefilledClientName?: string;
-  /** Alias for prefilledClientName */
   defaultClientName?: string;
   lockClient?: boolean;
-  /** Default purpose selection */
   defaultPurpose?: string;
-  /** Lock purpose dropdown so user cannot change it */
   lockPurpose?: boolean;
   onCallInitiated?: (data: { clientName: string; purpose: string }) => void;
 }
 
 const PURPOSES = [
   'APR Expiry Warning',
-  'Re-Stack Consultation',
   'Payment Reminder',
-  'Onboarding Welcome',
-  'Compliance Follow-up',
-  'Account Review',
+  'Re-Stack Consultation',
+  'Annual Review',
+  'Recon Follow-Up',
+  'Compliance Call',
+  'General Relationship Call',
   'Custom',
 ] as const;
 
 const ADVISORS = [
   'Sarah Chen',
   'Marcus Webb',
-  'David Kim',
-  'Emily Rodriguez',
+  'Jordan Mitchell',
+  'Sam Delgado',
+  'Alex Morgan (Admin)',
 ] as const;
+
+// ─── Shared dark input style ────────────────────────────────────────────────
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 12px',
+  borderRadius: '8px',
+  backgroundColor: '#1A2535',
+  border: '1px solid rgba(255,255,255,0.15)',
+  color: '#FFFFFF',
+  fontSize: '14px',
+  outline: 'none',
+  appearance: 'auto' as const,
+  colorScheme: 'dark',
+  marginTop: '6px',
+};
+
+const labelStyle: React.CSSProperties = {
+  color: '#9CA3AF',
+  fontSize: '13px',
+  fontWeight: 500,
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -46,7 +64,6 @@ export function InitiateCallModal({
   isOpen: isOpenProp,
   open: openProp,
   onClose,
-  prefilledClientId,
   prefilledClientName,
   defaultClientName,
   lockClient = false,
@@ -64,7 +81,6 @@ export function InitiateCallModal({
   const [initiating, setInitiating] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  // Reset form when modal opens
   useEffect(() => {
     if (isOpen) {
       setClientName(resolvedClientName);
@@ -74,7 +90,6 @@ export function InitiateCallModal({
     }
   }, [isOpen, resolvedClientName, resolvedPurpose]);
 
-  // Prevent body scroll while open
   useEffect(() => {
     if (!isOpen) return;
     const prev = document.body.style.overflow;
@@ -82,10 +97,16 @@ export function InitiateCallModal({
     return () => { document.body.style.overflow = prev; };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isOpen, onClose]);
+
   const handleInitiate = useCallback(async () => {
     if (!clientName.trim()) return;
     setInitiating(true);
-    // Simulate API call
     await new Promise((r) => setTimeout(r, 800));
     setInitiating(false);
     onCallInitiated?.({ clientName, purpose });
@@ -97,96 +118,112 @@ export function InitiateCallModal({
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
       onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
     >
-      <FocusTrap active={isOpen} onEscape={onClose}>
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-          {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-gray-900">📞 Initiate Call</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-              aria-label="Close"
-            >
-              ×
-            </button>
+      <div
+        className="relative w-full max-w-lg mx-4 rounded-xl overflow-hidden"
+        style={{ backgroundColor: '#0F1923', border: '1px solid rgba(255,255,255,0.1)' }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '20px 24px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+          <span style={{ fontSize: '18px' }}>📞</span>
+          <h2 style={{ color: '#FFFFFF', fontSize: '18px', fontWeight: 600, margin: 0 }}>
+            Initiate Call
+          </h2>
+          <button
+            onClick={onClose}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#9CA3AF', fontSize: '20px', cursor: 'pointer', lineHeight: 1 }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Client */}
+          <div>
+            <label style={labelStyle}>Client</label>
+            {lockClient ? (
+              <div style={{ ...inputStyle, opacity: 0.7, cursor: 'not-allowed' }}>
+                {clientName}
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                placeholder="Enter client name..."
+                style={inputStyle}
+              />
+            )}
           </div>
 
-          {/* Body */}
-          <div className="px-6 py-5 space-y-4">
-            {/* Client */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Client</label>
-              {lockClient ? (
-                <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
-                  {clientName}
-                </div>
-              ) : (
-                <input
-                  type="text"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Enter client name..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold/40 focus:border-brand-gold"
-                />
-              )}
-            </div>
-
-            {/* Purpose */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Purpose</label>
-              {lockPurpose ? (
-                <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
-                  {purpose}
-                </div>
-              ) : (
-                <select
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold/40 focus:border-brand-gold bg-white"
-                >
-                  {PURPOSES.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            {/* Advisor */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Advisor</label>
+          {/* Purpose */}
+          <div>
+            <label style={labelStyle}>Purpose</label>
+            {lockPurpose ? (
+              <div style={{ ...inputStyle, opacity: 0.7, cursor: 'not-allowed' }}>
+                {purpose}
+              </div>
+            ) : (
               <select
-                value={advisor}
-                onChange={(e) => setAdvisor(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold/40 focus:border-brand-gold bg-white"
+                value={purpose}
+                onChange={(e) => setPurpose(e.target.value)}
+                style={inputStyle}
               >
-                {ADVISORS.map((a) => (
-                  <option key={a} value={a}>{a}</option>
+                {PURPOSES.map((p) => (
+                  <option key={p} value={p}>{p}</option>
                 ))}
               </select>
-            </div>
+            )}
           </div>
 
-          {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800 transition-colors"
+          {/* Advisor */}
+          <div>
+            <label style={labelStyle}>Advisor</label>
+            <select
+              value={advisor}
+              onChange={(e) => setAdvisor(e.target.value)}
+              style={inputStyle}
             >
-              Cancel
-            </button>
-            <button
-              onClick={handleInitiate}
-              disabled={initiating || !clientName.trim()}
-              className="px-5 py-2 text-sm font-bold rounded-lg bg-brand-gold text-brand-navy hover:bg-brand-gold/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {initiating ? 'Initiating…' : '📞 Start Call'}
-            </button>
+              {ADVISORS.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
           </div>
         </div>
-      </FocusTrap>
+
+        {/* Footer */}
+        <div style={{ display: 'flex', gap: '12px', padding: '16px 24px 20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1, padding: '10px', borderRadius: '8px',
+              background: 'transparent', border: '1px solid rgba(255,255,255,0.2)',
+              color: '#9CA3AF', fontSize: '14px', cursor: 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleInitiate}
+            disabled={initiating || !clientName.trim()}
+            style={{
+              flex: 1, padding: '10px', borderRadius: '8px',
+              background: initiating || !clientName.trim() ? '#6B5A2A' : '#C9A84C',
+              border: 'none', color: '#0A1628', fontSize: '14px', fontWeight: 600,
+              cursor: initiating || !clientName.trim() ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              opacity: initiating || !clientName.trim() ? 0.5 : 1,
+            }}
+          >
+            {initiating ? 'Initiating…' : '📞 Start Call'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
