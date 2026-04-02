@@ -2,6 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  // Disable the Next.js dev overlay indicator ("1 Issue" red badge)
+  // so it doesn't appear during demos or confuse stakeholders.
+  devIndicators: false,
+
   async rewrites() {
     return [
       {
