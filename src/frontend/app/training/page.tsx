@@ -23,6 +23,14 @@ interface Module {
   title: string;
   durationMin: number;
   completed: boolean;
+  completedAt?: string;
+}
+
+interface AdvisorProgress {
+  name: string;
+  completedModules: number;
+  totalModules: number;
+  overdue: boolean;
 }
 
 interface CertTrack {
@@ -35,6 +43,7 @@ interface CertTrack {
   completedAt?: string;
   expiresAt?: string;
   assignedTo: string[];
+  advisorProgress?: AdvisorProgress[];
 }
 
 interface TrainingGap {
@@ -53,6 +62,8 @@ interface BannedClaim {
   rule: string;
   enforcementCases: EnforcementCase[];
   severity: 'critical' | 'high' | 'medium';
+  prohibition: string;
+  compliantAlternative: string;
 }
 
 interface EnforcementCase {
@@ -61,11 +72,22 @@ interface EnforcementCase {
   entity: string;
   penalty: string;
   summary: string;
+  source?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Placeholder data
 // ---------------------------------------------------------------------------
+
+const ADVISORS = ['Jordan M.', 'Casey R.', 'Alex T.', 'Morgan P.'];
+
+const CLIENTS = [
+  { id: 'cl_all', name: 'All Clients' },
+  { id: 'cl_001', name: 'Apex Commercial Group' },
+  { id: 'cl_002', name: 'BrightPath Enterprises' },
+  { id: 'cl_003', name: 'Summit Capital Holdings' },
+  { id: 'cl_004', name: 'Vanguard Merchant Solutions' },
+];
 
 const PLACEHOLDER_TRACKS: CertTrack[] = [
   {
@@ -74,16 +96,21 @@ const PLACEHOLDER_TRACKS: CertTrack[] = [
     title: 'New Advisor Onboarding',
     description: 'Foundational compliance, UDAP principles, and CapitalForge platform certification. Required within 30 days of hire.',
     modules: [
-      { id: 'm_001a', title: 'Introduction to Commercial Lending Compliance', durationMin: 45, completed: true },
-      { id: 'm_001b', title: 'UDAP & FTC Guidelines for Financial Products', durationMin: 60, completed: true },
-      { id: 'm_001c', title: 'KYB / KYC Procedures', durationMin: 30, completed: true },
-      { id: 'm_001d', title: 'Banned Claims & Approved Language', durationMin: 40, completed: true },
-      { id: 'm_001e', title: 'Platform Tools & Workflow Certification', durationMin: 25, completed: true },
+      { id: 'm_001a', title: 'Introduction to Commercial Lending Compliance', durationMin: 45, completed: true, completedAt: '2026-01-10' },
+      { id: 'm_001b', title: 'UDAP & FTC Guidelines for Financial Products', durationMin: 60, completed: true, completedAt: '2026-01-11' },
+      { id: 'm_001c', title: 'KYB / KYC Procedures', durationMin: 30, completed: true, completedAt: '2026-01-12' },
+      { id: 'm_001d', title: 'Banned Claims & Approved Language', durationMin: 40, completed: true, completedAt: '2026-01-13' },
+      { id: 'm_001e', title: 'Platform Tools & Workflow Certification', durationMin: 25, completed: true, completedAt: '2026-01-15' },
     ],
     status: 'complete',
     completedAt: '2026-01-15',
     expiresAt: '2027-01-15',
     assignedTo: ['Jordan M.', 'Casey R.', 'Alex T.'],
+    advisorProgress: [
+      { name: 'Jordan M.', completedModules: 5, totalModules: 5, overdue: false },
+      { name: 'Casey R.', completedModules: 5, totalModules: 5, overdue: false },
+      { name: 'Alex T.', completedModules: 5, totalModules: 5, overdue: false },
+    ],
   },
   {
     id: 'track_002',
@@ -91,8 +118,8 @@ const PLACEHOLDER_TRACKS: CertTrack[] = [
     title: 'Annual Compliance Recertification',
     description: 'Mandatory yearly recertification covering regulatory updates, state law changes, and refreshed banned claims library.',
     modules: [
-      { id: 'm_002a', title: '2026 Regulatory Updates — SB 1235 & CFDL', durationMin: 50, completed: true },
-      { id: 'm_002b', title: 'State Law Changes: CA, NY, TX, FL', durationMin: 40, completed: true },
+      { id: 'm_002a', title: '2026 Regulatory Updates — SB 1235 & CFDL', durationMin: 50, completed: true, completedAt: '2026-02-20' },
+      { id: 'm_002b', title: 'State Law Changes: CA, NY, TX, FL', durationMin: 40, completed: true, completedAt: '2026-03-01' },
       { id: 'm_002c', title: 'Banned Claims Library — Annual Refresh', durationMin: 35, completed: false },
       { id: 'm_002d', title: 'TCPA & Consent Management Updates', durationMin: 30, completed: false },
       { id: 'm_002e', title: 'Assessment & Certification Exam', durationMin: 20, completed: false },
@@ -100,6 +127,12 @@ const PLACEHOLDER_TRACKS: CertTrack[] = [
     status: 'in_progress',
     expiresAt: '2026-06-30',
     assignedTo: ['Jordan M.', 'Casey R.', 'Alex T.', 'Morgan P.'],
+    advisorProgress: [
+      { name: 'Jordan M.', completedModules: 3, totalModules: 5, overdue: false },
+      { name: 'Casey R.', completedModules: 2, totalModules: 5, overdue: false },
+      { name: 'Alex T.', completedModules: 2, totalModules: 5, overdue: false },
+      { name: 'Morgan P.', completedModules: 0, totalModules: 5, overdue: true },
+    ],
   },
   {
     id: 'track_003',
@@ -114,6 +147,9 @@ const PLACEHOLDER_TRACKS: CertTrack[] = [
     ],
     status: 'not_started',
     assignedTo: ['Jordan M.'],
+    advisorProgress: [
+      { name: 'Jordan M.', completedModules: 0, totalModules: 4, overdue: false },
+    ],
   },
   {
     id: 'track_004',
@@ -121,14 +157,17 @@ const PLACEHOLDER_TRACKS: CertTrack[] = [
     title: 'Annual Compliance Recertification — 2025',
     description: 'Prior year annual recertification. Now expired — renewal required.',
     modules: [
-      { id: 'm_004a', title: '2025 Regulatory Updates', durationMin: 45, completed: true },
-      { id: 'm_004b', title: 'Banned Claims Refresh 2025', durationMin: 30, completed: true },
-      { id: 'm_004c', title: 'Assessment & Certification Exam', durationMin: 20, completed: true },
+      { id: 'm_004a', title: '2025 Regulatory Updates', durationMin: 45, completed: true, completedAt: '2025-03-15' },
+      { id: 'm_004b', title: 'Banned Claims Refresh 2025', durationMin: 30, completed: true, completedAt: '2025-03-28' },
+      { id: 'm_004c', title: 'Assessment & Certification Exam', durationMin: 20, completed: true, completedAt: '2025-04-10' },
     ],
     status: 'expired',
     completedAt: '2025-04-10',
     expiresAt: '2026-03-01',
     assignedTo: ['Morgan P.'],
+    advisorProgress: [
+      { name: 'Morgan P.', completedModules: 3, totalModules: 3, overdue: true },
+    ],
   },
 ];
 
@@ -166,9 +205,11 @@ const PLACEHOLDER_BANNED_CLAIMS: BannedClaim[] = [
     category: 'Approval Language',
     rule: 'UDAP §5 — FTC Act',
     severity: 'critical',
+    prohibition: 'No financial product may be advertised with absolute certainty of approval. The term "guaranteed" implies a binding promise that the lender cannot substantiate, as all funding decisions involve underwriting criteria, credit assessment, and risk evaluation that may result in denial.',
+    compliantAlternative: 'We offer competitive funding options with high approval rates for qualified businesses. Subject to underwriting review and approval.',
     enforcementCases: [
-      { authority: 'CFPB', year: 2023, entity: 'Fast Capital LLC', penalty: '$1.2M', summary: 'Consent order for advertising "guaranteed funding in 24 hours" without substantiation.' },
-      { authority: 'FTC', year: 2022, entity: 'EasyFund Partners', penalty: '$870K', summary: 'Civil penalty for deceptive guarantee claims targeting small business borrowers.' },
+      { authority: 'CFPB', year: 2023, entity: 'Fast Capital LLC', penalty: '$1.2M', summary: 'Consent order for advertising "guaranteed funding in 24 hours" without substantiation.', source: 'https://www.consumerfinance.gov/enforcement' },
+      { authority: 'FTC', year: 2022, entity: 'EasyFund Partners', penalty: '$870K', summary: 'Civil penalty for deceptive guarantee claims targeting small business borrowers.', source: 'https://www.ftc.gov/enforcement' },
     ],
   },
   {
@@ -177,8 +218,10 @@ const PLACEHOLDER_BANNED_CLAIMS: BannedClaim[] = [
     category: 'Rate & APR Claims',
     rule: 'Reg Z / SB 1235 (CA)',
     severity: 'critical',
+    prohibition: 'Advertising 0% APR without clearly disclosing the qualifying conditions, revert rate, promotional period length, and all applicable fees violates Truth in Lending Act requirements and state disclosure laws. All rate claims must include the full cost of credit.',
+    compliantAlternative: 'Introductory rate of 0% APR for the first 6 months for qualified applicants. Standard rate of X.XX% APR applies after the introductory period. See full terms and conditions.',
     enforcementCases: [
-      { authority: 'CFPB', year: 2024, entity: 'NovaBridge Capital', penalty: '$2.1M', summary: 'Advertised 0% APR without disclosing revert rate or qualifying conditions. Consent order issued.' },
+      { authority: 'CFPB', year: 2024, entity: 'NovaBridge Capital', penalty: '$2.1M', summary: 'Advertised 0% APR without disclosing revert rate or qualifying conditions. Consent order issued.', source: 'https://www.consumerfinance.gov/enforcement' },
     ],
   },
   {
@@ -187,8 +230,10 @@ const PLACEHOLDER_BANNED_CLAIMS: BannedClaim[] = [
     category: 'Credit Inquiry Claims',
     rule: 'FCRA §604',
     severity: 'high',
+    prohibition: 'Claiming "no credit check" when the lender performs hard credit inquiries is a material misrepresentation. Under FCRA, consumers must be informed of the nature of credit inquiries. Soft pulls may be accurately described but must be distinguished from hard inquiries.',
+    compliantAlternative: 'Initial pre-qualification uses a soft credit inquiry that does not affect your credit score. A full credit review may be required for final approval.',
     enforcementCases: [
-      { authority: 'CFPB', year: 2023, entity: 'QuickStack Pro', penalty: '$450K', summary: '"No credit check required" used when hard pulls were being performed. FCRA violation.' },
+      { authority: 'CFPB', year: 2023, entity: 'QuickStack Pro', penalty: '$450K', summary: '"No credit check required" used when hard pulls were being performed. FCRA violation.', source: 'https://www.consumerfinance.gov/enforcement' },
     ],
   },
   {
@@ -197,8 +242,10 @@ const PLACEHOLDER_BANNED_CLAIMS: BannedClaim[] = [
     category: 'Superlative Claims',
     rule: 'FTC Advertising Guides',
     severity: 'high',
+    prohibition: 'Superlative claims such as "lowest," "best," or "cheapest" require objective substantiation through comparative market data. Without such evidence, these claims are considered deceptive under FTC advertising guidelines.',
+    compliantAlternative: 'We offer competitive rates tailored to your business profile. Request a personalized quote to compare your options.',
     enforcementCases: [
-      { authority: 'FTC', year: 2021, entity: 'PrimeRate Connect', penalty: '$330K', summary: 'Unsubstantiated "lowest rates" claim in digital advertising. Warning and fine issued.' },
+      { authority: 'FTC', year: 2021, entity: 'PrimeRate Connect', penalty: '$330K', summary: 'Unsubstantiated "lowest rates" claim in digital advertising. Warning and fine issued.', source: 'https://www.ftc.gov/enforcement' },
     ],
   },
   {
@@ -207,8 +254,10 @@ const PLACEHOLDER_BANNED_CLAIMS: BannedClaim[] = [
     category: 'Pre-Approval Language',
     rule: 'FCRA §615 — Firm Offer of Credit',
     severity: 'high',
+    prohibition: 'Using "pre-approved" language without meeting the FCRA firm offer of credit requirements is prohibited. A firm offer must be based on prescreened consumer data and must include required disclosures, opt-out notices, and cannot be conditioned on criteria not used in the prescreening.',
+    compliantAlternative: 'Based on your business profile, you may qualify for funding options up to $X. Final terms subject to full application review and approval.',
     enforcementCases: [
-      { authority: 'CFPB', year: 2022, entity: 'DirectFund Advisors', penalty: '$780K', summary: 'Mass-mailed "pre-approved" offers without a firm offer of credit. FCRA enforcement action.' },
+      { authority: 'CFPB', year: 2022, entity: 'DirectFund Advisors', penalty: '$780K', summary: 'Mass-mailed "pre-approved" offers without a firm offer of credit. FCRA enforcement action.', source: 'https://www.consumerfinance.gov/enforcement' },
     ],
   },
   {
@@ -217,8 +266,10 @@ const PLACEHOLDER_BANNED_CLAIMS: BannedClaim[] = [
     category: 'Timing Representations',
     rule: 'UDAP — Materially Misleading Representations',
     severity: 'medium',
+    prohibition: 'Claims of "instant" approval or funding are materially misleading when the actual process involves review periods, verification steps, or processing delays. The actual timeline must be accurately represented in all marketing materials.',
+    compliantAlternative: 'Fast application process with decisions typically within 1-2 business days. Funding timeline varies based on product type and verification requirements.',
     enforcementCases: [
-      { authority: 'NY AG', year: 2023, entity: 'SpeedFund Corp.', penalty: '$190K', summary: 'Settlement for "instant approval" claims when average review took 2–3 business days.' },
+      { authority: 'NY AG', year: 2023, entity: 'SpeedFund Corp.', penalty: '$190K', summary: 'Settlement for "instant approval" claims when average review took 2–3 business days.', source: 'https://ag.ny.gov/enforcement' },
     ],
   },
   {
@@ -227,8 +278,10 @@ const PLACEHOLDER_BANNED_CLAIMS: BannedClaim[] = [
     category: 'Risk Disclosures',
     rule: 'UDAP / SEC Advertising Rules',
     severity: 'medium',
+    prohibition: 'All financial products carry inherent risk. Describing any funding product as "risk-free" is materially misleading. Accurate risk disclosures are required under both UDAP principles and SEC advertising regulations for investment-related products.',
+    compliantAlternative: 'Our funding products are designed to support business growth. All financial products carry risk — please review the full terms, conditions, and risk disclosures before proceeding.',
     enforcementCases: [
-      { authority: 'FTC', year: 2020, entity: 'SafeCapital Group', penalty: '$210K', summary: '"Risk-free" used to describe MCA products. Corrective advertising required.' },
+      { authority: 'FTC', year: 2020, entity: 'SafeCapital Group', penalty: '$210K', summary: '"Risk-free" used to describe MCA products. Corrective advertising required.', source: 'https://www.ftc.gov/enforcement' },
     ],
   },
 ];
@@ -275,6 +328,212 @@ const CLAIM_SEV_CONFIG = {
 };
 
 // ---------------------------------------------------------------------------
+// Toast component
+// ---------------------------------------------------------------------------
+
+function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'warning'; onClose: () => void }) {
+  const colors = {
+    success: 'bg-green-900 border-green-700 text-green-300',
+    error: 'bg-red-900 border-red-700 text-red-300',
+    warning: 'bg-yellow-900 border-yellow-700 text-yellow-300',
+  };
+  return (
+    <div className={`fixed top-6 right-6 z-[100] px-5 py-3 rounded-xl border shadow-2xl ${colors[type]} flex items-center gap-3 animate-in fade-in slide-in-from-top-2`}>
+      <span className="text-sm font-semibold">{message}</span>
+      <button onClick={onClose} className="text-xs opacity-70 hover:opacity-100 ml-2">✕</button>
+    </div>
+  );
+}
+
+function useToast() {
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+  const show = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+  return { toast, show, clear: () => setToast(null) };
+}
+
+// ---------------------------------------------------------------------------
+// Assign Training Modal
+// ---------------------------------------------------------------------------
+
+function AssignTrainingModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (data: AssignFormData) => void }) {
+  const [selectedAdvisors, setSelectedAdvisors] = useState<Set<string>>(new Set());
+  const [track, setTrack] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<'Normal' | 'High' | 'Critical'>('Normal');
+  const [note, setNote] = useState('');
+
+  const trackOptions = PLACEHOLDER_TRACKS.flatMap((t) =>
+    t.modules.map((m) => ({ trackTitle: t.title, moduleTitle: m.title, value: `${t.id}::${m.id}` }))
+  );
+
+  const toggleAdvisor = (name: string) => {
+    setSelectedAdvisors((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const canSubmit = selectedAdvisors.size > 0 && track && dueDate;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg mx-4 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Assign Training</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-200 text-lg">✕</button>
+        </div>
+
+        {/* Advisors */}
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Select Advisors</label>
+          <div className="space-y-2">
+            {ADVISORS.map((name) => (
+              <label key={name} className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={selectedAdvisors.has(name)}
+                  onChange={() => toggleAdvisor(name)}
+                  className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-brand-gold focus:ring-brand-gold/50 accent-[#C9A84C]"
+                />
+                <span className="text-sm text-gray-200 group-hover:text-white">{name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Track / Module */}
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Track / Module</label>
+          <select
+            value={track}
+            onChange={(e) => setTrack(e.target.value)}
+            className="w-full rounded-xl border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2.5 focus:outline-none focus:border-brand-gold/60"
+          >
+            <option value="">Select a track or module...</option>
+            {trackOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.trackTitle} — {opt.moduleTitle}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Due Date */}
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Due Date</label>
+          <input
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="w-full rounded-xl border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2.5 focus:outline-none focus:border-brand-gold/60"
+          />
+        </div>
+
+        {/* Priority */}
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Priority</label>
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as 'Normal' | 'High' | 'Critical')}
+            className="w-full rounded-xl border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2.5 focus:outline-none focus:border-brand-gold/60"
+          >
+            <option value="Normal">Normal</option>
+            <option value="High">High</option>
+            <option value="Critical">Critical</option>
+          </select>
+        </div>
+
+        {/* Note */}
+        <div className="mb-5">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Note (optional)</label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            placeholder="Add context or instructions for the assigned advisors..."
+            className="w-full rounded-xl border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2.5 placeholder:text-gray-600 focus:outline-none focus:border-brand-gold/60 resize-none"
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-gray-700 text-gray-400 text-sm font-semibold hover:text-gray-200 hover:border-gray-500 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={!canSubmit}
+            onClick={() => {
+              if (!canSubmit) return;
+              onSubmit({ advisors: Array.from(selectedAdvisors), track, dueDate, priority, note });
+            }}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-opacity ${
+              canSubmit
+                ? 'bg-brand-gold text-brand-navy hover:opacity-90 cursor-pointer'
+                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            Assign Training
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AssignFormData {
+  advisors: string[];
+  track: string;
+  dueDate: string;
+  priority: 'Normal' | 'High' | 'Critical';
+  note: string;
+}
+
+// ---------------------------------------------------------------------------
+// Suspend Client Access Confirmation Modal
+// ---------------------------------------------------------------------------
+
+function SuspendAccessModal({ advisorName, onClose, onConfirm }: { advisorName: string; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-gray-900 border border-red-800 rounded-2xl w-full max-w-md mx-4 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-4">
+          <span className="h-10 w-10 rounded-full bg-red-900 border border-red-700 flex items-center justify-center text-red-400 text-lg">!</span>
+          <div>
+            <h2 className="text-lg font-bold text-white">Suspend Client Access</h2>
+            <p className="text-xs text-red-400">Destructive action — cannot be undone without admin approval</p>
+          </div>
+        </div>
+        <p className="text-sm text-gray-300 mb-5">
+          This will immediately suspend <span className="font-bold text-white">{advisorName}</span>&apos;s access to all client-facing activities, including deal submissions, client communications, and document signing. A compliance hold will be placed on their account until recertification is complete.
+        </p>
+        <div className="flex items-center justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-gray-700 text-gray-400 text-sm font-semibold hover:text-gray-200 hover:border-gray-500 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-5 py-2 rounded-lg bg-red-700 text-white text-sm font-bold hover:bg-red-600 transition-colors"
+          >
+            Suspend Access
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
@@ -289,7 +548,7 @@ function ProgressBar({ pct, color = '#C9A84C' }: { pct: number; color?: string }
   );
 }
 
-function TrackCard({ track }: { track: CertTrack }) {
+function TrackCard({ track, onModuleAction }: { track: CertTrack; onModuleAction: (trackId: string, moduleId: string, action: 'start' | 'resume') => void }) {
   const [expanded, setExpanded] = useState(false);
   const completed = track.modules.filter((m) => m.completed).length;
   const total = track.modules.length;
@@ -300,8 +559,33 @@ function TrackCard({ track }: { track: CertTrack }) {
   const expiryWarning = expiryDays !== null && expiryDays <= 30 && expiryDays >= 0;
   const barColor = track.status === 'complete' ? '#22c55e' : track.status === 'expired' ? '#ef4444' : '#C9A84C';
 
+  // Determine module status for action buttons
+  const getModuleStatus = (mod: Module, index: number): 'complete' | 'in_progress' | 'not_started' => {
+    if (mod.completed) return 'complete';
+    // First incomplete module is "in_progress" if track is in_progress
+    const firstIncompleteIdx = track.modules.findIndex((m) => !m.completed);
+    if (track.status === 'in_progress' && index === firstIncompleteIdx) return 'in_progress';
+    return 'not_started';
+  };
+
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900">
+      {/* Deadline countdown banner for annual tracks */}
+      {track.type === 'annual' && expiryDays !== null && expiryDays > 0 && expiryDays <= 90 && track.status !== 'complete' && track.status !== 'expired' && (
+        <div className={`px-5 py-2 text-xs font-bold flex items-center gap-2 rounded-t-xl border-b ${
+          expiryDays <= 14
+            ? 'bg-red-950/60 border-red-800 text-red-400'
+            : expiryDays <= 30
+              ? 'bg-yellow-950/60 border-yellow-800 text-yellow-400'
+              : 'bg-blue-950/40 border-blue-800 text-blue-400'
+        }`}>
+          <span>&#9201;</span>
+          <span>{expiryDays} day{expiryDays !== 1 ? 's' : ''} until deadline</span>
+          {expiryDays <= 14 && <span className="ml-1">— Immediate action required</span>}
+          {expiryDays > 14 && expiryDays <= 30 && <span className="ml-1">— Deadline approaching</span>}
+        </div>
+      )}
+
       {/* Header */}
       <button
         className="w-full text-left px-5 py-4"
@@ -348,31 +632,92 @@ function TrackCard({ track }: { track: CertTrack }) {
         </div>
       </button>
 
-      {/* Module list */}
+      {/* Expanded content: Module list + Advisor Completion */}
       {expanded && (
-        <div className="border-t border-gray-800 px-5 py-3 space-y-2">
-          {track.modules.map((mod) => (
-            <div key={mod.id} className="flex items-center gap-3">
-              <span className={`flex-shrink-0 h-5 w-5 rounded-full border flex items-center justify-center text-[10px] font-bold ${
-                mod.completed
-                  ? 'border-green-600 bg-green-900/60 text-green-400'
-                  : 'border-gray-700 bg-gray-800 text-gray-600'
-              }`}>
-                {mod.completed ? '✓' : '○'}
-              </span>
-              <span className={`flex-1 text-sm ${mod.completed ? 'text-gray-400' : 'text-gray-200'}`}>
-                {mod.title}
-              </span>
-              <span className="text-xs text-gray-600 flex-shrink-0">{mod.durationMin}m</span>
+        <div className="border-t border-gray-800 px-5 py-3 space-y-4">
+          {/* Modules */}
+          <div className="space-y-2">
+            {track.modules.map((mod, idx) => {
+              const modStatus = getModuleStatus(mod, idx);
+              return (
+                <div key={mod.id} className="flex items-center gap-3">
+                  <span className="text-xs text-gray-600 w-5 text-right flex-shrink-0">{idx + 1}.</span>
+                  <span className={`flex-shrink-0 h-5 w-5 rounded-full border flex items-center justify-center text-[10px] font-bold ${
+                    mod.completed
+                      ? 'border-green-600 bg-green-900/60 text-green-400'
+                      : 'border-gray-700 bg-gray-800 text-gray-600'
+                  }`}>
+                    {mod.completed ? '✓' : '○'}
+                  </span>
+                  <span className={`flex-1 text-sm ${mod.completed ? 'text-gray-400' : 'text-gray-200'}`}>
+                    {mod.title}
+                  </span>
+                  <span className="text-xs text-gray-600 flex-shrink-0">{mod.durationMin}m</span>
+                  {mod.completed && mod.completedAt && (
+                    <span className="text-xs text-green-600 flex-shrink-0">&#10003; {formatDate(mod.completedAt)}</span>
+                  )}
+                  {modStatus === 'not_started' && !mod.completed && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onModuleAction(track.id, mod.id, 'start'); }}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-brand-gold/20 text-brand-gold border border-brand-gold/30 font-semibold hover:bg-brand-gold/30 transition-colors flex-shrink-0"
+                    >
+                      Start
+                    </button>
+                  )}
+                  {modStatus === 'in_progress' && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onModuleAction(track.id, mod.id, 'resume'); }}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-blue-900/60 text-blue-300 border border-blue-700 font-semibold hover:bg-blue-900 transition-colors flex-shrink-0"
+                    >
+                      Resume
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Advisor Completion */}
+          {track.advisorProgress && track.advisorProgress.length > 0 && (
+            <div className="border-t border-gray-800 pt-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Advisor Completion</p>
+              <div className="space-y-2.5">
+                {track.advisorProgress.map((ap) => {
+                  const apPct = ap.totalModules > 0 ? Math.round((ap.completedModules / ap.totalModules) * 100) : 0;
+                  return (
+                    <div key={ap.name}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-200">{ap.name}</span>
+                          {ap.overdue && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-900 text-red-300 border border-red-700">
+                              OVERDUE
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-500">{ap.completedModules}/{ap.totalModules} — {apPct}%</span>
+                      </div>
+                      <ProgressBar
+                        pct={apPct}
+                        color={ap.overdue ? '#ef4444' : apPct === 100 ? '#22c55e' : '#C9A84C'}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function GapsPanel({ gaps }: { gaps: TrainingGap[] }) {
+function GapsPanel({ gaps, onAssignNow, onSuspendAccess }: {
+  gaps: TrainingGap[];
+  onAssignNow: (gap: TrainingGap) => void;
+  onSuspendAccess: (gap: TrainingGap) => void;
+}) {
   if (gaps.length === 0) {
     return (
       <div className="rounded-xl border border-green-800 bg-green-950/30 p-5">
@@ -404,9 +749,25 @@ function GapsPanel({ gaps }: { gaps: TrainingGap[] }) {
             <p className="text-xs text-gray-400 mb-2">
               Missing: <span className="text-gray-200 font-medium">{gap.missingTrack}</span>
             </p>
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-2 mb-3">
               <span className="text-xs text-brand-gold flex-shrink-0 mt-0.5">→</span>
               <p className="text-xs text-gray-300">{gap.recommendedAction}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onAssignNow(gap)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-brand-gold text-brand-navy font-bold hover:opacity-90 transition-opacity"
+              >
+                Assign Now
+              </button>
+              {gap.riskLevel === 'critical' && (
+                <button
+                  onClick={() => onSuspendAccess(gap)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-red-900 text-red-300 border border-red-700 font-bold hover:bg-red-800 transition-colors"
+                >
+                  Suspend Client Access
+                </button>
+              )}
             </div>
           </div>
         );
@@ -417,7 +778,8 @@ function GapsPanel({ gaps }: { gaps: TrainingGap[] }) {
 
 function BannedClaimsLibrary({ claims }: { claims: BannedClaim[] }) {
   const [query, setQuery] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -431,6 +793,22 @@ function BannedClaimsLibrary({ claims }: { claims: BannedClaim[] }) {
     );
   }, [claims, query]);
 
+  const toggleClaim = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const copyToClipboard = (text: string, claimId: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(claimId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
+
   return (
     <div>
       {/* Search */}
@@ -439,12 +817,12 @@ function BannedClaimsLibrary({ claims }: { claims: BannedClaim[] }) {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search banned claims, rules, enforcement cases…"
+          placeholder="Search banned claims, rules, enforcement cases..."
           className="w-full rounded-xl border border-gray-700 bg-gray-900 text-gray-100 text-sm
                      placeholder:text-gray-600 pl-9 pr-4 py-2.5 focus:outline-none
                      focus:border-brand-gold/60 transition-colors"
         />
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm select-none">⌕</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm select-none">&#8981;</span>
         {query && (
           <button
             onClick={() => setQuery('')}
@@ -461,13 +839,13 @@ function BannedClaimsLibrary({ claims }: { claims: BannedClaim[] }) {
       <div className="space-y-2">
         {filtered.map((claim) => {
           const sev = CLAIM_SEV_CONFIG[claim.severity];
-          const isOpen = expandedId === claim.id;
+          const isOpen = expandedIds.has(claim.id);
 
           return (
             <div key={claim.id} className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
               <button
                 className="w-full text-left px-4 py-3"
-                onClick={() => setExpandedId(isOpen ? null : claim.id)}
+                onClick={() => toggleClaim(claim.id)}
                 aria-expanded={isOpen}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -493,21 +871,68 @@ function BannedClaimsLibrary({ claims }: { claims: BannedClaim[] }) {
               </button>
 
               {isOpen && (
-                <div className="border-t border-gray-800 px-4 py-4 space-y-3">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    Enforcement Cases
-                  </p>
-                  {claim.enforcementCases.map((ec, i) => (
-                    <div key={i} className="bg-gray-800/60 rounded-lg border border-gray-700 p-3">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2">
-                        <span className="text-xs font-bold text-brand-gold">{ec.authority}</span>
-                        <span className="text-xs text-gray-400">{ec.year}</span>
-                        <span className="text-xs font-semibold text-gray-300">{ec.entity}</span>
-                        <span className="text-xs font-bold text-red-400">{ec.penalty}</span>
-                      </div>
-                      <p className="text-xs text-gray-400">{ec.summary}</p>
+                <div className="border-t border-gray-800 px-4 py-4 space-y-4">
+                  {/* Why This Is Prohibited */}
+                  <div>
+                    <p className="text-xs font-semibold text-red-400 uppercase tracking-wide mb-1.5">Why This Is Prohibited</p>
+                    <p className="text-xs text-gray-300 leading-relaxed">{claim.prohibition}</p>
+                    <p className="text-xs text-gray-500 mt-1">Regulation: <span className="text-gray-300 font-medium">{claim.rule}</span></p>
+                  </div>
+
+                  {/* Compliant Alternative Phrasing */}
+                  <div>
+                    <p className="text-xs font-semibold text-green-400 uppercase tracking-wide mb-1.5">Compliant Alternative Phrasing</p>
+                    <div className="bg-green-950/30 border border-green-800 rounded-lg p-3 flex items-start gap-3">
+                      <p className="text-xs text-green-300 leading-relaxed flex-1">&ldquo;{claim.compliantAlternative}&rdquo;</p>
+                      <button
+                        onClick={() => copyToClipboard(claim.compliantAlternative, claim.id)}
+                        className="text-xs px-2 py-1 rounded bg-green-900 text-green-300 border border-green-700 font-semibold hover:bg-green-800 transition-colors flex-shrink-0"
+                      >
+                        {copiedId === claim.id ? 'Copied!' : 'Copy'}
+                      </button>
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Enforcement History */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                      Enforcement History
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-700">
+                            <th className="text-left py-2 pr-3 text-gray-500 font-semibold">Date</th>
+                            <th className="text-left py-2 pr-3 text-gray-500 font-semibold">Regulator</th>
+                            <th className="text-left py-2 pr-3 text-gray-500 font-semibold">Entity</th>
+                            <th className="text-left py-2 pr-3 text-gray-500 font-semibold">Action</th>
+                            <th className="text-left py-2 pr-3 text-gray-500 font-semibold">Penalty</th>
+                            <th className="text-left py-2 text-gray-500 font-semibold">Source</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {claim.enforcementCases.map((ec, i) => (
+                            <tr key={i} className="border-b border-gray-800 last:border-b-0">
+                              <td className="py-2 pr-3 text-gray-400">{ec.year}</td>
+                              <td className="py-2 pr-3 text-brand-gold font-bold">{ec.authority}</td>
+                              <td className="py-2 pr-3 text-gray-300 font-semibold">{ec.entity}</td>
+                              <td className="py-2 pr-3 text-gray-400">{ec.summary.length > 60 ? ec.summary.substring(0, 60) + '...' : ec.summary}</td>
+                              <td className="py-2 pr-3 text-red-400 font-bold">{ec.penalty}</td>
+                              <td className="py-2">
+                                {ec.source ? (
+                                  <a href={ec.source} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">
+                                    View
+                                  </a>
+                                ) : (
+                                  <span className="text-gray-600">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -533,6 +958,10 @@ type Tab = 'tracks' | 'gaps' | 'library';
 export default function TrainingPage() {
   const [activeTab, setActiveTab] = useState<Tab>('tracks');
   const [trackFilter, setTrackFilter] = useState<TrackType | 'all'>('all');
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [suspendTarget, setSuspendTarget] = useState<TrainingGap | null>(null);
+  const [selectedClient, setSelectedClient] = useState('cl_all');
+  const { toast, show: showToast, clear: clearToast } = useToast();
 
   const filteredTracks = useMemo(() => {
     if (trackFilter === 'all') return PLACEHOLDER_TRACKS;
@@ -544,8 +973,66 @@ export default function TrainingPage() {
   const expiredCount = PLACEHOLDER_TRACKS.filter((t) => t.status === 'expired').length;
   const gapsCritical = PLACEHOLDER_GAPS.filter((g) => g.riskLevel === 'critical').length;
 
+  const handleAssignSubmit = (data: AssignFormData) => {
+    setShowAssignModal(false);
+    showToast(`Training assigned to ${data.advisors.length} advisor${data.advisors.length !== 1 ? 's' : ''} (${data.priority} priority, due ${formatDate(data.dueDate)})`, 'success');
+  };
+
+  const handleAssignNow = (gap: TrainingGap) => {
+    showToast(`Training "${gap.missingTrack}" assigned to ${gap.advisorName}`, 'success');
+  };
+
+  const handleSuspendAccess = (gap: TrainingGap) => {
+    setSuspendTarget(gap);
+  };
+
+  const handleSuspendConfirm = () => {
+    if (suspendTarget) {
+      showToast(`Client access suspended for ${suspendTarget.advisorName}. Compliance hold activated.`, 'warning');
+      setSuspendTarget(null);
+    }
+  };
+
+  const handleModuleAction = (trackId: string, moduleId: string, action: 'start' | 'resume') => {
+    const track = PLACEHOLDER_TRACKS.find((t) => t.id === trackId);
+    const mod = track?.modules.find((m) => m.id === moduleId);
+    if (mod) {
+      showToast(`${action === 'start' ? 'Started' : 'Resumed'}: ${mod.title}`, 'success');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
+      {/* Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
+
+      {/* Assign Training Modal */}
+      {showAssignModal && (
+        <AssignTrainingModal onClose={() => setShowAssignModal(false)} onSubmit={handleAssignSubmit} />
+      )}
+
+      {/* Suspend Access Confirmation Modal */}
+      {suspendTarget && (
+        <SuspendAccessModal
+          advisorName={suspendTarget.advisorName}
+          onClose={() => setSuspendTarget(null)}
+          onConfirm={handleSuspendConfirm}
+        />
+      )}
+
+      {/* Client selector */}
+      <div className="mb-5">
+        <select
+          value={selectedClient}
+          onChange={(e) => setSelectedClient(e.target.value)}
+          className="rounded-xl border border-gray-700 bg-gray-900 text-gray-100 text-sm px-4 py-2.5 focus:outline-none focus:border-brand-gold/60 transition-colors min-w-[260px]"
+        >
+          {CLIENTS.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -553,11 +1040,14 @@ export default function TrainingPage() {
           <p className="text-sm text-gray-400 mt-0.5">
             {PLACEHOLDER_TRACKS.length} tracks · {completedModules}/{totalModules} modules complete
             {gapsCritical > 0 && (
-              <span className="ml-2 text-red-400 font-semibold">⚠ {gapsCritical} critical gap{gapsCritical !== 1 ? 's' : ''}</span>
+              <span className="ml-2 text-red-400 font-semibold">&#9888; {gapsCritical} critical gap{gapsCritical !== 1 ? 's' : ''}</span>
             )}
           </p>
         </div>
-        <button className="px-4 py-2 rounded-lg bg-brand-gold text-brand-navy text-sm font-bold hover:opacity-90 transition-opacity">
+        <button
+          onClick={() => setShowAssignModal(true)}
+          className="px-4 py-2 rounded-lg bg-brand-gold text-brand-navy text-sm font-bold hover:opacity-90 transition-opacity"
+        >
           Assign Training
         </button>
       </div>
@@ -620,7 +1110,7 @@ export default function TrainingPage() {
 
           <div className="space-y-3">
             {filteredTracks.map((track) => (
-              <TrackCard key={track.id} track={track} />
+              <TrackCard key={track.id} track={track} onModuleAction={handleModuleAction} />
             ))}
           </div>
         </div>
@@ -634,7 +1124,7 @@ export default function TrainingPage() {
               {PLACEHOLDER_GAPS.length} gap{PLACEHOLDER_GAPS.length !== 1 ? 's' : ''} identified across {new Set(PLACEHOLDER_GAPS.map((g) => g.advisorName)).size} advisor{new Set(PLACEHOLDER_GAPS.map((g) => g.advisorName)).size !== 1 ? 's' : ''}
             </p>
           </div>
-          <GapsPanel gaps={PLACEHOLDER_GAPS} />
+          <GapsPanel gaps={PLACEHOLDER_GAPS} onAssignNow={handleAssignNow} onSuspendAccess={handleSuspendAccess} />
         </div>
       )}
 
