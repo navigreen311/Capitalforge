@@ -11,12 +11,18 @@
 // - "Run Optimization" action button
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { SectionCard } from '@/components/ui/card';
 import {
   CardRecommendation,
   type CardRecommendationProps,
 } from '@/components/modules/card-recommendation';
+import {
+  CREDIT_UNION_ISSUERS,
+  checkCUEligibility,
+  type EligibilityResult,
+  type CreditUnionIssuer,
+} from '@/lib/credit-union-issuers';
 
 // ─── Mock result data ─────────────────────────────────────────────────────────
 
@@ -257,7 +263,39 @@ const VIOLATIONS: ViolationEntry[] = [
   },
 ];
 
+// ─── US states ───────────────────────────────────────────────────────────────
+
+const US_STATES = [
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
+  'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+  'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+  'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY',
+] as const;
+
+const STATE_NAMES: Record<string, string> = {
+  AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'California',
+  CO:'Colorado',CT:'Connecticut',DE:'Delaware',FL:'Florida',GA:'Georgia',
+  HI:'Hawaii',ID:'Idaho',IL:'Illinois',IN:'Indiana',IA:'Iowa',
+  KS:'Kansas',KY:'Kentucky',LA:'Louisiana',ME:'Maine',MD:'Maryland',
+  MA:'Massachusetts',MI:'Michigan',MN:'Minnesota',MS:'Mississippi',MO:'Missouri',
+  MT:'Montana',NE:'Nebraska',NV:'Nevada',NH:'New Hampshire',NJ:'New Jersey',
+  NM:'New Mexico',NY:'New York',NC:'North Carolina',ND:'North Dakota',OH:'Ohio',
+  OK:'Oklahoma',OR:'Oregon',PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',
+  SD:'South Dakota',TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',
+  VA:'Virginia',WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming',
+};
+
 // ─── Form state type ──────────────────────────────────────────────────────────
+
+interface CUFormState {
+  state: string;
+  militaryStatus: 'active' | 'retired' | 'veteran' | 'family' | 'none';
+  employer: string;
+  techIndustry: boolean;
+  existingMemberships: string[];
+  stackedCUs: string[];
+}
 
 interface FormState {
   fico: string;
@@ -279,12 +317,53 @@ const INITIAL_FORM: FormState = {
   targetFunding: '',
 };
 
+const INITIAL_CU_FORM: CUFormState = {
+  state: '',
+  militaryStatus: 'none',
+  employer: '',
+  techIndustry: false,
+  existingMemberships: [],
+  stackedCUs: [],
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OptimizerPage() {
   const [form, setForm]           = useState<FormState>(INITIAL_FORM);
   const [hasResults, setHasResults] = useState(false);
   const [loading, setLoading]     = useState(false);
+
+  // Credit Union eligibility state
+  const [cuForm, setCUForm]       = useState<CUFormState>(INITIAL_CU_FORM);
+  const [cuPanelOpen, setCUPanelOpen] = useState(true);
+
+  const cuEligibility = useMemo<EligibilityResult[]>(() => {
+    if (!cuForm.state) return [];
+    return checkCUEligibility(
+      cuForm.state,
+      cuForm.militaryStatus,
+      cuForm.employer,
+      cuForm.techIndustry,
+    );
+  }, [cuForm.state, cuForm.militaryStatus, cuForm.employer, cuForm.techIndustry]);
+
+  function toggleCUMembership(cuId: string) {
+    setCUForm((f) => ({
+      ...f,
+      existingMemberships: f.existingMemberships.includes(cuId)
+        ? f.existingMemberships.filter((id) => id !== cuId)
+        : [...f.existingMemberships, cuId],
+    }));
+  }
+
+  function toggleStackCU(cuId: string) {
+    setCUForm((f) => ({
+      ...f,
+      stackedCUs: f.stackedCUs.includes(cuId)
+        ? f.stackedCUs.filter((id) => id !== cuId)
+        : [...f.stackedCUs, cuId],
+    }));
+  }
 
   function toggleCard(card: string) {
     setForm((f) => ({
@@ -448,6 +527,270 @@ export default function OptimizerPage() {
 
         {/* ── Right column: results (2/3) ─────────────────── */}
         <div className="xl:col-span-2 space-y-6">
+          {/* ── Credit Union Eligibility (always visible) ── */}
+          <div className="rounded-xl border border-surface-border bg-white shadow-card overflow-hidden">
+            <button
+              onClick={() => setCUPanelOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
+            >
+              <div className="text-left">
+                <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                  Credit Union Eligibility
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-navy/10 text-brand-navy border border-brand-navy/15">
+                    6 CUs
+                  </span>
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Check membership eligibility and add credit union cards to your stacking strategy
+                </p>
+              </div>
+              <span className={`text-gray-400 text-sm transition-transform duration-200 ${cuPanelOpen ? 'rotate-180' : ''}`}>
+                ▼
+              </span>
+            </button>
+
+            {cuPanelOpen && (
+              <div className="border-t border-surface-border px-5 py-5 space-y-5">
+                {/* ── Eligibility Form ────────────────── */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField label="State of Residence">
+                    <select
+                      value={cuForm.state}
+                      onChange={(e) => setCUForm({ ...cuForm, state: e.target.value })}
+                      className="cf-input"
+                    >
+                      <option value="">Select state…</option>
+                      {US_STATES.map((s) => (
+                        <option key={s} value={s}>{s} — {STATE_NAMES[s]}</option>
+                      ))}
+                    </select>
+                  </FormField>
+
+                  <FormField label="Military Status">
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {([
+                        ['active', 'Active'],
+                        ['retired', 'Retired'],
+                        ['veteran', 'Veteran'],
+                        ['family', 'Family'],
+                        ['none', 'None'],
+                      ] as const).map(([value, label]) => (
+                        <label key={value} className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="militaryStatus"
+                            value={value}
+                            checked={cuForm.militaryStatus === value}
+                            onChange={() => setCUForm({ ...cuForm, militaryStatus: value })}
+                            className="w-3.5 h-3.5 text-brand-navy focus:ring-brand-navy/30"
+                          />
+                          <span className="text-xs text-gray-700">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </FormField>
+
+                  <FormField label="Employer">
+                    <input
+                      type="text"
+                      placeholder="e.g. Microsoft, Intel, Boeing"
+                      value={cuForm.employer}
+                      onChange={(e) => setCUForm({ ...cuForm, employer: e.target.value })}
+                      className="cf-input"
+                    />
+                  </FormField>
+
+                  <FormField label="Tech Industry">
+                    <div className="flex items-center gap-3 mt-2">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={cuForm.techIndustry}
+                        onClick={() => setCUForm({ ...cuForm, techIndustry: !cuForm.techIndustry })}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          cuForm.techIndustry ? 'bg-brand-navy' : 'bg-gray-200'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
+                            cuForm.techIndustry ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                      <span className="text-xs text-gray-600">
+                        {cuForm.techIndustry ? 'Yes — tech industry' : 'No'}
+                      </span>
+                    </div>
+                  </FormField>
+                </div>
+
+                {/* Existing CU Memberships */}
+                <FormField label="Existing Credit Union Memberships">
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {CREDIT_UNION_ISSUERS.map((cu) => (
+                      <label key={cu.id} className="flex items-center gap-1.5 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={cuForm.existingMemberships.includes(cu.id)}
+                          onChange={() => toggleCUMembership(cu.id)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-brand-navy focus:ring-brand-navy/30"
+                        />
+                        <span className="text-xs text-gray-700 group-hover:text-gray-900 transition-colors">
+                          {cu.name.split(' ').slice(0, 2).join(' ')}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </FormField>
+
+                {/* ── Results Panel ────────────────────── */}
+                {cuForm.state && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-gray-700">Eligibility Results</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {cuEligibility.map((result) => {
+                        const isStacked = cuForm.stackedCUs.includes(result.cu.id);
+                        const isMember = cuForm.existingMemberships.includes(result.cu.id);
+                        const isDCU = result.cu.id === 'dcu';
+                        return (
+                          <div
+                            key={result.cu.id}
+                            className={`rounded-xl border p-4 transition-all ${
+                              result.eligible
+                                ? isDCU
+                                  ? 'bg-emerald-50 border-emerald-300 ring-1 ring-emerald-200'
+                                  : 'bg-white border-gray-200 hover:border-brand-navy/30'
+                                : 'bg-gray-50 border-gray-200 opacity-70'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-sm font-semibold ${result.eligible ? 'text-gray-900' : 'text-gray-500'}`}>
+                                    {result.cu.name.split('(')[0].trim().split(' ').slice(0, 2).join(' ')}
+                                  </span>
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                    result.cu.tier === 'A'
+                                      ? 'bg-brand-navy/10 text-brand-navy'
+                                      : 'bg-gray-100 text-gray-500'
+                                  }`}>
+                                    Tier {result.cu.tier}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-gray-500 mt-0.5">{result.cu.businessCard.name}</p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                <span className={`text-xs font-bold ${result.eligible ? 'text-emerald-600' : 'text-red-500'}`}>
+                                  {result.eligible ? '✓ Eligible' : '✕ Not eligible'}
+                                </span>
+                                {isDCU && result.eligible && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                    RECOMMEND
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-gray-500 mb-2 leading-relaxed">{result.reason}</p>
+
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-3">
+                                <span className="text-gray-500">
+                                  APR: <span className="font-semibold text-gray-700">{result.cu.businessCard.ongoingApr}%</span>
+                                </span>
+                                <span className="text-gray-500">
+                                  FICO: <span className="font-semibold text-gray-700">{result.cu.businessCard.minFico}+</span>
+                                </span>
+                                {result.cost > 0 && (
+                                  <span className="text-gray-500">
+                                    Cost: <span className="font-semibold text-gray-700">${result.cost}</span>
+                                  </span>
+                                )}
+                              </div>
+                              {result.eligible && !isMember && (
+                                <button
+                                  onClick={() => toggleStackCU(result.cu.id)}
+                                  className={`text-[11px] font-semibold px-3 py-1 rounded-lg transition-all ${
+                                    isStacked
+                                      ? 'bg-brand-navy text-white'
+                                      : 'bg-brand-navy/10 text-brand-navy hover:bg-brand-navy/20'
+                                  }`}
+                                >
+                                  {isStacked ? '✓ In Stack' : 'Add to Stack'}
+                                </button>
+                              )}
+                              {isMember && (
+                                <span className="text-[11px] font-semibold text-emerald-600">✓ Member</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Membership Action Plan ──────────── */}
+                {cuForm.stackedCUs.length > 0 && (
+                  <div className="rounded-xl border border-brand-navy/20 bg-brand-navy/5 p-4 space-y-3">
+                    <h3 className="text-sm font-semibold text-brand-navy flex items-center gap-2">
+                      Membership Action Plan
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-brand-navy/10 text-brand-navy">
+                        {cuForm.stackedCUs.length} CU{cuForm.stackedCUs.length !== 1 ? 's' : ''}
+                      </span>
+                    </h3>
+                    <div className="space-y-3">
+                      {cuForm.stackedCUs.map((cuId, idx) => {
+                        const result = cuEligibility.find((r) => r.cu.id === cuId);
+                        if (!result) return null;
+                        const cu = result.cu;
+                        return (
+                          <div key={cuId} className="flex gap-3">
+                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-navy text-white flex items-center justify-center text-xs font-bold mt-0.5">
+                              {idx + 1}
+                            </div>
+                            <div className="flex-1 space-y-1">
+                              <p className="text-sm font-semibold text-gray-900">
+                                Join {cu.name}
+                                {cu.id === 'dcu' && <span className="text-emerald-600 ml-1">(Best APR)</span>}
+                              </p>
+                              <div className="space-y-0.5">
+                                <p className="text-xs text-gray-600">
+                                  <span className="font-medium">Step 1:</span> Visit {cu.name.toLowerCase().replace(/\s/g, '')}.org and apply for membership
+                                </p>
+                                <p className="text-xs text-gray-600">
+                                  <span className="font-medium">Step 2:</span> Open primary savings account ($5 minimum deposit)
+                                </p>
+                                <p className="text-xs text-gray-600">
+                                  <span className="font-medium">Step 3:</span> Wait 30 days, then apply for {cu.businessCard.name}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-4 text-[11px] text-gray-500 mt-1">
+                                <span>Est. time: <span className="font-semibold text-gray-700">30–45 days</span></span>
+                                <span>Cost: <span className="font-semibold text-gray-700">${result.cost + 5}</span> (membership + $5 savings)</span>
+                                <span>Credit unlocked: <span className="font-semibold text-gray-700">{cu.businessCard.limitRange}</span></span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="rounded-lg bg-white/60 border border-brand-navy/10 px-3 py-2.5 mt-2">
+                      <p className="text-xs text-gray-600">
+                        <span className="font-semibold text-brand-navy">Total estimated cost:</span>{' '}
+                        ${cuForm.stackedCUs.reduce((sum, cuId) => {
+                          const r = cuEligibility.find((e) => e.cu.id === cuId);
+                          return sum + (r ? r.cost + 5 : 0);
+                        }, 0)}{' '}
+                        — <span className="font-semibold text-brand-navy">Timeline:</span> 30–45 days before first CU card application
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {!hasResults ? (
             <EmptyState />
           ) : (

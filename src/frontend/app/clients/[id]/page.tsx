@@ -309,27 +309,135 @@ export default function ClientDetailPage() {
 
       {/* Tab content */}
       {activeTab === 'profile' && (
-        <ProfileTab
-          clientId={id}
-          client={{
-            legalName: biz.legalName,
-            dba: biz.businessName !== biz.legalName ? biz.businessName : undefined,
-            ein: biz.ein,
-            entityType: biz.entityType,
-            stateOfFormation: biz.stateOfFormation,
-            dateOfFormation: biz.dateOfFormation ?? biz.createdAt,
-            annualRevenue: biz.annualRevenue,
-            monthlyRevenue: biz.monthlyRevenue ?? Math.round(biz.annualRevenue / 12),
-            employees: biz.employees,
-            website: biz.website,
-            industry: biz.industry,
-            naicsCode: biz.naicsCode,
-            mcc: biz.mcc,
-            status: biz.status,
-            advisorName: biz.advisorName,
-            fundingReadinessScore: biz.fundingReadinessScore,
-          }}
-        />
+        <>
+          <ProfileTab
+            clientId={id}
+            client={{
+              legalName: biz.legalName,
+              dba: biz.businessName !== biz.legalName ? biz.businessName : undefined,
+              ein: biz.ein,
+              entityType: biz.entityType,
+              stateOfFormation: biz.stateOfFormation,
+              dateOfFormation: biz.dateOfFormation ?? biz.createdAt,
+              annualRevenue: biz.annualRevenue,
+              monthlyRevenue: biz.monthlyRevenue ?? Math.round(biz.annualRevenue / 12),
+              employees: biz.employees,
+              website: biz.website,
+              industry: biz.industry,
+              naicsCode: biz.naicsCode,
+              mcc: biz.mcc,
+              status: biz.status,
+              advisorName: biz.advisorName,
+              fundingReadinessScore: biz.fundingReadinessScore,
+            }}
+          />
+
+          {/* CU Memberships Section */}
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">Credit Union Memberships</h3>
+
+            <div className="space-y-3">
+              {/* Navy Federal */}
+              <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-950 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Navy Federal</p>
+                  <p className="text-xs text-gray-400">Member since Jan 2023 (3yr 3mo)</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Checking + Savings</p>
+                </div>
+                <button
+                  onClick={() => showToast('Opening Navy Federal business card application...')}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-brand-gold text-brand-navy hover:bg-brand-gold/90 transition-colors whitespace-nowrap"
+                >
+                  Open Business Card
+                </button>
+              </div>
+
+              {/* PenFed */}
+              <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-950 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">PenFed</p>
+                  <p className="text-xs text-gray-500">Not yet a member</p>
+                </div>
+                <button
+                  onClick={() => showToast('Initiating PenFed membership — $17 fee')}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors whitespace-nowrap"
+                >
+                  Join — $17
+                </button>
+              </div>
+
+              {/* DCU */}
+              <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-950 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">DCU</p>
+                  <p className="text-xs text-gray-400">Member since Mar 2026 (1mo)</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Savings</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-emerald-400">← eligible now</span>
+                  <button
+                    onClick={() => showToast('Starting DCU business card application...')}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-brand-gold text-brand-navy hover:bg-brand-gold/90 transition-colors whitespace-nowrap"
+                  >
+                    Apply for Business Card
+                  </button>
+                </div>
+              </div>
+
+              {/* Alliant */}
+              <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-950 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Alliant</p>
+                  <p className="text-xs text-gray-500">Not a member</p>
+                </div>
+                <button
+                  onClick={() => showToast('Checking Alliant eligibility...')}
+                  className="text-xs font-semibold text-brand-gold hover:text-brand-gold/80 transition-colors"
+                >
+                  Check Eligibility
+                </button>
+              </div>
+
+              {/* First Tech */}
+              <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-950 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">First Tech</p>
+                  <p className="text-xs text-gray-500">Not a member</p>
+                </div>
+                <button
+                  onClick={() => showToast('Checking First Tech eligibility...')}
+                  className="text-xs font-semibold text-brand-gold hover:text-brand-gold/80 transition-colors"
+                >
+                  Check Eligibility
+                </button>
+              </div>
+
+              {/* BECU */}
+              <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-950 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">BECU</p>
+                  <p className="text-xs text-gray-500">Not a member</p>
+                </div>
+                <button
+                  onClick={() => showToast('Checking BECU eligibility...')}
+                  className="text-xs font-semibold text-brand-gold hover:text-brand-gold/80 transition-colors"
+                >
+                  Check Eligibility
+                </button>
+              </div>
+            </div>
+
+            {/* Check Eligibility button */}
+            <div className="pt-2">
+              <button
+                onClick={() => showToast('Eligibility check complete — 4 CUs available')}
+                className="w-full px-4 py-2.5 text-sm font-bold rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors"
+              >
+                Check Eligibility for All Credit Unions
+              </button>
+            </div>
+          </div>
+        </>
       )}
       {activeTab === 'credit' && <CreditTab clientId={id} clientName={biz.legalName} />}
       {activeTab === 'applications' && <ApplicationsTab clientId={id} clientName={biz.legalName} />}
