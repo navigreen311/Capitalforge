@@ -17,6 +17,7 @@ import { getTaxSimSandboxMockData } from './tax-simulator-sandbox-mocks';
 import { getHardshipCompDocsMockData } from './hardship-compliance-docs-contracts-mocks';
 import { getDiscCompRegMockData } from './disclosures-complaints-regulatory-mocks';
 import { getCommTrainDealMockData } from './comm-training-deal-mocks';
+import { getDecFLAIMockData } from './decisions-fairlending-aigovernance-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -820,6 +821,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/comm-compliance') || endpoint.includes('/training') || endpoint.includes('/deal-committee')) {
     const ctdData = getCommTrainDealMockData(endpoint);
     if (ctdData !== null) return ctdData;
+  }
+
+  // Fall through to decisions, fair lending, and AI governance mocks
+  if (endpoint.includes('/decisions') || endpoint.includes('/fair-lending') || endpoint.includes('/ai-governance')) {
+    const decFLAIData = getDecFLAIMockData(endpoint);
+    if (decFLAIData !== null) return decFLAIData;
   }
 
   // Fall through to hardship, compliance, documents, and contracts mocks
