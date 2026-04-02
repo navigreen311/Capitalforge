@@ -104,6 +104,8 @@ const NAV_PILLARS: NavPillar[] = [
       { label: 'Multi-Tenant',  href: '/multi-tenant',  icon: 'MT' },
       { label: 'Offboarding',   href: '/offboarding',   icon: 'OB' },
       { label: 'Data Lineage',  href: '/data-lineage',  icon: 'DL' },
+      { label: 'VoiceForge',    href: '/platform/voiceforge',      icon: 'VF' },
+      { label: 'VisionAudioForge', href: '/platform/visionaudioforge', icon: 'VA' },
     ],
   },
 ];
