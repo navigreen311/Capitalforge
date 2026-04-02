@@ -20,6 +20,7 @@ import { getCommTrainDealMockData } from './comm-training-deal-mocks';
 import { getDecFLAIMockData } from './decisions-fairlending-aigovernance-mocks';
 import { getCrmPortfolioPartnersMockData } from './crm-portfolio-partners-mocks';
 import { getRefIssWfMockData } from './referrals-issuers-workflows-mocks';
+import { getSettingsReportsMTMockData } from './settings-reports-multitenant-mocks';
 
 // ── Client constants ───────────────────────────────────────────────────────
 
@@ -847,6 +848,12 @@ export function getMockData(endpoint: string): unknown | null {
   if (endpoint.includes('/crm/') || endpoint.includes('/analytics/') || endpoint.includes('/partners/')) {
     const crmData = getCrmPortfolioPartnersMockData(endpoint);
     if (crmData !== null) return crmData;
+  }
+
+  // Fall through to settings, reports, and multi-tenant mocks
+  if (endpoint.includes('/settings/') || endpoint.includes('/reports/') || endpoint.includes('/tenants/')) {
+    const srmtData = getSettingsReportsMTMockData(endpoint);
+    if (srmtData !== null) return srmtData;
   }
 
   // Fall through to client detail mocks for /api/v1/clients/* paths
