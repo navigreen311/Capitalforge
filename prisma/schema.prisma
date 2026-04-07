@@ -73,6 +73,45 @@ model AuditLog {
 }
 
 // ============================================================
+// CARD PRODUCT CATALOG
+// ============================================================
+
+model CardProduct {
+  id                   String   @id @default(uuid())
+  issuerId             String   // issuer name string (e.g. "chase", "amex")
+  name                 String
+  cardType             String   // business_credit | business_charge | secured
+  annualFee            Decimal  @default(0)
+  annualFeeWaivedY1    Boolean  @default(false)
+  aprIntro             Decimal? // intro APR percentage, null = no intro
+  aprIntroMonths       Int?     // intro APR duration in months
+  aprPostPromo         Decimal? // regular/post-promo APR
+  creditLimitMin       Int      @default(0)
+  creditLimitMax       Int      @default(0)
+  creditLimitTypical   Int      @default(0)
+  scoreMinimum         Int      @default(0)     // minimum FICO
+  revenueMinimum       Decimal  @default(0)     // minimum annual revenue
+  businessAgeMinimum   Int      @default(0)     // minimum months in business
+  rewardsType          String?  // cash_back | points | miles
+  rewardsRate          Decimal? // primary rewards rate
+  rewardsDetails       String?  // human-readable rewards description
+  welcomeBonus         String?  // welcome bonus description
+  welcomeBonusValue    Decimal? // estimated dollar value of welcome bonus
+  personalGuarantee    Boolean  @default(true)
+  approvalDifficulty   String   @default("moderate") // easy | moderate | hard | very_hard
+  bestFor              String?  // short description of ideal use case
+  isActive             Boolean  @default(true)
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([issuerId])
+  @@index([cardType])
+  @@index([isActive])
+  @@map("card_products")
+}
+
+// ============================================================
 // BUSINESS & ONBOARDING
 // ============================================================
 

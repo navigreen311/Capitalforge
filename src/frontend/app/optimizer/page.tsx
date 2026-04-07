@@ -11,7 +11,7 @@
 // - "Run Optimization" action button
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { SectionCard } from '@/components/ui/card';
 import {
   CardRecommendation,
@@ -23,6 +23,71 @@ import {
   type EligibilityResult,
   type CreditUnionIssuer,
 } from '@/lib/credit-union-issuers';
+
+// ─── Types for Optimizer V2 API ──────────────────────────────────────────────
+
+type PrioritizationMode = 'max_credit' | 'best_terms' | 'fastest_approval' | 'min_inquiries';
+
+interface ClientOption {
+  id: string;
+  businessName: string;
+  status: string;
+}
+
+interface ApiCardRecommendation {
+  cardProductId: string;
+  issuer: string;
+  name: string;
+  cardType: string;
+  eligibilityScore: number;
+  estimatedLimitMin: number;
+  estimatedLimitMax: number;
+  estimatedLimitTypical: number;
+  approvalDifficulty: string;
+  aprIntro: number | null;
+  aprIntroMonths: number | null;
+  aprPostPromo: number | null;
+  annualFee: number;
+  rewardsType: string | null;
+  rewardsRate: number | null;
+  rewardsDetails: string | null;
+  welcomeBonus: string | null;
+  welcomeBonusValue: number | null;
+  personalGuarantee: boolean;
+  bestFor: string | null;
+  sequencePosition: number;
+  cooldownDays: number;
+  rationale: string;
+  velocityRisk: 'low' | 'medium' | 'high';
+}
+
+interface ApiExcludedCard {
+  cardProductId: string;
+  issuer: string;
+  name: string;
+  reason: string;
+}
+
+interface ApiAprExpiry {
+  cardName: string;
+  introMonths: number;
+  expiryEstimate: string;
+}
+
+interface ApiStackingPlan {
+  businessId: string;
+  generatedAt: string;
+  recommendations: ApiCardRecommendation[];
+  excludedCards: ApiExcludedCard[];
+  totalEstimatedCreditMin: number;
+  totalEstimatedCreditMax: number;
+  totalEstimatedCreditTypical: number;
+  velocityRiskScore: number;
+  velocityRiskLevel: 'low' | 'medium' | 'high';
+  aprExpirySummary: ApiAprExpiry[];
+  prioritizationMode: PrioritizationMode;
+  cardCount: number;
+}
 
 // ─── Mock result data ─────────────────────────────────────────────────────────
 
@@ -305,6 +370,10 @@ interface FormState {
   yearsInBusiness: string;
   employees: string;
   targetFunding: string;
+  selectedBusinessId: string;
+  prioritizationMode: PrioritizationMode;
+  maxCards: string;
+  excludeIssuers: string[];
 }
 
 const INITIAL_FORM: FormState = {
@@ -315,7 +384,23 @@ const INITIAL_FORM: FormState = {
   yearsInBusiness: '',
   employees: '',
   targetFunding: '',
+  selectedBusinessId: '',
+  prioritizationMode: 'max_credit',
+  maxCards: '8',
+  excludeIssuers: [],
 };
+
+const PRIORITIZATION_LABELS: Record<PrioritizationMode, string> = {
+  max_credit: 'Maximum Credit',
+  best_terms: 'Best Terms (APR)',
+  fastest_approval: 'Fastest Approval',
+  min_inquiries: 'Minimize Inquiries',
+};
+
+const ISSUER_OPTIONS = [
+  'chase', 'amex', 'capital_one', 'citi', 'bank_of_america',
+  'us_bank', 'wells_fargo', 'discover', 'td_bank', 'pnc',
+];
 
 const INITIAL_CU_FORM: CUFormState = {
   state: '',
@@ -332,10 +417,36 @@ export default function OptimizerPage() {
   const [form, setForm]           = useState<FormState>(INITIAL_FORM);
   const [hasResults, setHasResults] = useState(false);
   const [loading, setLoading]     = useState(false);
+  const [apiError, setApiError]   = useState<string | null>(null);
+
+  // Optimizer V2 API state
+  const [clients, setClients]           = useState<ClientOption[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [stackingPlan, setStackingPlan] = useState<ApiStackingPlan | null>(null);
 
   // Credit Union eligibility state
   const [cuForm, setCUForm]       = useState<CUFormState>(INITIAL_CU_FORM);
   const [cuPanelOpen, setCUPanelOpen] = useState(true);
+
+  // Load clients on mount
+  useEffect(() => {
+    setClientsLoading(true);
+    fetch('/api/v1/clients')
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success && Array.isArray(json.data)) {
+          setClients(json.data.map((c: Record<string, unknown>) => ({
+            id: c.id as string,
+            businessName: (c.businessName || c.legalName || 'Unknown') as string,
+            status: (c.status || 'unknown') as string,
+          })));
+        }
+      })
+      .catch(() => {
+        // Silently fall back — clients list is optional
+      })
+      .finally(() => setClientsLoading(false));
+  }, []);
 
   const cuEligibility = useMemo<EligibilityResult[]>(() => {
     if (!cuForm.state) return [];
@@ -374,14 +485,49 @@ export default function OptimizerPage() {
     }));
   }
 
-  function handleRun() {
+  const handleRun = useCallback(async () => {
     setLoading(true);
-    // Simulate async optimization
-    setTimeout(() => {
-      setLoading(false);
+    setApiError(null);
+    setStackingPlan(null);
+
+    // If a business is selected, call the V2 API
+    if (form.selectedBusinessId) {
+      try {
+        const res = await fetch('/api/optimizer/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: form.selectedBusinessId,
+            targetAmount: form.targetFunding ? Number(form.targetFunding) : 100000,
+            maxCards: form.maxCards ? Number(form.maxCards) : 8,
+            prioritize: form.prioritizationMode,
+            excludeIssuers: form.excludeIssuers,
+            includeCreditUnions: false,
+          }),
+        });
+
+        const json = await res.json();
+
+        if (json.success && json.data) {
+          setStackingPlan(json.data as ApiStackingPlan);
+          setHasResults(true);
+        } else {
+          setApiError(json.error?.message || 'Optimizer failed. Please try again.');
+          // Fall back to mock results
+          setHasResults(true);
+        }
+      } catch {
+        setApiError('Unable to reach the optimizer API. Showing mock data.');
+        setHasResults(true);
+      }
+    } else {
+      // No business selected — use mock data (existing behavior)
+      await new Promise((r) => setTimeout(r, 1200));
       setHasResults(true);
-    }, 1200);
-  }
+    }
+
+    setLoading(false);
+  }, [form.selectedBusinessId, form.targetFunding, form.maxCards, form.prioritizationMode, form.excludeIssuers]);
 
   return (
     <div className="space-y-8">
@@ -398,6 +544,94 @@ export default function OptimizerPage() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* ── Left column: input form (1/3) ──────────────── */}
         <div className="xl:col-span-1 space-y-5">
+          {/* Business Selector */}
+          <SectionCard title="Business / Client" subtitle="Select a client to load their data for optimization">
+            <div className="space-y-4">
+              <FormField label="Select Business">
+                <select
+                  value={form.selectedBusinessId}
+                  onChange={(e) => setForm({ ...form, selectedBusinessId: e.target.value })}
+                  className="cf-input"
+                  disabled={clientsLoading}
+                >
+                  <option value="">-- Manual entry (mock) --</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.businessName} ({c.status})
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              {form.selectedBusinessId && (
+                <p className="text-xs text-emerald-600 font-medium">
+                  Business selected — optimizer will load profile from database.
+                </p>
+              )}
+            </div>
+          </SectionCard>
+
+          {/* Prioritization Mode */}
+          <SectionCard title="Optimization Strategy" subtitle="How to rank and sequence card recommendations">
+            <div className="space-y-4">
+              <FormField label="Prioritization Mode">
+                <div className="grid grid-cols-2 gap-2">
+                  {(Object.entries(PRIORITIZATION_LABELS) as [PrioritizationMode, string][]).map(
+                    ([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setForm({ ...form, prioritizationMode: mode })}
+                        className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                          form.prioritizationMode === mode
+                            ? 'bg-brand-navy text-white border-brand-navy'
+                            : 'bg-white text-gray-700 border-gray-200 hover:border-brand-navy/30'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ),
+                  )}
+                </div>
+              </FormField>
+
+              <FormField label="Max Cards">
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={form.maxCards}
+                  onChange={(e) => setForm({ ...form, maxCards: e.target.value })}
+                  className="cf-input"
+                />
+              </FormField>
+
+              <FormField label="Exclude Issuers">
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {ISSUER_OPTIONS.map((issuer) => (
+                    <label key={issuer} className="flex items-center gap-1.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={form.excludeIssuers.includes(issuer)}
+                        onChange={() =>
+                          setForm((f) => ({
+                            ...f,
+                            excludeIssuers: f.excludeIssuers.includes(issuer)
+                              ? f.excludeIssuers.filter((i) => i !== issuer)
+                              : [...f.excludeIssuers, issuer],
+                          }))
+                        }
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-brand-navy focus:ring-brand-navy/30"
+                      />
+                      <span className="text-xs text-gray-700 group-hover:text-gray-900 transition-colors capitalize">
+                        {issuer.replace(/_/g, ' ')}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+            </div>
+          </SectionCard>
+
           {/* FICO + Revenue */}
           <SectionCard title="Credit Profile" subtitle="Applicant FICO and financial snapshot">
             <div className="space-y-4">
@@ -791,11 +1025,136 @@ export default function OptimizerPage() {
             )}
           </div>
 
+          {/* ── API Error Banner ────────────────────────── */}
+          {apiError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-xs text-amber-700 font-medium">{apiError}</p>
+            </div>
+          )}
+
           {!hasResults ? (
             <EmptyState />
+          ) : stackingPlan ? (
+            <>
+              {/* ── Velocity Risk + Summary ──────────────── */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <SummaryCard
+                  label="Total Est. Credit"
+                  value={`$${stackingPlan.totalEstimatedCreditTypical.toLocaleString()}`}
+                  sublabel={`$${stackingPlan.totalEstimatedCreditMin.toLocaleString()} – $${stackingPlan.totalEstimatedCreditMax.toLocaleString()}`}
+                />
+                <SummaryCard
+                  label="Cards Recommended"
+                  value={String(stackingPlan.cardCount)}
+                  sublabel={`Mode: ${PRIORITIZATION_LABELS[stackingPlan.prioritizationMode]}`}
+                />
+                <div className="rounded-xl border border-surface-border bg-white shadow-card p-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Velocity Risk</p>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-2xl font-bold ${
+                      stackingPlan.velocityRiskLevel === 'low' ? 'text-emerald-600' :
+                      stackingPlan.velocityRiskLevel === 'medium' ? 'text-amber-600' : 'text-red-600'
+                    }`}>
+                      {stackingPlan.velocityRiskScore}
+                    </span>
+                    <VelocityBadge level={stackingPlan.velocityRiskLevel} />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Card Recommendations from API ────────── */}
+              <SectionCard
+                title="Card Recommendations"
+                subtitle={`Ranked by ${PRIORITIZATION_LABELS[stackingPlan.prioritizationMode].toLowerCase()} strategy`}
+              >
+                <div className="space-y-4 p-0">
+                  {stackingPlan.recommendations.map((rec) => (
+                    <ApiCardRecommendationCard key={rec.cardProductId} rec={rec} />
+                  ))}
+                </div>
+              </SectionCard>
+
+              {/* ── Excluded Cards ────────────────────────── */}
+              {stackingPlan.excludedCards.length > 0 && (
+                <SectionCard
+                  title="Excluded Cards"
+                  subtitle="Cards not eligible based on your profile"
+                >
+                  <div className="space-y-2">
+                    {stackingPlan.excludedCards.map((ec) => (
+                      <div key={ec.cardProductId} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold text-gray-700">{ec.name}</span>
+                          <span className="text-xs text-gray-400 capitalize">{ec.issuer.replace(/_/g, ' ')}</span>
+                        </div>
+                        <p className="text-xs text-gray-500">{ec.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </SectionCard>
+              )}
+
+              {/* ── APR Expiry Summary ────────────────────── */}
+              {stackingPlan.aprExpirySummary.length > 0 && (
+                <SectionCard
+                  title="APR Expiry Timeline"
+                  subtitle="When intro 0% APR periods expire for recommended cards"
+                >
+                  <div className="space-y-2">
+                    {stackingPlan.aprExpirySummary.map((apr) => (
+                      <div key={apr.cardName} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3">
+                        <div>
+                          <span className="text-sm font-semibold text-gray-800">{apr.cardName}</span>
+                          <span className="text-xs text-gray-400 ml-2">{apr.introMonths} months @ 0%</span>
+                        </div>
+                        <span className="text-xs font-semibold text-amber-600">
+                          Expires: {new Date(apr.expiryEstimate).toLocaleDateString('en-US', {
+                            month: 'short', year: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </SectionCard>
+              )}
+
+              {/* ── Sequencing Timeline + Network Diversity ── */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div className="md:col-span-2">
+                  <SectionCard
+                    title="Application Sequencing"
+                    subtitle="Recommended order with cooldown periods"
+                  >
+                    <div className="relative">
+                      <div className="absolute left-4 top-2 bottom-2 w-px bg-gray-200" aria-hidden="true" />
+                      <div className="space-y-6 pl-10">
+                        {stackingPlan.recommendations.map((rec) => (
+                          <ApiSequenceStep key={rec.cardProductId} rec={rec} />
+                        ))}
+                      </div>
+                    </div>
+                  </SectionCard>
+                </div>
+
+                <div>
+                  <SectionCard
+                    title="Network Diversity"
+                    subtitle="Current card network spread"
+                  >
+                    <NetworkPieChart data={NETWORK_DATA} />
+                    <div className="mt-4 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-2.5">
+                      <p className="text-xs text-brand-navy font-semibold mb-0.5">Recommendation</p>
+                      <p className="text-xs text-gray-600">
+                        Add a Discover card to broaden acceptance coverage and reduce single-network exposure.
+                      </p>
+                    </div>
+                  </SectionCard>
+                </div>
+              </div>
+            </>
           ) : (
             <>
-              {/* ── Card Recommendations ──────────────────── */}
+              {/* ── Fallback: Mock Card Recommendations ───── */}
               <SectionCard
                 title="Card Recommendations"
                 subtitle="Ranked by modeled approval probability given your profile"
@@ -807,7 +1166,6 @@ export default function OptimizerPage() {
                 </div>
               </SectionCard>
 
-              {/* ── Issuer Rule Violations ────────────────── */}
               <SectionCard
                 title="Issuer Rule Violations"
                 subtitle="Policy limits that may affect approval outcomes"
@@ -819,16 +1177,13 @@ export default function OptimizerPage() {
                 </div>
               </SectionCard>
 
-              {/* ── Sequencing Timeline + Network Diversity ── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                {/* Timeline (2/3) */}
                 <div className="md:col-span-2">
                   <SectionCard
                     title="Multi-Round Sequencing"
                     subtitle="Optimal application order to maximize approvals"
                   >
                     <div className="relative">
-                      {/* Vertical line */}
                       <div className="absolute left-4 top-2 bottom-2 w-px bg-gray-200" aria-hidden="true" />
                       <div className="space-y-6 pl-10">
                         {SEQUENCE_ROUNDS.map((r) => (
@@ -839,7 +1194,6 @@ export default function OptimizerPage() {
                   </SectionCard>
                 </div>
 
-                {/* Network diversity (1/3) */}
                 <div>
                   <SectionCard
                     title="Network Diversity"
@@ -953,6 +1307,150 @@ function SequenceStep({ step }: { step: SequenceRound }) {
         {step.waitPeriod !== '—' && (
           <p className="text-xs font-semibold text-brand-gold-600 mt-1">
             — {step.waitPeriod}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── V2 API result components ────────────────────────────────────────────────
+
+function SummaryCard({ label, value, sublabel }: { label: string; value: string; sublabel: string }) {
+  return (
+    <div className="rounded-xl border border-surface-border bg-white shadow-card p-4">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <p className="text-xs text-gray-400 mt-0.5">{sublabel}</p>
+    </div>
+  );
+}
+
+function VelocityBadge({ level }: { level: 'low' | 'medium' | 'high' }) {
+  const config = {
+    low: { bg: 'bg-emerald-100 text-emerald-700 border-emerald-200', label: 'LOW RISK' },
+    medium: { bg: 'bg-amber-100 text-amber-700 border-amber-200', label: 'MODERATE RISK' },
+    high: { bg: 'bg-red-100 text-red-700 border-red-200', label: 'HIGH RISK' },
+  };
+  const c = config[level];
+  return (
+    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${c.bg}`}>
+      {c.label}
+    </span>
+  );
+}
+
+function EligibilityBar({ score }: { score: number }) {
+  const color = score >= 75 ? 'bg-emerald-500' : score >= 50 ? 'bg-brand-gold' : score >= 30 ? 'bg-amber-500' : 'bg-red-500';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${score}%` }} />
+      </div>
+      <span className="text-xs font-bold text-gray-700 w-8 text-right">{score}</span>
+    </div>
+  );
+}
+
+function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4 hover:border-brand-navy/20 transition-all">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-brand-navy/10 flex items-center justify-center text-sm font-bold text-brand-navy">
+            {rec.sequencePosition}
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-gray-900">{rec.name}</h4>
+            <p className="text-xs text-gray-400 capitalize">{rec.issuer.replace(/_/g, ' ')}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <VelocityBadge level={rec.velocityRisk} />
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+            rec.approvalDifficulty === 'easy' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+            rec.approvalDifficulty === 'moderate' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+            rec.approvalDifficulty === 'hard' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+            'bg-red-50 text-red-700 border-red-200'
+          }`}>
+            {rec.approvalDifficulty.toUpperCase().replace(/_/g, ' ')}
+          </span>
+        </div>
+      </div>
+
+      {/* Eligibility score bar */}
+      <div className="mb-3">
+        <p className="text-xs text-gray-500 mb-1">Eligibility Score</p>
+        <EligibilityBar score={rec.eligibilityScore} />
+      </div>
+
+      {/* Key details grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
+        <div>
+          <p className="text-gray-400 font-medium">Credit Limit</p>
+          <p className="text-gray-800 font-semibold">
+            ${rec.estimatedLimitMin.toLocaleString()} – ${rec.estimatedLimitMax > 0 ? `$${rec.estimatedLimitMax.toLocaleString()}` : 'No limit'}
+          </p>
+        </div>
+        <div>
+          <p className="text-gray-400 font-medium">Intro APR</p>
+          <p className="text-gray-800 font-semibold">
+            {rec.aprIntro !== null && rec.aprIntro === 0 && rec.aprIntroMonths
+              ? `0% for ${rec.aprIntroMonths}mo`
+              : rec.cardType === 'business_charge' ? 'N/A (charge)' : 'None'}
+          </p>
+        </div>
+        <div>
+          <p className="text-gray-400 font-medium">Annual Fee</p>
+          <p className="text-gray-800 font-semibold">${rec.annualFee}</p>
+        </div>
+        <div>
+          <p className="text-gray-400 font-medium">Rewards</p>
+          <p className="text-gray-800 font-semibold">
+            {rec.rewardsRate ? `${rec.rewardsRate}% ${rec.rewardsType?.replace(/_/g, ' ') ?? ''}` : 'None'}
+          </p>
+        </div>
+      </div>
+
+      {/* Rationale */}
+      <p className="text-xs text-gray-500 leading-relaxed">{rec.rationale}</p>
+
+      {/* Cooldown */}
+      {rec.cooldownDays > 0 && (
+        <div className="mt-2 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-1.5">
+          <p className="text-xs text-brand-navy font-semibold">
+            Wait {rec.cooldownDays} days before this application
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ApiSequenceStep({ rec }: { rec: ApiCardRecommendation }) {
+  return (
+    <div className="relative">
+      <div className="absolute -left-[26px] top-1 w-3.5 h-3.5 rounded-full bg-brand-navy border-2 border-white shadow-sm" />
+      <div className="space-y-1.5">
+        <p className="text-sm font-semibold text-gray-900">
+          Step {rec.sequencePosition} — {rec.name}
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="text-xs bg-brand-navy/10 text-brand-navy px-2 py-0.5 rounded-full font-medium border border-brand-navy/15 capitalize">
+            {rec.issuer.replace(/_/g, ' ')}
+          </span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
+            rec.velocityRisk === 'low' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+            rec.velocityRisk === 'medium' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+            'bg-red-50 text-red-700 border-red-200'
+          }`}>
+            {rec.velocityRisk} risk
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 leading-relaxed">{rec.rationale}</p>
+        {rec.cooldownDays > 0 && (
+          <p className="text-xs font-semibold text-brand-gold-600 mt-1">
+            -- Wait {rec.cooldownDays} days
           </p>
         )}
       </div>

@@ -91,6 +91,10 @@ apiRouter.use('/businesses/:id/cost', costCalculatorRouter);
 apiRouter.use('/businesses/:id/optimize', optimizerRouter);
 apiRouter.use('/businesses/:id/optimizer', optimizerRouter);
 
+// -- Stacking Optimizer V2 (Prisma-backed, DB card products) --
+import { optimizerV2Router } from './optimizer-v2.routes.js';
+apiRouter.use('/optimizer', optimizerV2Router);
+
 // -- Document Vault --
 import { documentRouter } from './document.routes.js';
 apiRouter.use('/', documentRouter);
