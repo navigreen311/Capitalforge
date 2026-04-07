@@ -15,6 +15,7 @@ export { StateDisclosureDeadlines } from './StateDisclosureDeadlines';
 export { PortfolioRiskHeatmap } from './PortfolioRiskHeatmap';
 export { RestackOpportunities } from './RestackOpportunities';
 export { VoiceForgeActivity } from './VoiceForgeActivity';
+export { PortfolioHealthWidget } from './PortfolioHealthWidget';
 export { DashboardErrorState } from './DashboardErrorState';
 export { NavBadgeProvider, useNavBadges } from './NavBadgeProvider';
 export { DashboardBadge } from './DashboardBadge';
