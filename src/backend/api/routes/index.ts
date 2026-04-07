@@ -245,3 +245,7 @@ apiRouter.use('/financial', financialRouter);
 // ── Compliance Extended (Regulatory, Comm Compliance, Training, Decisions) ──
 import { complianceExtendedRouter } from './compliance-extended.routes.js';
 apiRouter.use('/', complianceExtendedRouter);
+
+// ── Platform (CRM, issuers, referrals, workflows, settings) ──
+import { platformRouter } from './platform.routes.js';
+apiRouter.use('/platform', platformRouter);
