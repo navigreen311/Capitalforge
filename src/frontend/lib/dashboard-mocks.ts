@@ -753,7 +753,32 @@ export function shouldUseMocks(): boolean {
 // ── Endpoint → Mock data resolver ──────────────────────────────────────────
 
 export function getMockData(endpoint: string): unknown | null {
+  // ── Portfolio Health Score mock ─────────────────────────────────────────
+  const MOCK_PORTFOLIO_HEALTH = {
+    success: true,
+    data: {
+      score: 78,
+      grade: 'C' as const,
+      components: [
+        { name: 'Consent Completion', key: 'consent', score: 16, maxPoints: 20, percentage: 80, detail: '8/10 businesses fully consented' },
+        { name: 'Acknowledgment Completion', key: 'acknowledgment', score: 14, maxPoints: 20, percentage: 70, detail: '7/10 businesses fully acknowledged' },
+        { name: 'Compliance Pass Rate', key: 'compliance', score: 17, maxPoints: 20, percentage: 85, detail: '34/40 checks passing' },
+        { name: 'APR Management', key: 'apr', score: 18, maxPoints: 20, percentage: 90, detail: '9/10 expirations handled' },
+        { name: 'Approval Rate', key: 'approval', score: 7, maxPoints: 10, percentage: 70, detail: '14/20 applications approved' },
+        { name: 'Payment Performance', key: 'payment', score: 6, maxPoints: 10, percentage: 60, detail: '18/30 payments on time' },
+      ],
+      trend: { direction: 'up' as const, delta: 3, previousScore: 75 },
+      actionItems: [
+        { priority: 1, title: 'Address late payments', description: '18/30 payments on time. Enable autopay and set up payment reminders to improve on-time rates.', potentialGain: 4 },
+        { priority: 2, title: 'Gather missing acknowledgments', description: '7/10 businesses fully acknowledged. Ensure all businesses have signed product reality, fee schedule, personal guarantee, and cash advance risk acknowledgments.', potentialGain: 6 },
+        { priority: 3, title: 'Complete consent collection', description: '8/10 businesses fully consented. Collect missing TCPA, data-sharing, and application consents to gain up to 4.0 points.', potentialGain: 4 },
+      ],
+      computedAt: new Date().toISOString(),
+    },
+  };
+
   const map: Record<string, unknown> = {
+    '/api/portfolio/health': MOCK_PORTFOLIO_HEALTH,
     '/api/v1/dashboard/kpi-summary': MOCK_KPI_SUMMARY,
     '/api/v1/dashboard/consent-status': MOCK_CONSENT_STATUS,
     '/api/v1/dashboard/apr-expiry-alerts': MOCK_APR_EXPIRY,
