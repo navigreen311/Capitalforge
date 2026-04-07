@@ -287,6 +287,10 @@ apiRouter.use('/stripe/webhook', stripeWebhookRouter);
 import { portfolioHealthRouter } from './portfolio-health.routes.js';
 apiRouter.use('/portfolio/health', portfolioHealthRouter);
 
+// ── Readiness Score ──────────────────────────────────────────────
+import { readinessRouter } from './readiness.routes.js';
+apiRouter.use('/readiness', readinessRouter);
+
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
