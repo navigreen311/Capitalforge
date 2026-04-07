@@ -105,10 +105,11 @@ fundingRoundRouter.post(
         return next(badRequest('Invalid request body.', parsed.error.flatten()));
       }
 
+      const { businessId, ...rest } = parsed.data;
       const round = await fundingRoundService.createRound({
-        businessId: parsed.data.businessId,
+        businessId,
         tenantId,
-        ...parsed.data,
+        ...rest,
       });
 
       const body: ApiResponse<typeof round> = {
