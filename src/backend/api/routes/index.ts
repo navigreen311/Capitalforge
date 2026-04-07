@@ -270,14 +270,13 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
-// ── Issuer Rules Engine ────────────────────────────────────────
-// GET  /api/issuers                     — list all active issuers with rules
-// GET  /api/issuers/:id                 — single issuer with rules
-// GET  /api/issuers/:id/eligibility     — check eligibility for a business
-// GET  /api/credit-unions               — list credit unions with products
-// GET  /api/credit-unions/:id           — single credit union with products
+// ── Issuer Rules Engine ────────────────────────────���───────────
 import { issuerRulesRouter } from './issuer-rules.routes.js';
 apiRouter.use('/', issuerRulesRouter);
+
+// ── DocuSign E-Signature ─────────────────────────────────────────
+import { docuSignRouter } from './docusign.routes.js';
+apiRouter.use('/docusign', docuSignRouter);
 
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
