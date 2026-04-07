@@ -5,6 +5,7 @@ import { Header } from '@/components/ui/header';
 import { NavBadgeProvider } from '@/components/dashboard/NavBadgeProvider';
 import { ErrorBoundary } from '@/components/global/ErrorBoundary';
 import { ToastProvider } from '@/components/global/ToastProvider';
+import { AskCapitalForge } from '@/components/ai-chat/AskCapitalForge';
 
 // ─── Metadata ────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
               </div>
             </div>
           </NavBadgeProvider>
+          <AskCapitalForge />
         </ToastProvider>
       </body>
     </html>
