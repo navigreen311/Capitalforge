@@ -262,6 +262,16 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
+// ── Stripe Payments ───────────────────────────────────────────
+// POST /api/stripe/checkout        — create checkout session
+// POST /api/stripe/portal          — create billing portal session
+// GET  /api/stripe/status          — Stripe config status
+// GET  /api/stripe/subscription    — tenant subscription info
+// POST /api/stripe/webhook         — Stripe webhook receiver
+import { stripeRouter, stripeWebhookRouter } from './stripe.routes.js';
+apiRouter.use('/stripe', stripeRouter);
+apiRouter.use('/stripe/webhook', stripeWebhookRouter);
+
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
