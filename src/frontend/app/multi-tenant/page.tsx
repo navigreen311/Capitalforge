@@ -705,11 +705,13 @@ function TenantDetail({
   onToggleFlag,
   flagSaveStatus,
   addToast,
+  setTenants,
 }: {
   tenant: Tenant;
   onToggleFlag: (tenantId: string, key: string) => void;
   flagSaveStatus: Record<string, 'saving' | 'saved' | 'error' | null>;
   addToast: (text: string, type: ToastMessage['type']) => void;
+  setTenants: React.Dispatch<React.SetStateAction<Tenant[]>>;
 }) {
   const [activeTab, setActiveTab] = useState<'details' | 'activity'>('details');
 
@@ -1313,6 +1315,7 @@ export default function MultiTenantPage() {
                 onToggleFlag={handleToggleFlag}
                 flagSaveStatus={flagSaveStatus}
                 addToast={addToast}
+                setTenants={setTenants}
               />
             </div>
           ) : (
