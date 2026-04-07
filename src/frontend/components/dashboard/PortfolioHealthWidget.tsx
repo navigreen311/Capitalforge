@@ -233,8 +233,7 @@ export function PortfolioHealthWidget() {
 
       {error && !isLoading && (
         <DashboardErrorState
-          title="Health score unavailable"
-          message={error.message}
+          error={error}
         />
       )}
 
