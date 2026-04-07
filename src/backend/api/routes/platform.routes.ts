@@ -35,8 +35,8 @@ const router = Router();
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function ok<T>(res: Response, data: T, message = 'OK') {
-  const body: ApiResponse<T> = { success: true, data, message };
+function ok<T>(res: Response, data: T) {
+  const body: ApiResponse<T> = { success: true, data };
   return res.json(body);
 }
 
@@ -242,7 +242,7 @@ router.post('/referrals', (req: Request, res: Response) => {
     commission: 0,
   };
   REFERRALS_DATA.push(newRef);
-  return res.status(201).json({ success: true, data: newRef, message: 'Referral created' } as ApiResponse<PlatformReferral>);
+  return res.status(201).json({ success: true, data: newRef } as ApiResponse<PlatformReferral>);
 });
 
 // ============================================================
@@ -312,7 +312,7 @@ router.post('/workflows', (req: Request, res: Response) => {
     createdAt: new Date().toISOString().slice(0, 10),
   };
   WORKFLOWS_DATA.push(newWf);
-  return res.status(201).json({ success: true, data: newWf, message: 'Workflow created' } as ApiResponse<PlatformWorkflow>);
+  return res.status(201).json({ success: true, data: newWf } as ApiResponse<PlatformWorkflow>);
 });
 
 router.patch('/workflows/:id', (req: Request, res: Response) => {
@@ -324,7 +324,7 @@ router.patch('/workflows/:id', (req: Request, res: Response) => {
   if (req.body.status && (req.body.status === 'active' || req.body.status === 'paused')) {
     wf.status = req.body.status;
   }
-  return ok(res, wf, 'Workflow updated');
+  return ok(res, wf);
 });
 
 // ============================================================
@@ -404,7 +404,7 @@ router.patch('/settings', (req: Request, res: Response) => {
   if (updates.notifications) Object.assign(SETTINGS_DATA.notifications, updates.notifications);
   if (updates.security) Object.assign(SETTINGS_DATA.security, updates.security);
 
-  return ok(res, SETTINGS_DATA, 'Settings updated');
+  return ok(res, SETTINGS_DATA);
 });
 
 // ============================================================
