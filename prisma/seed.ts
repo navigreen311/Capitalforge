@@ -12,6 +12,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { seedIssuerRules } from './seeds/issuer-rules.js';
 
 const prisma = new PrismaClient();
 
@@ -735,6 +736,9 @@ async function main(): Promise<void> {
     },
   });
   console.log('  ✓ Ledger events created');
+
+  // ── Issuer Rules Engine ────────────────────────────────────
+  await seedIssuerRules(prisma);
 
   console.log('\n✅ Seed complete.');
   console.log(`   Tenant:   ${tenant.slug} (${tenant.id})`);
