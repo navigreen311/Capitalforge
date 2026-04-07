@@ -281,6 +281,10 @@ export default function ClientsPage() {
       const res = await clientsApi.list({
         search: search || undefined,
         status: statusFilter || undefined,
+        sortBy: sortColumn || undefined,
+        sortDir: sortDirection || undefined,
+        page: page,
+        pageSize: pageSize,
       });
       if (res.success && Array.isArray(res.data)) {
         setClients(res.data as ClientRow[]);
@@ -290,7 +294,7 @@ export default function ClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter]);
+  }, [search, statusFilter, sortColumn, sortDirection, page, pageSize]);
 
   useEffect(() => {
     load();
