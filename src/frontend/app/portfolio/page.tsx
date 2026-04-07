@@ -982,7 +982,106 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      {/* ── KPI Cards ──────────────────────────────────────────── */}
+      {/* ── Portfolio KPIs ─────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Avg Readiness Score</p>
+          <p className="text-2xl font-black text-[#C9A84C]">72<span className="text-sm font-semibold text-gray-500">/100</span></p>
+          <p className="text-[10px] text-gray-500 mt-1">Platform avg: 68</p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Approval Rate</p>
+          <p className="text-2xl font-black text-emerald-400">67%</p>
+          <p className="text-[10px] text-gray-500 mt-1">Platform avg: 62%</p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Avg Funding / Client</p>
+          <p className="text-2xl font-black text-blue-400">$148K</p>
+          <p className="text-[10px] text-gray-500 mt-1">Platform avg: $125K</p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Total Businesses</p>
+          <p className="text-2xl font-black text-gray-100">247</p>
+          <p className="text-[10px] text-gray-500 mt-1">+12 this month</p>
+        </div>
+      </div>
+
+      {/* ── Risk Distribution & Benchmark KPIs ─────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Risk Distribution Donut */}
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+          <h3 className="text-sm font-semibold text-gray-200 mb-4">Risk Distribution</h3>
+          <div className="flex items-center gap-6">
+            {/* CSS Donut Chart */}
+            <div className="relative w-32 h-32 shrink-0">
+              <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#111827" strokeWidth="3.8" />
+                {/* Low: 142/247 = 57.5% */}
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#10b981" strokeWidth="3.8"
+                  strokeDasharray="57.5 42.5" strokeDashoffset="0" />
+                {/* Medium: 68/247 = 27.5% */}
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f59e0b" strokeWidth="3.8"
+                  strokeDasharray="27.5 72.5" strokeDashoffset="-57.5" />
+                {/* High: 28/247 = 11.3% */}
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f97316" strokeWidth="3.8"
+                  strokeDasharray="11.3 88.7" strokeDashoffset="-85" />
+                {/* Critical: 9/247 = 3.6% */}
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" strokeWidth="3.8"
+                  strokeDasharray="3.6 96.4" strokeDashoffset="-96.3" />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-lg font-bold text-white">247</span>
+              </div>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /><span className="text-gray-300">Low: <strong className="text-emerald-400">142</strong></span></div>
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /><span className="text-gray-300">Medium: <strong className="text-yellow-400">68</strong></span></div>
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-orange-500 inline-block" /><span className="text-gray-300">High: <strong className="text-orange-400">28</strong></span></div>
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /><span className="text-gray-300">Critical: <strong className="text-red-400">9</strong></span></div>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-600 mt-3">Risk levels from compliance checks across all businesses</p>
+        </div>
+
+        {/* Benchmark Indicators */}
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+          <h3 className="text-sm font-semibold text-gray-200 mb-4">Benchmark Indicators</h3>
+          <div className="space-y-3">
+            {[
+              { label: 'Readiness Score', yours: 72, avg: 68, unit: '' },
+              { label: 'Approval Rate', yours: 67, avg: 62, unit: '%' },
+              { label: 'Avg Funding', yours: 148, avg: 125, unit: 'K' },
+              { label: 'Avg FICO', yours: 714, avg: 698, unit: '' },
+              { label: 'CU Mix', yours: 22, avg: 18, unit: '%' },
+            ].map(({ label, yours, avg, unit }) => {
+              const delta = yours - avg;
+              const pct = Math.round((yours / (avg * 1.5)) * 100);
+              return (
+                <div key={label}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-gray-400">{label}</span>
+                    <span className={delta >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                      {yours}{unit} ({delta >= 0 ? '+' : ''}{delta}{unit} vs avg)
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden relative">
+                    <div className="h-full bg-[#C9A84C] rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
+                    {/* Platform avg marker */}
+                    <div
+                      className="absolute top-0 h-full w-0.5 bg-gray-400"
+                      style={{ left: `${Math.round((avg / (avg * 1.5)) * 100)}%` }}
+                      title={`Platform avg: ${avg}${unit}`}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-gray-600 mt-3">Dashed line indicates platform average (static reference)</p>
+        </div>
+      </div>
+
+      {/* ── Original KPI Cards ─────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Overall Approval</p>

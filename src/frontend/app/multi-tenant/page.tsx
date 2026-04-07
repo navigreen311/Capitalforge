@@ -845,10 +845,36 @@ function TenantDetail({
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => addToast('Plan change dialog would open here', 'info')}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] font-semibold transition-colors"
+                  onClick={() => {
+                    const plans: Plan[] = ['Starter', 'Growth', 'Enterprise', 'White-Label'];
+                    const idx = plans.indexOf(tenant.plan);
+                    if (idx < plans.length - 1) {
+                      const next = plans[idx + 1];
+                      setTenants((prev) => prev.map((t) => t.id === tenant.id ? { ...t, plan: next } : t));
+                      addToast(`Upgraded ${tenant.name} to ${next}`, 'success');
+                    } else {
+                      addToast('Already on highest plan', 'info');
+                    }
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors"
                 >
-                  Change Plan
+                  Upgrade
+                </button>
+                <button
+                  onClick={() => {
+                    const plans: Plan[] = ['Starter', 'Growth', 'Enterprise', 'White-Label'];
+                    const idx = plans.indexOf(tenant.plan);
+                    if (idx > 0) {
+                      const prev = plans[idx - 1];
+                      setTenants((p) => p.map((t) => t.id === tenant.id ? { ...t, plan: prev } : t));
+                      addToast(`Downgraded ${tenant.name} to ${prev}`, 'info');
+                    } else {
+                      addToast('Already on lowest plan', 'info');
+                    }
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-600 hover:bg-gray-800 text-gray-300 font-semibold transition-colors"
+                >
+                  Downgrade
                 </button>
               </div>
             </div>
@@ -1028,12 +1054,18 @@ export default function MultiTenantPage() {
     if (!selectedTenant) return;
     setShowImpersonateModal(false);
     setImpersonating({ tenantId: selectedTenant.id, tenantName: selectedTenant.name });
+    // Store tenantId in localStorage for testing/impersonation
+    localStorage.setItem('impersonatedTenantId', selectedTenant.id);
+    localStorage.setItem('impersonatedTenantName', selectedTenant.name);
     addToast(`Now impersonating ${selectedTenant.name} admin`, 'info');
   }
 
   function exitImpersonation() {
     const name = impersonating?.tenantName;
     setImpersonating(null);
+    // Clear impersonation from localStorage
+    localStorage.removeItem('impersonatedTenantId');
+    localStorage.removeItem('impersonatedTenantName');
     addToast(`Exited impersonation of ${name}`, 'success');
   }
 

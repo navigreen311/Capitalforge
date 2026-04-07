@@ -249,3 +249,7 @@ apiRouter.use('/', complianceExtendedRouter);
 // ── Platform (CRM, issuers, referrals, workflows, settings) ──
 import { platformRouter } from './platform.routes.js';
 apiRouter.use('/platform', platformRouter);
+
+// ── Platform Extended (Reports, Portfolio, Tenants, Offboarding, Data Lineage) ──
+import { platformExtendedRouter } from './platform-extended.routes.js';
+apiRouter.use('/', platformExtendedRouter);
