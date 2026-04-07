@@ -147,20 +147,18 @@ export function AskCapitalForge() {
             const jsonStr = line.slice(6).trim();
             if (!jsonStr) continue;
 
+            let data: { done?: boolean; error?: string; text?: string };
             try {
-              const data = JSON.parse(jsonStr);
-              if (data.done) break;
-              if (data.error) throw new Error(data.error);
-              if (data.text) {
-                accumulated += data.text;
-                setStreamingContent(accumulated);
-              }
-            } catch (parseErr) {
-              // Skip malformed SSE lines
-              if ((parseErr as Error).message !== jsonStr) {
-                // Only re-throw real errors, not JSON parse errors
-                if ((parseErr as Error).message === data?.error) throw parseErr;
-              }
+              data = JSON.parse(jsonStr);
+            } catch {
+              continue; // Skip malformed SSE lines
+            }
+
+            if (data.done) break;
+            if (data.error) throw new Error(data.error);
+            if (data.text) {
+              accumulated += data.text;
+              setStreamingContent(accumulated);
             }
           }
         }
