@@ -223,3 +223,14 @@ apiRouter.use('/webhooks', webhooksRouter);
 // POST /api/governance/cadence/reminders/process   — dispatch pending reminders (cron)
 import { governanceRouter } from './governance.routes.js';
 apiRouter.use('/governance', governanceRouter);
+
+// ── Compliance Extended (Regulatory, Comm Compliance, Training, Decisions) ──
+// GET  /api/compliance/regulatory
+// GET  /api/compliance/comm-compliance/log
+// GET  /api/compliance/comm-compliance/consent-audit
+// GET  /api/compliance/training/modules
+// POST /api/compliance/training/modules/:id/complete
+// GET  /api/compliance/decisions
+// GET  /api/compliance/decisions/:id
+import { complianceExtendedRouter } from './compliance-extended.routes.js';
+apiRouter.use('/', complianceExtendedRouter);
