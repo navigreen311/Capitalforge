@@ -262,6 +262,10 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
+// ── Decline Recovery Workflow ───────────────────────────────────
+import { declineRecoveryRouter } from './decline-recovery.routes.js';
+apiRouter.use('/', declineRecoveryRouter);
+
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
