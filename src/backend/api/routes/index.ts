@@ -223,3 +223,16 @@ apiRouter.use('/webhooks', webhooksRouter);
 // POST /api/governance/cadence/reminders/process   — dispatch pending reminders (cron)
 import { governanceRouter } from './governance.routes.js';
 apiRouter.use('/governance', governanceRouter);
+
+// ── Platform Extended (Reports, Portfolio, Tenants, Offboarding, Data Lineage)
+// GET    /api/platform/reports/:type
+// GET    /api/platform/portfolio/summary
+// GET    /api/platform/tenants
+// POST   /api/platform/tenants
+// PATCH  /api/platform/tenants/:id
+// GET    /api/platform/offboarding
+// POST   /api/platform/offboarding
+// PATCH  /api/platform/offboarding/:id
+// GET    /api/platform/data-lineage/:businessId
+import { platformExtendedRouter } from './platform-extended.routes.js';
+apiRouter.use('/', platformExtendedRouter);
