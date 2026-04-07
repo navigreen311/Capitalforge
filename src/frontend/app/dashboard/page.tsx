@@ -17,6 +17,7 @@ import {
   PortfolioRiskHeatmap,
   RestackOpportunities,
   VoiceForgeActivity,
+  PortfolioHealthWidget,
 } from '@/components/dashboard';
 
 // ─── Activity feed mock data (retained — no replacement component) ───────────
@@ -193,6 +194,9 @@ export default function DashboardPage() {
 
         {/* ── Right column (1/3 width) ────────────────────── */}
         <div className="space-y-6">
+
+          {/* Portfolio Health Score */}
+          <PortfolioHealthWidget />
 
           {/* Compliance Health panel */}
           <SectionCard
