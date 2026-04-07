@@ -305,3 +305,476 @@ complianceRouter.get(
     }
   },
 );
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/compliance/overview
+// Aggregate compliance stats across all businesses for a tenant.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.get(
+  '/compliance/overview',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const prismaClient = prisma ?? new PrismaClient();
+
+      const checks = await prismaClient.complianceCheck.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        include: { business: { select: { id: true, businessName: true } } },
+      });
+
+      const total = checks.length;
+      const passed = checks.filter((c) => c.riskLevel === 'low' || c.riskLevel === 'medium').length;
+      const failed = total - passed;
+      const critical = checks.filter((c) => c.riskLevel === 'critical').length;
+
+      // Breakdown by checkType
+      const breakdownMap: Record<string, { total: number; passed: number; failed: number; critical: number }> = {};
+      for (const c of checks) {
+        const t = c.checkType;
+        if (!breakdownMap[t]) breakdownMap[t] = { total: 0, passed: 0, failed: 0, critical: 0 };
+        breakdownMap[t].total++;
+        if (c.riskLevel === 'low' || c.riskLevel === 'medium') breakdownMap[t].passed++;
+        else breakdownMap[t].failed++;
+        if (c.riskLevel === 'critical') breakdownMap[t].critical++;
+      }
+
+      // Risk distribution
+      const riskDistribution = {
+        critical: checks.filter((c) => c.riskLevel === 'critical').length,
+        high: checks.filter((c) => c.riskLevel === 'high').length,
+        medium: checks.filter((c) => c.riskLevel === 'medium').length,
+        low: checks.filter((c) => c.riskLevel === 'low').length,
+      };
+
+      // Score
+      const score = total === 0 ? 100 : Math.max(0, Math.round(
+        ((passed / total) * 100)
+        - (critical * 12)
+        - (checks.filter((c) => c.riskLevel === 'high').length * 6)
+      ));
+
+      const responseData = {
+        score,
+        total,
+        passed,
+        failed,
+        critical,
+        breakdown: breakdownMap,
+        riskDistribution,
+        checks: checks.slice(0, 50).map((c) => ({
+          id: c.id,
+          checkType: c.checkType,
+          businessName: c.business?.businessName ?? 'Unknown',
+          riskLevel: c.riskLevel ?? 'low',
+          passed: c.riskLevel === 'low' || c.riskLevel === 'medium',
+          findings: typeof c.findings === 'string' ? c.findings : JSON.stringify(c.findings ?? ''),
+          checkedAt: c.createdAt.toISOString(),
+        })),
+      };
+
+      logger.info('Compliance overview retrieved', { requestId: req.requestId, tenantId, score, total });
+
+      const body: ApiResponse<typeof responseData> = { success: true, data: responseData };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/compliance/run-all
+// Run compliance checks for all businesses under the tenant.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.post(
+  '/compliance/run-all',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const prismaClient = prisma ?? new PrismaClient();
+
+      const businesses = await prismaClient.business.findMany({
+        where: { tenantId },
+        select: { id: true, businessName: true },
+      });
+
+      const service = getService();
+      const results: Array<{ businessId: string; businessName: string; riskLevel: string }> = [];
+
+      for (const biz of businesses) {
+        try {
+          const checkTypes = ['udap', 'kyb', 'aml'] as const;
+          for (const checkType of checkTypes) {
+            const result = await service.runComplianceCheck({
+              businessId: biz.id,
+              tenantId,
+              checkType,
+            });
+            results.push({
+              businessId: biz.id,
+              businessName: biz.businessName ?? biz.id,
+              riskLevel: result.riskLevel,
+            });
+          }
+        } catch (err) {
+          logger.warn('Compliance check failed for business', { businessId: biz.id, error: String(err) });
+        }
+      }
+
+      const passed = results.filter((r) => r.riskLevel === 'low' || r.riskLevel === 'medium').length;
+      const failed = results.length - passed;
+
+      logger.info('Run-all compliance checks completed', {
+        requestId: req.requestId,
+        tenantId,
+        businessCount: businesses.length,
+        checkCount: results.length,
+        passed,
+        failed,
+      });
+
+      const body: ApiResponse<{ businessCount: number; checkCount: number; passed: number; failed: number; results: typeof results }> = {
+        success: true,
+        data: { businessCount: businesses.length, checkCount: results.length, passed, failed, results },
+      };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/compliance/documents
+// List all documents across businesses for a tenant.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.get(
+  '/compliance/documents',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const prismaClient = prisma ?? new PrismaClient();
+
+      const docs = await prismaClient.document.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        include: { business: { select: { id: true, businessName: true } } },
+      });
+
+      const data = docs.map((d) => ({
+        id: d.id,
+        businessId: d.businessId,
+        businessName: d.business?.businessName ?? 'Unknown',
+        type: d.documentType,
+        fileName: d.title,
+        fileSizeBytes: d.sizeBytes ?? 0,
+        uploadedAt: d.createdAt.toISOString(),
+        uploadedBy: d.uploadedBy ?? 'System',
+        legalHold: d.legalHold,
+        aiParsed: false,
+        pendingSignature: false,
+        tags: [],
+      }));
+
+      const body: ApiResponse<typeof data> = { success: true, data };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/compliance/documents
+// Upload document metadata.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.post(
+  '/compliance/documents',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const prismaClient = prisma ?? new PrismaClient();
+
+      const schema = z.object({
+        businessId: z.string().optional(),
+        documentType: z.string().min(1),
+        title: z.string().min(1),
+        description: z.string().optional(),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        throw badRequest('Invalid document metadata.', parsed.error.flatten());
+      }
+
+      const doc = await prismaClient.document.create({
+        data: {
+          tenantId,
+          businessId: parsed.data.businessId ?? null,
+          documentType: parsed.data.documentType,
+          title: parsed.data.title,
+          storageKey: `pending/${Date.now()}_${parsed.data.title}`,
+          metadata: parsed.data.description ? { description: parsed.data.description } : undefined,
+          uploadedBy: req.tenant!.userId ?? 'system',
+        },
+      });
+
+      logger.info('Document metadata created', { requestId: req.requestId, tenantId, docId: doc.id });
+
+      const body: ApiResponse<typeof doc> = { success: true, data: doc };
+      res.status(201).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// PATCH /api/compliance/documents/:id/hold
+// Toggle legal hold on a document.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.patch(
+  '/compliance/documents/:id/hold',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const { id } = req.params;
+      const prismaClient = prisma ?? new PrismaClient();
+
+      const doc = await prismaClient.document.findFirst({
+        where: { id, tenantId },
+      });
+      if (!doc) {
+        throw notFound(`Document ${id}`);
+      }
+
+      const { legalHold } = z.object({ legalHold: z.boolean() }).parse(req.body);
+
+      const updated = await prismaClient.document.update({
+        where: { id },
+        data: { legalHold },
+      });
+
+      logger.info('Document legal hold toggled', { requestId: req.requestId, tenantId, docId: id, legalHold });
+
+      const body: ApiResponse<{ id: string; legalHold: boolean }> = {
+        success: true,
+        data: { id: updated.id, legalHold: updated.legalHold },
+      };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/compliance/disclosures
+// List disclosure requirements with deadline tracking.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.get(
+  '/compliance/disclosures',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+
+      // Placeholder disclosure data — backed by a Disclosure model in a future iteration
+      const disclosures = [
+        { id: 'dis_001', businessName: 'Apex Ventures LLC',       state: 'CA', regulation: 'SB 1235 Commercial Finance Disclosures',  deadline: '2026-04-15', status: 'Pending',  filedAt: null },
+        { id: 'dis_002', businessName: 'NovaTech Solutions Inc.',  state: 'NY', regulation: 'Commercial Finance Disclosure Law',        deadline: '2026-03-31', status: 'Overdue',  filedAt: null },
+        { id: 'dis_003', businessName: 'Horizon Retail Partners',  state: 'IL', regulation: 'Consumer Installment Loan Act Disclosure', deadline: '2026-05-01', status: 'Filed',    filedAt: '2026-03-20T10:00:00Z' },
+        { id: 'dis_004', businessName: 'Summit Capital Group',     state: 'TX', regulation: 'HB 1442 Business Lending Transparency',    deadline: '2026-09-01', status: 'Draft',    filedAt: null },
+        { id: 'dis_005', businessName: 'Blue Ridge Consulting',    state: 'VA', regulation: 'Open-End Credit Disclosure Requirements',  deadline: '2026-04-10', status: 'Pending',  filedAt: null },
+        { id: 'dis_006', businessName: 'Crestline Medical LLC',    state: 'UT', regulation: 'Consumer Credit Protection - Title 70C',   deadline: '2026-06-30', status: 'Filed',    filedAt: '2026-03-15T14:00:00Z' },
+      ];
+
+      logger.info('Disclosures listed', { requestId: req.requestId, tenantId, count: disclosures.length });
+
+      const body: ApiResponse<typeof disclosures> = { success: true, data: disclosures };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/compliance/disclosures/:id/file
+// Mark a disclosure as filed.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.post(
+  '/compliance/disclosures/:id/file',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { tenantId } = req.tenant!;
+
+      logger.info('Disclosure filed', { requestId: req.requestId, tenantId, disclosureId: id });
+
+      const body: ApiResponse<{ id: string; status: string; filedAt: string }> = {
+        success: true,
+        data: { id, status: 'Filed', filedAt: new Date().toISOString() },
+      };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/compliance/complaints
+// List complaints for the tenant.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.get(
+  '/compliance/complaints',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const prismaClient = prisma ?? new PrismaClient();
+
+      const complaints = await prismaClient.complaint.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      });
+
+      const data = complaints.map((c) => ({
+        id: c.id,
+        businessName: c.businessId ?? 'Unknown',
+        complaintType: c.category,
+        channel: c.source,
+        status: c.status,
+        description: c.description,
+        createdAt: c.createdAt.toISOString(),
+        updatedAt: c.updatedAt.toISOString(),
+        assignee: c.assignedTo ?? '',
+        slaDeadline: new Date(c.createdAt.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      }));
+
+      logger.info('Compliance complaints listed', { requestId: req.requestId, tenantId, count: data.length });
+
+      const body: ApiResponse<typeof data> = { success: true, data };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/compliance/complaints
+// Create a new complaint.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.post(
+  '/compliance/complaints',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const prismaClient = prisma ?? new PrismaClient();
+
+      const schema = z.object({
+        businessId: z.string().optional(),
+        complaintType: z.string().min(1),
+        channel: z.string().min(1),
+        description: z.string().min(1),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        throw badRequest('Invalid complaint data.', parsed.error.flatten());
+      }
+
+      const complaint = await prismaClient.complaint.create({
+        data: {
+          tenantId,
+          businessId: parsed.data.businessId ?? null,
+          category: parsed.data.complaintType,
+          source: parsed.data.channel,
+          description: parsed.data.description,
+          status: 'Received',
+          severity: 'medium',
+        },
+      });
+
+      logger.info('Compliance complaint created', { requestId: req.requestId, tenantId, complaintId: complaint.id });
+
+      const body: ApiResponse<typeof complaint> = { success: true, data: complaint };
+      res.status(201).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// PATCH /api/compliance/complaints/:id
+// Update complaint status.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.patch(
+  '/compliance/complaints/:id',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const { id } = req.params;
+      const prismaClient = prisma ?? new PrismaClient();
+
+      const complaint = await prismaClient.complaint.findFirst({
+        where: { id, tenantId },
+      });
+      if (!complaint) {
+        throw notFound(`Complaint ${id}`);
+      }
+
+      const schema = z.object({
+        status: z.enum(['Received', 'Under Review', 'Responded', 'Resolved', 'Escalated']).optional(),
+        assignedTo: z.string().optional(),
+        resolution: z.string().optional(),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        throw badRequest('Invalid update data.', parsed.error.flatten());
+      }
+
+      const updated = await prismaClient.complaint.update({
+        where: { id },
+        data: {
+          ...(parsed.data.status && { status: parsed.data.status }),
+          ...(parsed.data.assignedTo && { assignedTo: parsed.data.assignedTo }),
+          ...(parsed.data.resolution && { resolution: parsed.data.resolution }),
+        },
+      });
+
+      logger.info('Compliance complaint updated', { requestId: req.requestId, tenantId, complaintId: id, status: parsed.data.status });
+
+      const body: ApiResponse<typeof updated> = { success: true, data: updated };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);

@@ -249,11 +249,44 @@ export const complianceApi = {
   dashboard: () =>
     request('GET', '/compliance/dashboard'),
 
+  overview: () =>
+    request('GET', '/compliance/overview'),
+
+  runAll: () =>
+    request('POST', '/compliance/run-all'),
+
   checks: (params?: Partial<PaginationParams>) =>
     request('GET', '/compliance/checks', { params: params ?? {} }),
 
   stateAlerts: () =>
     request('GET', '/compliance/state-alerts'),
+
+  // Documents
+  listDocuments: () =>
+    request('GET', '/compliance/documents'),
+
+  uploadDocument: (body: Record<string, unknown>) =>
+    request('POST', '/compliance/documents', { body }),
+
+  toggleDocumentHold: (id: string, legalHold: boolean) =>
+    request('PATCH', `/compliance/documents/${id}/hold`, { body: { legalHold } }),
+
+  // Disclosures
+  listDisclosures: () =>
+    request('GET', '/compliance/disclosures'),
+
+  fileDisclosure: (id: string) =>
+    request('POST', `/compliance/disclosures/${id}/file`),
+
+  // Complaints
+  listComplaints: () =>
+    request('GET', '/compliance/complaints'),
+
+  createComplaint: (body: Record<string, unknown>) =>
+    request('POST', '/compliance/complaints', { body }),
+
+  updateComplaint: (id: string, body: Record<string, unknown>) =>
+    request('PATCH', `/compliance/complaints/${id}`, { body }),
 };
 
 // ─── Resource helpers — Documents ────────────────────────────────────────────
