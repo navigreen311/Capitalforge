@@ -9,7 +9,6 @@
 // ============================================================
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { applicationsApi } from '../../lib/api-client';
 import { ApplicationDetailDrawer } from '../../components/applications/ApplicationDetailDrawer';
 import NewApplicationWizardModal from '../../components/applications/wizard/NewApplicationWizardModal';
@@ -170,7 +169,6 @@ function AppCard({
 // ---------------------------------------------------------------------------
 
 export default function ApplicationsPage() {
-  const router = useRouter();
   const [apps, setApps] = useState<ApplicationCard[]>(PLACEHOLDER_APPS);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
