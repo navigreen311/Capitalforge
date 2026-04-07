@@ -600,3 +600,539 @@ export class StackingOptimizerService {
 
 // Singleton convenience export
 export const stackingOptimizer = new StackingOptimizerService();
+
+// ============================================================
+// Phase 2 — Prisma-backed Stacking Optimizer
+//
+// runStackingOptimizer() loads card products from the database
+// (CardProduct model), loads client data (business, credit
+// profiles, card applications), and produces a StackingPlan
+// with scored recommendations, sequencing, and velocity risk.
+// ============================================================
+
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+// ── Phase 2 input/output types ───────────────────────────────
+
+export type PrioritizationMode =
+  | 'max_credit'
+  | 'best_terms'
+  | 'fastest_approval'
+  | 'min_inquiries';
+
+export interface StackingOptimizerInput {
+  businessId: string;
+  targetAmount?: number;
+  maxCards?: number;
+  prioritize?: PrioritizationMode;
+  excludeIssuers?: string[];
+  includeCreditUnions?: boolean;
+}
+
+export interface CardRecommendation {
+  cardProductId: string;
+  issuer: string;
+  name: string;
+  cardType: string;
+  eligibilityScore: number;        // 0–100
+  estimatedLimitMin: number;
+  estimatedLimitMax: number;
+  estimatedLimitTypical: number;
+  approvalDifficulty: string;
+  aprIntro: number | null;
+  aprIntroMonths: number | null;
+  aprPostPromo: number | null;
+  annualFee: number;
+  rewardsType: string | null;
+  rewardsRate: number | null;
+  rewardsDetails: string | null;
+  welcomeBonus: string | null;
+  welcomeBonusValue: number | null;
+  personalGuarantee: boolean;
+  bestFor: string | null;
+  sequencePosition: number;        // 1-indexed order of application
+  cooldownDays: number;            // days to wait before this application
+  rationale: string;
+  velocityRisk: 'low' | 'medium' | 'high';
+}
+
+export interface ExcludedCardInfo {
+  cardProductId: string;
+  issuer: string;
+  name: string;
+  reason: string;
+}
+
+export interface AprExpirySummary {
+  cardName: string;
+  introMonths: number;
+  expiryEstimate: string;  // ISO date
+}
+
+export interface StackingPlan {
+  businessId: string;
+  generatedAt: string;
+  recommendations: CardRecommendation[];
+  excludedCards: ExcludedCardInfo[];
+  totalEstimatedCreditMin: number;
+  totalEstimatedCreditMax: number;
+  totalEstimatedCreditTypical: number;
+  velocityRiskScore: number;       // 0–100
+  velocityRiskLevel: 'low' | 'medium' | 'high';
+  aprExpirySummary: AprExpirySummary[];
+  prioritizationMode: PrioritizationMode;
+  cardCount: number;
+}
+
+// ── Scoring helpers ──────────────────────────────────────────
+
+interface ApplicationContext {
+  ficoScore: number;
+  annualRevenue: number;
+  businessAgeMonths: number;
+  recentInquiries: number;
+  existingCardCount: number;
+  existingIssuers: Set<string>;
+  recentAppDates: Date[];
+}
+
+function buildApplicationContext(
+  business: {
+    annualRevenue: { toNumber: () => number } | null;
+    dateOfFormation: Date | null;
+    cardApplications: Array<{
+      issuer: string;
+      status: string;
+      submittedAt: Date | null;
+    }>;
+    creditProfiles: Array<{
+      score: number | null;
+      inquiryCount: number | null;
+      pulledAt: Date;
+    }>;
+  },
+): ApplicationContext {
+  // Get best FICO from most recent credit profile
+  const sortedProfiles = [...business.creditProfiles].sort(
+    (a, b) => b.pulledAt.getTime() - a.pulledAt.getTime(),
+  );
+  const latestProfile = sortedProfiles[0];
+  const ficoScore = latestProfile?.score ?? 680; // default assumption
+
+  const annualRevenue = business.annualRevenue?.toNumber() ?? 0;
+
+  // Compute business age in months
+  const now = new Date();
+  let businessAgeMonths = 24; // default assumption
+  if (business.dateOfFormation) {
+    const diffMs = now.getTime() - business.dateOfFormation.getTime();
+    businessAgeMonths = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30.44));
+  }
+
+  const recentInquiries = latestProfile?.inquiryCount ?? 0;
+
+  // Existing cards
+  const activeApps = business.cardApplications.filter(
+    (a) => a.status === 'approved' || a.status === 'active',
+  );
+  const existingIssuers = new Set(activeApps.map((a) => a.issuer.toLowerCase()));
+
+  // Recent application dates (past 90 days)
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const recentAppDates = business.cardApplications
+    .filter((a) => a.submittedAt && a.submittedAt >= ninetyDaysAgo)
+    .map((a) => a.submittedAt!);
+
+  return {
+    ficoScore,
+    annualRevenue,
+    businessAgeMonths,
+    recentInquiries,
+    existingCardCount: activeApps.length,
+    existingIssuers,
+    recentAppDates,
+  };
+}
+
+function scoreCard(
+  card: {
+    scoreMinimum: number;
+    revenueMinimum: { toNumber: () => number };
+    businessAgeMinimum: number;
+    creditLimitTypical: number;
+    aprIntro: { toNumber: () => number } | null;
+    aprIntroMonths: number | null;
+    aprPostPromo: { toNumber: () => number } | null;
+    annualFee: { toNumber: () => number };
+    approvalDifficulty: string;
+  },
+  ctx: ApplicationContext,
+): number {
+  let score = 0;
+
+  // 1. Credit score match (0–35 pts)
+  const ficoGap = ctx.ficoScore - card.scoreMinimum;
+  if (ficoGap >= 80) score += 35;
+  else if (ficoGap >= 50) score += 30;
+  else if (ficoGap >= 20) score += 22;
+  else if (ficoGap >= 0) score += 15;
+  else if (ficoGap >= -20) score += 5;
+  // else: 0
+
+  // 2. Business age match (0–15 pts)
+  const ageGap = ctx.businessAgeMonths - card.businessAgeMinimum;
+  if (ageGap >= 24) score += 15;
+  else if (ageGap >= 12) score += 12;
+  else if (ageGap >= 6) score += 8;
+  else if (ageGap >= 0) score += 5;
+  // else: 0
+
+  // 3. Revenue match (0–15 pts)
+  const revMin = card.revenueMinimum.toNumber();
+  if (revMin <= 0 || ctx.annualRevenue >= revMin * 2) score += 15;
+  else if (ctx.annualRevenue >= revMin * 1.5) score += 12;
+  else if (ctx.annualRevenue >= revMin) score += 8;
+  else if (ctx.annualRevenue >= revMin * 0.8) score += 3;
+
+  // 4. Velocity risk (0–20 pts, higher = less risk)
+  const recentAppsCount = ctx.recentAppDates.length;
+  if (recentAppsCount === 0) score += 20;
+  else if (recentAppsCount <= 1) score += 15;
+  else if (recentAppsCount <= 2) score += 10;
+  else if (recentAppsCount <= 3) score += 5;
+
+  // 5. Intro APR bonus (0–10 pts)
+  if (card.aprIntro !== null && card.aprIntro.toNumber() === 0 && card.aprIntroMonths) {
+    score += Math.min(10, Math.round((card.aprIntroMonths / 15) * 10));
+  }
+
+  // 6. Approval difficulty adjustment (0–5 pts)
+  const difficultyBonus: Record<string, number> = {
+    easy: 5,
+    moderate: 3,
+    hard: 1,
+    very_hard: 0,
+  };
+  score += difficultyBonus[card.approvalDifficulty] ?? 2;
+
+  return Math.min(100, Math.max(0, score));
+}
+
+function getVelocityRisk(
+  ctx: ApplicationContext,
+  sequencePosition: number,
+): 'low' | 'medium' | 'high' {
+  const totalApps = ctx.recentAppDates.length + sequencePosition;
+  if (totalApps <= 2) return 'low';
+  if (totalApps <= 4) return 'medium';
+  return 'high';
+}
+
+function getCooldownDays(
+  issuer: string,
+  sequencePosition: number,
+  _ctx: ApplicationContext,
+): number {
+  if (sequencePosition === 1) return 0;
+
+  // Issuer-specific cooldowns
+  const issuerCooldowns: Record<string, number> = {
+    chase: 30,
+    amex: 90,     // 2/90 velocity
+    citi: 8,      // 1/8 rule
+    capital_one: 180,
+    bank_of_america: 60,
+    us_bank: 30,
+    wells_fargo: 30,
+    discover: 30,
+    td_bank: 30,
+    pnc: 30,
+  };
+
+  const baseCooldown = issuerCooldowns[issuer.toLowerCase()] ?? 30;
+
+  // Add extra buffer for later positions
+  if (sequencePosition > 4) return baseCooldown + 30;
+  if (sequencePosition > 2) return baseCooldown + 14;
+  return baseCooldown;
+}
+
+function sortByPrioritization(
+  recs: CardRecommendation[],
+  mode: PrioritizationMode,
+): CardRecommendation[] {
+  const sorted = [...recs];
+
+  switch (mode) {
+    case 'max_credit':
+      sorted.sort((a, b) => b.estimatedLimitTypical - a.estimatedLimitTypical);
+      break;
+    case 'best_terms':
+      sorted.sort((a, b) => {
+        // Prefer 0% intro APR, then longer intro period, then lower post-promo
+        const aIntro = a.aprIntro === 0 ? 1 : 0;
+        const bIntro = b.aprIntro === 0 ? 1 : 0;
+        if (aIntro !== bIntro) return bIntro - aIntro;
+        if ((a.aprIntroMonths ?? 0) !== (b.aprIntroMonths ?? 0))
+          return (b.aprIntroMonths ?? 0) - (a.aprIntroMonths ?? 0);
+        return (a.aprPostPromo ?? 99) - (b.aprPostPromo ?? 99);
+      });
+      break;
+    case 'fastest_approval':
+      sorted.sort((a, b) => {
+        const difficultyOrder: Record<string, number> = {
+          easy: 0,
+          moderate: 1,
+          hard: 2,
+          very_hard: 3,
+        };
+        return (difficultyOrder[a.approvalDifficulty] ?? 2) -
+               (difficultyOrder[b.approvalDifficulty] ?? 2);
+      });
+      break;
+    case 'min_inquiries':
+      // Prefer cards from issuers already held (no new inquiry needed)
+      // then by eligibility score descending
+      sorted.sort((a, b) => b.eligibilityScore - a.eligibilityScore);
+      break;
+  }
+
+  return sorted;
+}
+
+// ── Main function ────────────────────────────────────────────
+
+export async function runStackingOptimizer(
+  input: StackingOptimizerInput,
+): Promise<StackingPlan> {
+  const {
+    businessId,
+    targetAmount = 100000,
+    maxCards = 8,
+    prioritize = 'max_credit',
+    excludeIssuers = [],
+    includeCreditUnions: _includeCreditUnions = false,
+  } = input;
+
+  // 1. Load client data
+  const business = await prisma.business.findUniqueOrThrow({
+    where: { id: businessId },
+    include: {
+      creditProfiles: { orderBy: { pulledAt: 'desc' }, take: 5 },
+      cardApplications: true,
+    },
+  });
+
+  // 2. Build application context
+  const ctx = buildApplicationContext(business);
+
+  // 3. Load all active card products
+  const allCards = await prisma.cardProduct.findMany({
+    where: { isActive: true },
+  });
+
+  // 4. Score, filter, and rank
+  const excludeSet = new Set(excludeIssuers.map((i) => i.toLowerCase()));
+  const recommendations: CardRecommendation[] = [];
+  const excludedCards: ExcludedCardInfo[] = [];
+
+  for (const card of allCards) {
+    const issuerLower = card.issuerId.toLowerCase();
+
+    // Excluded issuers
+    if (excludeSet.has(issuerLower)) {
+      excludedCards.push({
+        cardProductId: card.id,
+        issuer: card.issuerId,
+        name: card.name,
+        reason: `Issuer "${card.issuerId}" excluded by request.`,
+      });
+      continue;
+    }
+
+    // Score minimum check
+    if (ctx.ficoScore < card.scoreMinimum - 30) {
+      excludedCards.push({
+        cardProductId: card.id,
+        issuer: card.issuerId,
+        name: card.name,
+        reason: `FICO score ${ctx.ficoScore} is below minimum requirement ${card.scoreMinimum}.`,
+      });
+      continue;
+    }
+
+    // Revenue minimum check
+    const revMin = card.revenueMinimum.toNumber();
+    if (revMin > 0 && ctx.annualRevenue < revMin * 0.5) {
+      excludedCards.push({
+        cardProductId: card.id,
+        issuer: card.issuerId,
+        name: card.name,
+        reason: `Annual revenue $${ctx.annualRevenue.toLocaleString()} is significantly below minimum $${revMin.toLocaleString()}.`,
+      });
+      continue;
+    }
+
+    // Business age check
+    if (card.businessAgeMinimum > 0 && ctx.businessAgeMonths < card.businessAgeMinimum * 0.5) {
+      excludedCards.push({
+        cardProductId: card.id,
+        issuer: card.issuerId,
+        name: card.name,
+        reason: `Business age ${ctx.businessAgeMonths} months is below minimum ${card.businessAgeMinimum} months.`,
+      });
+      continue;
+    }
+
+    const eligibilityScore = scoreCard(card, ctx);
+
+    recommendations.push({
+      cardProductId: card.id,
+      issuer: card.issuerId,
+      name: card.name,
+      cardType: card.cardType,
+      eligibilityScore,
+      estimatedLimitMin: card.creditLimitMin,
+      estimatedLimitMax: card.creditLimitMax,
+      estimatedLimitTypical: card.creditLimitTypical,
+      approvalDifficulty: card.approvalDifficulty,
+      aprIntro: card.aprIntro?.toNumber() ?? null,
+      aprIntroMonths: card.aprIntroMonths,
+      aprPostPromo: card.aprPostPromo?.toNumber() ?? null,
+      annualFee: card.annualFee.toNumber(),
+      rewardsType: card.rewardsType,
+      rewardsRate: card.rewardsRate?.toNumber() ?? null,
+      rewardsDetails: card.rewardsDetails,
+      welcomeBonus: card.welcomeBonus,
+      welcomeBonusValue: card.welcomeBonusValue?.toNumber() ?? null,
+      personalGuarantee: card.personalGuarantee,
+      bestFor: card.bestFor,
+      sequencePosition: 0,
+      cooldownDays: 0,
+      rationale: '',
+      velocityRisk: 'low',
+    });
+  }
+
+  // 5. Sort by prioritization mode
+  const sorted = sortByPrioritization(recommendations, prioritize);
+
+  // 6. Select top N and assign sequencing
+  const topN = sorted.slice(0, maxCards);
+  let cumulativeCredit = 0;
+  const finalRecs: CardRecommendation[] = [];
+
+  for (let i = 0; i < topN.length; i++) {
+    const rec = topN[i];
+    const seqPos = i + 1;
+
+    rec.sequencePosition = seqPos;
+    rec.cooldownDays = getCooldownDays(rec.issuer, seqPos, ctx);
+    rec.velocityRisk = getVelocityRisk(ctx, seqPos);
+    rec.rationale = buildRationale(rec, ctx);
+
+    finalRecs.push(rec);
+    cumulativeCredit += rec.estimatedLimitTypical;
+
+    // Stop if we've exceeded target (with 10% buffer)
+    if (targetAmount > 0 && cumulativeCredit >= targetAmount * 1.1) break;
+  }
+
+  // 7. Compute velocity risk score
+  const velocityRiskScore = computeVelocityRiskScore(ctx, finalRecs.length);
+  const velocityRiskLevel: 'low' | 'medium' | 'high' =
+    velocityRiskScore <= 30 ? 'low' : velocityRiskScore <= 60 ? 'medium' : 'high';
+
+  // 8. APR expiry summary
+  const aprExpirySummary: AprExpirySummary[] = [];
+  const now = new Date();
+  let cumulativeCooldown = 0;
+  for (const rec of finalRecs) {
+    if (rec.aprIntro !== null && rec.aprIntro === 0 && rec.aprIntroMonths) {
+      cumulativeCooldown += rec.cooldownDays;
+      const applicationDate = new Date(now.getTime() + cumulativeCooldown * 24 * 60 * 60 * 1000);
+      const expiryDate = new Date(applicationDate);
+      expiryDate.setMonth(expiryDate.getMonth() + rec.aprIntroMonths);
+
+      aprExpirySummary.push({
+        cardName: rec.name,
+        introMonths: rec.aprIntroMonths,
+        expiryEstimate: expiryDate.toISOString(),
+      });
+    }
+  }
+
+  return {
+    businessId,
+    generatedAt: now.toISOString(),
+    recommendations: finalRecs,
+    excludedCards,
+    totalEstimatedCreditMin: finalRecs.reduce((s, r) => s + r.estimatedLimitMin, 0),
+    totalEstimatedCreditMax: finalRecs.reduce((s, r) => s + r.estimatedLimitMax, 0),
+    totalEstimatedCreditTypical: finalRecs.reduce((s, r) => s + r.estimatedLimitTypical, 0),
+    velocityRiskScore,
+    velocityRiskLevel,
+    aprExpirySummary,
+    prioritizationMode: prioritize,
+    cardCount: finalRecs.length,
+  };
+}
+
+function computeVelocityRiskScore(ctx: ApplicationContext, newCardCount: number): number {
+  let score = 0;
+
+  // Base risk from recent applications
+  score += ctx.recentAppDates.length * 12;
+
+  // Risk from new applications planned
+  score += newCardCount * 8;
+
+  // High inquiry count penalty
+  if (ctx.recentInquiries > 5) score += 15;
+  else if (ctx.recentInquiries > 3) score += 8;
+
+  // Existing card count (more cards = more issuer scrutiny)
+  if (ctx.existingCardCount > 6) score += 10;
+  else if (ctx.existingCardCount > 3) score += 5;
+
+  return Math.min(100, Math.max(0, score));
+}
+
+function buildRationale(rec: CardRecommendation, ctx: ApplicationContext): string {
+  const parts: string[] = [];
+
+  // Score alignment
+  if (rec.eligibilityScore >= 80) {
+    parts.push('Strong eligibility match for your profile.');
+  } else if (rec.eligibilityScore >= 60) {
+    parts.push('Good eligibility match with moderate approval odds.');
+  } else {
+    parts.push('Marginal match — consider strengthening profile before applying.');
+  }
+
+  // APR window
+  if (rec.aprIntro === 0 && rec.aprIntroMonths) {
+    parts.push(`${rec.aprIntroMonths}-month 0% intro APR provides a solid funding window.`);
+  }
+
+  // Credit limit
+  if (rec.estimatedLimitTypical > 0) {
+    parts.push(`Typical credit limit: $${rec.estimatedLimitTypical.toLocaleString()}.`);
+  }
+
+  // Velocity warning
+  if (rec.velocityRisk === 'high') {
+    parts.push('High velocity risk — space this application at least 30 days from prior apps.');
+  } else if (rec.velocityRisk === 'medium') {
+    parts.push('Moderate velocity risk — monitor inquiry count.');
+  }
+
+  // Sequencing
+  if (rec.cooldownDays > 0) {
+    parts.push(`Wait ${rec.cooldownDays} days after the previous application before applying.`);
+  }
+
+  return parts.join(' ');
+}
