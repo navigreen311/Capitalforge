@@ -262,6 +262,15 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
+// ── Issuer Rules Engine ────────────────────────────────────────
+// GET  /api/issuers                     — list all active issuers with rules
+// GET  /api/issuers/:id                 — single issuer with rules
+// GET  /api/issuers/:id/eligibility     — check eligibility for a business
+// GET  /api/credit-unions               — list credit unions with products
+// GET  /api/credit-unions/:id           — single credit union with products
+import { issuerRulesRouter } from './issuer-rules.routes.js';
+apiRouter.use('/', issuerRulesRouter);
+
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
