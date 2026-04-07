@@ -14,6 +14,7 @@ export { DealCommitteeQueue } from './DealCommitteeQueue';
 export { StateDisclosureDeadlines } from './StateDisclosureDeadlines';
 export { PortfolioRiskHeatmap } from './PortfolioRiskHeatmap';
 export { RestackOpportunities } from './RestackOpportunities';
+export { RestackWidget } from './RestackWidget';
 export { VoiceForgeActivity } from './VoiceForgeActivity';
 export { DashboardErrorState } from './DashboardErrorState';
 export { NavBadgeProvider, useNavBadges } from './NavBadgeProvider';
