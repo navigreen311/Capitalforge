@@ -60,6 +60,69 @@ function getTenantId(req: Request): string {
 
 export const fundingRoundRouter: Router = Router({ mergeParams: true });
 
+// ── GET /api/funding-rounds ──────────────────────────────────────────────────
+// Cross-business listing (all rounds visible to the tenant)
+
+fundingRoundRouter.get(
+  '/api/funding-rounds',
+  requireAuth,
+  requirePermissions(PERMISSIONS.BUSINESS_READ),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const tenantId = getTenantId(req);
+      const statusFilter = typeof req.query['status'] === 'string' ? req.query['status'] : undefined;
+
+      const rounds = await fundingRoundService.listAllRoundsForTenant(tenantId, statusFilter);
+
+      const body: ApiResponse<typeof rounds> = {
+        success: true,
+        data: rounds,
+        meta: { total: rounds.length },
+      };
+
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /api/funding-rounds ─────────────────────────────────────────────────
+// Alternative endpoint for creating a round without business ID in URL
+
+fundingRoundRouter.post(
+  '/api/funding-rounds',
+  requireAuth,
+  requirePermissions(PERMISSIONS.BUSINESS_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const tenantId = getTenantId(req);
+      const bodySchema = CreateRoundSchema.extend({
+        businessId: z.string().min(1, 'Business ID is required'),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return next(badRequest('Invalid request body.', parsed.error.flatten()));
+      }
+
+      const round = await fundingRoundService.createRound({
+        businessId: parsed.data.businessId,
+        tenantId,
+        ...parsed.data,
+      });
+
+      const body: ApiResponse<typeof round> = {
+        success: true,
+        data: round,
+      };
+
+      res.status(201).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // ── POST /api/businesses/:id/rounds ───────────────────────────────────────────
 
 fundingRoundRouter.post(

@@ -172,6 +172,28 @@ export class FundingRoundService {
     });
   }
 
+  /**
+   * List all funding rounds across businesses for a given tenant.
+   * Optionally filter by status. Includes applications.
+   */
+  async listAllRoundsForTenant(
+    tenantId: string,
+    statusFilter?: string,
+  ): Promise<RoundWithApplications[]> {
+    this._assertTenantId(tenantId);
+
+    const where: Prisma.FundingRoundWhereInput = {
+      business: { tenantId },
+      ...(statusFilter ? { status: statusFilter } : {}),
+    };
+
+    return this.prisma.fundingRound.findMany({
+      where,
+      include: { applications: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async getRoundById(roundId: string): Promise<RoundWithApplications | null> {
     return this.prisma.fundingRound.findUnique({
       where: { id: roundId },
