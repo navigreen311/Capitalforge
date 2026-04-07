@@ -7,7 +7,7 @@
 // Impersonate, suspend/reactivate, trial banners.
 // ============================================================
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
 // ─── Types & Mock data ────────────────────────────────────────────────────────
 
