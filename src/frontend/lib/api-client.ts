@@ -194,14 +194,17 @@ export const apiClient = {
 // ─── Resource helpers — Clients / Businesses ─────────────────────────────────
 
 export const clientsApi = {
-  list: (params?: Partial<PaginationParams> & { search?: string; status?: string }) =>
-    request('GET', '/businesses', { params: params ?? {} }),
+  list: (params?: Partial<PaginationParams> & { search?: string; status?: string; sortBy?: string; sortDir?: string }) =>
+    request('GET', '/v1/clients', { params: params ?? {} }),
 
   get: (id: string) =>
-    request('GET', `/businesses/${id}`),
+    request('GET', `/v1/clients/${id}`),
+
+  create: (body: Record<string, unknown>) =>
+    request('POST', '/v1/clients', { body }),
 
   update: (id: string, body: Record<string, unknown>) =>
-    request('PATCH', `/businesses/${id}`, { body }),
+    request('PATCH', `/v1/clients/${id}`, { body }),
 };
 
 // ─── Resource helpers — Applications ─────────────────────────────────────────
