@@ -57,6 +57,10 @@ export const ANTHROPIC_API_KEY = optional('ANTHROPIC_API_KEY', '');
 export const PLAID_CLIENT_ID = optional('PLAID_CLIENT_ID', '');
 export const PLAID_SECRET = optional('PLAID_SECRET', '');
 export const STRIPE_SECRET_KEY = optional('STRIPE_SECRET_KEY', '');
+export const STRIPE_PUBLISHABLE_KEY = optional('STRIPE_PUBLISHABLE_KEY', '');
+export const STRIPE_WEBHOOK_SECRET = optional('STRIPE_WEBHOOK_SECRET', '');
+export const STRIPE_PRICE_STARTER = optional('STRIPE_PRICE_STARTER', 'price_starter_297');
+export const STRIPE_PRICE_PRO = optional('STRIPE_PRICE_PRO', 'price_pro_697');
 export const DOCUSIGN_INTEGRATION_KEY = optional('DOCUSIGN_INTEGRATION_KEY', '');
 export const TWILIO_ACCOUNT_SID = optional('TWILIO_ACCOUNT_SID', '');
 export const TWILIO_AUTH_TOKEN = optional('TWILIO_AUTH_TOKEN', '');
@@ -95,6 +99,10 @@ export const config = {
   },
   stripe: {
     secretKey: STRIPE_SECRET_KEY,
+    publishableKey: STRIPE_PUBLISHABLE_KEY,
+    webhookSecret: STRIPE_WEBHOOK_SECRET,
+    priceStarter: STRIPE_PRICE_STARTER,
+    pricePro: STRIPE_PRICE_PRO,
   },
   docusign: {
     integrationKey: DOCUSIGN_INTEGRATION_KEY,

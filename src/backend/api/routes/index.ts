@@ -270,13 +270,18 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
-// ── Issuer Rules Engine ────────────────────────────���───────────
+// ── Issuer Rules Engine ──────────────────────────────────────────
 import { issuerRulesRouter } from './issuer-rules.routes.js';
 apiRouter.use('/', issuerRulesRouter);
 
 // ── DocuSign E-Signature ─────────────────────────────────────────
 import { docuSignRouter } from './docusign.routes.js';
 apiRouter.use('/docusign', docuSignRouter);
+
+// ── Stripe Payments ──────────────────────────────────────────────
+import { stripeRouter, stripeWebhookRouter } from './stripe.routes.js';
+apiRouter.use('/stripe', stripeRouter);
+apiRouter.use('/stripe/webhook', stripeWebhookRouter);
 
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
