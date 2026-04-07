@@ -8,7 +8,7 @@ import { useState, useCallback } from 'react';
 
 // ── Types ────────────────────────────────────────────────────
 
-type TabId = 'profile' | 'firm' | 'notifications' | 'integrations' | 'api-keys' | 'tenant' | 'users' | 'security';
+type TabId = 'profile' | 'firm' | 'billing' | 'notifications' | 'integrations' | 'api-keys' | 'tenant' | 'users' | 'security';
 
 type IntegrationCategory = 'Voice & Communication' | 'AI & Intelligence' | 'Credit Bureaus' | 'Financial Data' | 'Documents';
 
@@ -250,6 +250,190 @@ const NOTIFICATION_EVENTS = [
 
 type NotifChannel = 'email' | 'sms' | 'slack';
 
+// ── Billing Tab Component ────────────────────────────────────
+
+const BILLING_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+
+interface MockInvoice {
+  id: string;
+  date: string;
+  amount: string;
+  status: 'paid' | 'pending' | 'failed';
+  description: string;
+}
+
+const MOCK_INVOICES: MockInvoice[] = [
+  { id: 'inv_001', date: '2026-04-01', amount: '$697.00', status: 'paid', description: 'Pro Plan - April 2026' },
+  { id: 'inv_002', date: '2026-03-01', amount: '$697.00', status: 'paid', description: 'Pro Plan - March 2026' },
+  { id: 'inv_003', date: '2026-02-01', amount: '$697.00', status: 'paid', description: 'Pro Plan - February 2026' },
+  { id: 'inv_004', date: '2026-01-01', amount: '$297.00', status: 'paid', description: 'Starter Plan - January 2026' },
+];
+
+function BillingTab({
+  goldBtn,
+  grayBtn,
+  toast,
+}: {
+  goldBtn: string;
+  grayBtn: string;
+  toast: { show: (m: string) => void };
+}) {
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [stripeConfigured, setStripeConfigured] = useState<boolean | null>(null);
+
+  // Check Stripe status on mount
+  useState(() => {
+    fetch(`${BILLING_API}/stripe/status`)
+      .then((r) => r.json())
+      .then((json) => setStripeConfigured(json?.data?.configured ?? false))
+      .catch(() => setStripeConfigured(false));
+  });
+
+  const handleManageSubscription = async () => {
+    setPortalLoading(true);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch(`${BILLING_API}/stripe/portal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to create billing portal session');
+      }
+
+      const json = await res.json();
+      const { url, mock } = json.data;
+
+      if (mock) {
+        toast.show('Stripe is not configured. Set STRIPE_SECRET_KEY in your environment to enable billing management.');
+      } else {
+        window.location.href = url;
+      }
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Failed to open billing portal');
+    } finally {
+      setPortalLoading(false);
+    }
+  };
+
+  const INVOICE_STATUS_BADGE: Record<string, string> = {
+    paid: 'bg-emerald-900 text-emerald-300 border border-emerald-700',
+    pending: 'bg-amber-900 text-amber-300 border border-amber-700',
+    failed: 'bg-red-900 text-red-300 border border-red-700',
+  };
+
+  return (
+    <section className="max-w-3xl space-y-6">
+      {/* Stripe Configuration Warning */}
+      {stripeConfigured === false && (
+        <div className="rounded-xl border border-amber-700/50 bg-amber-950/30 p-4 flex items-start gap-3">
+          <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <div>
+            <p className="text-sm font-semibold text-amber-300">Configure Stripe in Settings</p>
+            <p className="text-xs text-amber-400/80 mt-1">
+              Stripe keys are not configured. Add <code className="bg-amber-900/50 px-1 rounded text-amber-300">STRIPE_SECRET_KEY</code> and <code className="bg-amber-900/50 px-1 rounded text-amber-300">STRIPE_PUBLISHABLE_KEY</code> to your <code className="bg-amber-900/50 px-1 rounded text-amber-300">.env</code> file to enable real payment processing.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Current Plan */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-200">Current Plan</h3>
+          <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-900 text-emerald-300 border border-emerald-700">
+            Active
+          </span>
+        </div>
+
+        <div className="flex items-baseline gap-3">
+          <span className="text-2xl font-bold text-white">Pro</span>
+          <span className="text-gray-400 text-sm">$697/month</span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
+          <div>
+            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Status</p>
+            <p className="text-sm text-emerald-400 font-medium mt-0.5">Active</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Billing Cycle</p>
+            <p className="text-sm text-gray-200 font-medium mt-0.5">Monthly</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Next Invoice</p>
+            <p className="text-sm text-gray-200 font-medium mt-0.5">May 1, 2026</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Payment Method</p>
+            <p className="text-sm text-gray-200 font-medium mt-0.5">Visa **** 4242</p>
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={handleManageSubscription}
+            disabled={portalLoading}
+            className={`${goldBtn} flex items-center gap-2 ${portalLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+          >
+            {portalLoading && (
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {portalLoading ? 'Opening Portal...' : 'Manage Subscription'}
+          </button>
+          <a href="/pricing" className={grayBtn}>
+            View Plans
+          </a>
+        </div>
+      </div>
+
+      {/* Invoice History */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+        <h3 className="text-sm font-semibold text-gray-200">Invoice History</h3>
+        <div className="overflow-hidden rounded-lg border border-gray-800">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-gray-800 bg-gray-900/80">
+                <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
+                <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-right">Amount</th>
+                <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {MOCK_INVOICES.map((inv) => (
+                <tr key={inv.id} className="hover:bg-gray-800/40 transition-colors">
+                  <td className="py-3 px-4 text-sm text-gray-300">{inv.date}</td>
+                  <td className="py-3 px-4 text-sm text-gray-300">{inv.description}</td>
+                  <td className="py-3 px-4 text-sm text-gray-200 font-medium text-right">{inv.amount}</td>
+                  <td className="py-3 px-4 text-center">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${INVOICE_STATUS_BADGE[inv.status] ?? ''}`}>
+                      {inv.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-gray-600">
+          Invoice history is placeholder data. Connect Stripe for real invoice data.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -449,6 +633,7 @@ export default function SettingsPage() {
       <div className="flex gap-1 mb-6 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit flex-wrap">
         <Tab id="profile"       label="Profile"        active={activeTab === 'profile'}       onClick={setActiveTab} />
         <Tab id="firm"          label="Firm"            active={activeTab === 'firm'}          onClick={setActiveTab} />
+        <Tab id="billing"       label="Billing"         active={activeTab === 'billing'}       onClick={setActiveTab} />
         <Tab id="notifications" label="Notifications"   active={activeTab === 'notifications'} onClick={setActiveTab} />
         <Tab id="users"         label="Team"            active={activeTab === 'users'}         onClick={setActiveTab} />
         <Tab id="security"      label="Security"        active={activeTab === 'security'}      onClick={setActiveTab} />
@@ -526,6 +711,11 @@ export default function SettingsPage() {
             <button onClick={() => toast.show('Firm settings saved')} className={goldBtn}>Save Firm Settings</button>
           </div>
         </section>
+      )}
+
+      {/* ── Billing Tab ──────────────────────────────────────── */}
+      {activeTab === 'billing' && (
+        <BillingTab goldBtn={goldBtn} grayBtn={grayBtn} toast={toast} />
       )}
 
       {/* ── Notifications Tab ───────────────────────────────── */}
