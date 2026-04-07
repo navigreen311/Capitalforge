@@ -18,6 +18,7 @@ import {
   RestackOpportunities,
   VoiceForgeActivity,
 } from '@/components/dashboard';
+import { SetupChecklist } from '@/components/onboarding/SetupChecklist';
 
 // ─── Activity feed mock data (retained — no replacement component) ───────────
 
@@ -157,6 +158,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {/* ── Onboarding checklist (shown for new tenants) ── */}
+      <SetupChecklist />
+
       {/* ── Page header ─────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
