@@ -1114,3 +1114,99 @@ model BackupRecord {
   @@index([backupType, createdAt])
   @@map("backup_records")
 }
+
+// ============================================================
+// ISSUER RULES ENGINE
+// ============================================================
+
+model Issuer {
+  id                  String       @id @default(uuid())
+  name                String       @unique
+  slug                String       @unique
+  type                String       // bank | credit_union | fintech
+  logoUrl             String?
+  phoneRecon          String?
+  isActive            Boolean      @default(true)
+  notes               String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  rules               IssuerRule[]
+
+  @@map("issuers")
+}
+
+model IssuerRule {
+  id                  String   @id @default(uuid())
+  issuerId            String
+  ruleType            String   // velocity_max_apps_per_period | velocity_cooldown_days | once_per_lifetime | score_minimum | business_age_minimum | revenue_minimum | inquiry_maximum | utilization_maximum | blackout_after_decline | portfolio_maximum | membership_required | geographic_restriction | relationship_requirement
+  name                String
+  description         String?
+  value               Float?
+  periodDays          Int?
+  severity            String   @default("hard") // hard | soft
+  effectiveDate       DateTime @default(now())
+  sourceUrl           String?
+  lastVerified        DateTime?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  issuer              Issuer   @relation(fields: [issuerId], references: [id])
+
+  @@index([issuerId, ruleType])
+  @@index([isActive])
+  @@map("issuer_rules")
+}
+
+// ============================================================
+// CREDIT UNIONS & PRODUCTS
+// ============================================================
+
+model CreditUnion {
+  id                    String              @id @default(uuid())
+  name                  String
+  slug                  String              @unique
+  charterNumber         String?
+  membershipCriteria    String?
+  openMembership        Boolean             @default(false)
+  joinFee               Float?
+  assetMillions         Float?
+  businessCardsOffered  Boolean             @default(false)
+  notes                 String?
+  isActive              Boolean             @default(true)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  products              CreditUnionProduct[]
+
+  @@map("credit_unions")
+}
+
+model CreditUnionProduct {
+  id                    String      @id @default(uuid())
+  creditUnionId         String
+  productName           String
+  productType           String      // business_credit_card | personal_credit_card | business_loan | line_of_credit
+  maxLimit              Float?
+  aprIntro              Float?
+  aprIntroMonths        Int?
+  aprPostPromo          Float?
+  annualFee             Float?
+  scoreMinimum          Int?
+  businessAgeMinimum    Int?
+  revenueMinimum        Float?
+  rewardsType           String?
+  rewardsRate           Float?
+  personalGuarantee     Boolean     @default(true)
+  hardPull              Boolean     @default(true)
+  notes                 String?
+  isActive              Boolean     @default(true)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  creditUnion           CreditUnion @relation(fields: [creditUnionId], references: [id])
+
+  @@index([creditUnionId, productType])
+  @@map("credit_union_products")
+}
