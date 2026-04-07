@@ -56,13 +56,15 @@ const MOCK_OWNERS = [
 // ── Acknowledgments ───────────────────────────────────────────
 // Shape matches AcknowledgmentsTab expectations
 
-const MOCK_ACKNOWLEDGMENTS = [
-  { id: 'ack_001', type: 'product_reality', label: 'Product Reality Acknowledgment', status: 'signed' as const, signedAt: daysFromNow(-160), signedBy: 'James Harrington', documentUrl: '/documents/ack_001.pdf' },
-  { id: 'ack_002', type: 'fee_refund', label: 'Fee & Refund Policy', status: 'signed' as const, signedAt: daysFromNow(-160), signedBy: 'James Harrington', documentUrl: '/documents/ack_002.pdf' },
-  { id: 'ack_003', type: 'personal_guarantee', label: 'Personal Guarantee Disclosure', status: 'signed' as const, signedAt: daysFromNow(-155), signedBy: 'Patricia Chen', documentUrl: '/documents/ack_003.pdf' },
-  { id: 'ack_004', type: 'cash_advance_restriction', label: 'Cash Advance Restriction Agreement', status: 'pending' as const, signedAt: null, signedBy: null, documentUrl: null },
-  { id: 'ack_005', type: 'data_sharing', label: 'Data Sharing & Privacy Consent', status: 'not_sent' as const, signedAt: null, signedBy: null, documentUrl: null },
-];
+const MOCK_ACKNOWLEDGMENTS = {
+  acknowledgments: [
+    { id: 'ack_001', type: 'product_reality', name: 'Product Reality Acknowledgment', description: 'You are receiving credit-card-based funding.', status: 'signed' as const, signed_date: daysFromNow(-160), signed_by: 'James Harrington', document_url: '/documents/ack_001.pdf' },
+    { id: 'ack_002', type: 'fee_refund', name: 'Fee & Refund Policy', description: 'Itemized fee schedule including all fees.', status: 'signed' as const, signed_date: daysFromNow(-160), signed_by: 'James Harrington', document_url: '/documents/ack_002.pdf' },
+    { id: 'ack_003', type: 'personal_guarantee', name: 'Personal Guarantee Disclosure', description: 'Personal guarantee obligations and liability scope.', status: 'signed' as const, signed_date: daysFromNow(-155), signed_by: 'Patricia Chen', document_url: '/documents/ack_003.pdf' },
+    { id: 'ack_004', type: 'cash_advance_restriction', name: 'Cash Advance Restriction Agreement', description: 'Restrictions on cash advance usage.', status: 'pending' as const, signed_date: null, signed_by: null, document_url: null },
+    { id: 'ack_005', type: 'data_sharing', name: 'Data Sharing & Privacy Consent', description: 'Consent for data sharing with partners.', status: 'not_sent' as const, signed_date: null, signed_by: null, document_url: null },
+  ],
+};
 
 // ── ACH Authorization ─────────────────────────────────────────
 // Shape matches AchDebitTab expectations
@@ -167,16 +169,16 @@ const MOCK_REPAYMENT = {
 
 const MOCK_TIMELINE = {
   events: [
-    { id: 'e1', type: 'application', title: 'Application submitted — Ink Business Preferred', timestamp: daysFromNow(-2), actor: 'Sarah Chen', detail: 'Requested $50,000', link: '/applications/APP-0091' },
-    { id: 'e2', type: 'application', title: 'Application approved — Ink Business Preferred', timestamp: daysFromNow(-1), actor: 'System', detail: 'Approved for $45,000', link: '/applications/APP-0091' },
-    { id: 'e3', type: 'credit', title: 'Credit bureau pulled — all 3 bureaus', timestamp: daysFromNow(-14), actor: 'Sarah Chen', detail: 'Best score: 750 (TransUnion)', link: null },
-    { id: 'e4', type: 'consent', title: 'Voice consent granted', timestamp: daysFromNow(-160), actor: 'Client', detail: 'TCPA consent captured', link: null },
-    { id: 'e5', type: 'compliance', title: 'KYB verification passed', timestamp: daysFromNow(-170), actor: 'System', detail: 'All beneficial owners verified', link: null },
-    { id: 'e6', type: 'payment', title: 'Autopay processed — Chase ****4821', timestamp: daysFromNow(-5), actor: 'System', detail: '$1,200 minimum payment', link: null },
-    { id: 'e7', type: 'document', title: 'Bank statement uploaded', timestamp: daysFromNow(-8), actor: 'James Harrington', detail: 'Chase Business Checking — Feb 2026', link: null },
-    { id: 'e8', type: 'call', title: 'APR expiry outreach call', timestamp: daysFromNow(-7), actor: 'Sarah Chen', detail: '12m 34s — discussed balance transfer', link: null },
-    { id: 'e9', type: 'note', title: 'Client confirmed business expansion plans', timestamp: daysFromNow(-18), actor: 'Sarah Chen', detail: 'Opening second location in Q3', link: null },
-    { id: 'e10', type: 'compliance', title: 'NY disclosure filed', timestamp: daysFromNow(-10), actor: 'System', detail: 'Commercial Finance Disclosure Law', link: null },
+    { id: 'e1', event_type: 'application', title: 'Application submitted — Ink Business Preferred', timestamp: daysFromNow(-2), actor: 'Sarah Chen', detail: 'Requested $50,000', link: '/applications/APP-0091' },
+    { id: 'e2', event_type: 'application', title: 'Application approved — Ink Business Preferred', timestamp: daysFromNow(-1), actor: 'System', detail: 'Approved for $45,000', link: '/applications/APP-0091' },
+    { id: 'e3', event_type: 'credit', title: 'Credit bureau pulled — all 3 bureaus', timestamp: daysFromNow(-14), actor: 'Sarah Chen', detail: 'Best score: 750 (TransUnion)', link: null },
+    { id: 'e4', event_type: 'consent', title: 'Voice consent granted', timestamp: daysFromNow(-160), actor: 'Client', detail: 'TCPA consent captured', link: null },
+    { id: 'e5', event_type: 'compliance', title: 'KYB verification passed', timestamp: daysFromNow(-170), actor: 'System', detail: 'All beneficial owners verified', link: null },
+    { id: 'e6', event_type: 'payment', title: 'Autopay processed — Chase ****4821', timestamp: daysFromNow(-5), actor: 'System', detail: '$1,200 minimum payment', link: null },
+    { id: 'e7', event_type: 'document', title: 'Bank statement uploaded', timestamp: daysFromNow(-8), actor: 'James Harrington', detail: 'Chase Business Checking — Feb 2026', link: null },
+    { id: 'e8', event_type: 'call', title: 'APR expiry outreach call', timestamp: daysFromNow(-7), actor: 'Sarah Chen', detail: '12m 34s — discussed balance transfer', link: null },
+    { id: 'e9', event_type: 'note', title: 'Client confirmed business expansion plans', timestamp: daysFromNow(-18), actor: 'Sarah Chen', detail: 'Opening second location in Q3', link: null },
+    { id: 'e10', event_type: 'compliance', title: 'NY disclosure filed', timestamp: daysFromNow(-10), actor: 'System', detail: 'Commercial Finance Disclosure Law', link: null },
   ],
   last_updated: new Date().toISOString(),
 };
@@ -186,9 +188,11 @@ const MOCK_TIMELINE = {
 const MOCK_COMPLIANCE_STATUS = {
   complianceScore: 78,
   checks: [
-    { id: 'chk_001', name: 'KYC — All Owners', status: 'warning' as const, detail: '2 of 3 verified', lastChecked: daysFromNow(-1) },
-    { id: 'chk_002', name: 'TCPA Consent', status: 'pass' as const, detail: 'Valid, expires in 180d', lastChecked: daysFromNow(-1) },
-    { id: 'chk_003', name: 'Cash Advance Restriction', status: 'fail' as const, detail: 'Not yet signed', lastChecked: daysFromNow(-1) },
+    { id: 'chk_001', riskLevel: 'medium' as const, checkType: 'KYC — All Owners', status: 'incomplete' as const, date: daysFromNow(-1), findings: '2 of 3 owners verified', action: { label: 'Send KYC Reminder', href: '#' } },
+    { id: 'chk_002', riskLevel: 'low' as const, checkType: 'TCPA Consent', status: 'pass' as const, date: daysFromNow(-1), findings: 'Valid consent on file, expires in 180 days' },
+    { id: 'chk_003', riskLevel: 'high' as const, checkType: 'Cash Advance Restriction', status: 'fail' as const, date: daysFromNow(-1), findings: 'Acknowledgment not yet signed by client', action: { label: 'Request Signature', href: '#' } },
+    { id: 'chk_004', riskLevel: 'low' as const, checkType: 'State Disclosure (NY)', status: 'pass' as const, date: daysFromNow(-10), findings: 'NY Commercial Finance Disclosure filed' },
+    { id: 'chk_005', riskLevel: 'medium' as const, checkType: 'UDAP Review', status: 'pending' as const, date: daysFromNow(-3), findings: 'Awaiting automated review completion' },
   ],
 };
 
