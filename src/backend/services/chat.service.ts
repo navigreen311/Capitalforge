@@ -143,10 +143,10 @@ export class ChatService {
       orderBy: { introAprExpiry: 'asc' },
     });
 
-    // Upcoming payments (next 14 days)
+    // Upcoming payments (next 14 days) — go through RepaymentPlan which has tenantId
     const upcomingPayments = await this.prisma.paymentSchedule.findMany({
       where: {
-        repaymentPlan: { business: { tenantId } },
+        repaymentPlan: { tenantId },
         status: 'upcoming',
         dueDate: { gte: now, lte: fourteenDaysFromNow },
       },
