@@ -8,7 +8,7 @@ import { useState, useCallback } from 'react';
 
 // ── Types ────────────────────────────────────────────────────
 
-type TabId = 'integrations' | 'api-keys' | 'tenant' | 'users';
+type TabId = 'profile' | 'firm' | 'notifications' | 'integrations' | 'api-keys' | 'tenant' | 'users' | 'security';
 
 type IntegrationCategory = 'Voice & Communication' | 'AI & Intelligence' | 'Credit Bureaus' | 'Financial Data' | 'Documents';
 
@@ -253,8 +253,32 @@ type NotifChannel = 'email' | 'sms' | 'slack';
 // ── Page ─────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('integrations');
+  const [activeTab, setActiveTab] = useState<TabId>('profile');
   const toast = useToast();
+
+  // ── Profile state ─────────────────────────────────────────
+  const [profileName, setProfileName] = useState('Jonathan Wright');
+  const [profileEmail, setProfileEmail] = useState('jonathan@capitalforge.io');
+  const [profilePhone, setProfilePhone] = useState('+1 (555) 234-5678');
+  const [profileTimezone, setProfileTimezone] = useState('America/New_York');
+
+  const saveProfile = () => toast.show('Profile saved successfully');
+
+  // ── Security state ─────────────────────────────────────────
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+
+  const handleChangePassword = () => {
+    if (!currentPassword || !newPassword || !confirmPassword) return;
+    if (newPassword !== confirmPassword) { toast.show('Passwords do not match'); return; }
+    if (newPassword.length < 8) { toast.show('Password must be at least 8 characters'); return; }
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    toast.show('Password changed successfully');
+  };
 
   // ── Integration state ──────────────────────────────────────
   const [integrations, setIntegrations] = useState<Integration[]>(INTEGRATIONS_INIT);
@@ -422,12 +446,198 @@ export default function SettingsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
-        <Tab id="integrations" label="Integrations"  active={activeTab === 'integrations'} onClick={setActiveTab} />
-        <Tab id="api-keys"     label="API Keys"       active={activeTab === 'api-keys'}     onClick={setActiveTab} />
-        <Tab id="tenant"       label="Tenant Config"  active={activeTab === 'tenant'}       onClick={setActiveTab} />
-        <Tab id="users"        label="Users"          active={activeTab === 'users'}        onClick={setActiveTab} />
+      <div className="flex gap-1 mb-6 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit flex-wrap">
+        <Tab id="profile"       label="Profile"        active={activeTab === 'profile'}       onClick={setActiveTab} />
+        <Tab id="firm"          label="Firm"            active={activeTab === 'firm'}          onClick={setActiveTab} />
+        <Tab id="notifications" label="Notifications"   active={activeTab === 'notifications'} onClick={setActiveTab} />
+        <Tab id="users"         label="Team"            active={activeTab === 'users'}         onClick={setActiveTab} />
+        <Tab id="security"      label="Security"        active={activeTab === 'security'}      onClick={setActiveTab} />
+        <Tab id="integrations"  label="Integrations"    active={activeTab === 'integrations'}  onClick={setActiveTab} />
+        <Tab id="api-keys"      label="API"             active={activeTab === 'api-keys'}      onClick={setActiveTab} />
+        <Tab id="tenant"        label="Tenant Config"   active={activeTab === 'tenant'}        onClick={setActiveTab} />
       </div>
+
+      {/* ── Profile Tab ───────────────────────────────────── */}
+      {activeTab === 'profile' && (
+        <section className="max-w-2xl space-y-6">
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+            <h3 className="text-sm font-semibold text-gray-200">Personal Information</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Full Name</label>
+                <input value={profileName} onChange={(e) => setProfileName(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Email Address</label>
+                <input value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} type="email" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Phone Number</label>
+                <input value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Timezone</label>
+                <select value={profileTimezone} onChange={(e) => setProfileTimezone(e.target.value)} className={inputCls}>
+                  {['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'UTC', 'Europe/London'].map((tz) => (
+                    <option key={tz} value={tz}>{tz}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <button onClick={saveProfile} className={goldBtn}>Save Profile</button>
+          </div>
+        </section>
+      )}
+
+      {/* ── Firm Tab ────────────────────────────────────────── */}
+      {activeTab === 'firm' && (
+        <section className="max-w-2xl space-y-6">
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+            <h3 className="text-sm font-semibold text-gray-200">Firm Details</h3>
+            <div>
+              <label className={labelCls}>Firm Name</label>
+              <input value={tenantFirm.name} onChange={(e) => setTenantFirm({ ...tenantFirm, name: e.target.value })} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Logo</label>
+              <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                dragOver ? 'border-[#C9A84C] bg-[#0A1628]/50' : 'border-gray-700 bg-gray-800/30'
+              }`}>
+                {logoName ? (
+                  <p className="text-sm text-emerald-300">{logoName}</p>
+                ) : (
+                  <p className="text-sm text-gray-500">Drag &amp; drop logo here, or click Browse</p>
+                )}
+                <label className="mt-2 inline-block text-xs text-[#C9A84C] hover:underline cursor-pointer">Browse files</label>
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Address</label>
+              <textarea
+                rows={2}
+                defaultValue="123 Finance District, Suite 400, New York, NY 10005"
+                className={inputCls}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <button onClick={() => toast.show('Firm settings saved')} className={goldBtn}>Save Firm Settings</button>
+          </div>
+        </section>
+      )}
+
+      {/* ── Notifications Tab ───────────────────────────────── */}
+      {activeTab === 'notifications' && (
+        <section className="max-w-3xl space-y-6">
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+            <h3 className="text-sm font-semibold text-gray-200">Notification Preferences</h3>
+            <p className="text-xs text-gray-500">Toggle notifications for each event type by channel.</p>
+            <div className="overflow-hidden rounded-lg border border-gray-800">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-gray-800 bg-gray-900/80">
+                    <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Event</th>
+                    <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-center">Email</th>
+                    <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-center">SMS</th>
+                    <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-center">Slack</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {NOTIFICATION_EVENTS.map((evt) => (
+                    <tr key={evt.id} className="border-b border-gray-800">
+                      <td className="py-2.5 px-4 text-sm text-gray-300">{evt.label}</td>
+                      {(['email', 'sms', 'slack'] as NotifChannel[]).map((ch) => (
+                        <td key={ch} className="py-2.5 px-4 text-center">
+                          <button
+                            onClick={() => toggleNotif(evt.id, ch)}
+                            className={`w-9 h-5 rounded-full relative transition-colors ${
+                              notifPrefs[evt.id]?.[ch] ? 'bg-[#C9A84C]' : 'bg-gray-700'
+                            }`}
+                          >
+                            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                              notifPrefs[evt.id]?.[ch] ? 'translate-x-4' : 'translate-x-0.5'
+                            }`} />
+                          </button>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <button onClick={() => toast.show('Notification preferences saved')} className={goldBtn}>Save Preferences</button>
+          </div>
+        </section>
+      )}
+
+      {/* ── Security Tab ────────────────────────────────────── */}
+      {activeTab === 'security' && (
+        <section className="max-w-2xl space-y-6">
+          {/* Change Password */}
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+            <h3 className="text-sm font-semibold text-gray-200">Change Password</h3>
+            <div>
+              <label className={labelCls}>Current Password</label>
+              <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Enter current password" className={inputCls} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>New Password</label>
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min 8 characters" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Confirm New Password</label>
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Re-enter new password" className={inputCls} />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={handleChangePassword} className={goldBtn}>Update Password</button>
+            </div>
+          </div>
+
+          {/* Two-Factor Authentication */}
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-200">Two-Factor Authentication</h3>
+                <p className="text-xs text-gray-500 mt-1">Add an extra layer of security to your account</p>
+              </div>
+              <button
+                onClick={() => { setTwoFactorEnabled(!twoFactorEnabled); toast.show(twoFactorEnabled ? '2FA disabled' : '2FA enabled'); }}
+                className={`w-11 h-6 rounded-full relative transition-colors ${twoFactorEnabled ? 'bg-emerald-600' : 'bg-gray-700'}`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${twoFactorEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-4 text-xs text-gray-400">
+              {twoFactorEnabled ? (
+                <p className="text-emerald-400">Two-factor authentication is enabled. You will be prompted for a verification code on each login.</p>
+              ) : (
+                <p>Enable 2FA to require a verification code from an authenticator app when signing in.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Session info */}
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-3">
+            <h3 className="text-sm font-semibold text-gray-200">Session Information</h3>
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-gray-500">Last Password Change</span>
+                <p className="text-gray-300 mt-0.5">February 15, 2026</p>
+              </div>
+              <div>
+                <span className="text-gray-500">Last Login</span>
+                <p className="text-gray-300 mt-0.5">April 7, 2026 at 9:15 AM</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── Integrations Tab ────────────────────────────────── */}
       {activeTab === 'integrations' && (
