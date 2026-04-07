@@ -66,9 +66,12 @@ const NAV_PILLARS: NavPillar[] = [
       { label: 'Statements',      href: '/statements',       icon: 'ST' },
       { label: 'Billing',         href: '/billing',          icon: 'BI' },
       { label: 'Tax',             href: '/tax',              icon: 'TX' },
+      { label: 'Tax Docs',        href: '/financial-control/tax',       icon: 'TD' },
       { label: 'Simulator',       href: '/simulator',        icon: 'SI' },
+      { label: 'Scenario Sim',    href: '/financial-control/simulator', icon: 'SS' },
       { label: 'Sandbox',         href: '/sandbox',          icon: 'SB' },
       { label: 'Hardship',        href: '/hardship',         icon: 'HS' },
+      { label: 'Hardship Mgr',    href: '/financial-control/hardship',  icon: 'HM' },
     ],
   },
   {

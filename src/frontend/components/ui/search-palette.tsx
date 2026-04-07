@@ -33,6 +33,9 @@ export const ALL_PAGES: PageEntry[] = [
   { label: 'Simulator',       href: '/simulator',         section: 'Financial Control', keywords: 'simulate model scenario' },
   { label: 'Sandbox',         href: '/sandbox',           section: 'Financial Control', keywords: 'test testing dev' },
   { label: 'Hardship',        href: '/hardship',          section: 'Financial Control', keywords: 'hardship relief deferral' },
+  { label: 'Tax Docs',        href: '/financial-control/tax',       section: 'Financial Control', keywords: 'tax documents 1099 annual summary export' },
+  { label: 'Scenario Sim',    href: '/financial-control/simulator', section: 'Financial Control', keywords: 'scenario funding simulator compare projection' },
+  { label: 'Hardship Mgr',    href: '/financial-control/hardship',  section: 'Financial Control', keywords: 'hardship case manager workout resolution' },
 
   // Compliance
   { label: 'Compliance',      href: '/compliance',        section: 'Compliance', keywords: 'regulatory rules' },
