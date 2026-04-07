@@ -262,6 +262,10 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
+// ── Portfolio Health Score ─────────────────────────────────────
+import { portfolioHealthRouter } from './portfolio-health.routes.js';
+apiRouter.use('/portfolio/health', portfolioHealthRouter);
+
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
