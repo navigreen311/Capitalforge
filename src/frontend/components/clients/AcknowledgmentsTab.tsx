@@ -4,7 +4,9 @@
 // AcknowledgmentsTab — Required acknowledgments for a client
 //
 // Displays 5 required acknowledgment types with signature status,
-// signed dates, and action buttons (View Document / Request Signature).
+// signed dates, and action buttons (View Document / Send for Signature).
+// Includes DocuSign e-signature integration with status tracking:
+//   Pending → Sent → Delivered → Signed
 // Includes a "Request All Pending" bulk action button.
 // ============================================================
 
@@ -21,6 +23,9 @@ interface AcknowledgmentsTabProps {
 
 type AckStatus = 'signed' | 'pending' | 'not_sent';
 
+/** DocuSign signature workflow status */
+type DocuSignStatus = 'none' | 'sent' | 'delivered' | 'signed' | 'declined';
+
 interface AcknowledgmentItem {
   id: string;
   type: string;
@@ -30,6 +35,9 @@ interface AcknowledgmentItem {
   signed_date: string | null;
   signed_by: string | null;
   document_url: string | null;
+  /** DocuSign envelope tracking */
+  docusign_envelope_id?: string | null;
+  docusign_status?: DocuSignStatus;
 }
 
 interface AcknowledgmentsData {
@@ -50,6 +58,24 @@ const ROW_STYLES: Record<AckStatus, string> = {
   not_sent: 'bg-gray-50 border-l-gray-300',
 };
 
+// ── DocuSign Status Badge Config ────────────────────────────────────────────
+
+const DOCUSIGN_STATUS_STYLES: Record<DocuSignStatus, string> = {
+  none:      '',
+  sent:      'bg-blue-100 text-blue-800 border-blue-300',
+  delivered: 'bg-indigo-100 text-indigo-800 border-indigo-300',
+  signed:    'bg-emerald-100 text-emerald-800 border-emerald-300',
+  declined:  'bg-red-100 text-red-800 border-red-300',
+};
+
+const DOCUSIGN_STATUS_LABELS: Record<DocuSignStatus, string> = {
+  none:      '',
+  sent:      'Sent via DocuSign',
+  delivered: 'Delivered to Signer',
+  signed:    'Signed via DocuSign',
+  declined:  'Declined',
+};
+
 // ── Placeholder data ────────────────────────────────────────────────────────
 
 function buildPlaceholderAcknowledgments(): AcknowledgmentItem[] {
@@ -63,6 +89,8 @@ function buildPlaceholderAcknowledgments(): AcknowledgmentItem[] {
       signed_date: '2026-03-15T14:30:00Z',
       signed_by: 'James Thornton',
       document_url: '/documents/ack-product-reality-signed.pdf',
+      docusign_envelope_id: 'env-abc123',
+      docusign_status: 'signed',
     },
     {
       id: 'ack-2',
@@ -73,6 +101,8 @@ function buildPlaceholderAcknowledgments(): AcknowledgmentItem[] {
       signed_date: '2026-03-15T14:32:00Z',
       signed_by: 'James Thornton',
       document_url: '/documents/ack-fee-refund-signed.pdf',
+      docusign_envelope_id: 'env-def456',
+      docusign_status: 'signed',
     },
     {
       id: 'ack-3',
@@ -83,6 +113,8 @@ function buildPlaceholderAcknowledgments(): AcknowledgmentItem[] {
       signed_date: '2026-03-15T14:35:00Z',
       signed_by: 'James Thornton',
       document_url: '/documents/ack-personal-guarantee-signed.pdf',
+      docusign_envelope_id: 'env-ghi789',
+      docusign_status: 'signed',
     },
     {
       id: 'ack-4',
@@ -93,6 +125,8 @@ function buildPlaceholderAcknowledgments(): AcknowledgmentItem[] {
       signed_date: null,
       signed_by: null,
       document_url: null,
+      docusign_envelope_id: 'env-jkl012',
+      docusign_status: 'delivered',
     },
     {
       id: 'ack-5',
@@ -103,6 +137,8 @@ function buildPlaceholderAcknowledgments(): AcknowledgmentItem[] {
       signed_date: null,
       signed_by: null,
       document_url: null,
+      docusign_envelope_id: null,
+      docusign_status: 'none',
     },
   ];
 }
@@ -156,10 +192,65 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
   const acknowledgments = data?.acknowledgments ?? buildPlaceholderAcknowledgments();
 
   const [requestingType, setRequestingType] = useState<string | null>(null);
+  const [sendingDocuSign, setSendingDocuSign] = useState<string | null>(null);
   const [requestingAll, setRequestingAll] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const hasUnsigned = acknowledgments.some((a) => a.status !== 'signed');
+
+  // ── Send for Signature via DocuSign ─────────────────────────
+
+  const handleSendForSignature = useCallback(
+    async (ack: AcknowledgmentItem) => {
+      setSendingDocuSign(ack.type);
+      setSuccessMessage(null);
+      setErrorMessage(null);
+      try {
+        const token =
+          typeof window !== 'undefined'
+            ? localStorage.getItem('cf_access_token')
+            : null;
+
+        const res = await fetch('/api/docusign/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            signerEmail:     'client@example.com', // In production, fetched from client record
+            signerName:      'Client Signer',      // In production, fetched from client record
+            documentBase64:  btoa(ack.name),        // Stub — real impl sends actual doc bytes
+            documentName:    `${ack.type}.pdf`,
+            envelopeSubject: `CapitalForge: Please sign ${ack.name}`,
+            envelopeMessage: `Please review and sign the ${ack.name} acknowledgment.`,
+            businessId:      clientId,
+            docType:         ack.type,
+          }),
+        });
+
+        const result = await res.json();
+
+        if (result.success) {
+          const msg = result.data?.isMock
+            ? `[DEMO] DocuSign signature request sent for ${ack.name}`
+            : `DocuSign signature request sent for ${ack.name}`;
+          setSuccessMessage(msg);
+          setTimeout(() => setSuccessMessage(null), 4000);
+        } else {
+          setErrorMessage(result.error?.message ?? 'Failed to send for signature');
+          setTimeout(() => setErrorMessage(null), 4000);
+        }
+      } catch {
+        setErrorMessage('Failed to send for signature. Please try again.');
+        setTimeout(() => setErrorMessage(null), 4000);
+      } finally {
+        setSendingDocuSign(null);
+      }
+    },
+    [clientId],
+  );
 
   // ── Request signature for a single acknowledgment ──────────
 
@@ -307,6 +398,26 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
         </div>
       )}
 
+      {/* Error toast banner */}
+      {errorMessage && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          <svg
+            className="h-4 w-4 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+            />
+          </svg>
+          {errorMessage}
+        </div>
+      )}
+
       <div className="space-y-3">
         {acknowledgments.map((ack) => {
           const statusCfg = STATUS_CONFIG[ack.status];
@@ -335,8 +446,19 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
                     {ack.description}
                   </p>
 
+                  {/* DocuSign status badge */}
+                  {ack.docusign_status && ack.docusign_status !== 'none' && (
+                    <div className="mt-1.5 ml-6">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${DOCUSIGN_STATUS_STYLES[ack.docusign_status]}`}
+                      >
+                        {DOCUSIGN_STATUS_LABELS[ack.docusign_status]}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Action row */}
-                  <div className="mt-2 ml-6">
+                  <div className="mt-2 ml-6 flex items-center gap-2">
                     {ack.status === 'signed' && ack.document_url ? (
                       <a
                         href={ack.document_url}
@@ -347,46 +469,72 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
                         View Document
                       </a>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleRequestSignature(ack.type, ack.name)
-                        }
-                        disabled={isRequesting || requestingAll}
-                        className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors ${
-                          isRequesting || requestingAll
-                            ? 'bg-indigo-400 cursor-not-allowed'
-                            : 'bg-indigo-600 hover:bg-indigo-700'
-                        }`}
-                      >
-                        {isRequesting ? (
-                          <>
-                            <svg
-                              className="mr-1.5 h-3 w-3 animate-spin"
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                            >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                              />
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                              />
-                            </svg>
-                            Sending…
-                          </>
-                        ) : (
-                          'Request Signature'
-                        )}
-                      </button>
+                      <>
+                        {/* Send for Signature via DocuSign */}
+                        <button
+                          type="button"
+                          onClick={() => handleSendForSignature(ack)}
+                          disabled={
+                            sendingDocuSign === ack.type ||
+                            requestingAll ||
+                            ack.docusign_status === 'sent' ||
+                            ack.docusign_status === 'delivered'
+                          }
+                          className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors ${
+                            sendingDocuSign === ack.type || requestingAll
+                              ? 'bg-blue-400 cursor-not-allowed'
+                              : ack.docusign_status === 'sent' || ack.docusign_status === 'delivered'
+                                ? 'bg-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 hover:bg-blue-700'
+                          }`}
+                        >
+                          {sendingDocuSign === ack.type ? (
+                            <>
+                              <svg
+                                className="mr-1.5 h-3 w-3 animate-spin"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                />
+                              </svg>
+                              Sending…
+                            </>
+                          ) : ack.docusign_status === 'sent' || ack.docusign_status === 'delivered' ? (
+                            'Awaiting Signature'
+                          ) : (
+                            'Send for Signature'
+                          )}
+                        </button>
+
+                        {/* Fallback: Request Signature (internal) */}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleRequestSignature(ack.type, ack.name)
+                          }
+                          disabled={isRequesting || requestingAll}
+                          className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            isRequesting || requestingAll
+                              ? 'text-indigo-400 border-indigo-200 cursor-not-allowed'
+                              : 'text-indigo-600 border-indigo-300 hover:bg-indigo-50'
+                          } border`}
+                        >
+                          {isRequesting ? 'Sending…' : 'Request Manually'}
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
