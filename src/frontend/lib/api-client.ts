@@ -207,7 +207,7 @@ export const clientsApi = {
 // ─── Resource helpers — Applications ─────────────────────────────────────────
 
 export const applicationsApi = {
-  list: (params?: Partial<PaginationParams> & { status?: string; businessId?: string }) =>
+  list: (params?: Partial<PaginationParams> & { status?: string; businessId?: string; groupByStatus?: string }) =>
     request('GET', '/applications', { params: params ?? {} }),
 
   get: (id: string) =>
@@ -216,8 +216,20 @@ export const applicationsApi = {
   create: (body: Record<string, unknown>) =>
     request('POST', '/applications', { body }),
 
+  update: (id: string, body: Record<string, unknown>) =>
+    request('PATCH', `/applications/${id}`, { body }),
+
+  submit: (id: string, declarations: boolean[]) =>
+    request('POST', `/applications/${id}/submit`, { body: { declarations } }),
+
   updateStatus: (id: string, status: string) =>
     request('PATCH', `/applications/${id}/status`, { body: { status } }),
+
+  complianceGate: (businessId: string) =>
+    request('GET', `/applications/compliance-gate/${businessId}`),
+
+  velocity: (businessId: string) =>
+    request('GET', `/applications/velocity/${businessId}`),
 };
 
 // ─── Resource helpers — Credit Intelligence ───────────────────────────────────

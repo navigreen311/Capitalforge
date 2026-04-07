@@ -55,6 +55,10 @@ apiRouter.use('/businesses', kybKycRouter);
 // -- Application Pipeline --
 apiRouter.use('/', applicationRouter);
 
+// -- Applications Wizard API (new endpoints for wizard flow) --
+import applicationsWizardRouter from './applications.routes.js';
+apiRouter.use('/', applicationsWizardRouter);
+
 // -- Application Detail (per-application sub-routes) --
 import { applicationDetailRouter } from './application-detail.routes.js';
 apiRouter.use('/applications/:appId', applicationDetailRouter);
