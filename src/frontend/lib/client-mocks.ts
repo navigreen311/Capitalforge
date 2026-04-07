@@ -92,9 +92,9 @@ const MOCK_ACH_AUTHORIZATION = {
 
 const MOCK_BUSINESS_CREDIT = {
   scores: [
-    { bureau: 'dnb_paydex', score: 80, maxScore: 100, rating: 'Good', pullDate: daysFromNow(-14), tradelines: 12, paymentRating: 'Prompt' },
-    { bureau: 'experian_business', score: 68, maxScore: 100, rating: 'Fair', pullDate: daysFromNow(-14), tradelines: 9, paymentRating: 'Mostly Prompt' },
-    { bureau: 'fico_sbss', score: 210, maxScore: 300, rating: 'Good', pullDate: daysFromNow(-14), tradelines: 15, paymentRating: 'Satisfactory' },
+    { bureau: 'dnb_paydex', score: 80, maxScore: 100, pullDate: daysFromNow(-14), trend: 'up' as const, trendDelta: 3, tradelines: 12, paymentRating: 'Prompt' },
+    { bureau: 'experian_business', score: 68, maxScore: 100, pullDate: daysFromNow(-14), trend: 'stable' as const, trendDelta: 0, tradelines: 9, paymentRating: 'Mostly Prompt' },
+    { bureau: 'fico_sbss', score: 210, maxScore: 300, pullDate: daysFromNow(-14), trend: 'up' as const, trendDelta: 8, tradelines: 15, paymentRating: 'Satisfactory' },
   ],
   bestScore: 210,
   totalTradelines: 36,
@@ -152,14 +152,14 @@ const MOCK_REPAYMENT = {
     { date: dateOnly(25), card: 'Ink Business Preferred', issuer: 'Chase', amount: 1200, type: 'autopay' as const, status: 'upcoming' as const },
   ],
   aprExpiry: [
-    { card: 'Ink Business Preferred', issuer: 'Chase', limit: 45000, balance: 12400, expiryDate: dateOnly(49), daysRemaining: 49, regularApr: 29.99 },
-    { card: 'Business Advantage Cash', issuer: 'BofA', limit: 35000, balance: 8200, expiryDate: dateOnly(90), daysRemaining: 90, regularApr: 26.99 },
+    { cardName: 'Ink Business Preferred', limit: 45000, currentBalance: 12400, expiryDate: dateOnly(49), daysLeft: 49, regularApr: 29.99 },
+    { cardName: 'Business Advantage Cash', limit: 35000, currentBalance: 8200, expiryDate: dateOnly(90), daysLeft: 90, regularApr: 26.99 },
   ],
   interestShockMonthly: 592,
   payoffWaterfall: [
-    { card: 'Ink Business Preferred', balance: 12400, apr: 29.99, minimum: 248, priority: 1, recommendation: 'Pay off first — highest APR after promo' },
-    { card: 'Business Advantage Cash', balance: 8200, apr: 26.99, minimum: 164, priority: 2, recommendation: 'Second priority — 90 days until APR increase' },
-    { card: 'Ink Business Cash', balance: 3100, apr: 24.99, minimum: 62, priority: 3, recommendation: 'Low balance — consider full payoff' },
+    { card: 'Ink Business Preferred', balance: 12400, apr: 29.99, monthlyMinimum: 248, priority: 1, payoffRecommendation: 'Pay off first — highest APR after promo' },
+    { card: 'Business Advantage Cash', balance: 8200, apr: 26.99, monthlyMinimum: 164, priority: 2, payoffRecommendation: 'Second priority — 90 days until APR increase' },
+    { card: 'Ink Business Cash', balance: 3100, apr: 24.99, monthlyMinimum: 62, priority: 3, payoffRecommendation: 'Low balance — consider full payoff' },
   ],
 };
 
