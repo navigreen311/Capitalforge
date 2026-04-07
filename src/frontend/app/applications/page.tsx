@@ -12,6 +12,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { applicationsApi } from '../../lib/api-client';
 import { ApplicationDetailDrawer } from '../../components/applications/ApplicationDetailDrawer';
+import NewApplicationWizardModal from '../../components/applications/wizard/NewApplicationWizardModal';
 import type { ApplicationStatus } from '../../../shared/types';
 
 // ---------------------------------------------------------------------------
@@ -178,18 +179,23 @@ export default function ApplicationsPage() {
   // Drawer state
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await applicationsApi.list();
-        if (res.success && Array.isArray(res.data)) {
-          setApps(res.data as ApplicationCard[]);
-        }
-      } catch { /* use placeholder */ }
-      finally { setLoading(false); }
-    })();
+  // Wizard modal state
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+
+  const fetchApps = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await applicationsApi.list();
+      if (res.success && Array.isArray(res.data)) {
+        setApps(res.data as ApplicationCard[]);
+      }
+    } catch { /* use placeholder */ }
+    finally { setLoading(false); }
   }, []);
+
+  useEffect(() => {
+    fetchApps();
+  }, [fetchApps]);
 
   const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
     dragId.current = id;
@@ -251,7 +257,7 @@ export default function ApplicationsPage() {
             className="cf-input w-48"
           />
           <button
-            onClick={() => router.push('/applications/new')}
+            onClick={() => setIsWizardOpen(true)}
             className="btn-accent btn flex-shrink-0"
           >
             + New Application
@@ -317,6 +323,15 @@ export default function ApplicationsPage() {
       <ApplicationDetailDrawer
         appId={selectedAppId}
         onClose={() => setSelectedAppId(null)}
+      />
+
+      {/* New Application Wizard Modal */}
+      <NewApplicationWizardModal
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
+        onSuccess={() => {
+          fetchApps();
+        }}
       />
     </div>
   );

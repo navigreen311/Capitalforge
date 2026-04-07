@@ -35,3 +35,4 @@ export { default as WizardStep2AssignRound } from './wizard/WizardStep2AssignRou
 export { default as WizardStep3SelectCard } from './wizard/WizardStep3SelectCard';
 export { default as WizardStep4BusinessPurpose } from './wizard/WizardStep4BusinessPurpose';
 export { default as WizardStep5ReviewConfirm } from './wizard/WizardStep5ReviewConfirm';
+export { default as NewApplicationWizardModal } from './wizard/NewApplicationWizardModal';

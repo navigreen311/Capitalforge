@@ -26,10 +26,10 @@ interface WizardStep5Props {
 // ── Declaration checkboxes ────────────────────────────────────
 
 const DECLARATIONS = [
-  'I confirm that all information on this application is accurate and complete.',
-  'I confirm that no information has been misrepresented to the issuer.',
-  'I confirm that the business purpose stated is genuine and documented.',
-  'I understand that misrepresentation on credit applications may constitute federal fraud under 18 U.S.C. \u00A71014 and \u00A71344.',
+  'I confirm consent has been verified',
+  'I confirm the Product-Reality Acknowledgment has been signed',
+  'I confirm no misrepresentations on this application',
+  'I confirm the business purpose is legitimate',
 ] as const;
 
 // ── Helper ────────────────────────────────────────────────────
@@ -204,7 +204,7 @@ export default function WizardStep5ReviewConfirm({
                 />
               </svg>
             )}
-            {isSubmitting ? 'Submitting...' : 'Submit Application'}
+            {isSubmitting ? 'Submitting...' : 'Confirm & Submit'}
           </button>
         </div>
       </div>

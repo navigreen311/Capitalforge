@@ -13,14 +13,11 @@ import { useMemo } from 'react';
 const MIN_PURPOSE_CHARS = 50;
 
 const SPEND_CATEGORIES = [
-  { value: 'office_supplies',       label: 'Office Supplies' },
-  { value: 'technology_saas',       label: 'Technology/SaaS' },
-  { value: 'travel',                label: 'Travel' },
-  { value: 'professional_services', label: 'Professional Services' },
-  { value: 'advertising',           label: 'Advertising' },
-  { value: 'shipping',              label: 'Shipping' },
-  { value: 'meals_entertainment',   label: 'Meals & Entertainment' },
-  { value: 'other',                 label: 'Other' },
+  { value: 'working_capital', label: 'Working Capital' },
+  { value: 'equipment',       label: 'Equipment' },
+  { value: 'inventory',       label: 'Inventory' },
+  { value: 'marketing',       label: 'Marketing' },
+  { value: 'other',           label: 'Other' },
 ] as const;
 
 // Placeholder values for suitability calculation
@@ -136,7 +133,7 @@ export default function WizardStep4BusinessPurpose({
           htmlFor="spend-category"
           className="block text-sm font-medium text-gray-700"
         >
-          MCC / Spend Category
+          Intended Use Category
         </label>
         <select
           id="spend-category"
