@@ -69,9 +69,17 @@ apiRouter.use('/', applicationsWizardRouter);
 import { applicationDetailRouter } from './application-detail.routes.js';
 apiRouter.use('/applications/:appId', applicationDetailRouter);
 
+// -- Funding Rounds (list, create, complete, compare, eligibility) --
+import { fundingRoundRouter } from './funding-round.routes.js';
+apiRouter.use('/', fundingRoundRouter);
+
 // -- Funding Round Detail (per-round sub-routes) --
 import { fundingRoundDetailRouter } from './funding-round-detail.routes.js';
 apiRouter.use('/funding-rounds/:roundId', fundingRoundDetailRouter);
+
+// -- Consent (per-business consent management) --
+import consentRouter from './consent.routes.js';
+apiRouter.use('/businesses/:id/consent', consentRouter);
 
 // -- Suitability --
 apiRouter.use('/businesses/:id/suitability', suitabilityRouter);
