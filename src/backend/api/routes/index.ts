@@ -223,3 +223,17 @@ apiRouter.use('/webhooks', webhooksRouter);
 // POST /api/governance/cadence/reminders/process   — dispatch pending reminders (cron)
 import { governanceRouter } from './governance.routes.js';
 apiRouter.use('/governance', governanceRouter);
+
+// ── Platform (CRM pipeline, issuers, referrals, workflows, settings) ──
+// GET    /api/platform/crm/pipeline
+// GET    /api/platform/crm/revenue
+// GET    /api/platform/issuers
+// GET    /api/platform/referrals
+// POST   /api/platform/referrals
+// GET    /api/platform/workflows
+// POST   /api/platform/workflows
+// PATCH  /api/platform/workflows/:id
+// GET    /api/platform/settings
+// PATCH  /api/platform/settings
+import { platformRouter } from './platform.routes.js';
+apiRouter.use('/platform', platformRouter);
