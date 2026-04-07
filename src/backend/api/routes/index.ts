@@ -265,3 +265,8 @@ apiRouter.use('/', platformExtendedRouter);
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
+
+// ── AI Chat Assistant ──────────────────────────────────────────
+// POST /api/chat — Streaming AI chat with portfolio context
+import { chatRouter } from './chat.routes.js';
+apiRouter.use('/chat', chatRouter);
