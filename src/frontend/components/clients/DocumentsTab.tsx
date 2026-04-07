@@ -22,7 +22,7 @@ interface DocumentsTabProps {
   clientId: string;
 }
 
-type SignatureStatus = 'signed' | 'pending' | 'not_required';
+type SignatureStatus = 'signed' | 'pending' | 'not_required' | 'sent' | 'delivered';
 type DocumentType = 'consent' | 'contract' | 'bank_statement' | 'id' | 'compliance' | 'other';
 type FilterType = 'all' | DocumentType;
 
@@ -35,6 +35,8 @@ interface DocumentRecord {
   uploadedAt: string;
   signatureStatus: SignatureStatus;
   legalHold: boolean;
+  /** DocuSign envelope tracking */
+  docusignEnvelopeId?: string | null;
 }
 
 interface RequiredDoc {
@@ -150,21 +152,27 @@ function getAuthToken(): string {
 const SIG_STYLES: Record<SignatureStatus, string> = {
   signed:       'bg-emerald-100 text-emerald-800 border-emerald-300',
   pending:      'bg-amber-100 text-amber-800 border-amber-300',
+  sent:         'bg-blue-100 text-blue-800 border-blue-300',
+  delivered:    'bg-indigo-100 text-indigo-800 border-indigo-300',
   not_required: 'bg-gray-100 text-gray-500 border-gray-300',
 };
 
 const SIG_LABELS: Record<SignatureStatus, string> = {
   signed:       'Signed',
   pending:      'Pending Signature',
+  sent:         'Sent for Signature',
+  delivered:    'Delivered to Signer',
   not_required: 'Not Required',
 };
 
 function SignatureBadge({
   status,
   onSendForSignature,
+  isSending,
 }: {
   status: SignatureStatus;
   onSendForSignature?: () => void;
+  isSending?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2">
@@ -173,12 +181,17 @@ function SignatureBadge({
       >
         {SIG_LABELS[status]}
       </span>
-      {status === 'pending' && onSendForSignature && (
+      {(status === 'pending') && onSendForSignature && (
         <button
           onClick={onSendForSignature}
-          className="text-xs text-brand-navy hover:underline font-medium"
+          disabled={isSending}
+          className={`text-xs font-medium transition-colors ${
+            isSending
+              ? 'text-gray-400 cursor-not-allowed'
+              : 'text-blue-600 hover:text-blue-700 hover:underline'
+          }`}
         >
-          Send for Signature
+          {isSending ? 'Sending...' : 'Request Signature'}
         </button>
       )}
     </div>
@@ -462,11 +475,55 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
     showToast(msg);
   }, [holdModalDoc, showToast]);
 
-  const handleSendForSignature = useCallback((doc: DocumentRecord) => {
-    // Mock action
-    console.info('[DocumentsTab] Send for signature: %s', doc.id);
-    showToast(`Signature request sent for "${doc.name}"`);
-  }, [showToast]);
+  const [sendingSignatureId, setSendingSignatureId] = useState<string | null>(null);
+
+  const handleSendForSignature = useCallback(async (doc: DocumentRecord) => {
+    setSendingSignatureId(doc.id);
+    try {
+      const token = getAuthToken();
+
+      const res = await fetch('/api/docusign/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          signerEmail:     'client@example.com', // In production, fetched from client record
+          signerName:      'Client Signer',      // In production, fetched from client record
+          documentBase64:  btoa(doc.name),        // Stub — real impl sends actual doc bytes
+          documentName:    doc.name,
+          envelopeSubject: `CapitalForge: Please sign ${doc.name}`,
+          envelopeMessage: `Please review and sign the document "${doc.name}".`,
+          businessId:      clientId,
+          docType:         doc.type,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (result.success) {
+        // Update local state to reflect sent status
+        setDocuments((prev) =>
+          prev.map((d) =>
+            d.id === doc.id
+              ? { ...d, signatureStatus: 'sent' as SignatureStatus, docusignEnvelopeId: result.data?.envelopeId }
+              : d,
+          ),
+        );
+        const msg = result.data?.isMock
+          ? `[DEMO] DocuSign signature request sent for "${doc.name}"`
+          : `Signature request sent for "${doc.name}" via DocuSign`;
+        showToast(msg);
+      } else {
+        showToast(`Failed to send for signature: ${result.error?.message ?? 'Unknown error'}`);
+      }
+    } catch {
+      showToast('Failed to send for signature. Please try again.');
+    } finally {
+      setSendingSignatureId(null);
+    }
+  }, [clientId, showToast]);
 
   const handleRequestDoc = useCallback((label: string) => {
     setRequestModalOpen(true);
@@ -584,6 +641,7 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
                     <td>
                       <SignatureBadge
                         status={doc.signatureStatus}
+                        isSending={sendingSignatureId === doc.id}
                         onSendForSignature={
                           doc.signatureStatus === 'pending'
                             ? () => handleSendForSignature(doc)
