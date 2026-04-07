@@ -253,3 +253,7 @@ apiRouter.use('/platform', platformRouter);
 // ── Platform Extended (Reports, Portfolio, Tenants, Offboarding, Data Lineage) ──
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
+
+// ── Notifications ──────────────────────────────────────────────
+import { notificationsRouter } from './notifications.routes.js';
+apiRouter.use('/notifications', notificationsRouter);
