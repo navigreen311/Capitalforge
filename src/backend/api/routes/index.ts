@@ -262,6 +262,13 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
+// ── DocuSign E-Signature ─────────────────────────────────────────
+// POST /api/docusign/send              — send document for signature
+// GET  /api/docusign/status/:envelopeId — check envelope status
+// POST /api/docusign/webhook           — webhook receiver for DocuSign events
+import { docuSignRouter } from './docusign.routes.js';
+apiRouter.use('/docusign', docuSignRouter);
+
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
