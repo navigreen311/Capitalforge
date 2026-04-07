@@ -10,9 +10,10 @@
 //   Step 5: Review & Submit
 // ============================================================
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../lib/api-client';
+import SuitabilityPanel, { type SuitabilityResultData } from '../../../components/suitability/SuitabilityPanel';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +53,18 @@ interface ConsentState {
   voiceTimestamp: string | null;
   smsTimestamp: string | null;
   emailTimestamp: string | null;
+}
+
+interface SuitabilityInputState {
+  creditScore: string;
+  utilizationRatio: string;
+  debtServiceRatio: string;
+  inquiries: string;
+  derogatoryMarks: string;
+  naicsCode: string;
+  advisorConfirmedDebtServicing: boolean;
+  clientAcknowledgedPersonalGuarantee: boolean;
+  clientAcknowledgedAprRisk: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,59 +122,8 @@ function calculateBusinessAgeYears(dateStr: string): number {
   return calculateBusinessAgeDays(dateStr) / 365.25;
 }
 
-function calculateSuitabilityScore(biz: BusinessInfo, owners: Owner[]): {
-  score: number;
-  breakdown: { label: string; points: number; max: number; reason: string }[];
-  recommendation: 'Suitable' | 'Marginal' | 'Not Suitable';
-} {
-  const breakdown: { label: string; points: number; max: number; reason: string }[] = [];
-
-  // Business age: >2yr = 30pts
-  const ageYears = calculateBusinessAgeYears(biz.dateOfFormation);
-  const agePoints = ageYears > 2 ? 30 : Math.round((ageYears / 2) * 30);
-  breakdown.push({
-    label: 'Business Age',
-    points: agePoints,
-    max: 30,
-    reason: biz.dateOfFormation ? `${ageYears.toFixed(1)} years` : 'Not provided',
-  });
-
-  // Revenue: >$500K annual = 30pts
-  const revenue = parseFloat(biz.annualRevenue) || 0;
-  const revPoints = revenue >= 500_000 ? 30 : Math.round((revenue / 500_000) * 30);
-  breakdown.push({
-    label: 'Annual Revenue',
-    points: revPoints,
-    max: 30,
-    reason: revenue > 0 ? `$${revenue.toLocaleString()}` : 'Not provided',
-  });
-
-  // Entity type: LLC/Corp = 20pts
-  const corpTypes: string[] = ['llc', 'corporation', 's_corp', 'c_corp'];
-  const entityPoints = corpTypes.includes(biz.entityType) ? 20 : 5;
-  breakdown.push({
-    label: 'Entity Type',
-    points: entityPoints,
-    max: 20,
-    reason: biz.entityType ? ENTITY_OPTIONS.find((e) => e.value === biz.entityType)?.label ?? biz.entityType : 'Not selected',
-  });
-
-  // Owner verified: any owner with verified KYC = 20pts
-  const hasVerified = owners.some((o) => o.kycStatus === 'verified');
-  const ownerPoints = hasVerified ? 20 : 0;
-  breakdown.push({
-    label: 'Owner Verified (KYC)',
-    points: ownerPoints,
-    max: 20,
-    reason: hasVerified ? 'At least one owner verified' : 'No owners verified yet',
-  });
-
-  const score = agePoints + revPoints + entityPoints + ownerPoints;
-  const recommendation: 'Suitable' | 'Marginal' | 'Not Suitable' =
-    score > 70 ? 'Suitable' : score >= 40 ? 'Marginal' : 'Not Suitable';
-
-  return { score, breakdown, recommendation };
-}
+// Old simple calculateSuitabilityScore removed — replaced by API-driven
+// SuitabilityEngine via POST /api/suitability/calculate
 
 function formatCurrency(val: string): string {
   const n = parseFloat(val);
@@ -261,6 +223,22 @@ export default function NewClientPage() {
     voiceTimestamp: null, smsTimestamp: null, emailTimestamp: null,
   });
 
+  // Step 4: Suitability Engine
+  const [suitInput, setSuitInput] = useState<SuitabilityInputState>({
+    creditScore: '720',
+    utilizationRatio: '0.15',
+    debtServiceRatio: '0.15',
+    inquiries: '1',
+    derogatoryMarks: '0',
+    naicsCode: '0000',
+    advisorConfirmedDebtServicing: false,
+    clientAcknowledgedPersonalGuarantee: false,
+    clientAcknowledgedAprRisk: false,
+  });
+  const [suitResult, setSuitResult] = useState<SuitabilityResultData | null>(null);
+  const [suitLoading, setSuitLoading] = useState(false);
+  const [suitError, setSuitError] = useState<string | null>(null);
+
   // ---------------------------------------------------------------------------
   // Validation
   // ---------------------------------------------------------------------------
@@ -305,10 +283,62 @@ export default function NewClientPage() {
   const goBack = () => { if (step > 0) setStep(step - 1); };
 
   // ---------------------------------------------------------------------------
-  // Suitability
+  // Suitability — API-driven calculation
   // ---------------------------------------------------------------------------
 
-  const suitability = useMemo(() => calculateSuitabilityScore(biz, owners), [biz, owners]);
+  const runSuitabilityCheck = useCallback(async () => {
+    setSuitLoading(true);
+    setSuitError(null);
+    try {
+      const businessAgeMonths = biz.dateOfFormation
+        ? Math.max(0, Math.floor((Date.now() - new Date(biz.dateOfFormation).getTime()) / (30.44 * 24 * 60 * 60 * 1000)))
+        : 0;
+
+      const payload = {
+        creditScore: parseInt(suitInput.creditScore, 10) || 700,
+        utilizationRatio: parseFloat(suitInput.utilizationRatio) || 0.2,
+        businessAgeMonths,
+        annualRevenue: parseFloat(biz.annualRevenue) || 0,
+        debtServiceRatio: parseFloat(suitInput.debtServiceRatio) || 0.15,
+        inquiries: parseInt(suitInput.inquiries, 10) || 0,
+        derogatoryMarks: parseInt(suitInput.derogatoryMarks, 10) || 0,
+        advisorConfirmedDebtServicing: suitInput.advisorConfirmedDebtServicing,
+        clientAcknowledgedPersonalGuarantee: suitInput.clientAcknowledgedPersonalGuarantee,
+        clientAcknowledgedAprRisk: suitInput.clientAcknowledgedAprRisk,
+        naicsCode: suitInput.naicsCode || '0000',
+      };
+
+      const res = await apiClient.post<SuitabilityResultData>('/suitability/calculate', payload);
+      if (res.data) {
+        setSuitResult(res.data);
+      }
+    } catch (err) {
+      setSuitError(err instanceof Error ? err.message : 'Failed to calculate suitability.');
+    } finally {
+      setSuitLoading(false);
+    }
+  }, [biz.dateOfFormation, biz.annualRevenue, suitInput]);
+
+  // Auto-run suitability check when entering step 4
+  useEffect(() => {
+    if (step === 3) {
+      runSuitabilityCheck();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  // Legacy suitability object for backward compatibility in step 5 summary
+  const suitability = useMemo(() => {
+    if (suitResult) {
+      return {
+        score: suitResult.score,
+        recommendation: suitResult.tier === 'suitable' ? 'Suitable' as const
+          : suitResult.tier === 'marginal' ? 'Marginal' as const
+          : 'Not Suitable' as const,
+      };
+    }
+    return { score: 0, recommendation: 'Not Suitable' as const };
+  }, [suitResult]);
 
   // ---------------------------------------------------------------------------
   // Submit
@@ -369,13 +399,24 @@ export default function NewClientPage() {
         }
       }
 
-      // Create suitability check
+      // Create suitability check using the engine result
       try {
-        await apiClient.post(`/businesses/${businessId}/suitability`, {
-          score: suitability.score,
-          recommendation: suitability.recommendation.toLowerCase().replace(/\s+/g, '_'),
-          maxSafeLeverage: suitability.score > 70 ? 3.0 : suitability.score >= 40 ? 1.5 : 0,
-        });
+        if (suitResult) {
+          await apiClient.post(`/businesses/${businessId}/suitability/check`, {
+            monthlyRevenue: biz.monthlyRevenue ? parseFloat(biz.monthlyRevenue) : (parseFloat(biz.annualRevenue) || 0) / 12,
+            existingDebt: 0,
+            cashFlowRatio: 0.15,
+            industry: biz.industry || 'general',
+            businessAgeMonths: biz.dateOfFormation
+              ? Math.max(0, Math.floor((Date.now() - new Date(biz.dateOfFormation).getTime()) / (30.44 * 24 * 60 * 60 * 1000)))
+              : 0,
+            personalCreditScore: parseInt(suitInput.creditScore, 10) || 700,
+            businessCreditScore: 0,
+            activeBankruptcy: false,
+            sanctionsMatch: false,
+            fraudSuspicion: false,
+          });
+        }
       } catch {
         // suitability is best-effort
       }
@@ -608,46 +649,147 @@ export default function NewClientPage() {
     </div>
   );
 
+  const updateSuitInput = (field: keyof SuitabilityInputState, value: string | boolean) => {
+    setSuitInput((prev) => ({ ...prev, [field]: value }));
+  };
+
   const renderStep4 = () => {
-    const recColor =
-      suitability.recommendation === 'Suitable' ? 'text-green-400' :
-      suitability.recommendation === 'Marginal' ? 'text-yellow-400' : 'text-red-400';
-
-    const recBg =
-      suitability.recommendation === 'Suitable' ? 'bg-green-900/30 border-green-700' :
-      suitability.recommendation === 'Marginal' ? 'bg-yellow-900/30 border-yellow-700' : 'bg-red-900/30 border-red-700';
-
     return (
       <div className="space-y-5">
         <h2 className="text-xl font-bold text-white mb-1">Suitability Assessment</h2>
-        <p className="text-sm text-gray-400 mb-4">Auto-calculated based on business information and owner verification status.</p>
+        <p className="text-sm text-gray-400 mb-4">
+          Provide credit and compliance details, then calculate the suitability score using the 6-component engine.
+        </p>
 
-        {/* Score display */}
-        <div className={`rounded-xl border p-6 text-center ${recBg}`}>
-          <p className="text-sm text-gray-400 mb-1">Suitability Score</p>
-          <p className={`text-5xl font-extrabold ${recColor}`}>{suitability.score}</p>
-          <p className="text-sm text-gray-400 mt-1">out of 100</p>
-          <p className={`text-lg font-bold mt-3 ${recColor}`}>{suitability.recommendation}</p>
+        {/* ── Additional suitability inputs ─────────────────── */}
+        <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-[#C9A84C] uppercase tracking-wide">Credit & Risk Details</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Field label="FICO Credit Score" required>
+              <input
+                type="number"
+                className={inputClass}
+                value={suitInput.creditScore}
+                onChange={(e) => updateSuitInput('creditScore', e.target.value)}
+                placeholder="720"
+                min={300}
+                max={850}
+              />
+            </Field>
+            <Field label="Credit Utilization (0-1)">
+              <input
+                type="number"
+                className={inputClass}
+                value={suitInput.utilizationRatio}
+                onChange={(e) => updateSuitInput('utilizationRatio', e.target.value)}
+                placeholder="0.15"
+                min={0}
+                max={1}
+                step={0.01}
+              />
+            </Field>
+            <Field label="Debt Service Ratio (0-1)">
+              <input
+                type="number"
+                className={inputClass}
+                value={suitInput.debtServiceRatio}
+                onChange={(e) => updateSuitInput('debtServiceRatio', e.target.value)}
+                placeholder="0.15"
+                min={0}
+                max={1}
+                step={0.01}
+              />
+            </Field>
+            <Field label="Hard Inquiries (12mo)">
+              <input
+                type="number"
+                className={inputClass}
+                value={suitInput.inquiries}
+                onChange={(e) => updateSuitInput('inquiries', e.target.value)}
+                placeholder="1"
+                min={0}
+              />
+            </Field>
+            <Field label="Derogatory Marks">
+              <input
+                type="number"
+                className={inputClass}
+                value={suitInput.derogatoryMarks}
+                onChange={(e) => updateSuitInput('derogatoryMarks', e.target.value)}
+                placeholder="0"
+                min={0}
+              />
+            </Field>
+            <Field label="NAICS Code">
+              <input
+                className={inputClass}
+                value={suitInput.naicsCode}
+                onChange={(e) => updateSuitInput('naicsCode', e.target.value)}
+                placeholder="5411"
+                maxLength={4}
+              />
+            </Field>
+          </div>
+
+          {/* Acknowledgment checkboxes */}
+          <div className="space-y-3 pt-2 border-t border-gray-700">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={suitInput.advisorConfirmedDebtServicing}
+                onChange={(e) => updateSuitInput('advisorConfirmedDebtServicing', e.target.checked)}
+                className="rounded border-gray-600 bg-gray-800 text-[#C9A84C] focus:ring-[#C9A84C] focus:ring-offset-0"
+              />
+              <span className="text-sm text-gray-300">Advisor confirms client can service the debt</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={suitInput.clientAcknowledgedPersonalGuarantee}
+                onChange={(e) => updateSuitInput('clientAcknowledgedPersonalGuarantee', e.target.checked)}
+                className="rounded border-gray-600 bg-gray-800 text-[#C9A84C] focus:ring-[#C9A84C] focus:ring-offset-0"
+              />
+              <span className="text-sm text-gray-300">Client acknowledges personal guarantee obligations</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={suitInput.clientAcknowledgedAprRisk}
+                onChange={(e) => updateSuitInput('clientAcknowledgedAprRisk', e.target.checked)}
+                className="rounded border-gray-600 bg-gray-800 text-[#C9A84C] focus:ring-[#C9A84C] focus:ring-offset-0"
+              />
+              <span className="text-sm text-gray-300">Client acknowledges APR risk</span>
+            </label>
+          </div>
+
+          <button
+            onClick={runSuitabilityCheck}
+            disabled={suitLoading}
+            className="px-5 py-2.5 rounded-lg bg-[#C9A84C] text-[#0A1628] text-sm font-bold hover:bg-[#D4B65E] transition-colors disabled:opacity-50"
+          >
+            {suitLoading ? 'Calculating...' : 'Calculate Suitability'}
+          </button>
         </div>
 
-        {/* Breakdown */}
-        <div className="space-y-3">
-          {suitability.breakdown.map((item) => (
-            <div key={item.label} className="rounded-lg border border-gray-700 bg-gray-900/50 p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-200">{item.label}</span>
-                <span className="text-sm font-bold text-white">{item.points} / {item.max}</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-gray-800 overflow-hidden mb-1">
-                <div
-                  className="h-full rounded-full bg-[#C9A84C] transition-all"
-                  style={{ width: `${(item.points / item.max) * 100}%` }}
-                />
-              </div>
-              <p className="text-xs text-gray-500">{item.reason}</p>
-            </div>
-          ))}
-        </div>
+        {/* ── Error display ────────────────────────────────── */}
+        {suitError && (
+          <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-sm text-red-300">
+            {suitError}
+          </div>
+        )}
+
+        {/* ── SuitabilityPanel with full results ───────────── */}
+        {suitResult && (
+          <SuitabilityPanel result={suitResult} loading={suitLoading} />
+        )}
+
+        {!suitResult && !suitLoading && !suitError && (
+          <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-6 text-center">
+            <p className="text-sm text-gray-400">
+              Fill in the credit details above and click "Calculate Suitability" to run the assessment.
+            </p>
+          </div>
+        )}
       </div>
     );
   };
@@ -719,6 +861,16 @@ export default function NewClientPage() {
             suitability.recommendation === 'Suitable' ? 'text-green-400' :
             suitability.recommendation === 'Marginal' ? 'text-yellow-400' : 'text-red-400'
           }`}>{suitability.recommendation}</span>
+          {suitResult && (
+            <span className="text-xs text-gray-500">
+              Max {suitResult.maxSafeLeverage} card{suitResult.maxSafeLeverage === 1 ? '' : 's'}
+              {suitResult.hardNoGoTriggers.length > 0 && (
+                <span className="text-red-400 ml-2">
+                  ({suitResult.hardNoGoTriggers.length} no-go trigger{suitResult.hardNoGoTriggers.length === 1 ? '' : 's'})
+                </span>
+              )}
+            </span>
+          )}
         </div>
       </div>
 
