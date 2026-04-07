@@ -464,7 +464,7 @@ export default function FinancialControlSimulatorPage() {
                     <td className="px-5 py-3 text-gray-300 font-medium">{row.label}</td>
                     {results.map((r, i) => (
                       <td key={scenarios[i].id} className="px-4 py-3 text-right font-semibold text-gray-100">
-                        {row.format((r as Record<string, number | string>)[row.key] as never)}
+                        {row.format((r as unknown as Record<string, number | string>)[row.key] as never)}
                       </td>
                     ))}
                   </tr>
