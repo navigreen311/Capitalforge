@@ -81,8 +81,12 @@ apiRouter.use('/funding-rounds/:roundId', fundingRoundDetailRouter);
 import consentRouter from './consent.routes.js';
 apiRouter.use('/businesses/:id/consent', consentRouter);
 
-// -- Suitability --
+// -- Suitability (per-business checks, overrides) --
 apiRouter.use('/businesses/:id/suitability', suitabilityRouter);
+
+// -- Suitability Engine (Phase 3 — standalone calculate & business lookup) --
+import { suitabilityEngineRouter } from './suitability-engine.routes.js';
+apiRouter.use('/suitability', suitabilityEngineRouter);
 
 // -- Cost Calculator --
 apiRouter.use('/businesses/:id/cost', costCalculatorRouter);
