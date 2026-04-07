@@ -27,8 +27,28 @@ model Tenant {
   consentRecords  ConsentRecord[]
   complianceChecks ComplianceCheck[]
   documents       Document[]
+  branding        TenantBranding?
 
   @@map("tenants")
+}
+
+model TenantBranding {
+  id              String   @id @default(uuid())
+  tenantId        String   @unique
+  displayName     String?
+  logoUrl         String?
+  faviconUrl      String?
+  primaryColor    String?  // hex color e.g. #C9A84C
+  customDomain    String?
+  emailFromName   String?
+  emailFromAddr   String?
+  hideCfBranding  Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@map("tenant_brandings")
 }
 
 model User {
