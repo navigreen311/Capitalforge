@@ -223,3 +223,12 @@ apiRouter.use('/webhooks', webhooksRouter);
 // POST /api/governance/cadence/reminders/process   — dispatch pending reminders (cron)
 import { governanceRouter } from './governance.routes.js';
 apiRouter.use('/governance', governanceRouter);
+
+// ── Financial Control ───────────────────────────────────────────
+// GET    /api/financial/tax-documents
+// POST   /api/financial/simulate
+// GET    /api/financial/hardship-cases
+// POST   /api/financial/hardship-cases
+// PATCH  /api/financial/hardship-cases/:id
+import { financialRouter } from './financial.routes.js';
+apiRouter.use('/financial', financialRouter);
