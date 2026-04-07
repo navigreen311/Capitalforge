@@ -43,7 +43,7 @@ const REPORT_TYPES = ['monthly-summary', 'client-funding', 'compliance-audit', '
 platformExtendedRouter.get(
   '/platform/reports/:type',
   wrap(async (req: Request, res: Response) => {
-    const type = req.params.type;
+    const type = req.params.type as string;
     if (!REPORT_TYPES.includes(type as any)) {
       res.status(400).json({ ok: false, error: `Invalid report type. Must be one of: ${REPORT_TYPES.join(', ')}` });
       return;
@@ -57,7 +57,7 @@ platformExtendedRouter.get(
 
     if (type === 'monthly-summary') {
       const businessCount = await db.business.count({ where: tenantId ? { tenantId } : undefined });
-      const appCount = await db.application.count({ where: tenantId ? { business: { tenantId } } : undefined });
+      const appCount = await db.cardApplication.count({ where: tenantId ? { business: { tenantId } } : undefined });
       data = {
         type: 'monthly-summary',
         period: new Date().toISOString().slice(0, 7),
@@ -126,7 +126,7 @@ platformExtendedRouter.get(
       };
     }
 
-    logger.info({ reportType: type }, 'Platform report generated');
+    logger.info(`Platform report generated: ${type}`);
     res.json({ ok: true, data });
   }),
 );
@@ -252,7 +252,7 @@ platformExtendedRouter.post(
       },
     });
 
-    logger.info({ tenantId: tenant.id, slug: body.slug }, 'New tenant provisioned');
+    logger.info(`New tenant provisioned: ${tenant.id} (${body.slug})`);
     res.status(201).json({ ok: true, data: { id: tenant.id, slug: tenant.slug, plan: tenant.plan } });
   }),
 );
@@ -273,18 +273,18 @@ platformExtendedRouter.patch(
     const body = UpdateTenantSchema.parse(req.body);
     const db = getPrisma();
 
-    const tenant = await db.tenant.findUnique({ where: { id: req.params.id } });
+    const tenant = await db.tenant.findUnique({ where: { id: req.params.id as string } });
     if (!tenant) {
       res.status(404).json({ ok: false, error: 'Tenant not found' });
       return;
     }
 
     const updated = await db.tenant.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: body,
     });
 
-    logger.info({ tenantId: updated.id, changes: body }, 'Tenant updated');
+    logger.info(`Tenant updated: ${updated.id}`);
     res.json({ ok: true, data: { id: updated.id, plan: updated.plan, isActive: updated.isActive } });
   }),
 );
@@ -357,7 +357,7 @@ platformExtendedRouter.post(
       },
     });
 
-    logger.info({ eventId: event.id, businessId: body.businessId }, 'Offboarding request created');
+    logger.info(`Offboarding request created: ${event.id} for business ${body.businessId}`);
     res.status(201).json({ ok: true, data: event });
   }),
 );
@@ -384,7 +384,7 @@ platformExtendedRouter.patch(
     const body = UpdateOffboardingSchema.parse(req.body);
     const db = getPrisma();
 
-    const event = await db.ledgerEvent.findUnique({ where: { id: req.params.id } });
+    const event = await db.ledgerEvent.findUnique({ where: { id: req.params.id as string } });
     if (!event) {
       res.status(404).json({ ok: false, error: 'Offboarding request not found' });
       return;
@@ -400,7 +400,7 @@ platformExtendedRouter.patch(
     };
 
     const updated = await db.ledgerEvent.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: {
         eventType: body.status ? `offboarding.${body.status}` : event.eventType,
         payload: updatedPayload,
@@ -408,7 +408,7 @@ platformExtendedRouter.patch(
       },
     });
 
-    logger.info({ eventId: updated.id, status: body.status }, 'Offboarding request updated');
+    logger.info(`Offboarding request updated: ${updated.id} status=${body.status ?? 'unchanged'}`);
     res.json({ ok: true, data: updated });
   }),
 );
@@ -421,7 +421,7 @@ platformExtendedRouter.get(
   '/platform/data-lineage/:businessId',
   wrap(async (req: Request, res: Response) => {
     const db = getPrisma();
-    const { businessId } = req.params;
+    const businessId = req.params.businessId as string;
     const eventType = req.query.eventType as string | undefined;
 
     const business = await db.business.findUnique({
