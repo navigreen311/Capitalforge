@@ -35,6 +35,10 @@ apiRouter.use('/tenants', tenantLookupRouter);
 import { dashboardV1Router } from './dashboard-index.routes.js';
 apiRouter.use('/v1/dashboard', dashboardV1Router);
 
+// -- Dashboard (non-versioned alias for /api/dashboard/*) --
+import { dashboardRouter } from './dashboard.routes.js';
+apiRouter.use('/dashboard', dashboardRouter);
+
 // -- Client Detail (per-client sub-routes) --
 import { clientDetailRouter } from './client-detail.routes.js';
 apiRouter.use('/clients/:clientId', clientDetailRouter);
