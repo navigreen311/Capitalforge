@@ -262,6 +262,10 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
+// ── Readiness Score ────────────────────────────────────────────
+import { readinessRouter } from './readiness.routes.js';
+apiRouter.use('/readiness', readinessRouter);
+
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
