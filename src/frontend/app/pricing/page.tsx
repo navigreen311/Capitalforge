@@ -3,7 +3,7 @@
 // ============================================================
 // /pricing — Public pricing page
 // Dark theme marketing layout with 3-tier pricing cards
-// and feature comparison table. No auth required.
+// and feature comparison table. Stripe checkout integration.
 // ============================================================
 
 import { useState } from 'react';
@@ -14,6 +14,7 @@ import { useState } from 'react';
 
 interface PricingTier {
   name: string;
+  slug: 'starter' | 'pro' | 'enterprise';
   price: string;
   priceNote?: string;
   description: string;
@@ -31,6 +32,7 @@ interface PricingTier {
 const TIERS: PricingTier[] = [
   {
     name: 'Starter',
+    slug: 'starter',
     price: '$297',
     priceNote: '/month',
     description: 'For advisors launching their first funding practice.',
@@ -47,6 +49,7 @@ const TIERS: PricingTier[] = [
   },
   {
     name: 'Pro',
+    slug: 'pro',
     price: '$697',
     priceNote: '/month',
     description: 'For growing teams who need the full platform.',
@@ -67,6 +70,7 @@ const TIERS: PricingTier[] = [
   },
   {
     name: 'Enterprise',
+    slug: 'enterprise',
     price: 'Custom',
     description: 'For institutions that require scale, security, and custom SLAs.',
     features: [
@@ -103,6 +107,33 @@ const COMPARISON_FEATURES: { feature: string; starter: string | boolean; pro: st
 ];
 
 // ---------------------------------------------------------------------------
+// API helper
+// ---------------------------------------------------------------------------
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+
+async function createCheckoutSession(planSlug: string): Promise<{ url: string; mock: boolean }> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+
+  const res = await fetch(`${API_BASE}/stripe/checkout`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ planSlug }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? 'Failed to create checkout session');
+  }
+
+  const json = await res.json();
+  return { url: json.data.url, mock: json.data.mock };
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -128,20 +159,56 @@ function CellValue({ value }: { value: string | boolean }) {
   return <span className="text-sm text-gray-300">{value}</span>;
 }
 
+function SpinnerIcon() {
+  return (
+    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function PricingPage() {
-  const [ctaClicked, setCtaClicked] = useState<string | null>(null);
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
-  const handleCta = (tier: PricingTier) => {
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleCta = async (tier: PricingTier) => {
     if (tier.ctaAction === 'book-demo') {
-      setCtaClicked(`Demo request for ${tier.name} — coming soon`);
-    } else {
-      setCtaClicked(`Get Started with ${tier.name} — coming soon`);
+      showToast(`Demo request for ${tier.name} -- coming soon`);
+      return;
     }
-    setTimeout(() => setCtaClicked(null), 3000);
+
+    // Stripe checkout for Starter and Pro
+    setLoadingPlan(tier.slug);
+
+    try {
+      const { url, mock } = await createCheckoutSession(tier.slug);
+
+      if (mock) {
+        showToast(
+          `Stripe is not configured. Configure STRIPE_SECRET_KEY in your environment to enable real payments. Redirecting to mock checkout...`,
+        );
+        setTimeout(() => {
+          window.location.href = url;
+        }, 2000);
+      } else {
+        window.location.href = url;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Checkout failed';
+      showToast(message);
+    } finally {
+      setLoadingPlan(null);
+    }
   };
 
   return (
@@ -168,67 +235,73 @@ export default function PricingPage() {
       {/* Pricing cards */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
-          {TIERS.map((tier) => (
-            <div
-              key={tier.name}
-              className={`relative rounded-2xl border p-8 flex flex-col ${
-                tier.highlighted
-                  ? 'border-[#C9A84C] bg-[#0E1D35] shadow-lg shadow-[#C9A84C]/10'
-                  : 'border-gray-700/50 bg-[#0E1D35]/60'
-              }`}
-            >
-              {/* Badge */}
-              {tier.badge && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <span className="bg-[#C9A84C] text-[#0A1628] text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide">
-                    {tier.badge}
-                  </span>
-                </div>
-              )}
+          {TIERS.map((tier) => {
+            const isLoading = loadingPlan === tier.slug;
 
-              {/* Tier name */}
-              <h3 className="text-lg font-semibold text-white mb-2">{tier.name}</h3>
-              <p className="text-sm text-gray-400 mb-6">{tier.description}</p>
-
-              {/* Price */}
-              <div className="mb-8">
-                <span className="text-4xl font-extrabold text-white">{tier.price}</span>
-                {tier.priceNote && (
-                  <span className="text-gray-400 text-base ml-1">{tier.priceNote}</span>
-                )}
-              </div>
-
-              {/* Features */}
-              <ul className="space-y-3 mb-8 flex-1">
-                {tier.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2.5">
-                    <CheckIcon />
-                    <span className="text-sm text-gray-300">{f}</span>
-                  </li>
-                ))}
-              </ul>
-
-              {/* CTA */}
-              <button
-                onClick={() => handleCta(tier)}
-                className={`w-full py-3 px-6 rounded-xl font-semibold text-sm transition-all ${
+            return (
+              <div
+                key={tier.name}
+                className={`relative rounded-2xl border p-8 flex flex-col ${
                   tier.highlighted
-                    ? 'bg-[#C9A84C] text-[#0A1628] hover:bg-[#D4B65E] shadow-lg shadow-[#C9A84C]/20'
-                    : tier.ctaAction === 'book-demo'
-                    ? 'bg-white/10 text-white border border-gray-600 hover:bg-white/20'
-                    : 'bg-blue-600 text-white hover:bg-blue-500'
+                    ? 'border-[#C9A84C] bg-[#0E1D35] shadow-lg shadow-[#C9A84C]/10'
+                    : 'border-gray-700/50 bg-[#0E1D35]/60'
                 }`}
               >
-                {tier.cta}
-              </button>
-            </div>
-          ))}
+                {/* Badge */}
+                {tier.badge && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <span className="bg-[#C9A84C] text-[#0A1628] text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide">
+                      {tier.badge}
+                    </span>
+                  </div>
+                )}
+
+                {/* Tier name */}
+                <h3 className="text-lg font-semibold text-white mb-2">{tier.name}</h3>
+                <p className="text-sm text-gray-400 mb-6">{tier.description}</p>
+
+                {/* Price */}
+                <div className="mb-8">
+                  <span className="text-4xl font-extrabold text-white">{tier.price}</span>
+                  {tier.priceNote && (
+                    <span className="text-gray-400 text-base ml-1">{tier.priceNote}</span>
+                  )}
+                </div>
+
+                {/* Features */}
+                <ul className="space-y-3 mb-8 flex-1">
+                  {tier.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2.5">
+                      <CheckIcon />
+                      <span className="text-sm text-gray-300">{f}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                {/* CTA */}
+                <button
+                  onClick={() => handleCta(tier)}
+                  disabled={isLoading || !!loadingPlan}
+                  className={`w-full py-3 px-6 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
+                    tier.highlighted
+                      ? 'bg-[#C9A84C] text-[#0A1628] hover:bg-[#D4B65E] shadow-lg shadow-[#C9A84C]/20'
+                      : tier.ctaAction === 'book-demo'
+                      ? 'bg-white/10 text-white border border-gray-600 hover:bg-white/20'
+                      : 'bg-blue-600 text-white hover:bg-blue-500'
+                  } ${(isLoading || !!loadingPlan) ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  {isLoading && <SpinnerIcon />}
+                  {isLoading ? 'Redirecting to checkout...' : tier.cta}
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {/* Toast */}
-        {ctaClicked && (
-          <div className="fixed bottom-6 right-6 bg-[#0E1D35] border border-[#C9A84C]/30 rounded-xl px-5 py-3 shadow-xl text-sm text-gray-200 z-50 animate-fade-in">
-            {ctaClicked}
+        {toast && (
+          <div className="fixed bottom-6 right-6 bg-[#0E1D35] border border-[#C9A84C]/30 rounded-xl px-5 py-3 shadow-xl text-sm text-gray-200 z-50 animate-fade-in max-w-md">
+            {toast}
           </div>
         )}
       </div>
