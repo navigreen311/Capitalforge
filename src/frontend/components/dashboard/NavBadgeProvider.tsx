@@ -22,6 +22,8 @@ interface NavBadgeCounts {
   dashboardBadge: number;
   applicationsBadge: number;
   fundingRoundsBadge: number;
+  complianceBadge: number;
+  complaintsBadge: number;
 }
 
 interface NavBadgeContextValue extends NavBadgeCounts {
@@ -32,6 +34,8 @@ const DEFAULT_COUNTS: NavBadgeCounts = {
   dashboardBadge: 0,
   applicationsBadge: 0,
   fundingRoundsBadge: 0,
+  complianceBadge: 0,
+  complaintsBadge: 0,
 };
 
 // ── Context ─────────────────────────────────────────────────────────────────
@@ -75,6 +79,33 @@ export function NavBadgeProvider({ children }: { children: ReactNode }) {
         ? localStorage.getItem('cf_access_token')
         : null;
 
+    // Prefer the consolidated nav-counts endpoint; fall back to individual calls
+    try {
+      const res = await fetch('/api/v1/dashboard/nav-counts', {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.data) {
+          setCounts({
+            dashboardBadge: json.data.action_queue ?? 0,
+            applicationsBadge: json.data.applications ?? 0,
+            fundingRoundsBadge: json.data.funding_rounds ?? 0,
+            complianceBadge: json.data.compliance ?? 0,
+            complaintsBadge: json.data.complaints ?? 0,
+          });
+          return;
+        }
+      }
+    } catch {
+      // Fall through to individual endpoint fetches
+    }
+
+    // Fallback: fetch from individual endpoints
     const [dashboardBadge, applicationsBadge, fundingRoundsBadge] =
       await Promise.all([
         fetchCount('/api/v1/dashboard/action-queue', token),
@@ -82,7 +113,13 @@ export function NavBadgeProvider({ children }: { children: ReactNode }) {
         fetchCount('/api/v1/dashboard/active-rounds', token),
       ]);
 
-    setCounts({ dashboardBadge, applicationsBadge, fundingRoundsBadge });
+    setCounts({
+      dashboardBadge,
+      applicationsBadge,
+      fundingRoundsBadge,
+      complianceBadge: 0,
+      complaintsBadge: 0,
+    });
   }, []);
 
   useEffect(() => {

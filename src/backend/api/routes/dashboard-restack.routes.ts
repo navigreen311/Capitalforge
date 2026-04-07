@@ -62,32 +62,28 @@ dashboardRestackRouter.get(
       }> = [];
 
       try {
-        // Find businesses that have at least one completed FundingRound,
-        // a SuitabilityCheck score >= 60, and no in_progress FundingRound.
+        // Find businesses with fundingReadinessScore > 70 that have at
+        // least one completed FundingRound and no in_progress round.
         const businesses = await db.business.findMany({
           where: {
             tenantId,
             status: 'active',
+            fundingReadinessScore: { gt: 70 },
             fundingRounds: {
               some: { status: 'completed' },
-            },
-            suitabilityChecks: {
-              some: { score: { gte: 60 } },
             },
           },
           include: {
             fundingRounds: {
               orderBy: { roundNumber: 'desc' },
             },
-            suitabilityChecks: {
-              orderBy: { createdAt: 'desc' },
-              take: 1,
-            },
           },
         });
 
-        // Filter out businesses that have an in_progress round and build
-        // the opportunity objects.
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+        // Filter: no in_progress round, last completed round > 90 days ago
         opportunities = businesses
           .filter((biz) => {
             return !biz.fundingRounds.some((fr) => fr.status === 'in_progress');
@@ -99,10 +95,14 @@ dashboardRestackRouter.get(
               .sort((a, b) => b.roundNumber - a.roundNumber);
 
             const lastCompleted = completedRounds[0];
-            const latestCheck = biz.suitabilityChecks?.[0];
 
             // Skip businesses with missing data
-            if (!lastCompleted || !latestCheck) return null;
+            if (!lastCompleted) return null;
+
+            // Only include if last completed round was > 90 days ago
+            if (lastCompleted.completedAt && lastCompleted.completedAt > ninetyDaysAgo) {
+              return null;
+            }
 
             // Sum credit from approved applications in the last completed round
             const achievedCredit = Number(lastCompleted.targetCredit ?? 0);
@@ -115,14 +115,12 @@ dashboardRestackRouter.get(
               current_round: lastCompleted.roundNumber,
               next_round: lastCompleted.roundNumber + 1,
               estimated_additional_credit: estimatedAdditionalCredit,
-              readiness_score: latestCheck.score,
+              readiness_score: biz.fundingReadinessScore ?? 0,
               last_funded_date: lastCompleted.completedAt?.toISOString() ?? null,
             };
           })
           // Remove null entries from businesses with missing data
           .filter((opp): opp is NonNullable<typeof opp> => opp !== null)
-          // Only include if the latest suitability score is >= 60
-          .filter((opp) => opp.readiness_score >= 60)
           // Sort by readiness descending
           .sort((a, b) => b.readiness_score - a.readiness_score);
       } catch (dbErr) {

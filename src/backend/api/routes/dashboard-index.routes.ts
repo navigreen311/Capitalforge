@@ -37,6 +37,7 @@ const SUB_ROUTES: SubRoute[] = [
   { path: '/committee-queue',        modulePath: './dashboard-committee.routes.js',             exportName: 'dashboardCommitteeRouter' },
   { path: '/voiceforge',             modulePath: './dashboard-voiceforge.routes.js',           exportName: 'dashboardVoiceforgeRouter' },
   { path: '/events',                 modulePath: './dashboard-events.routes.js',               exportName: 'dashboardEventsRouter' },
+  { path: '/nav-counts',             modulePath: './dashboard-nav-counts.routes.js',           exportName: 'dashboardNavCountsRouter' },
 ];
 
 // ── Mount each sub-route with graceful fallback ───────────────────────────

@@ -2,6 +2,7 @@
 // CapitalForge — Dashboard KPI Summary Routes
 //
 // GET /api/v1/dashboard/kpi-summary  — tenant-scoped KPI data
+//   with 30-day trend comparison
 // ============================================================
 
 import { Router, type Request, type Response } from 'express';
@@ -41,6 +42,23 @@ function generateSparkline(baseValue: number, points: number = 30): number[] {
   return data;
 }
 
+// ── Trend formatting helper ─────────────────────────────────────────────────
+
+function formatTrendPct(current: number, previous: number): string {
+  if (previous === 0 && current === 0) return 'No change';
+  if (previous === 0) return `+${current} new`;
+
+  const pctChange = ((current - previous) / previous) * 100;
+  const sign = pctChange >= 0 ? '+' : '';
+  return `${sign}${pctChange.toFixed(1)}% vs prev 30d`;
+}
+
+function formatPointsTrend(current: number, previous: number): string {
+  const diff = current - previous;
+  const sign = diff >= 0 ? '+' : '';
+  return `${sign}${diff.toFixed(1)}pts vs prev 30d`;
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export const dashboardKpiRouter = Router();
@@ -53,30 +71,43 @@ dashboardKpiRouter.get(
       const tenantId = getTenantId(req);
       const db = getPrisma();
 
+      // ── Date boundaries for trend comparison ────────────────────────────
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const sixtyDaysAgo = new Date(now);
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
       // ── Parallel queries ────────────────────────────────────────────────
       const [
-        activeClients,
-        pendingApplications,
+        totalClients,
+        activeApplications,
         approvedCards,
-        totalApplications,
-        costCalcAgg,
-        clientsThisMonth,
-        appsSinceMonday,
+        totalDecidedApps,
+        costCalcMtd,
+        // Previous 30-day window for trend comparison
+        prevClients,
+        prevActiveApps,
+        prevApprovedCards,
+        prevDecidedApps,
+        prevCostCalc,
       ] = await Promise.all([
-        // Active business clients
+        // Total Clients (count of all businesses in tenant)
         db.business.count({
-          where: { tenantId, status: 'active' },
+          where: { tenantId },
         }),
 
-        // Pending card applications
+        // Active Applications (not approved and not declined)
         db.cardApplication.count({
           where: {
             business: { tenantId },
-            status: 'pending',
+            status: { notIn: ['approved', 'declined'] },
           },
         }),
 
-        // Approved cards (for funding total)
+        // Approved cards (for Total Funding = sum of creditLimit)
         db.cardApplication.findMany({
           where: {
             business: { tenantId },
@@ -93,92 +124,111 @@ dashboardKpiRouter.get(
           },
         }),
 
-        // Aggregate cost calculations for fees MTD
+        // Fees MTD: sum of programFees from cost calculations this month
         db.costCalculation.aggregate({
           where: {
             business: { tenantId },
-            createdAt: {
-              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-            },
+            createdAt: { gte: monthStart },
           },
-          _sum: {
-            programFees: true,
-            processorFees: true,
-          },
+          _sum: { programFees: true },
         }),
 
-        // New clients this month
+        // ── Previous window (30–60 days ago) for trend comparison ─────────
+
+        // Previous period clients (created before 30 days ago)
         db.business.count({
           where: {
             tenantId,
-            status: 'active',
-            createdAt: {
-              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-            },
+            createdAt: { lt: thirtyDaysAgo },
           },
         }),
 
-        // Apps since Monday
-        (() => {
-          const now = new Date();
-          const day = now.getDay();
-          const monday = new Date(now);
-          monday.setDate(now.getDate() - ((day + 6) % 7));
-          monday.setHours(0, 0, 0, 0);
-          return db.cardApplication.count({
-            where: {
-              business: { tenantId },
-              createdAt: { gte: monday },
-            },
-          });
-        })(),
+        // Previous period active apps
+        db.cardApplication.count({
+          where: {
+            business: { tenantId },
+            status: { notIn: ['approved', 'declined'] },
+            createdAt: { lt: thirtyDaysAgo },
+          },
+        }),
+
+        // Previous period approved cards (approved before 30 days ago)
+        db.cardApplication.findMany({
+          where: {
+            business: { tenantId },
+            status: 'approved',
+            decidedAt: { lt: thirtyDaysAgo },
+          },
+          select: { creditLimit: true },
+        }),
+
+        // Previous period decided apps
+        db.cardApplication.count({
+          where: {
+            business: { tenantId },
+            status: { in: ['approved', 'declined'] },
+            decidedAt: { lt: thirtyDaysAgo },
+          },
+        }),
+
+        // Previous month fees
+        db.costCalculation.aggregate({
+          where: {
+            business: { tenantId },
+            createdAt: { gte: prevMonthStart, lt: monthStart },
+          },
+          _sum: { programFees: true },
+        }),
       ]);
 
-      // ── Derived metrics ────────────────────────────────────────────────
+      // ── Current derived metrics ─────────────────────────────────────────
       const totalFunding = approvedCards.reduce(
         (sum, card) => sum + (card.creditLimit ? Number(card.creditLimit) : 0),
         0,
       );
 
+      const approvedCount = approvedCards.length;
       const approvalRate =
-        totalApplications > 0
-          ? Math.round(
-              (approvedCards.length / totalApplications) * 100 * 10,
-            ) / 10
+        totalDecidedApps > 0
+          ? Math.round((approvedCount / totalDecidedApps) * 100 * 10) / 10
           : 0;
 
-      const feesMtd =
-        Number(costCalcAgg._sum.programFees ?? 0) +
-        Number(costCalcAgg._sum.processorFees ?? 0);
+      const feesMtd = Number(costCalcMtd._sum.programFees ?? 0);
 
-      // ── Format funding string for trend ────────────────────────────────
-      const fundingMillions = totalFunding / 1_000_000;
-      const fundingTrend =
-        fundingMillions >= 1
-          ? `$${fundingMillions.toFixed(1)}M this quarter`
-          : `$${(totalFunding / 1_000).toFixed(0)}K this quarter`;
+      // ── Previous derived metrics ────────────────────────────────────────
+      const prevTotalFunding = prevApprovedCards.reduce(
+        (sum, card) => sum + (card.creditLimit ? Number(card.creditLimit) : 0),
+        0,
+      );
+
+      const prevApprovalRate =
+        prevDecidedApps > 0
+          ? Math.round((prevApprovedCards.length / prevDecidedApps) * 100 * 10) / 10
+          : 0;
+
+      const prevFeesMtd = Number(prevCostCalc._sum.programFees ?? 0);
 
       // ── Build response ─────────────────────────────────────────────────
       const body: ApiResponse = {
         success: true,
         data: {
-          clients: activeClients,
-          applications: pendingApplications,
+          clients: totalClients,
+          applications: activeApplications,
           funding: totalFunding,
           approval_rate: approvalRate,
           fees_mtd: feesMtd,
 
           trends: {
-            clients: `+${clientsThisMonth} this month`,
-            applications: `+${appsSinceMonday} since Monday`,
-            funding: fundingTrend,
-            approval_rate: `-2.1pts vs last quarter`,
-            fees_mtd: `+14% vs last month`,
+            clients: formatTrendPct(totalClients, prevClients),
+            applications: formatTrendPct(activeApplications, prevActiveApps),
+            funding: formatTrendPct(totalFunding, prevTotalFunding),
+            approval_rate: formatPointsTrend(approvalRate, prevApprovalRate),
+            fees_mtd: formatTrendPct(feesMtd, prevFeesMtd),
           },
 
           sparklines: {
-            clients: generateSparkline(activeClients),
-            applications: generateSparkline(pendingApplications),
+            clients: generateSparkline(totalClients),
+            applications: generateSparkline(activeApplications),
             funding: generateSparkline(totalFunding),
             approval_rate: generateSparkline(approvalRate),
             fees_mtd: generateSparkline(feesMtd),
