@@ -291,6 +291,14 @@ apiRouter.use('/portfolio/health', portfolioHealthRouter);
 import { readinessRouter } from './readiness.routes.js';
 apiRouter.use('/readiness', readinessRouter);
 
+// ── Decline Recovery Workflow ────────────────────────────────────
+import { declineRecoveryRouter } from './decline-recovery.routes.js';
+apiRouter.use('/', declineRecoveryRouter);
+
+// ── Re-Stack Eligibility ─────────────────────────────────────────
+import { restackRouter } from './restack.routes.js';
+apiRouter.use('/restack', restackRouter);
+
 // ── Notifications ──────────────────────────────────────────────
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);

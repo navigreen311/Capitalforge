@@ -16,6 +16,7 @@ import {
   StateDisclosureDeadlines,
   PortfolioRiskHeatmap,
   RestackOpportunities,
+  RestackWidget,
   VoiceForgeActivity,
   PortfolioHealthWidget,
 } from '@/components/dashboard';
@@ -229,6 +230,7 @@ export default function DashboardPage() {
           </SectionCard>
 
           <PortfolioRiskHeatmap />
+          <RestackWidget />
           <RestackOpportunities />
           <VoiceForgeActivity />
 

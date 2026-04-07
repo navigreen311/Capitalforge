@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 
 type ReasonCategory = 'too_many_inquiries' | 'insufficient_history' | 'high_utilization' | 'income_verification' | 'velocity' | 'internal_policy' | 'derogatory_marks';
 type ReconStatus = 'not_started' | 'in_review' | 'approved' | 'denied' | 'scheduled';
+type RecoveryStage = 'new' | 'letter_sent' | 'recon_call_scheduled' | 'recon_call_completed' | 'reapplication_ready' | 'reapplied' | 'won' | 'lost';
 
 interface DeclineRecord {
   id: string;
@@ -32,6 +33,8 @@ interface DeclineRecord {
   cooldownEndsDate: string | null; // null = eligible now
   requestedLimit: number;
   appId: string;
+  recoveryStage: RecoveryStage;
+  resolvedAt: string | null;
 }
 
 interface ReapplyItem {
@@ -55,6 +58,7 @@ const DECLINE_RECORDS: DeclineRecord[] = [
     reasonCategory: 'too_many_inquiries', reasonDetail: 'Too many recent credit inquiries in 12-month window.',
     reconStatus: 'not_started', cooldownEndsDate: '2026-04-25',
     requestedLimit: 15000, appId: 'APP-0087',
+    recoveryStage: 'new', resolvedAt: null,
   },
   {
     id: 'dec_002', businessName: 'Apex Ventures LLC', issuer: 'Chase',
@@ -62,6 +66,7 @@ const DECLINE_RECORDS: DeclineRecord[] = [
     reasonCategory: 'velocity', reasonDetail: '5/24 rule — too many new accounts in 24 months.',
     reconStatus: 'in_review', cooldownEndsDate: '2026-05-18',
     requestedLimit: 20000, appId: 'APP-0081',
+    recoveryStage: 'recon_call_scheduled', resolvedAt: null,
   },
   {
     id: 'dec_003', businessName: 'Crestline Medical LLC', issuer: 'Amex',
@@ -69,6 +74,7 @@ const DECLINE_RECORDS: DeclineRecord[] = [
     reasonCategory: 'income_verification', reasonDetail: 'Stated income could not be verified via credit file data.',
     reconStatus: 'scheduled', cooldownEndsDate: null,
     requestedLimit: 50000, appId: 'APP-0077',
+    recoveryStage: 'recon_call_completed', resolvedAt: null,
   },
   {
     id: 'dec_004', businessName: 'NovaTech Solutions Inc.', issuer: 'Capital One',
@@ -76,6 +82,7 @@ const DECLINE_RECORDS: DeclineRecord[] = [
     reasonCategory: 'insufficient_history', reasonDetail: 'Business credit history too thin — fewer than 3 trade lines.',
     reconStatus: 'denied', cooldownEndsDate: '2026-09-05',
     requestedLimit: 10000, appId: 'APP-0074',
+    recoveryStage: 'lost', resolvedAt: '2026-03-20',
   },
   {
     id: 'dec_005', businessName: 'Blue Ridge Consulting', issuer: 'US Bank',
@@ -83,6 +90,7 @@ const DECLINE_RECORDS: DeclineRecord[] = [
     reasonCategory: 'high_utilization', reasonDetail: 'Personal credit utilization exceeds 70% on revolving accounts.',
     reconStatus: 'approved', cooldownEndsDate: null,
     requestedLimit: 18000, appId: 'APP-0069',
+    recoveryStage: 'won', resolvedAt: '2026-03-15',
   },
   {
     id: 'dec_006', businessName: 'Summit Capital Group', issuer: 'Bank of America',
@@ -90,6 +98,7 @@ const DECLINE_RECORDS: DeclineRecord[] = [
     reasonCategory: 'internal_policy', reasonDetail: 'Application declined per issuer internal risk policy — no further details provided.',
     reconStatus: 'not_started', cooldownEndsDate: '2026-04-20',
     requestedLimit: 30000, appId: 'APP-0063',
+    recoveryStage: 'letter_sent', resolvedAt: null,
   },
   {
     id: 'dec_007', businessName: 'Pinnacle Freight Corp', issuer: 'Wells Fargo',
@@ -97,6 +106,7 @@ const DECLINE_RECORDS: DeclineRecord[] = [
     reasonCategory: 'derogatory_marks', reasonDetail: 'Derogatory public record (tax lien) present on personal credit.',
     reconStatus: 'not_started', cooldownEndsDate: '2026-08-14',
     requestedLimit: 25000, appId: 'APP-0058',
+    recoveryStage: 'reapplication_ready', resolvedAt: null,
   },
 ];
 
@@ -143,6 +153,195 @@ function cooldownDisplay(endsDate: string | null): { text: string; cls: string }
   if (days <= 0) return { text: 'Eligible Now', cls: 'text-green-400 font-semibold' };
   if (days <= 30) return { text: `${days}d remaining`, cls: 'text-yellow-400' };
   return { text: `${days}d remaining`, cls: 'text-red-400' };
+}
+
+// ---------------------------------------------------------------------------
+// Recovery Stage Helpers
+// ---------------------------------------------------------------------------
+
+const RECOVERY_STAGE_ORDER: RecoveryStage[] = [
+  'new', 'letter_sent', 'recon_call_scheduled', 'recon_call_completed',
+  'reapplication_ready', 'reapplied', 'won', 'lost',
+];
+
+const RECOVERY_STAGE_LABELS: Record<RecoveryStage, string> = {
+  new: 'New',
+  letter_sent: 'Letter Sent',
+  recon_call_scheduled: 'Recon Call Scheduled',
+  recon_call_completed: 'Recon Call Completed',
+  reapplication_ready: 'Reapplication Ready',
+  reapplied: 'Reapplied',
+  won: 'Won',
+  lost: 'Lost',
+};
+
+const RECOVERY_STAGE_COLORS: Record<RecoveryStage, string> = {
+  new: 'bg-gray-700 text-gray-300',
+  letter_sent: 'bg-blue-900 text-blue-300',
+  recon_call_scheduled: 'bg-purple-900 text-purple-300',
+  recon_call_completed: 'bg-indigo-900 text-indigo-300',
+  reapplication_ready: 'bg-yellow-900 text-yellow-300',
+  reapplied: 'bg-cyan-900 text-cyan-300',
+  won: 'bg-green-900 text-green-300',
+  lost: 'bg-red-900 text-red-300',
+};
+
+function getNextStages(current: RecoveryStage): { stage: RecoveryStage; label: string }[] {
+  if (current === 'won' || current === 'lost') return [];
+  const idx = RECOVERY_STAGE_ORDER.indexOf(current);
+  // Offer the natural next stage + won/lost as terminal options
+  const next: { stage: RecoveryStage; label: string }[] = [];
+  if (idx < 6) { // before 'won'
+    const nextStage = RECOVERY_STAGE_ORDER[idx + 1];
+    if (nextStage && nextStage !== 'lost') {
+      next.push({ stage: nextStage, label: `Mark ${RECOVERY_STAGE_LABELS[nextStage]}` });
+    }
+  }
+  if (current !== 'new') {
+    next.push({ stage: 'won', label: 'Mark Won' });
+    next.push({ stage: 'lost', label: 'Mark Lost' });
+  }
+  return next;
+}
+
+function computeRecoveryStats(records: DeclineRecord[]) {
+  const resolved = records.filter(r => r.recoveryStage === 'won' || r.recoveryStage === 'lost');
+  const won = resolved.filter(r => r.recoveryStage === 'won').length;
+  const winRate = resolved.length > 0 ? Math.round((won / resolved.length) * 100) : 0;
+
+  // Avg days from decline to resolution
+  const resolvedWithDates = resolved.filter(r => r.resolvedAt);
+  let avgDays = 0;
+  if (resolvedWithDates.length > 0) {
+    const total = resolvedWithDates.reduce((sum, r) => {
+      const days = Math.ceil(
+        (new Date(r.resolvedAt!).getTime() - new Date(r.declinedDate).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      return sum + days;
+    }, 0);
+    avgDays = Math.round(total / resolvedWithDates.length);
+  }
+
+  return { winRate, won, lost: resolved.length - won, avgDays, totalResolved: resolved.length };
+}
+
+// ---------------------------------------------------------------------------
+// Recovery Tracker Component
+// ---------------------------------------------------------------------------
+
+function RecoveryTracker({
+  records,
+  onAdvance,
+}: {
+  records: DeclineRecord[];
+  onAdvance: (id: string, stage: RecoveryStage) => void;
+}) {
+  const activeRecoveries = records.filter(r => r.recoveryStage !== 'won' && r.recoveryStage !== 'lost');
+  const stats = computeRecoveryStats(records);
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-base font-semibold text-gray-200">Recovery Tracker</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Track each decline through the recovery pipeline
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <div className="text-center px-3 py-1 rounded-lg bg-gray-800 border border-gray-700">
+            <p className="text-lg font-bold text-[#C9A84C]">{stats.winRate}%</p>
+            <p className="text-xs text-gray-500">Win Rate</p>
+          </div>
+          <div className="text-center px-3 py-1 rounded-lg bg-gray-800 border border-gray-700">
+            <p className="text-lg font-bold text-blue-400">{stats.avgDays}d</p>
+            <p className="text-xs text-gray-500">Avg Recovery</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stage summary bar */}
+      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+        {RECOVERY_STAGE_ORDER.map((stage) => {
+          const count = records.filter(r => r.recoveryStage === stage).length;
+          return (
+            <div
+              key={stage}
+              className={`flex-1 min-w-[80px] rounded-lg px-2 py-1.5 text-center border border-gray-700 ${
+                count > 0 ? 'bg-gray-800' : 'bg-gray-900/30'
+              }`}
+            >
+              <p className="text-xs font-bold text-white">{count}</p>
+              <p className="text-xs text-gray-500 truncate">{RECOVERY_STAGE_LABELS[stage]}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Active recovery cards */}
+      {activeRecoveries.length === 0 ? (
+        <p className="text-sm text-gray-600 text-center py-4">
+          No active recoveries — all declines have been resolved.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {activeRecoveries.map((r) => {
+            const stageIdx = RECOVERY_STAGE_ORDER.indexOf(r.recoveryStage);
+            const progressPct = Math.round(((stageIdx + 1) / 7) * 100); // 7 stages before terminal
+            const nextActions = getNextStages(r.recoveryStage);
+
+            return (
+              <div
+                key={r.id}
+                className="rounded-lg border border-gray-800 bg-gray-950/50 px-4 py-3"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold text-gray-100">{r.businessName}</p>
+                    <span className="font-mono text-xs text-gray-600">{r.appId}</span>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded ${RECOVERY_STAGE_COLORS[r.recoveryStage]}`}>
+                    {RECOVERY_STAGE_LABELS[r.recoveryStage]}
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div className="h-1.5 rounded-full bg-gray-800 mb-2 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[#C9A84C] transition-all"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">
+                    {r.issuer} · {r.cardProduct} · {formatCurrency(r.requestedLimit)}
+                  </p>
+                  <div className="flex gap-1.5">
+                    {nextActions.map((action) => (
+                      <button
+                        key={action.stage}
+                        onClick={() => onAdvance(r.id, action.stage)}
+                        className={`text-xs px-2 py-1 rounded transition-colors ${
+                          action.stage === 'won'
+                            ? 'bg-green-900 hover:bg-green-800 text-green-300 border border-green-700'
+                            : action.stage === 'lost'
+                            ? 'bg-red-900 hover:bg-red-800 text-red-300 border border-red-700'
+                            : 'bg-[#C9A84C]/20 hover:bg-[#C9A84C]/30 text-[#C9A84C] border border-[#C9A84C]/40'
+                        }`}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +564,7 @@ function AdverseActionParser() {
 
 export default function DeclinesPage() {
   const router = useRouter();
+  const [declineRecords, setDeclineRecords] = useState<DeclineRecord[]>(DECLINE_RECORDS);
   const [selectedRecord, setSelectedRecord] = useState<DeclineRecord | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [reasonFilter, setReasonFilter] = useState<string>('all');
@@ -376,6 +576,19 @@ export default function DeclinesPage() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  const handleAdvanceStage = useCallback((id: string, stage: RecoveryStage) => {
+    setDeclineRecords(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const updated = { ...r, recoveryStage: stage };
+      if (stage === 'won' || stage === 'lost') {
+        updated.resolvedAt = new Date().toISOString().split('T')[0];
+        updated.reconStatus = stage === 'won' ? 'approved' : 'denied';
+      }
+      return updated;
+    }));
+    showToast(`Recovery stage updated to "${RECOVERY_STAGE_LABELS[stage]}"`);
+  }, [showToast]);
+
   const handleLogDecline = () => {
     showToast('Log Decline form coming soon — use the Applications pipeline to track new declines.');
   };
@@ -384,7 +597,7 @@ export default function DeclinesPage() {
     router.push(`/applications/new?issuer=${encodeURIComponent(item.issuer)}&card=${encodeURIComponent(item.cardProduct)}`);
   };
 
-  const filteredDeclines = DECLINE_RECORDS.filter((d) => {
+  const filteredDeclines = declineRecords.filter((d) => {
     const matchStatus = statusFilter === 'all' || d.reconStatus === statusFilter;
     const matchReason = reasonFilter === 'all' || d.reasonCategory === reasonFilter;
     const matchSearch = !search ||
@@ -394,10 +607,11 @@ export default function DeclinesPage() {
     return matchStatus && matchReason && matchSearch;
   });
 
-  const totalDeclines = DECLINE_RECORDS.length;
-  const inReview = DECLINE_RECORDS.filter((d) => d.reconStatus === 'in_review').length;
-  const reconApproved = DECLINE_RECORDS.filter((d) => d.reconStatus === 'approved').length;
+  const totalDeclines = declineRecords.length;
+  const inReview = declineRecords.filter((d) => d.reconStatus === 'in_review').length;
+  const reconApproved = declineRecords.filter((d) => d.reconStatus === 'approved').length;
   const eligibleNow = REAPPLY_CALENDAR.filter((r) => r.eligible).length;
+  const recoveryStats = computeRecoveryStats(declineRecords);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-8">
@@ -426,12 +640,14 @@ export default function DeclinesPage() {
       </div>
 
       {/* ── KPI summary ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           { label: 'Total Declines', value: totalDeclines, cls: 'text-white' },
           { label: 'Recon In Review', value: inReview, cls: 'text-yellow-400' },
           { label: 'Reversed', value: reconApproved, cls: 'text-green-400' },
           { label: 'Eligible Now', value: eligibleNow, cls: 'text-blue-400' },
+          { label: 'Win Rate', value: `${recoveryStats.winRate}%`, cls: 'text-[#C9A84C]' },
+          { label: 'Avg Recovery', value: `${recoveryStats.avgDays}d`, cls: 'text-purple-400' },
         ].map((k) => (
           <div key={k.label} className="rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-3">
             <p className="text-xs text-gray-500 mb-1">{k.label}</p>
@@ -439,6 +655,9 @@ export default function DeclinesPage() {
           </div>
         ))}
       </div>
+
+      {/* ── Recovery Tracker ─────────────────────────────────────── */}
+      <RecoveryTracker records={declineRecords} onAdvance={handleAdvanceStage} />
 
       {/* ── Section 1: Declines Table ─────────────────────────────── */}
       <section>
@@ -476,7 +695,7 @@ export default function DeclinesPage() {
         </div>
 
         <div className="rounded-xl border border-gray-800 overflow-x-auto">
-          <table className="w-full text-sm min-w-[1000px]">
+          <table className="w-full text-sm min-w-[1100px]">
             <thead>
               <tr className="border-b border-gray-800 bg-gray-900">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">App ID</th>
@@ -485,6 +704,7 @@ export default function DeclinesPage() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Declined</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Reason</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Recon Status</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Recovery Stage</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Cooldown</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Limit</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Actions</th>
@@ -521,6 +741,11 @@ export default function DeclinesPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${RECOVERY_STAGE_COLORS[d.recoveryStage]}`}>
+                        {RECOVERY_STAGE_LABELS[d.recoveryStage]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
                       <CooldownTimer endsDate={d.cooldownEndsDate} />
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-gray-300 font-semibold">
@@ -539,7 +764,7 @@ export default function DeclinesPage() {
               })}
               {filteredDeclines.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-gray-600 text-sm">
+                  <td colSpan={10} className="text-center py-10 text-gray-600 text-sm">
                     No decline records match the current filters.
                   </td>
                 </tr>
@@ -569,7 +794,7 @@ export default function DeclinesPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2.5 text-center">
-              <p className="text-lg font-bold text-white">{DECLINE_RECORDS.filter(d => d.reconStatus !== 'not_started').length}</p>
+              <p className="text-lg font-bold text-white">{declineRecords.filter(d => d.reconStatus !== 'not_started').length}</p>
               <p className="text-xs text-gray-500 mt-0.5">Recons Initiated</p>
             </div>
             <div className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2.5 text-center">
