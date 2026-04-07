@@ -695,7 +695,7 @@ export default function DeclinesPage() {
         </div>
 
         <div className="rounded-xl border border-gray-800 overflow-x-auto">
-          <table className="w-full text-sm min-w-[1000px]">
+          <table className="w-full text-sm min-w-[1100px]">
             <thead>
               <tr className="border-b border-gray-800 bg-gray-900">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">App ID</th>
