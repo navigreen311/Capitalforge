@@ -223,3 +223,11 @@ apiRouter.use('/webhooks', webhooksRouter);
 // POST /api/governance/cadence/reminders/process   — dispatch pending reminders (cron)
 import { governanceRouter } from './governance.routes.js';
 apiRouter.use('/governance', governanceRouter);
+
+// ── Notifications ───────────────────────────────────────────────────────
+// GET  /api/notifications          — list notifications
+// GET  /api/notifications/count    — unread count
+// POST /api/notifications/:id/read — mark as read
+// POST /api/notifications/read-all — mark all read
+import { notificationsRouter } from './notifications.routes.js';
+apiRouter.use('/notifications', notificationsRouter);
