@@ -39,9 +39,15 @@ apiRouter.use('/v1/dashboard', dashboardV1Router);
 import { dashboardRouter } from './dashboard.routes.js';
 apiRouter.use('/dashboard', dashboardRouter);
 
+// -- Clients list & create --
+import { clientsRouter } from './clients.routes.js';
+apiRouter.use('/clients', clientsRouter);
+apiRouter.use('/v1/clients', clientsRouter);
+
 // -- Client Detail (per-client sub-routes) --
 import { clientDetailRouter } from './client-detail.routes.js';
 apiRouter.use('/clients/:clientId', clientDetailRouter);
+apiRouter.use('/v1/clients/:clientId', clientDetailRouter);
 
 // -- Onboarding --
 apiRouter.use('/businesses', onboardingRouter);

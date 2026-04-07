@@ -205,16 +205,11 @@ export default function ClientDetailPage() {
 
   const handleEditSave = async (updated: Record<string, unknown>) => {
     try {
-      const token = localStorage.getItem('cf_access_token');
-      await fetch(`/api/v1/clients/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify(updated),
-      });
+      await clientsApi.update(id, updated);
       setBusiness((prev) => prev ? { ...prev, ...updated } as BusinessProfile : prev);
       setEditOpen(false);
+      showToast('Profile updated successfully');
     } catch {
-      // Error handled by modal
       throw new Error('Failed to save');
     }
   };

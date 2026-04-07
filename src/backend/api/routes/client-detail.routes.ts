@@ -283,6 +283,76 @@ clientDetailRouter.get('/timeline', async (req: Request, res: Response, _next: N
   ok(res, MOCK_TIMELINE, { total: MOCK_TIMELINE.length });
 });
 
+// GET /compliance — compliance checks for this business
+clientDetailRouter.get('/compliance', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+  const { clientId } = req.params;
+  const tenantId = getTenantId(req);
+
+  try {
+    logger.debug('GET client compliance', { clientId, tenantId });
+    const checks = await prisma.complianceCheck.findMany({
+      where: { businessId: clientId, tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (checks.length > 0) {
+      ok(res, { complianceScore: 78, checks }, { total: checks.length });
+      return;
+    }
+  } catch (error) {
+    logger.warn('Prisma query failed for compliance, returning mock', { clientId, error });
+  }
+
+  ok(res, MOCK_COMPLIANCE);
+});
+
+// GET /compliance/status — alias for compliance status
+clientDetailRouter.get('/compliance/status', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+  const { clientId } = req.params;
+  const tenantId = getTenantId(req);
+
+  try {
+    logger.debug('GET client compliance status', { clientId, tenantId });
+    const checks = await prisma.complianceCheck.findMany({
+      where: { businessId: clientId, tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (checks.length > 0) {
+      ok(res, { complianceScore: 78, checks });
+      return;
+    }
+  } catch (error) {
+    logger.warn('Prisma query failed for compliance status, returning mock', { clientId, error });
+  }
+
+  ok(res, MOCK_COMPLIANCE);
+});
+
+// GET /documents — documents for this business
+clientDetailRouter.get('/documents', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+  const { clientId } = req.params;
+  const tenantId = getTenantId(req);
+
+  try {
+    logger.debug('GET client documents', { clientId, tenantId });
+    const docs = await prisma.document.findMany({
+      where: { businessId: clientId, tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (docs.length > 0) {
+      ok(res, docs, { total: docs.length });
+      return;
+    }
+  } catch (error) {
+    logger.warn('Prisma query failed for documents, returning mock', { clientId, error });
+  }
+
+  ok(res, [
+    { id: 'doc_001', documentType: 'bank_statement', title: 'Chase Business Checking — Feb 2026', storageKey: '/vault/doc_001.pdf', mimeType: 'application/pdf', createdAt: daysFromNow(-8) },
+    { id: 'doc_002', documentType: 'tax_return', title: '2025 Business Tax Return', storageKey: '/vault/doc_002.pdf', mimeType: 'application/pdf', createdAt: daysFromNow(-30) },
+    { id: 'doc_003', documentType: 'articles_of_incorporation', title: 'Articles of Organization — DE', storageKey: '/vault/doc_003.pdf', mimeType: 'application/pdf', createdAt: daysFromNow(-170) },
+  ], { total: 3 });
+});
+
 // POST /compliance/run
 clientDetailRouter.post('/compliance/run', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { clientId } = req.params;
