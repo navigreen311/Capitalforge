@@ -2,18 +2,27 @@
 
 // ============================================================
 // /platform/issuers — Issuer Directory & Intelligence
-// Issuer table, velocity rules, approval stats, DNA flags,
-// expandable detail rows
+// Issuer table grouped by type (banks vs credit unions),
+// filter toggle, CU summary stats, expandable detail rows
+// with credit union membership metadata
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 // ── Types ────────────────────────────────────────────────────
+
+interface CuMeta {
+  membershipRequirement: string;
+  membershipType: 'Open' | 'Restricted';
+  joinFee: number;
+  bureauPull: string;
+}
 
 interface Issuer {
   id: string;
   name: string;
   logo: string;
+  issuerType: 'bank' | 'credit_union';
   velocityRules: string;
   approvalCriteria: string;
   totalApps: number;
@@ -24,7 +33,10 @@ interface Issuer {
   avgCreditLimit: number;
   doNotApply: boolean;
   doNotApplyReason: string | null;
+  cuMeta: CuMeta | null;
 }
+
+type FilterMode = 'all' | 'banks' | 'credit_unions';
 
 // ── Formatting helpers ───────────────────────────────────────
 
@@ -40,6 +52,55 @@ function ApprovalBadge({ rate }: { rate: number }) {
     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${color}`}>
       {rate.toFixed(1)}%
     </span>
+  );
+}
+
+// ── Credit Union Expanded Detail ─────────────────────────────
+
+function CuExpandedDetail({ cuMeta }: { cuMeta: CuMeta }) {
+  return (
+    <div className="mt-4 rounded-lg border border-teal-700/40 bg-teal-900/10 p-4 space-y-3">
+      <h4 className="text-xs font-bold text-teal-400 uppercase tracking-wider">Credit Union Membership Details</h4>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <div>
+          <span className="text-xs text-gray-500 uppercase">Membership Requirement</span>
+          <p className="text-gray-300 mt-0.5">{cuMeta.membershipRequirement}</p>
+        </div>
+        <div>
+          <span className="text-xs text-gray-500 uppercase">Membership Type</span>
+          <p className="mt-0.5">
+            {cuMeta.membershipType === 'Open' ? (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-900/40 text-emerald-400">
+                Open — anyone can join
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-900/40 text-amber-400">
+                Restricted — specific eligibility required
+              </span>
+            )}
+          </p>
+        </div>
+        <div>
+          <span className="text-xs text-gray-500 uppercase">Join Fee</span>
+          <p className="text-gray-300 mt-0.5">
+            {cuMeta.joinFee === 0 ? (
+              <span className="text-emerald-400 font-medium">Free</span>
+            ) : (
+              <span className="text-gray-200 font-medium">{money(cuMeta.joinFee)}</span>
+            )}
+          </p>
+        </div>
+        <div>
+          <span className="text-xs text-gray-500 uppercase">Bureau Pull</span>
+          <p className="text-gray-300 mt-0.5 font-medium">{cuMeta.bureauPull}</p>
+        </div>
+      </div>
+      <div className="pt-2 border-t border-teal-800/30">
+        <p className="text-xs text-teal-400/80">
+          <span className="font-semibold">Velocity Impact: Low</span> — does not affect Chase 5/24 or Amex rules
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -62,6 +123,11 @@ function IssuerRow({ issuer }: { issuer: Issuer }) {
               {issuer.doNotApply && (
                 <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-red-900/60 text-red-300 uppercase">
                   DNA
+                </span>
+              )}
+              {issuer.issuerType === 'credit_union' && issuer.cuMeta?.membershipType === 'Open' && (
+                <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-teal-900/60 text-teal-300 uppercase">
+                  Open Membership
                 </span>
               )}
             </div>
@@ -106,10 +172,56 @@ function IssuerRow({ issuer }: { issuer: Issuer }) {
                 </div>
               )}
             </div>
+            {issuer.issuerType === 'credit_union' && issuer.cuMeta && (
+              <CuExpandedDetail cuMeta={issuer.cuMeta} />
+            )}
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+// ── Section Header ───────────────────────────────────────────
+
+function SectionHeader({ title, accentColor, count }: { title: string; accentColor: string; count: number }) {
+  return (
+    <tr>
+      <td colSpan={7} className="px-0 pt-6 pb-2">
+        <div className={`flex items-center gap-3 border-l-4 pl-4 ${accentColor}`}>
+          <h2 className="text-lg font-bold text-white">{title}</h2>
+          <span className="text-xs text-gray-500 font-medium">({count})</span>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ── Filter Toggle ────────────────────────────────────────────
+
+function FilterToggle({ mode, onChange }: { mode: FilterMode; onChange: (m: FilterMode) => void }) {
+  const options: { value: FilterMode; label: string }[] = [
+    { value: 'all', label: 'Show All' },
+    { value: 'banks', label: 'Show Banks Only' },
+    { value: 'credit_unions', label: 'Show Credit Unions Only' },
+  ];
+
+  return (
+    <div className="inline-flex rounded-lg border border-gray-700 overflow-hidden">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={`px-3 py-1.5 text-xs font-medium transition ${
+            mode === opt.value
+              ? 'bg-[#C9A84C]/20 border-[#C9A84C] text-[#C9A84C]'
+              : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -119,6 +231,7 @@ export default function PlatformIssuersPage() {
   const [issuers, setIssuers] = useState<Issuer[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDnaOnly, setShowDnaOnly] = useState(false);
+  const [filterMode, setFilterMode] = useState<FilterMode>('all');
 
   useEffect(() => {
     async function load() {
@@ -135,8 +248,31 @@ export default function PlatformIssuersPage() {
     load();
   }, []);
 
-  const filtered = showDnaOnly ? issuers.filter(i => i.doNotApply) : issuers;
+  // Derived data
+  const banks = useMemo(() => issuers.filter(i => i.issuerType === 'bank'), [issuers]);
+  const creditUnions = useMemo(() => issuers.filter(i => i.issuerType === 'credit_union'), [issuers]);
+
+  const filtered = useMemo(() => {
+    let list = issuers;
+    if (filterMode === 'banks') list = banks;
+    else if (filterMode === 'credit_unions') list = creditUnions;
+    if (showDnaOnly) list = list.filter(i => i.doNotApply);
+    return list;
+  }, [issuers, banks, creditUnions, filterMode, showDnaOnly]);
+
+  const filteredBanks = useMemo(() => filtered.filter(i => i.issuerType === 'bank'), [filtered]);
+  const filteredCUs = useMemo(() => filtered.filter(i => i.issuerType === 'credit_union'), [filtered]);
+
   const dnaCount = issuers.filter(i => i.doNotApply).length;
+
+  // CU summary stats
+  const cuCount = creditUnions.length;
+  const cuAvgApproval = cuCount > 0
+    ? (creditUnions.reduce((s, i) => s + i.approvalRate, 0) / cuCount)
+    : 0;
+  const cuAvgLimit = cuCount > 0
+    ? Math.round(creditUnions.reduce((s, i) => s + i.avgCreditLimit, 0) / cuCount)
+    : 0;
 
   if (loading) {
     return (
@@ -149,12 +285,13 @@ export default function PlatformIssuersPage() {
   return (
     <div className="min-h-screen bg-[#0A1628] text-gray-200 px-6 py-8 max-w-7xl mx-auto space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Issuer Directory</h1>
           <p className="text-sm text-gray-500 mt-1">Velocity rules, approval criteria, and application history by issuer</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <FilterToggle mode={filterMode} onChange={setFilterMode} />
           {dnaCount > 0 && (
             <button
               onClick={() => setShowDnaOnly(!showDnaOnly)}
@@ -171,7 +308,7 @@ export default function PlatformIssuersPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <div className="rounded-xl border border-gray-700/60 bg-gray-900/60 p-4">
           <p className="text-xs text-gray-500 uppercase">Total Issuers</p>
           <p className="text-2xl font-bold text-white mt-1">{issuers.length}</p>
@@ -196,6 +333,15 @@ export default function PlatformIssuersPage() {
             {dnaCount}
           </p>
         </div>
+        {/* Credit Union Summary Card */}
+        <div className="rounded-xl border border-teal-600/40 bg-teal-900/10 p-4">
+          <p className="text-xs text-teal-400 uppercase font-semibold">Credit Unions</p>
+          <p className="text-lg font-bold text-white mt-1">{cuCount} CUs</p>
+          <div className="flex flex-col gap-0.5 mt-1 text-xs text-gray-400">
+            <span>Avg Approval: <strong className="text-teal-400">{cuAvgApproval.toFixed(1)}%</strong></span>
+            <span>Avg Limit: <strong className="text-teal-400">{money(cuAvgLimit)}</strong></span>
+          </div>
+        </div>
       </div>
 
       {/* Issuer Table */}
@@ -213,9 +359,25 @@ export default function PlatformIssuersPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((issuer) => (
-              <IssuerRow key={issuer.id} issuer={issuer} />
-            ))}
+            {/* Major Banks Section */}
+            {filteredBanks.length > 0 && (
+              <>
+                <SectionHeader title="Major Banks" accentColor="border-[#C9A84C]" count={filteredBanks.length} />
+                {filteredBanks.map((issuer) => (
+                  <IssuerRow key={issuer.id} issuer={issuer} />
+                ))}
+              </>
+            )}
+
+            {/* Credit Unions Section */}
+            {filteredCUs.length > 0 && (
+              <>
+                <SectionHeader title="Credit Unions" accentColor="border-teal-500" count={filteredCUs.length} />
+                {filteredCUs.map((issuer) => (
+                  <IssuerRow key={issuer.id} issuer={issuer} />
+                ))}
+              </>
+            )}
           </tbody>
         </table>
         {filtered.length === 0 && (
