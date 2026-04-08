@@ -490,7 +490,7 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
               </div>
 
               {/* ── Pending Consent CTA Banner (2D) ─────────────── */}
-              {app.status === 'pending_consent' && (
+              {(app.status as string) === 'pending_consent' && (
                 <div className="rounded-lg border border-blue-300 bg-blue-50 p-4">
                   <p className="text-sm font-semibold text-blue-800 mb-2">
                     Consent required before submission

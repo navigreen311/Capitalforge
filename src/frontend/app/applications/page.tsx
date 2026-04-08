@@ -422,10 +422,6 @@ export default function ApplicationsPage() {
     [statusFiltered],
   );
 
-  const totalApproved = apps
-    .filter((a) => a.status === 'approved')
-    .reduce((s, a) => s + (a.approvedLimit ?? a.requestedLimit), 0);
-
   // ── Chip definitions ──────────────────────────────────────
   const chipDefs: { key: PipelineFilter; label: string; value: string }[] = [
     { key: 'total',          label: 'Total',          value: `${apps.length}` },

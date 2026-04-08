@@ -237,6 +237,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     consentStatus: 'complete',
     hardshipFlag: false,
     reStackReady: false,
+    currentRound: 1,
+    totalFunded: 55000,
   },
   {
     id: 'biz_009',
@@ -251,6 +253,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     consentStatus: 'pending',
     hardshipFlag: true,
     reStackReady: false,
+    currentRound: null,
+    totalFunded: 0,
   },
   {
     id: 'biz_010',

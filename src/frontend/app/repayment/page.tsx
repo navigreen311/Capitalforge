@@ -358,7 +358,7 @@ export default function RepaymentPage() {
   }
 
   // 5C: Email preview text
-  const emailPreview = `Repayment Summary for ${selectedClient?.name ?? 'Client'}\n\nTotal balance: ${formatCurrency(totalBalance)}\nMonthly payment: ${formatCurrency(totalMonthly)}\nStrategy: ${strategy === 'avalanche' ? 'Avalanche' : 'Snowball'}\n\n${sorted.map((p, i) => `${i + 1}. ${p.cardName} — ${formatCurrency(p.balance)} at ${p.apr}%`).join('\n')}`;
+  const emailPreview = `Repayment Summary for ${selectedClient?.legal_name ?? 'Client'}\n\nTotal balance: ${formatCurrency(totalBalance)}\nMonthly payment: ${formatCurrency(totalMonthly)}\nStrategy: ${strategy === 'avalanche' ? 'Avalanche' : 'Snowball'}\n\n${sorted.map((p, i) => `${i + 1}. ${p.cardName} — ${formatCurrency(p.balance)} at ${p.apr}%`).join('\n')}`;
 
   // 5C: Send email handler
   function handleSendEmail() {
@@ -376,7 +376,7 @@ export default function RepaymentPage() {
     setLetterText(null);
     setTimeout(() => {
       setLetterText(
-        `Dear ${selectedClient?.name ?? 'Valued Client'},\n\n` +
+        `Dear ${selectedClient?.legal_name ?? 'Valued Client'},\n\n` +
         `Based on our analysis of your current credit portfolio, we recommend the following repayment guidance:\n\n` +
         `Your total outstanding balance of ${formatCurrency(totalBalance)} across ${plans.length} cards can be optimally managed using the ${strategy} method.\n\n` +
         `Key Recommendations:\n` +
@@ -897,6 +897,8 @@ export default function RepaymentPage() {
             </div>
           </div>
         </div>
+      )}
+
       {/* Balance transfer recommender modal (new) */}
       {transferModalPlan && (
         <BalanceTransferModal
