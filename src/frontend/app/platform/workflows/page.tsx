@@ -769,10 +769,6 @@ export default function PlatformWorkflowsPage() {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   }, []);
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const loadData = useCallback(async () => {
     try {
@@ -820,14 +816,7 @@ export default function PlatformWorkflowsPage() {
         showToast('Failed to update workflow — reverted');
       }
     } catch {
-      // Mock API: treat network error as success (mock mode)
-      // In production this would revert the optimistic update
-      if (json.success) {
-        setWorkflows(prev => prev.map(w => w.id === id ? { ...w, status: newStatus } : w));
-        showToast(`Workflow ${newStatus === 'active' ? 'enabled' : 'paused'}`);
-      }
-    } catch {
-      // Fallback: toggle locally
+      // Fallback: toggle locally when API unavailable
       setWorkflows(prev => prev.map(w => w.id === id ? { ...w, status: newStatus } : w));
       showToast(`Workflow ${newStatus === 'active' ? 'enabled' : 'paused'}`);
     }
@@ -877,7 +866,7 @@ export default function PlatformWorkflowsPage() {
         setWorkflows(prev => [...prev, json.data]);
         setShowForm(false);
         setFormName('');
-        setFormTrigger('');
+        setFormTriggerKey('');
         setFormCondition('');
         setFormAction('');
         showToast('Workflow created');
@@ -912,9 +901,6 @@ export default function PlatformWorkflowsPage() {
     setWorkflows(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
     showToast('Workflow updated');
   };
-
-  const activeCount = workflows.filter(w => w.status === 'active').length;
-  const pausedCount = workflows.filter(w => w.status === 'paused').length;
 
   if (loading) {
     return (

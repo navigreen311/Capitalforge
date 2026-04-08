@@ -5,7 +5,7 @@
 // Pipeline view, revenue stats, fee collection, cohort analysis
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   LineChart,
@@ -17,8 +17,6 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 
 // ── Types ────────────────────────────────────────────────────
 
