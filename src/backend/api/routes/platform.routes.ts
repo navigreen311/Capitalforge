@@ -4,24 +4,38 @@
 // Consolidates platform-level endpoints:
 //
 //  CRM Pipeline & Revenue
-//   GET  /api/platform/crm/pipeline     — business counts by status
-//   GET  /api/platform/crm/revenue      — revenue stats (MRR, ARR, etc.)
+//   GET  /api/platform/crm/pipeline          — business counts by status
+//   GET  /api/platform/crm/revenue           — revenue stats (MRR, ARR, etc.)
+//   GET  /api/platform/crm/mrr-trend         — 6 months MRR with new_business & churn
+//
+//  Billing
+//   POST /api/platform/billing/send-overdue-reminders — mock send, return sent_count
+//
+//  Admin (Tenants)
+//   PATCH /api/platform/tenants/:id/feature-flags — update feature flag
+//   POST  /api/platform/tenants/:id/impersonate   — mock impersonation token
+//   POST  /api/platform/tenants/:id/suspend       — suspend tenant
 //
 //  Issuers
-//   GET  /api/platform/issuers          — issuer directory data
+//   GET  /api/platform/issuers               — issuer directory data
+//   GET  /api/platform/issuers/:id/detail    — velocity rules, approval criteria, decline patterns
 //
 //  Referrals
-//   GET  /api/platform/referrals        — referral list
-//   POST /api/platform/referrals        — create referral
+//   GET  /api/platform/referrals             — referral list
+//   POST /api/platform/referrals             — create referral
+//   POST /api/platform/referrals/:id/follow-up — log follow-up
 //
 //  Workflows
-//   GET  /api/platform/workflows        — list workflows
-//   POST /api/platform/workflows        — create workflow
-//   PATCH /api/platform/workflows/:id   — toggle active/paused
+//   GET  /api/platform/workflows             — list workflows
+//   POST /api/platform/workflows             — create workflow
+//   PATCH /api/platform/workflows/:id        — update status
+//   PATCH /api/platform/workflows/:id/toggle — toggle active/paused
+//   GET  /api/platform/workflows/:id/history — per-workflow execution history
+//   GET  /api/platform/workflows/execution-log — global recent executions
 //
 //  Settings
-//   GET  /api/platform/settings         — get user/tenant settings
-//   PATCH /api/platform/settings        — update settings
+//   GET  /api/platform/settings              — get user/tenant settings
+//   PATCH /api/platform/settings             — update settings
 //
 // All routes require a valid JWT (req.tenant set by auth middleware).
 // ============================================================
