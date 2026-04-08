@@ -6,10 +6,13 @@
 // compliance status, documents, timeline, and action buttons.
 // ============================================================
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { DashboardBadge, type DashboardBadgeStatus } from '@/components/dashboard/DashboardBadge';
+import { GenerateDocumentModal, type GenerateDocumentModalProps } from './GenerateDocumentModal';
+import { DeclineRecoveryPanel } from './DeclineRecoveryPanel';
+import type { DocumentType } from '@/lib/claude-document-service';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -167,6 +170,23 @@ function DetailRow({ label, value, highlight }: { label: string; value: React.Re
 export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // AI Document Generation state
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  const [docModal, setDocModal] = useState<{
+    open: boolean;
+    type: DocumentType;
+    title: string;
+  }>({ open: false, type: 'business_purpose_statement', title: '' });
+
+  const openDocModal = useCallback((type: DocumentType, title: string) => {
+    setDocModal({ open: true, type, title });
+    setAiMenuOpen(false);
+  }, []);
+
+  const closeDocModal = useCallback(() => {
+    setDocModal((prev) => ({ ...prev, open: false }));
+  }, []);
 
   const { data, isLoading, error, refetch } = useAuthFetch<ApplicationDetail>(
     `/api/v1/applications/${appId}`,
@@ -397,6 +417,23 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                 </div>
               </div>
 
+              {/* ── Decline Recovery Panel ──────────────────────────── */}
+              {app.status === 'declined' && (
+                <DeclineRecoveryPanel
+                  issuer={app.issuer}
+                  declineReason={app.decline_reason}
+                  adverseActionDate={app.adverse_action_date}
+                  clientName={app.client_name}
+                  cardProduct={app.card_product}
+                  onGenerateReconsiderationLetter={() =>
+                    openDocModal('decline_reconsideration_letter', 'Decline Reconsideration Letter')
+                  }
+                  onFindAlternatives={() => {
+                    window.location.href = '/optimizer';
+                  }}
+                />
+              )}
+
               {/* ── Documents ─────────────────────────────────────── */}
               <div>
                 <SectionHeader title="Documents" />
@@ -416,12 +453,60 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                     </div>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  className="mt-2 w-full text-center text-sm font-medium text-brand-navy border border-brand-navy/30 hover:bg-brand-navy/5 rounded-lg px-4 py-2 transition-colors"
-                >
-                  Upload Document
-                </button>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    className="flex-1 text-center text-sm font-medium text-brand-navy border border-brand-navy/30 hover:bg-brand-navy/5 rounded-lg px-4 py-2 transition-colors"
+                  >
+                    Upload Document
+                  </button>
+
+                  {/* AI Generate dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setAiMenuOpen((v) => !v)}
+                      className="flex items-center gap-1.5 text-sm font-medium text-[#0A1628] bg-[#C9A84C] hover:bg-[#b8973f] rounded-lg px-3 py-2 transition-colors"
+                    >
+                      <span>&#10022;</span>
+                      Generate with AI
+                      <svg className={`w-3.5 h-3.5 transition-transform ${aiMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    {aiMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setAiMenuOpen(false)} />
+                        <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                          <button
+                            type="button"
+                            onClick={() => openDocModal('business_purpose_statement', 'Business Purpose Statement')}
+                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-navy transition-colors"
+                          >
+                            Business Purpose Statement
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDocModal('application_cover_letter', 'Application Cover Letter')}
+                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-navy transition-colors"
+                          >
+                            Application Cover Letter
+                          </button>
+                          {app.status === 'declined' && (
+                            <button
+                              type="button"
+                              onClick={() => openDocModal('decline_reconsideration_letter', 'Decline Reconsideration Letter')}
+                              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-navy transition-colors border-t border-gray-100"
+                            >
+                              Decline Reconsideration Letter
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* ── Activity Timeline ─────────────────────────────── */}
@@ -483,6 +568,30 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
           </>
         )}
       </div>
+
+      {/* AI Document Generation Modal */}
+      {app && (
+        <GenerateDocumentModal
+          isOpen={docModal.open}
+          onClose={closeDocModal}
+          documentType={docModal.type}
+          documentTitle={docModal.title}
+          clientId={app.client_id}
+          context={{
+            client_name: app.client_name,
+            client_id: app.client_id,
+            card_name: app.card_product,
+            issuer: app.issuer,
+            requested_amount: app.requested_amount,
+            approved_amount: app.approved_amount,
+            business_purpose: app.business_purpose,
+            decline_reasons: app.decline_reason,
+            decline_date: app.adverse_action_date,
+            applied_date: app.applied_date,
+            round: app.round,
+          }}
+        />
+      )}
     </>
   );
 }
