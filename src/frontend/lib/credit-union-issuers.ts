@@ -247,6 +247,42 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
       '780+': 93,
     },
   },
+  {
+    id: 'lake-michigan',
+    name: 'Lake Michigan Credit Union',
+    type: 'credit_union',
+    tier: 'B',
+    membershipRequired: true,
+    membershipEligibility: [
+      'Residents of lower Michigan',
+      'Employees of qualifying organizations in Michigan',
+      'Members of qualifying associations',
+    ],
+    membershipCost: 5,
+    businessCard: {
+      name: 'LMCU Business Visa',
+      limitRange: '$5,000–$25,000',
+      introPeriod: '0% for 6 months',
+      ongoingApr: 15.49,
+      annualFee: 0,
+      minFico: 640,
+    },
+    velocityRules: [
+      'Max 1 new LMCU card per 12 months',
+      'Requires membership with $5 savings deposit',
+    ],
+    reconLine: '1-800-242-9790',
+    approvalIntelligence:
+      'Lake Michigan CU is one of the largest credit unions in Michigan with competitive rates. Strong preference for members with established checking/savings relationships.',
+    stackingRole: 'Regional CU option for Michigan residents — competitive APR with low membership cost.',
+    approvalRateByFico: {
+      '640-659': 44,
+      '660-699': 60,
+      '700-739': 76,
+      '740-779': 86,
+      '780+': 92,
+    },
+  },
 ];
 
 // ─── Eligibility checker ─────────────────────────────────────────────────────
@@ -338,6 +374,18 @@ export function checkCUEligibility(
             ? 'Eligible via Washington state residency — no membership fee'
             : 'Restricted to Washington state residents, Boeing employees, or BECU family members',
           cost: 0,
+        };
+      }
+
+      case 'lake-michigan': {
+        const eligible = state === 'MI';
+        return {
+          cu,
+          eligible,
+          reason: eligible
+            ? 'Eligible via Michigan residency — $5 membership deposit'
+            : 'Restricted to lower Michigan residents, qualifying employees, or association members',
+          cost: 5,
         };
       }
 

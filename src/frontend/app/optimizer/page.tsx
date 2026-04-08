@@ -93,12 +93,13 @@ interface ApiStackingPlan {
 // ─── Credit Union bureau pull mapping & helpers ─────────────────────────────
 
 const CU_BUREAU_PULLS: Record<string, string> = {
-  'penfed':      'TransUnion',
-  'alliant':     'TransUnion',
-  'first-tech':  'TransUnion',
-  'navy-federal':'Equifax',
-  'becu':        'Equifax',
-  'dcu':         'Equifax',
+  'penfed':        'TransUnion',
+  'alliant':       'TransUnion',
+  'first-tech':    'TransUnion',
+  'navy-federal':  'Equifax',
+  'becu':          'Equifax',
+  'dcu':           'Equifax',
+  'lake-michigan': 'Equifax',
 };
 
 /** Known CU issuer names (case-insensitive match) */
@@ -114,7 +115,9 @@ function isCreditUnionIssuer(issuerName: string): boolean {
     lower === 'navy federal' ||
     lower === 'dcu' ||
     lower === 'first tech' ||
-    lower === 'becu'
+    lower === 'becu' ||
+    lower === 'lake michigan' ||
+    lower.includes('lake michigan')
   );
 }
 
@@ -207,7 +210,7 @@ function CreditUnionStrategyPanel() {
             </div>
             <div className="flex items-center justify-between px-3 py-2">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-gray-800">Navy Federal / BECU / DCU</span>
+                <span className="text-xs font-semibold text-gray-800">Navy Federal / BECU / DCU / Lake Michigan</span>
               </div>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
                 Equifax
@@ -296,10 +299,19 @@ const MOCK_RESULTS: Omit<CardRecommendationProps, 'rank'>[] = [
 ];
 
 const EXISTING_CARDS = [
-  'Chase Sapphire Preferred',
-  'Amex Platinum',
-  'Capital One Venture X',
-  'Citi Double Cash',
+  'Chase Ink Business Preferred',
+  'Chase Ink Business Cash',
+  'Chase Ink Business Unlimited',
+  'Amex Business Gold',
+  'Amex Business Platinum',
+  'Amex Blue Business Cash',
+  'Capital One Spark Cash Plus',
+  'Capital One Spark Miles',
+  'Brex 30',
+  'Bank of America Business Advantage',
+  'Citi Business Custom Cash',
+  'US Bank Business Triple Cash',
+  'Wells Fargo Business Platinum',
   'Discover it Business',
 ];
 
@@ -479,9 +491,21 @@ interface CUFormState {
   stackedCUs: string[];
 }
 
+interface ExistingCardDetail {
+  balance: string;
+  limit: string;
+}
+
 interface FormState {
   fico: string;
+  dnbPaydex: string;
+  experianBis: string;
+  ficoSbss: string;
+  inquiries6mo: string;
+  inquiries12mo: string;
+  inquiries24mo: string;
   selectedCards: string[];
+  cardDetails: Record<string, ExistingCardDetail>;
   businessType: string;
   annualRevenue: string;
   yearsInBusiness: string;
@@ -495,7 +519,14 @@ interface FormState {
 
 const INITIAL_FORM: FormState = {
   fico: '',
-  selectedCards: ['Chase Sapphire Preferred', 'Amex Platinum'],
+  dnbPaydex: '',
+  experianBis: '',
+  ficoSbss: '',
+  inquiries6mo: '',
+  inquiries12mo: '',
+  inquiries24mo: '',
+  selectedCards: ['Chase Ink Business Preferred', 'Amex Business Gold'],
+  cardDetails: {},
   businessType: 'LLC',
   annualRevenue: '',
   yearsInBusiness: '',
@@ -701,8 +732,8 @@ export default function OptimizerPage() {
                         onClick={() => setForm({ ...form, prioritizationMode: mode })}
                         className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
                           form.prioritizationMode === mode
-                            ? 'bg-brand-navy text-white border-brand-navy'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-brand-navy/30'
+                            ? 'bg-brand-navy text-white border-brand-navy shadow-md ring-2 ring-brand-gold/50'
+                            : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-white hover:text-gray-700 hover:border-brand-navy/30'
                         }`}
                       >
                         {label}
@@ -800,6 +831,89 @@ export default function OptimizerPage() {
                   />
                 </FormField>
               </div>
+
+              {/* Business Credit Scores */}
+              <div className="border-t border-gray-100 pt-4 mt-2">
+                <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Business Credit Scores</p>
+                <div className="space-y-3">
+                  <FormField label="D&B PAYDEX Score">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      placeholder="e.g. 80"
+                      value={form.dnbPaydex}
+                      onChange={(e) => setForm({ ...form, dnbPaydex: e.target.value })}
+                      className="cf-input"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">80+ = low risk</p>
+                  </FormField>
+
+                  <FormField label="Experian Business Intelliscore">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      placeholder="e.g. 76"
+                      value={form.experianBis}
+                      onChange={(e) => setForm({ ...form, experianBis: e.target.value })}
+                      className="cf-input"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">76+ = low risk</p>
+                  </FormField>
+
+                  <FormField label="FICO SBSS Score">
+                    <input
+                      type="number"
+                      min={0}
+                      max={300}
+                      placeholder="e.g. 160"
+                      value={form.ficoSbss}
+                      onChange={(e) => setForm({ ...form, ficoSbss: e.target.value })}
+                      className="cf-input"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">160+ for SBA programs</p>
+                  </FormField>
+                </div>
+              </div>
+
+              {/* Inquiry History */}
+              <div className="border-t border-gray-100 pt-4 mt-2">
+                <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Inquiry History</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <FormField label="6 Months">
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={form.inquiries6mo}
+                      onChange={(e) => setForm({ ...form, inquiries6mo: e.target.value })}
+                      className="cf-input"
+                    />
+                  </FormField>
+                  <FormField label="12 Months">
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={form.inquiries12mo}
+                      onChange={(e) => setForm({ ...form, inquiries12mo: e.target.value })}
+                      className="cf-input"
+                    />
+                  </FormField>
+                  <FormField label="24 Months">
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={form.inquiries24mo}
+                      onChange={(e) => setForm({ ...form, inquiries24mo: e.target.value })}
+                      className="cf-input"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">Chase 5/24 uses 24-month count</p>
+                  </FormField>
+                </div>
+              </div>
             </div>
           </SectionCard>
 
@@ -834,21 +948,94 @@ export default function OptimizerPage() {
           </SectionCard>
 
           {/* Existing cards */}
-          <SectionCard title="Existing Cards" subtitle="Select all cards currently open">
-            <div className="space-y-2">
-              {EXISTING_CARDS.map((card) => (
-                <label key={card} className="flex items-center gap-2.5 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={form.selectedCards.includes(card)}
-                    onChange={() => toggleCard(card)}
-                    className="w-4 h-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy/30"
-                  />
-                  <span className="text-sm text-gray-700 group-hover:text-gray-900 transition-colors">
-                    {card}
-                  </span>
-                </label>
-              ))}
+          <SectionCard title="Existing Cards" subtitle="Select all business cards currently open">
+            <div className="space-y-1">
+              {EXISTING_CARDS.map((card) => {
+                const isSelected = form.selectedCards.includes(card);
+                const detail = form.cardDetails[card] || { balance: '', limit: '' };
+                const balNum = parseFloat(detail.balance) || 0;
+                const limNum = parseFloat(detail.limit) || 0;
+                const utilization = limNum > 0 ? Math.round((balNum / limNum) * 100) : 0;
+                const utilColor = utilization <= 30 ? 'text-emerald-600' : utilization <= 50 ? 'text-amber-600' : 'text-red-600';
+                const utilBg = utilization <= 30 ? 'bg-emerald-500' : utilization <= 50 ? 'bg-amber-500' : 'bg-red-500';
+
+                return (
+                  <div key={card}>
+                    <label className="flex items-center gap-2.5 cursor-pointer group py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleCard(card)}
+                        className="w-4 h-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy/30"
+                      />
+                      <span className="text-sm text-gray-700 group-hover:text-gray-900 transition-colors">
+                        {card}
+                      </span>
+                    </label>
+                    {isSelected && (
+                      <div className="ml-6 mb-2 p-3 rounded-lg bg-gray-50 border border-gray-100 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Balance</label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                placeholder="0"
+                                value={detail.balance}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    cardDetails: {
+                                      ...f.cardDetails,
+                                      [card]: { ...f.cardDetails[card] || { balance: '', limit: '' }, balance: e.target.value },
+                                    },
+                                  }))
+                                }
+                                className="cf-input pl-5 text-xs"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Limit</label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                placeholder="0"
+                                value={detail.limit}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    cardDetails: {
+                                      ...f.cardDetails,
+                                      [card]: { ...f.cardDetails[card] || { balance: '', limit: '' }, limit: e.target.value },
+                                    },
+                                  }))
+                                }
+                                className="cf-input pl-5 text-xs"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        {limNum > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Utilization</span>
+                              <span className={`text-xs font-bold ${utilColor}`}>{utilization}%</span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                              <div className={`h-full rounded-full ${utilBg} transition-all`} style={{ width: `${Math.min(utilization, 100)}%` }} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <p className="text-xs text-gray-400 mt-3">
               {form.selectedCards.length} card{form.selectedCards.length !== 1 ? 's' : ''} selected
@@ -889,7 +1076,7 @@ export default function OptimizerPage() {
                 <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
                   Credit Union Eligibility
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-navy/10 text-brand-navy border border-brand-navy/15">
-                    6 CUs
+                    7 CUs
                   </span>
                 </h2>
                 <p className="text-xs text-gray-400 mt-0.5">
