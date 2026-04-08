@@ -38,7 +38,8 @@ export type DisclosureCategory =
   | 'personal_guarantee'
   | 'arbitration_notice'
   | 'state_specific'
-  | 'federal';
+  | 'federal'
+  | 'cu_membership';
 
 export type TemplateStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'superseded';
 
@@ -120,6 +121,9 @@ export interface RenderContext {
   /** Issuer / card */
   issuerName?: string;
   cardProduct?: string;
+  /** Credit union membership */
+  membershipRequirement?: string;
+  membershipFee?: string | number;
   /** Catch-all for custom variables */
   [key: string]: string | number | undefined;
 }
@@ -193,6 +197,14 @@ const CATEGORY_VARIABLES: Record<DisclosureCategory, TemplateVariable[]> = {
     { name: 'businessLegalName', description: 'Legal business name', required: true },
     { name: 'disclosureDate', description: 'Date of disclosure', required: true },
     { name: 'firmName', description: 'Advisory firm name', required: true },
+  ],
+  cu_membership: [
+    { name: 'cardProduct', description: 'Credit union card product name', required: true },
+    { name: 'issuerName', description: 'Credit union name', required: true },
+    { name: 'businessLegalName', description: 'Client business legal name', required: true },
+    { name: 'membershipRequirement', description: 'Membership eligibility requirement description', required: true },
+    { name: 'membershipFee', description: 'Membership fee amount', required: true },
+    { name: 'disclosureDate', description: 'Date of disclosure', required: true },
   ],
 };
 
@@ -325,6 +337,47 @@ Texas consumers have the right to file complaints with the Texas Office of Consu
 `,
     effectiveDate: new Date('2024-01-01'),
     variables: CATEGORY_VARIABLES.state_specific,
+  },
+  {
+    state: 'FEDERAL',
+    category: 'cu_membership',
+    name: 'Credit Union Membership Disclosure',
+    content: `CREDIT UNION MEMBERSHIP DISCLOSURE
+
+Date: {{disclosureDate}}
+Client Business: {{businessLegalName}}
+Credit Union: {{issuerName}}
+Card Product: {{cardProduct}}
+
+MEMBERSHIP REQUIREMENT NOTICE
+
+This disclosure is provided to inform you that the business credit card product you are applying for — {{cardProduct}} — is issued by {{issuerName}}, a federally or state-chartered credit union.
+
+MEMBERSHIP IS REQUIRED: Credit unions are member-owned financial cooperatives. Before your application for {{cardProduct}} can be processed, you must establish membership with {{issuerName}}. Membership is a SEPARATE account and relationship from the business credit card.
+
+MEMBERSHIP ELIGIBILITY: {{membershipRequirement}}
+
+MEMBERSHIP FEE: \${{membershipFee}}
+
+IMPORTANT DISCLOSURES:
+1. Membership in {{issuerName}} is a prerequisite for any credit product. You cannot apply for {{cardProduct}} without first becoming a member.
+2. The membership account (typically a savings account with a small minimum balance) is separate from and in addition to the business credit card account.
+3. Membership fees and minimum balance requirements are set by {{issuerName}} and are not controlled by or refundable through {{businessLegalName}}'s advisory service.
+4. Approval for membership does not guarantee approval for the credit card product. Credit decisions are made independently by {{issuerName}} based on their underwriting criteria.
+5. If your credit card application is declined, your membership with {{issuerName}} remains active and any membership fees or deposits are subject to the credit union's own policies.
+6. Credit union deposits are insured by the National Credit Union Administration (NCUA) up to $250,000 per depositor, per institution.
+
+By signing below, I acknowledge that:
+- I have been informed that membership in {{issuerName}} is required before applying for {{cardProduct}}.
+- I understand that membership is a separate account/relationship from the business credit card.
+- I understand the membership eligibility requirements and associated fees.
+- I consent to the establishment of a membership account with {{issuerName}}.
+
+Signature: ___________________________  Date: __________
+Name: {{businessLegalName}}
+`,
+    effectiveDate: new Date('2024-01-01'),
+    variables: CATEGORY_VARIABLES.cu_membership,
   },
 ];
 
