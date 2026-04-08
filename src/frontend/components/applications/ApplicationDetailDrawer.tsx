@@ -86,6 +86,46 @@ function getMockDetail(appId: string): ApplicationDetail {
   };
 }
 
+// ── Mock activity events for Activity Log (2C) ────────────────────────────
+
+const MOCK_ACTIVITY_EVENTS = [
+  {
+    timestamp: '2026-03-15T14:30:00Z',
+    actorInitials: 'CU',
+    action: 'Application approved by Chase Underwriting',
+    type: 'approved',
+    iconColor: '#16a34a', // green
+  },
+  {
+    timestamp: '2026-03-14T09:15:00Z',
+    actorInitials: 'SY',
+    action: 'Application submitted to issuer',
+    type: 'submitted',
+    iconColor: '#d97706', // amber
+  },
+  {
+    timestamp: '2026-03-12T16:45:00Z',
+    actorInitials: 'SC',
+    action: 'Client e-signed consent form',
+    type: 'consent_signed',
+    iconColor: '#2563eb', // blue
+  },
+  {
+    timestamp: '2026-03-11T11:00:00Z',
+    actorInitials: 'JW',
+    action: 'Consent e-sign request sent to client',
+    type: 'consent_sent',
+    iconColor: '#7c3aed', // purple
+  },
+  {
+    timestamp: '2026-03-10T08:30:00Z',
+    actorInitials: 'JW',
+    action: 'Application created by James Walker',
+    type: 'created',
+    iconColor: '#6b7280', // gray
+  },
+];
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatCurrency(value: number | null | undefined): string {
@@ -184,6 +224,15 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
 
   // Use fetched data or fall back to mock
   const app = data ?? (appId ? getMockDetail(appId) : null);
+
+  // Toast state for consent e-sign request
+  const [consentToastVisible, setConsentToastVisible] = useState(false);
+
+  // Activity section collapsed state
+  const [activityOpen, setActivityOpen] = useState(false);
+
+  // Add-note state
+  const [noteText, setNoteText] = useState('');
 
   // Close on Escape
   const handleKeyDown = useCallback(
@@ -381,6 +430,37 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                 </div>
               </div>
 
+              {/* ── Pending Consent CTA Banner (2D) ─────────────── */}
+              {app.status === 'pending_consent' && (
+                <div className="rounded-lg border border-blue-300 bg-blue-50 p-4">
+                  <p className="text-sm font-semibold text-blue-800 mb-2">
+                    Consent required before submission
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Mock POST for e-sign request
+                        fetch(`/api/v1/applications/${app.id}/esign`, { method: 'POST' }).catch(() => {});
+                        setConsentToastVisible(true);
+                        setTimeout(() => setConsentToastVisible(false), 3000);
+                      }}
+                      className="text-sm font-medium text-white rounded-lg px-4 py-2 transition-colors"
+                      style={{ backgroundColor: '#C9A84C' }}
+                    >
+                      Send E-Sign Request &rarr;
+                    </button>
+                    <a
+                      href={`/compliance/consent-status?app_id=${app.id}&client_id=${app.client_id}`}
+                      className="text-sm font-medium hover:underline"
+                      style={{ color: '#C9A84C' }}
+                    >
+                      View Consent Status
+                    </a>
+                  </div>
+                </div>
+              )}
+
               {/* ── Compliance ────────────────────────────────────── */}
               <div>
                 <SectionHeader title="Compliance" />
@@ -479,6 +559,72 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                   ))}
                 </div>
               </div>
+
+              {/* ── Activity Log (2C) — Collapsible ────────────────── */}
+              <div className="border-t border-gray-200 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setActivityOpen((v) => !v)}
+                  className="flex items-center justify-between w-full text-left"
+                >
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Activity Log
+                  </h4>
+                  <svg
+                    className={`w-4 h-4 text-gray-400 transition-transform ${activityOpen ? 'rotate-180' : ''}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {activityOpen && (
+                  <div className="mt-3 space-y-3">
+                    {/* Mock activity events */}
+                    {MOCK_ACTIVITY_EVENTS.map((evt, idx) => (
+                      <div key={idx} className="flex items-start gap-3">
+                        {/* Type icon */}
+                        <div
+                          className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                          style={{ backgroundColor: evt.iconColor }}
+                          title={evt.type}
+                        >
+                          {evt.actorInitials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-gray-900">{evt.action}</p>
+                          <p className="text-xs text-gray-400">{formatDateTime(evt.timestamp)}</p>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Add note input */}
+                    <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
+                      <input
+                        type="text"
+                        value={noteText}
+                        onChange={(e) => setNoteText(e.target.value)}
+                        placeholder="Add note..."
+                        className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-navy/30 focus:border-brand-navy"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (noteText.trim()) {
+                            // Mock submit — in real app, POST to /api/v1/applications/:id/notes
+                            setNoteText('');
+                          }
+                        }}
+                        disabled={!noteText.trim()}
+                        className="text-sm font-medium text-white rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                        style={{ backgroundColor: '#0A1628' }}
+                      >
+                        Submit
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* ── Actions Footer ──────────────────────────────────── */}
@@ -511,6 +657,16 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
               </div>
             </div>
           </>
+        )}
+
+        {/* Toast notification for consent e-sign */}
+        {consentToastVisible && (
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 animate-slide-in-right">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            E-Sign request sent successfully
+          </div>
         )}
       </div>
     </>
