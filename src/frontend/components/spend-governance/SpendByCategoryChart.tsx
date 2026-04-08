@@ -20,6 +20,8 @@ export interface SpendByCategoryItem {
 
 export interface SpendByCategoryChartProps {
   data: SpendByCategoryItem[];
+  activeCategory?: string | null;
+  onCategoryClick?: (category: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ function formatCurrency(n: number): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export function SpendByCategoryChart({ data }: SpendByCategoryChartProps) {
+export function SpendByCategoryChart({ data, activeCategory, onCategoryClick }: SpendByCategoryChartProps) {
   const maxPct = Math.max(...data.map((d) => d.pct), 1);
 
   return (
@@ -66,6 +68,7 @@ export function SpendByCategoryChart({ data }: SpendByCategoryChartProps) {
       <div className="space-y-3">
         {data.map((item) => {
           const isRisky = item.isRisky === true;
+          const isActive = activeCategory === item.category;
           const barColor = isRisky
             ? 'bg-gradient-to-r from-amber-600 to-red-500'
             : 'bg-gradient-to-r from-blue-500 to-teal-400';
@@ -73,7 +76,16 @@ export function SpendByCategoryChart({ data }: SpendByCategoryChartProps) {
           const barWidthPct = (item.pct / maxPct) * 100;
 
           return (
-            <div key={item.category} className="group">
+            <button
+              key={item.category}
+              type="button"
+              onClick={() => onCategoryClick?.(item.category)}
+              className={`group w-full text-left rounded-lg px-2 py-1.5 -mx-2 transition-all cursor-pointer
+                ${isActive
+                  ? 'ring-2 ring-[#C9A84C] bg-[#C9A84C]/10'
+                  : 'hover:bg-gray-800/50'
+                }`}
+            >
               {/* Label row */}
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-1.5">
@@ -83,10 +95,10 @@ export function SpendByCategoryChart({ data }: SpendByCategoryChartProps) {
                       aria-label="Risky category"
                       title="Risky category"
                     >
-                      ⚠
+                      &#x26A0;
                     </span>
                   )}
-                  <span className={`text-xs font-semibold ${textColor}`}>
+                  <span className={`text-xs font-semibold ${isActive ? 'text-[#C9A84C]' : textColor}`}>
                     {item.category}
                   </span>
                 </div>
@@ -107,7 +119,7 @@ export function SpendByCategoryChart({ data }: SpendByCategoryChartProps) {
                   style={{ width: `${barWidthPct}%` }}
                 />
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
