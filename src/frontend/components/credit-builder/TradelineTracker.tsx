@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { useToast } from '@/components/global/ToastProvider';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -20,7 +21,9 @@ export interface TradelineTrackerProps {
 }
 
 type TradelineStatus = 'Applied' | 'Approved' | 'Reporting' | 'Late';
-type ApprovalStatus = 'Applied' | 'Approved' | 'Denied';
+type ApprovalStatus = 'Yes' | 'No' | 'Pending';
+type PaymentTerms = 'Net-30' | 'Net-60' | 'Net-90';
+type ReportingBureau = 'D&B' | 'Experian Biz' | 'Equifax Biz';
 
 interface Tradeline {
   id: string;
@@ -47,6 +50,9 @@ interface NewTradelineForm {
   appliedDate: string;
   approvalStatus: ApprovalStatus;
   creditLimit: string;
+  paymentTerms: PaymentTerms;
+  reportingBureaus: ReportingBureau[];
+  notes: string;
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -146,6 +152,9 @@ function Skeleton() {
 
 // ── Add Tradeline Modal ─────────────────────────────────────────────────────
 
+const REPORTING_BUREAUS: ReportingBureau[] = ['D&B', 'Experian Biz', 'Equifax Biz'];
+const PAYMENT_TERMS: PaymentTerms[] = ['Net-30', 'Net-60', 'Net-90'];
+
 function AddTradelineModal({
   onClose,
   onSave,
@@ -157,8 +166,11 @@ function AddTradelineModal({
     vendor: VENDOR_LIST[0],
     customVendor: '',
     appliedDate: new Date().toISOString().slice(0, 10),
-    approvalStatus: 'Applied',
+    approvalStatus: 'Pending',
     creditLimit: '',
+    paymentTerms: 'Net-30',
+    reportingBureaus: [],
+    notes: '',
   });
 
   // Escape key handler
@@ -169,6 +181,15 @@ function AddTradelineModal({
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
+
+  function toggleBureau(bureau: ReportingBureau) {
+    setForm((prev) => ({
+      ...prev,
+      reportingBureaus: prev.reportingBureaus.includes(bureau)
+        ? prev.reportingBureaus.filter((b) => b !== bureau)
+        : [...prev.reportingBureaus, bureau],
+    }));
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -187,7 +208,7 @@ function AddTradelineModal({
       aria-modal="true"
       aria-label="Add tradeline"
     >
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-lg font-semibold text-white">Add Tradeline</h3>
           <button
@@ -205,7 +226,7 @@ function AddTradelineModal({
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Vendor dropdown */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Vendor</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Vendor Name</label>
             <select
               value={form.vendor}
               onChange={(e) => setForm({ ...form, vendor: e.target.value })}
@@ -221,7 +242,7 @@ function AddTradelineModal({
           {/* Custom vendor name */}
           {isCustomVendor && (
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Vendor Name</label>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Custom Vendor Name</label>
               <input
                 type="text"
                 value={form.customVendor}
@@ -247,11 +268,11 @@ function AddTradelineModal({
             />
           </div>
 
-          {/* Approval Status radio group */}
+          {/* Approved — Yes / No / Pending */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Approval Status</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Approved</label>
             <div className="flex items-center gap-4">
-              {(['Applied', 'Approved', 'Denied'] as ApprovalStatus[]).map((status) => (
+              {(['Yes', 'No', 'Pending'] as ApprovalStatus[]).map((status) => (
                 <label key={status} className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="radio"
@@ -267,17 +288,65 @@ function AddTradelineModal({
             </div>
           </div>
 
-          {/* Credit Limit */}
+          {/* Credit Limit (shown when approved) */}
+          {form.approvalStatus === 'Yes' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Credit Limit</label>
+              <input
+                type="number"
+                value={form.creditLimit}
+                onChange={(e) => setForm({ ...form, creditLimit: e.target.value })}
+                placeholder="$0"
+                min="0"
+                className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2
+                           placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              />
+            </div>
+          )}
+
+          {/* Payment Terms */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Credit Limit</label>
-            <input
-              type="number"
-              value={form.creditLimit}
-              onChange={(e) => setForm({ ...form, creditLimit: e.target.value })}
-              placeholder="$0"
-              min="0"
+            <label className="block text-sm font-medium text-gray-300 mb-1">Payment Terms</label>
+            <select
+              value={form.paymentTerms}
+              onChange={(e) => setForm({ ...form, paymentTerms: e.target.value as PaymentTerms })}
               className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2
-                         placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                         focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            >
+              {PAYMENT_TERMS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Reporting Bureaus checkboxes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Reporting Bureaus</label>
+            <div className="flex flex-wrap items-center gap-4">
+              {REPORTING_BUREAUS.map((bureau) => (
+                <label key={bureau} className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.reportingBureaus.includes(bureau)}
+                    onChange={() => toggleBureau(bureau)}
+                    className="w-4 h-4 text-blue-500 bg-gray-800 border-gray-600 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-300">{bureau}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Notes</label>
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Any additional details..."
+              rows={3}
+              className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2
+                         placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
             />
           </div>
 
@@ -300,6 +369,7 @@ function AddTradelineModal({
 
 export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps) {
   const apiPath = clientId ? `/api/v1/clients/${clientId}/tradelines` : null;
+  const toast = useToast();
 
   const { data, isLoading, error, refetch } = useAuthFetch<TradelinesResponse>(
     apiPath ?? '/api/v1/clients/null/tradelines',
@@ -321,22 +391,26 @@ export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps
   function handleSave(form: NewTradelineForm) {
     const vendorName = form.vendor === 'Custom...' ? form.customVendor : form.vendor;
     const limit = parseInt(form.creditLimit, 10) || 0;
-    const isApproved = form.approvalStatus === 'Approved';
+    const isApproved = form.approvalStatus === 'Yes';
+
+    let status: TradelineStatus = 'Applied';
+    if (form.approvalStatus === 'Yes') status = 'Approved';
 
     const newTradeline: Tradeline = {
       id: `local-${Date.now()}`,
       vendor: vendorName,
       applied_date: form.appliedDate,
       approved: isApproved,
-      credit_limit: limit,
+      credit_limit: isApproved ? limit : 0,
       balance: 0,
       payments_made: 0,
       payments_total: 0,
-      status: form.approvalStatus === 'Denied' ? 'Applied' : (form.approvalStatus as TradelineStatus),
+      status,
     };
 
     setLocalTradelines((prev) => [...prev, newTradeline]);
     setShowAddModal(false);
+    toast.success('Tradeline added \u2014 reporting may take 30\u201360 days');
   }
 
   // ── Loading ───────────────────────────────────────────────────
