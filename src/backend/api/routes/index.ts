@@ -335,3 +335,12 @@ apiRouter.use('/notifications', notificationsRouter);
 // POST /api/chat — Streaming AI chat with portfolio context
 import { chatRouter } from './chat.routes.js';
 apiRouter.use('/chat', chatRouter);
+
+// ── Credit Builder ──────────────────────────────────────────────
+// GET  /api/credit-builder/:clientId/scores
+// GET  /api/credit-builder/:clientId/score-history
+// GET  /api/credit-builder/:clientId/tradelines
+// POST /api/credit-builder/:clientId/tradelines
+// POST /api/credit-builder/:clientId/tradeline-disputes
+import { creditBuilderRouter } from './credit-builder.routes.js';
+apiRouter.use('/credit-builder', creditBuilderRouter);
