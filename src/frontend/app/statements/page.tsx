@@ -1376,7 +1376,7 @@ export default function StatementsPage() {
   const [disputeLetterAnomaly, setDisputeLetterAnomaly] = useState<Anomaly | null>(null);
 
   // Client selector
-  const [selectedClient, setSelectedClient] = useState<StatementsClient | null>(null);
+  const [selectedClient, setSelectedClient] = useState<StatementsClient | null>(PLACEHOLDER_CLIENTS[0]);
 
   // Toast
   const [toast, setToast] = useState<string | null>(null);
