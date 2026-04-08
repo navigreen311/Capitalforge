@@ -375,6 +375,32 @@ router.get('/issuers', (_req: Request, res: Response) => {
   return ok(res, ISSUERS_DATA);
 });
 
+router.get('/issuers/:id/detail', (req: Request, res: Response) => {
+  const issuerId = req.params.id;
+  logger.info(`[platform] GET /issuers/${issuerId}/detail`);
+  const issuer = ISSUERS_DATA.find(i => i.id === issuerId);
+  if (!issuer) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Issuer not found' },
+      statusCode: 404,
+    });
+  }
+  const declinePatterns = [
+    { reason: 'Too many recent inquiries', percentage: 34.2, count: Math.round(issuer.declined * 0.342) },
+    { reason: 'Insufficient credit history', percentage: 22.8, count: Math.round(issuer.declined * 0.228) },
+    { reason: 'High utilization ratio', percentage: 18.5, count: Math.round(issuer.declined * 0.185) },
+    { reason: 'Too many new accounts', percentage: 14.1, count: Math.round(issuer.declined * 0.141) },
+    { reason: 'Other / undisclosed', percentage: 10.4, count: Math.round(issuer.declined * 0.104) },
+  ];
+  return ok(res, {
+    ...issuer,
+    velocityRules: issuer.velocityRules,
+    approvalCriteria: issuer.approvalCriteria,
+    declinePatterns,
+  });
+});
+
 // ============================================================
 // Referrals
 // ============================================================
