@@ -332,10 +332,6 @@ export default function FundingRoundsPage() {
     .flatMap((r) => r.applications)
     .filter((a) => daysUntil(a.aprExpiresAt) < 30);
 
-  // Determine if "Start New Round" should show — show when there are completed rounds
-  // or when there are no in_progress rounds
-  const canStartNewRound = !rounds.some((r) => r.status === 'planning');
-
   const handleRoundStatusChange = useCallback((roundId: string, newStatus: string) => {
     setRounds((prev) =>
       prev.map((r) => (r.id === roundId ? { ...r, status: newStatus as RoundStatus } : r)),
