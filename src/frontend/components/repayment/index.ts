@@ -12,3 +12,4 @@ export { PayoffProjectionChart } from './PayoffProjectionChart';
 export type { PayoffProjectionChartProps } from './PayoffProjectionChart';
 export { BalanceTransferModal } from './BalanceTransferModal';
 export type { BalanceTransferModalProps } from './BalanceTransferModal';
+export { EscalationModal } from './EscalationModal';

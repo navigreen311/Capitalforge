@@ -32,6 +32,10 @@ interface PaymentCalendarProps {
   /** ISO date string for "today"; defaults to real today */
   today?: string;
   className?: string;
+  /** Callback when "Mark Paid" is clicked on a payment */
+  onMarkPaid?: (paymentId: string) => void;
+  /** Callback when "Contact Client" is clicked on an overdue day */
+  onContactClient?: (paymentId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +168,8 @@ export default function PaymentCalendar({
   payments = PLACEHOLDER_PAYMENTS,
   today: todayProp,
   className = '',
+  onMarkPaid,
+  onContactClient,
 }: PaymentCalendarProps) {
   const referenceToday = todayProp ? new Date(todayProp) : new Date();
   const [viewYear, setViewYear] = useState(referenceToday.getFullYear());
@@ -309,33 +315,71 @@ export default function PaymentCalendar({
         })}
       </div>
 
-      {/* Selected day detail panel */}
-      {selected && selectedPayments.length > 0 && (
-        <div className="border-t border-gray-800 p-4">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-            {new Date(selected + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
-          <div className="space-y-2">
-            {selectedPayments.map(p => {
-              const s = STATUS_STYLES[p.status];
-              return (
-                <div key={p.id} className={`flex items-center justify-between rounded-lg border px-3 py-2.5 ${s.bg} ${s.border}`}>
-                  <div>
-                    <p className="text-sm font-medium text-gray-100">{p.cardName}</p>
-                    <p className="text-xs text-gray-400">{p.issuer} · Min: {formatCurrency(p.minPayment ?? 0)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-white">{formatCurrency(p.amount)}</p>
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${s.bg} ${s.border} ${s.text}`}>
-                      {s.label}
-                    </span>
-                  </div>
+      {/* Selected day detail panel — 5E enhanced with Mark Paid + Past Due CTA */}
+      {selected && selectedPayments.length > 0 && (() => {
+        const hasOverdueDay = selectedPayments.some(p => p.status === 'overdue');
+        return (
+          <div className="border-t border-gray-800 p-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+              {new Date(selected + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            </p>
+
+            {/* Past Due banner for overdue days */}
+            {hasOverdueDay && (
+              <div className="flex items-center justify-between rounded-lg border border-red-700 bg-red-900/30 px-4 py-2.5 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-red-400 text-sm">&#9888;</span>
+                  <span className="text-sm font-semibold text-red-300">Past Due — Contact Client</span>
                 </div>
-              );
-            })}
+                <button
+                  onClick={() => {
+                    const overduePayment = selectedPayments.find(p => p.status === 'overdue');
+                    if (overduePayment && onContactClient) onContactClient(overduePayment.id);
+                  }}
+                  className="px-3 py-1 text-xs font-semibold rounded-lg bg-red-800 text-red-200 hover:bg-red-700 transition-colors"
+                >
+                  Contact Now
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {selectedPayments.map(p => {
+                const s = STATUS_STYLES[p.status];
+                return (
+                  <div key={p.id} className={`flex items-center justify-between rounded-lg border px-3 py-2.5 ${s.bg} ${s.border}`}>
+                    <div>
+                      <p className="text-sm font-medium text-gray-100">{p.cardName}</p>
+                      <p className="text-xs text-gray-400">
+                        {p.issuer} &middot; {formatCurrency(p.amount)} &middot; Min: {formatCurrency(p.minPayment ?? 0)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-white">{formatCurrency(p.amount)}</p>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${s.bg} ${s.border} ${s.text}`}>
+                          {s.label}
+                        </span>
+                      </div>
+                      {p.status !== 'paid' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onMarkPaid) onMarkPaid(p.id);
+                          }}
+                          className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-green-700 bg-green-900/40 text-green-300 hover:bg-green-900/60 transition-colors whitespace-nowrap"
+                        >
+                          Mark Paid
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Legend */}
       <div className="flex gap-4 px-5 py-3 border-t border-gray-800 bg-gray-900/30">

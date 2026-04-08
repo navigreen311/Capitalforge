@@ -46,7 +46,37 @@ export function MethodComparisonPanel({ method, avalanche, snowball }: MethodCom
     { key: 'snowball', stats: snowball },
   ];
 
+  // 5F: Calculate delta between strategies
+  const interestDelta = Math.abs(avalanche.totalInterest - snowball.totalInterest);
+  const monthsDelta = Math.abs(avalanche.months - snowball.months);
+  const avalancheWins = avalanche.totalInterest < snowball.totalInterest;
+  const winner = avalancheWins ? 'Avalanche' : 'Snowball';
+
   return (
+    <div className="space-y-4">
+      {/* 5F: Savings delta comparison banner */}
+      {interestDelta > 0 && (
+        <div className="rounded-xl border-2 border-[#C9A84C]/40 bg-[#C9A84C]/5 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#C9A84C]/20 border border-[#C9A84C]/40 flex items-center justify-center flex-shrink-0">
+              <span className="text-[#C9A84C] text-lg font-bold">&#916;</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">
+                Choosing <span className="text-[#C9A84C]">{winner}</span> saves you{' '}
+                <span className="text-[#C9A84C]">{formatCurrency(interestDelta)}</span> more
+                {monthsDelta > 0 && (
+                  <> and pays off <span className="text-[#C9A84C]">{monthsDelta} month{monthsDelta > 1 ? 's' : ''} faster</span></>
+                )} vs {avalancheWins ? 'Snowball' : 'Avalanche'}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Based on current balances, APRs, and allocated payment amounts
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {methods.map(({ key, stats }) => {
         const isActive = key === method;
@@ -102,6 +132,7 @@ export function MethodComparisonPanel({ method, avalanche, snowball }: MethodCom
           </div>
         );
       })}
+    </div>
     </div>
   );
 }
