@@ -471,6 +471,44 @@ router.post('/referrals', (req: Request, res: Response) => {
 });
 
 // ============================================================
+// Referral Follow-Up
+// ============================================================
+
+const FollowUpSchema = z.object({
+  method: z.enum(['email', 'phone', 'sms', 'in_person']),
+  notes: z.string().min(1),
+});
+
+router.post('/referrals/:id/follow-up', (req: Request, res: Response) => {
+  const referralId = req.params.id;
+  logger.info(`[platform] POST /referrals/${referralId}/follow-up`);
+  const referral = REFERRALS_DATA.find(r => r.id === referralId);
+  if (!referral) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Referral not found' },
+      statusCode: 404,
+    });
+  }
+  const parsed = FollowUpSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed.error);
+  const { method, notes } = parsed.data;
+  return res.status(201).json({
+    success: true,
+    data: {
+      referralId,
+      followUp: {
+        id: `fu_${Date.now().toString(36)}`,
+        method,
+        notes,
+        loggedAt: new Date().toISOString(),
+        loggedBy: 'current_user',
+      },
+    },
+  });
+});
+
+// ============================================================
 // Workflows
 // ============================================================
 
