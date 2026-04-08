@@ -11,6 +11,9 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import UsageMeter from '../../components/modules/usage-meter';
+import GenerateInvoiceModal from '../../components/billing/GenerateInvoiceModal';
+import type { InvoicePayload } from '../../components/billing/GenerateInvoiceModal';
+import RevenueTrendChart from '../../components/billing/RevenueTrendChart';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -143,21 +146,7 @@ const USAGE_METRICS: UsageMetric[] = [
   { planName: 'Enterprise', metricLabel: 'Active Users', current: 12, limit: 12, unit: 'seats' },
 ];
 
-const DEAL_STRUCTURE_OPTIONS: { value: DealStructure; label: string }[] = [
-  { value: 'revenue_share', label: 'Revenue Share' },
-  { value: 'flat_fee', label: 'Flat Fee' },
-  { value: 'term_loan', label: 'Term Loan' },
-  { value: 'line_of_credit', label: 'Line of Credit' },
-  { value: 'mca', label: 'Merchant Cash Advance (MCA)' },
-];
-
-const PLACEHOLDER_CLIENTS: { name: string; defaultDescription: string }[] = [
-  { name: 'Apex Ventures LLC', defaultDescription: 'Origination fee + revenue share' },
-  { name: 'NovaTech Solutions Inc.', defaultDescription: 'Advisory flat fee — funding round facilitation' },
-  { name: 'Horizon Retail Partners', defaultDescription: 'MCA origination + servicing fee' },
-  { name: 'Summit Capital Group', defaultDescription: 'Term loan processing fee' },
-  { name: 'Blue Ridge Consulting', defaultDescription: 'LOC setup fee' },
-];
+// DEAL_STRUCTURE_OPTIONS and PLACEHOLDER_CLIENTS moved into GenerateInvoiceModal component
 
 const UPGRADE_TIERS = [
   { name: 'Pro', price: '$1,200/mo', features: ['25 Active Deals', '50K API Calls', '5 Users', 'Priority Support'] },
@@ -227,185 +216,7 @@ function isOverdue(dueDate: string, status: InvoiceStatus): boolean {
   return status !== 'paid' && status !== 'refunded' && status !== 'voided' && new Date(dueDate) < new Date();
 }
 
-// ---------------------------------------------------------------------------
-// Generate Invoice Modal (inline)
-// ---------------------------------------------------------------------------
-
-interface GenerateInvoiceModalProps {
-  onClose: () => void;
-  onSubmit: (invoice: Invoice) => void;
-  nextNumber: number;
-}
-
-function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: GenerateInvoiceModalProps) {
-  const [form, setForm] = useState({
-    client: '',
-    dealStructure: 'flat_fee' as DealStructure,
-    amount: '',
-    dueDate: '',
-    description: '',
-  });
-  const [generating, setGenerating] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  function handleClientChange(clientName: string) {
-    const match = PLACEHOLDER_CLIENTS.find((c) => c.name === clientName);
-    setForm({
-      ...form,
-      client: clientName,
-      description: match ? match.defaultDescription : form.description,
-    });
-    if (clientName) setErrors((e) => ({ ...e, client: '' }));
-  }
-
-  function validate(): boolean {
-    const errs: Record<string, string> = {};
-    if (!form.client) errs.client = 'Client is required';
-    if (!form.amount || Number(form.amount) <= 0) errs.amount = 'Valid amount is required';
-    if (!form.dueDate) errs.dueDate = 'Due date is required';
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
-  }
-
-  function handleGenerate() {
-    if (!validate()) return;
-    setGenerating(true);
-    setTimeout(() => {
-      const invNum = `INV-${String(nextNumber).padStart(4, '0')}`;
-      const newInvoice: Invoice = {
-        id: `inv_gen_${Date.now()}`,
-        invoiceNumber: invNum,
-        client: form.client,
-        amount: Number(form.amount),
-        dueDate: form.dueDate,
-        issuedDate: new Date().toISOString().split('T')[0],
-        status: 'draft',
-        dealStructure: form.dealStructure,
-        description: form.description || 'New invoice',
-      };
-      setGenerating(false);
-      onSubmit(newInvoice);
-      showToast(`Invoice #${invNum} created for ${formatCurrency(Number(form.amount))}`);
-      onClose();
-    }, 1000);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-md mx-4 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-white">Generate Invoice</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
-            ×
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
-              Client Name
-            </label>
-            <select
-              value={form.client}
-              onChange={(e) => handleClientChange(e.target.value)}
-              className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C] ${
-                errors.client ? 'border-red-500' : 'border-gray-700'
-              }`}
-            >
-              <option value="">Select a client...</option>
-              {PLACEHOLDER_CLIENTS.map((c) => (
-                <option key={c.name} value={c.name}>{c.name}</option>
-              ))}
-            </select>
-            {errors.client && <p className="text-xs text-red-400 mt-1">{errors.client}</p>}
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
-              Deal Structure
-            </label>
-            <select
-              value={form.dealStructure}
-              onChange={(e) => setForm({ ...form, dealStructure: e.target.value as DealStructure })}
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
-            >
-              {DEAL_STRUCTURE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
-                Amount (USD)
-              </label>
-              <input
-                type="number"
-                value={form.amount}
-                onChange={(e) => {
-                  setForm({ ...form, amount: e.target.value });
-                  if (e.target.value) setErrors((er) => ({ ...er, amount: '' }));
-                }}
-                placeholder="0.00"
-                className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] ${
-                  errors.amount ? 'border-red-500' : 'border-gray-700'
-                }`}
-              />
-              {errors.amount && <p className="text-xs text-red-400 mt-1">{errors.amount}</p>}
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
-                Due Date
-              </label>
-              <input
-                type="date"
-                value={form.dueDate}
-                onChange={(e) => {
-                  setForm({ ...form, dueDate: e.target.value });
-                  if (e.target.value) setErrors((er) => ({ ...er, dueDate: '' }));
-                }}
-                className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C] ${
-                  errors.dueDate ? 'border-red-500' : 'border-gray-700'
-                }`}
-              />
-              {errors.dueDate && <p className="text-xs text-red-400 mt-1">{errors.dueDate}</p>}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
-              Description
-            </label>
-            <textarea
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Invoice description..."
-              rows={3}
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] resize-none"
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
-          >
-            {generating ? 'Generating...' : 'Generate Invoice'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// GenerateInvoiceModal is now imported from components/billing/GenerateInvoiceModal
 
 // ---------------------------------------------------------------------------
 // Commission Detail Modal (inline)
@@ -818,8 +629,9 @@ export default function BillingPage() {
   );
 
   // -- Invoice actions --
-  const handleAddInvoice = useCallback((inv: Invoice) => {
-    setInvoices((prev) => [inv, ...prev]);
+  const handleAddInvoice = useCallback((inv: Invoice | InvoicePayload) => {
+    setInvoices((prev) => [inv as Invoice, ...prev]);
+    showToast(`Invoice #${inv.invoiceNumber} created for ${formatCurrency(inv.amount)}`);
   }, []);
 
   const handleMarkPaid = useCallback((id: string) => {
@@ -1166,6 +978,11 @@ export default function BillingPage() {
             <p className={`text-2xl font-black ${card.color} leading-tight`}>{card.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Revenue Analytics (collapsible) */}
+      <div className="mb-6">
+        <RevenueTrendChart />
       </div>
 
       {/* Tabs */}
