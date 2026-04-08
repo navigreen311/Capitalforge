@@ -18,7 +18,7 @@ import {
   RoutingOpportunityGap,
   PointsValuationColumn,
 } from '@/components/rewards';
-import type { RewardsClient, RewardsActionCard, FeeRenewalCard } from '@/components/rewards';
+import type { RewardsClient, RewardsActionCard, FeeRenewalCard, CardSwapOpportunity } from '@/components/rewards';
 
 
 
@@ -576,6 +576,21 @@ const TOTAL_FEES     = CARD_SUMMARIES.reduce((s, c) => s + c.annualFee, 0);
 const TOTAL_NET      = CARD_SUMMARIES.reduce((s, c) => s + c.netBenefit, 0);
 const TOTAL_MONTHLY  = 33600; // combined monthly card spend (placeholder)
 
+// ─── Card-swap opportunities (3F) ───────────────────────────────────────────
+// Categories where the current card differs from the best card
+
+const CARD_SWAPS: CardSwapOpportunity[] = SPEND_ROUTES
+  .filter((r) => r.currentCard !== r.bestCard)
+  .map((r) => ({
+    category: r.mccCategory,
+    currentCard: r.currentCard,
+    currentRate: r.currentRate,
+    bestCard: r.bestCard,
+    bestRate: r.bestRate,
+    monthlySpend: r.monthlySpendNum,
+    annualGain: Math.round((r.bestRate - r.currentRate) * r.monthlySpendNum * 12),
+  }));
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RewardsPage() {
@@ -828,6 +843,7 @@ export default function RewardsPage() {
             currentYield={15712}
             optimalYield={18400}
             gap={2688}
+            swaps={CARD_SWAPS}
           />
 
           {/* Card ROI table */}
