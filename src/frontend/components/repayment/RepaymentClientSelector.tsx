@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,19 @@ const PLACEHOLDER_CLIENTS: RepaymentClient[] = [
   { id: 'rp_005', legal_name: 'Pinehurst Capital', entity_type: 'C-Corp', state: 'DE' },
 ];
 
+// ─── Debounce hook ──────────────────────────────────────────────────────────
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+
+  return debounced;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function RepaymentClientSelector({
@@ -38,10 +52,31 @@ export function RepaymentClientSelector({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchParams = useSearchParams();
+
+  // Debounce the search query by 300ms
+  const debouncedQuery = useDebouncedValue(query, 300);
 
   const filtered = PLACEHOLDER_CLIENTS.filter((c) =>
-    c.legal_name.toLowerCase().includes(query.toLowerCase()),
+    c.legal_name.toLowerCase().includes(debouncedQuery.toLowerCase()),
   );
+
+  // Auto-select from ?client=X query param on mount
+  useEffect(() => {
+    const clientParam = searchParams.get('client');
+    if (clientParam && !selectedClient) {
+      const match = PLACEHOLDER_CLIENTS.find(
+        (c) =>
+          c.id === clientParam ||
+          c.legal_name.toLowerCase() === clientParam.toLowerCase(),
+      );
+      if (match) {
+        onClientSelect(match);
+      }
+    }
+    // Only run on mount / when searchParams change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Close on click-outside
   useEffect(() => {

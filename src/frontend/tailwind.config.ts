@@ -137,12 +137,17 @@ const config: Config = {
           '0%':   { transform: 'translateX(100%)', opacity: '0' },
           '100%': { transform: 'translateX(0)',    opacity: '1' },
         },
+        'highlight-pulse': {
+          '0%, 100%': { borderColor: 'transparent', boxShadow: 'none' },
+          '50%':      { borderColor: '#C9A84C', boxShadow: '0 0 12px 2px rgba(201, 168, 76, 0.35)' },
+        },
       },
       animation: {
         'fade-in':  'fade-in 200ms ease-out',
         'slide-in': 'slide-in 200ms ease-out',
         'slide-in-right': 'slide-in-right 250ms ease-out',
         shimmer:    'shimmer 1.5s infinite linear',
+        'highlight-pulse': 'highlight-pulse 600ms ease-in-out 3',
       },
     },
   },
