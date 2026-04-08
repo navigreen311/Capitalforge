@@ -8,3 +8,7 @@ export { MethodComparisonPanel } from './MethodComparisonPanel';
 export type { MethodComparisonPanelProps } from './MethodComparisonPanel';
 export { InterestShockAlertActions } from './InterestShockAlertActions';
 export type { InterestShockAlertActionsProps } from './InterestShockAlertActions';
+export { PayoffProjectionChart } from './PayoffProjectionChart';
+export type { PayoffProjectionChartProps } from './PayoffProjectionChart';
+export { BalanceTransferModal } from './BalanceTransferModal';
+export type { BalanceTransferModalProps } from './BalanceTransferModal';
