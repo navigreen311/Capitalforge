@@ -4,7 +4,7 @@
 // /settings — Tenant settings, integrations, API keys, users
 // ============================================================
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 // ── Types ────────────────────────────────────────────────────
@@ -439,7 +439,7 @@ function BillingTab({
 
 const VALID_TABS: TabId[] = ['profile', 'firm', 'billing', 'notifications', 'integrations', 'api-keys', 'tenant', 'users', 'security'];
 
-export default function SettingsPage() {
+function SettingsPageInner() {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const toast = useToast();
@@ -1375,5 +1375,13 @@ export default function SettingsPage() {
         </section>
       )}
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0A1628]" />}>
+      <SettingsPageInner />
+    </Suspense>
   );
 }
