@@ -6,7 +6,7 @@
 // formatted metric cards, Export as PDF (browser print).
 // ============================================================
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -155,9 +155,12 @@ export default function PlatformReportsPage() {
   const [selectedType, setSelectedType] = useState<ReportType>('monthly-summary');
   const [startDate, setStartDate] = useState('2026-03-01');
   const [endDate, setEndDate] = useState('2026-03-31');
-  const [report, setReport] = useState<ReportData | null>(null);
+  const [report, setReport] = useState<ReportData | null>(() => generateReport('monthly-summary', '2026-03-01', '2026-03-31'));
   const [isGenerating, setIsGenerating] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
+
+  // Auto-generate report on mount so sample data is visible immediately
+  // (initial state is set above via the useState initializer)
 
   const handleGenerate = useCallback(() => {
     setIsGenerating(true);
