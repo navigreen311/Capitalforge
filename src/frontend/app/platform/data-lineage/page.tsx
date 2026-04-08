@@ -169,7 +169,7 @@ function formatEventType(type: string): string {
 // ── Main Page ────────────────────────────────────────────────
 
 export default function PlatformDataLineagePage() {
-  const [selectedBizId, setSelectedBizId] = useState<string>('');
+  const [selectedBizId, setSelectedBizId] = useState<string>(BUSINESSES[0]?.id ?? '');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
   const events = useMemo(() => {
