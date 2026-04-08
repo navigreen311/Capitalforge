@@ -12,18 +12,13 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import UsageMeter from '../../components/modules/usage-meter';
-import GenerateInvoiceModal from '../../components/billing/GenerateInvoiceModal';
-import type { InvoicePayload } from '../../components/billing/GenerateInvoiceModal';
-import RevenueTrendChart from '../../components/billing/RevenueTrendChart';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'refunded' | 'overdue' | 'voided';
-type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed';
 type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'refunded' | 'overdue';
-type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed' | 'rejected';
+type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed';
 type DealStructure = 'revenue_share' | 'flat_fee' | 'term_loan' | 'line_of_credit' | 'mca';
 
 interface Invoice {
@@ -147,7 +142,21 @@ const USAGE_METRICS: UsageMetric[] = [
   { planName: 'Enterprise', metricLabel: 'Active Users', current: 12, limit: 12, unit: 'seats' },
 ];
 
-// DEAL_STRUCTURE_OPTIONS and PLACEHOLDER_CLIENTS moved into GenerateInvoiceModal component
+const DEAL_STRUCTURE_OPTIONS: { value: DealStructure; label: string }[] = [
+  { value: 'revenue_share', label: 'Revenue Share' },
+  { value: 'flat_fee', label: 'Flat Fee' },
+  { value: 'term_loan', label: 'Term Loan' },
+  { value: 'line_of_credit', label: 'Line of Credit' },
+  { value: 'mca', label: 'Merchant Cash Advance (MCA)' },
+];
+
+const PLACEHOLDER_CLIENTS: { name: string; defaultDescription: string }[] = [
+  { name: 'Apex Ventures LLC', defaultDescription: 'Origination fee + revenue share' },
+  { name: 'NovaTech Solutions Inc.', defaultDescription: 'Advisory flat fee — funding round facilitation' },
+  { name: 'Horizon Retail Partners', defaultDescription: 'MCA origination + servicing fee' },
+  { name: 'Summit Capital Group', defaultDescription: 'Term loan processing fee' },
+  { name: 'Blue Ridge Consulting', defaultDescription: 'LOC setup fee' },
+];
 
 const UPGRADE_TIERS = [
   { name: 'Pro', price: '$1,200/mo', features: ['25 Active Deals', '50K API Calls', '5 Users', 'Priority Support'] },
@@ -179,7 +188,6 @@ const INVOICE_STATUS_CONFIG: Record<InvoiceStatus, { label: string; badgeClass: 
   paid:     { label: 'Paid',     badgeClass: 'bg-green-900 text-green-300 border-green-700' },
   refunded: { label: 'Refunded', badgeClass: 'bg-purple-900 text-purple-300 border-purple-700' },
   overdue:  { label: 'Overdue',  badgeClass: 'bg-red-900 text-red-300 border-red-700' },
-  voided:   { label: 'Voided',   badgeClass: 'bg-gray-900 text-gray-500 border-gray-600' },
 };
 
 const COMMISSION_STATUS_CONFIG: Record<CommissionStatus, { label: string; badgeClass: string }> = {
@@ -187,7 +195,6 @@ const COMMISSION_STATUS_CONFIG: Record<CommissionStatus, { label: string; badgeC
   approved: { label: 'Approved', badgeClass: 'bg-blue-900 text-blue-300 border-blue-700' },
   paid:     { label: 'Paid',     badgeClass: 'bg-green-900 text-green-300 border-green-700' },
   disputed: { label: 'Disputed', badgeClass: 'bg-red-900 text-red-300 border-red-700' },
-  rejected: { label: 'Rejected', badgeClass: 'bg-gray-800 text-gray-400 border-gray-600' },
 };
 
 const ROLE_CONFIG: Record<string, string> = {
@@ -214,10 +221,188 @@ function formatDate(s: string): string {
 }
 
 function isOverdue(dueDate: string, status: InvoiceStatus): boolean {
-  return status !== 'paid' && status !== 'refunded' && status !== 'voided' && new Date(dueDate) < new Date();
+  return status !== 'paid' && status !== 'refunded' && new Date(dueDate) < new Date();
 }
 
-// GenerateInvoiceModal is now imported from components/billing/GenerateInvoiceModal
+// ---------------------------------------------------------------------------
+// Generate Invoice Modal (inline)
+// ---------------------------------------------------------------------------
+
+interface GenerateInvoiceModalProps {
+  onClose: () => void;
+  onSubmit: (invoice: Invoice) => void;
+  nextNumber: number;
+}
+
+function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: GenerateInvoiceModalProps) {
+  const [form, setForm] = useState({
+    client: '',
+    dealStructure: 'flat_fee' as DealStructure,
+    amount: '',
+    dueDate: '',
+    description: '',
+  });
+  const [generating, setGenerating] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function handleClientChange(clientName: string) {
+    const match = PLACEHOLDER_CLIENTS.find((c) => c.name === clientName);
+    setForm({
+      ...form,
+      client: clientName,
+      description: match ? match.defaultDescription : form.description,
+    });
+    if (clientName) setErrors((e) => ({ ...e, client: '' }));
+  }
+
+  function validate(): boolean {
+    const errs: Record<string, string> = {};
+    if (!form.client) errs.client = 'Client is required';
+    if (!form.amount || Number(form.amount) <= 0) errs.amount = 'Valid amount is required';
+    if (!form.dueDate) errs.dueDate = 'Due date is required';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
+  function handleGenerate() {
+    if (!validate()) return;
+    setGenerating(true);
+    setTimeout(() => {
+      const invNum = `INV-${String(nextNumber).padStart(4, '0')}`;
+      const newInvoice: Invoice = {
+        id: `inv_gen_${Date.now()}`,
+        invoiceNumber: invNum,
+        client: form.client,
+        amount: Number(form.amount),
+        dueDate: form.dueDate,
+        issuedDate: new Date().toISOString().split('T')[0],
+        status: 'draft',
+        dealStructure: form.dealStructure,
+        description: form.description || 'New invoice',
+      };
+      setGenerating(false);
+      onSubmit(newInvoice);
+      showToast(`Invoice #${invNum} created for ${formatCurrency(Number(form.amount))}`);
+      onClose();
+    }, 1000);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Generate Invoice</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+              Client Name
+            </label>
+            <select
+              value={form.client}
+              onChange={(e) => handleClientChange(e.target.value)}
+              className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C] ${
+                errors.client ? 'border-red-500' : 'border-gray-700'
+              }`}
+            >
+              <option value="">Select a client...</option>
+              {PLACEHOLDER_CLIENTS.map((c) => (
+                <option key={c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+            {errors.client && <p className="text-xs text-red-400 mt-1">{errors.client}</p>}
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+              Deal Structure
+            </label>
+            <select
+              value={form.dealStructure}
+              onChange={(e) => setForm({ ...form, dealStructure: e.target.value as DealStructure })}
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
+            >
+              {DEAL_STRUCTURE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                Amount (USD)
+              </label>
+              <input
+                type="number"
+                value={form.amount}
+                onChange={(e) => {
+                  setForm({ ...form, amount: e.target.value });
+                  if (e.target.value) setErrors((er) => ({ ...er, amount: '' }));
+                }}
+                placeholder="0.00"
+                className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] ${
+                  errors.amount ? 'border-red-500' : 'border-gray-700'
+                }`}
+              />
+              {errors.amount && <p className="text-xs text-red-400 mt-1">{errors.amount}</p>}
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                Due Date
+              </label>
+              <input
+                type="date"
+                value={form.dueDate}
+                onChange={(e) => {
+                  setForm({ ...form, dueDate: e.target.value });
+                  if (e.target.value) setErrors((er) => ({ ...er, dueDate: '' }));
+                }}
+                className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C] ${
+                  errors.dueDate ? 'border-red-500' : 'border-gray-700'
+                }`}
+              />
+              {errors.dueDate && <p className="text-xs text-red-400 mt-1">{errors.dueDate}</p>}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+              Description
+            </label>
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Invoice description..."
+              rows={3}
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] resize-none"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
+          >
+            {generating ? 'Generating...' : 'Generate Invoice'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Commission Detail Modal (inline)
@@ -413,22 +598,6 @@ function PlanDetailsModal({ onClose }: PlanDetailsModalProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Add User Seats Modal (inline) — 3B Unblock Now
-// ---------------------------------------------------------------------------
-
-interface AddSeatsModalProps {
-  onClose: () => void;
-  onUpgradePlan: () => void;
-}
-
-function AddSeatsModal({ onClose, onUpgradePlan }: AddSeatsModalProps) {
-  const [adding, setAdding] = useState(false);
-
-  function handleAddSeats() {
-    setAdding(true);
-    setTimeout(() => {
-      setAdding(false);
-      showToast('5 seats added — your new limit is 17 seats ($245/mo added).');
 // Bulk Reminder Modal (inline) — 3F: overdue alert → bulk send reminder
 // ---------------------------------------------------------------------------
 
@@ -458,77 +627,6 @@ function BulkReminderModal({ overdueInvoices, onClose }: BulkReminderModalProps)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-md mx-4 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-white">Add User Seats</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
-            ×
-          </button>
-        </div>
-
-        <div className="rounded-lg bg-red-950 border border-red-800 px-4 py-3 mb-5">
-          <p className="text-sm text-red-300 font-semibold">
-            You have reached the 12-seat limit.
-          </p>
-          <p className="text-xs text-red-400 mt-1">
-            Add seats at <span className="font-bold text-red-200">$49/seat/month</span>.
-          </p>
-        </div>
-
-        <div className="space-y-3 mb-6">
-          <div className="flex justify-between border-b border-gray-800 pb-2">
-            <span className="text-xs text-gray-500 uppercase">Current Seats</span>
-            <span className="text-sm font-semibold text-gray-100">12 / 12</span>
-          </div>
-          <div className="flex justify-between border-b border-gray-800 pb-2">
-            <span className="text-xs text-gray-500 uppercase">Add</span>
-            <span className="text-sm font-semibold text-[#C9A84C]">+5 seats</span>
-          </div>
-          <div className="flex justify-between border-b border-gray-800 pb-2">
-            <span className="text-xs text-gray-500 uppercase">Additional Cost</span>
-            <span className="text-sm font-semibold text-gray-100">$245/mo</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-xs text-gray-500 uppercase">New Limit</span>
-            <span className="text-sm font-bold text-green-400">17 seats</span>
-          </div>
-        </div>
-
-        <div className="flex gap-3">
-          <button
-            onClick={handleAddSeats}
-            disabled={adding}
-            className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
-          >
-            {adding ? 'Adding...' : 'Add 5 Seats'}
-          </button>
-          <button
-            onClick={() => { onClose(); onUpgradePlan(); }}
-            className="flex-1 px-4 py-2 rounded-lg border border-[#C9A84C]/40 text-[#C9A84C] hover:bg-[#C9A84C]/10 text-sm font-semibold transition-colors"
-          >
-            Upgrade Plan
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Dispute Evidence Modal (inline) — 3C Commission Dispute Resolution
-// ---------------------------------------------------------------------------
-
-interface DisputeEvidenceModalProps {
-  commission: Commission;
-  onClose: () => void;
-}
-
-function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-white">Dispute Evidence</h2>
       <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-white">Send Overdue Reminders</h2>
@@ -537,43 +635,6 @@ function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps
           </button>
         </div>
 
-        <div className="space-y-3 mb-5">
-          <div className="flex justify-between border-b border-gray-800 pb-2">
-            <span className="text-xs text-gray-500 uppercase">Partner</span>
-            <span className="text-sm font-semibold text-gray-100">{commission.partner}</span>
-          </div>
-          <div className="flex justify-between border-b border-gray-800 pb-2">
-            <span className="text-xs text-gray-500 uppercase">Deal</span>
-            <span className="text-sm text-gray-300">{commission.deal}</span>
-          </div>
-          <div className="flex justify-between border-b border-gray-800 pb-2">
-            <span className="text-xs text-gray-500 uppercase">Disputed Amount</span>
-            <span className="text-sm font-bold text-red-400">{formatCurrency(commission.commissionAmount)}</span>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-gray-800 border border-gray-700 p-4 mb-5">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Evidence Summary</h3>
-          <div className="space-y-2 text-sm text-gray-300">
-            <p>
-              <span className="font-semibold text-gray-200">Dispute filed:</span>{' '}
-              Mar 28, 2026 by {commission.partner}
-            </p>
-            <p>
-              <span className="font-semibold text-gray-200">Reason:</span>{' '}
-              Commission rate discrepancy — partner claims agreed rate was {(commission.commissionRate + 0.5).toFixed(1)}%
-              (vs. recorded {commission.commissionRate.toFixed(1)}%).
-            </p>
-            <p>
-              <span className="font-semibold text-gray-200">Supporting documents:</span>{' '}
-              Original partner agreement (signed), email thread from Jan 15 2026 referencing revised rate schedule.
-            </p>
-            <p>
-              <span className="font-semibold text-gray-200">Internal notes:</span>{' '}
-              Rate was updated in CRM on Feb 1, 2026 but commission engine used the prior rate for this deal.
-              Likely a sync delay between partner portal and billing system.
-            </p>
-          </div>
         <p className="text-xs text-gray-400 mb-4">
           {overdueInvoices.length} overdue invoice{overdueInvoices.length !== 1 ? 's' : ''} totalling{' '}
           <span className="text-red-400 font-semibold">
@@ -610,7 +671,6 @@ function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps
             onClick={onClose}
             className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
           >
-            Close
             Cancel
           </button>
           <button
@@ -634,21 +694,6 @@ function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps
 }
 
 // ---------------------------------------------------------------------------
-// Stripe Portal Helper
-// ---------------------------------------------------------------------------
-
-const STRIPE_CONFIGURED = false; // Toggle to true when Stripe is set up
-
-function openStripePortal() {
-  if (!STRIPE_CONFIGURED) {
-    showToast('Stripe not configured — contact support.');
-    return;
-  }
-  showToast('Opening Stripe billing portal...');
-  // In production: window.location.href = stripePortalUrl;
-}
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -658,18 +703,13 @@ export default function BillingPage() {
   const [showModal, setShowModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
-  const [showSeatModal, setShowSeatModal] = useState(false);
   const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceStatus | 'all'>('all');
   const [commissionFilter, setCommissionFilter] = useState<CommissionStatus | 'all'>('all');
   const [invoices, setInvoices] = useState<Invoice[]>(PLACEHOLDER_INVOICES);
   const [commissions, setCommissions] = useState<Commission[]>(PLACEHOLDER_COMMISSIONS);
   const [selectedCommission, setSelectedCommission] = useState<Commission | null>(null);
-  const [evidenceCommission, setEvidenceCommission] = useState<Commission | null>(null);
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
-  const [payConfirmId, setPayConfirmId] = useState<string | null>(null);
-  const [unpayConfirmId, setUnpayConfirmId] = useState<string | null>(null);
-  const [reminderInvoice, setReminderInvoice] = useState<Invoice | null>(null);
 
   // Next invoice number
   const nextInvoiceNum = invoices.length + 1;
@@ -702,43 +742,24 @@ export default function BillingPage() {
   );
 
   // -- Invoice actions --
-  const handleAddInvoice = useCallback((inv: Invoice | InvoicePayload) => {
-    setInvoices((prev) => [inv as Invoice, ...prev]);
-    showToast(`Invoice #${inv.invoiceNumber} created for ${formatCurrency(inv.amount)}`);
+  const handleAddInvoice = useCallback((inv: Invoice) => {
+    setInvoices((prev) => [inv, ...prev]);
   }, []);
 
   const handleMarkPaid = useCallback((id: string) => {
-    const target = invoices.find((inv) => inv.id === id);
     setInvoices((prev) =>
       prev.map((inv) =>
-        inv.id === id ? { ...inv, status: 'paid' as InvoiceStatus } : inv,
+        inv.id === id ? { ...inv, status: inv.status === 'paid' ? 'issued' : 'paid' as InvoiceStatus } : inv,
       ),
     );
-    setPayConfirmId(null);
-    showToast(`Invoice ${target?.invoiceNumber ?? id} marked as paid (${formatCurrency(target?.amount ?? 0)})`);
-  }, [invoices]);
-
-  const handleUnpay = useCallback((id: string) => {
-    const target = invoices.find((inv) => inv.id === id);
-    setInvoices((prev) =>
-      prev.map((inv) =>
-        inv.id === id ? { ...inv, status: 'issued' as InvoiceStatus } : inv,
-      ),
-    );
-    setUnpayConfirmId(null);
-    showToast(`Invoice ${target?.invoiceNumber ?? id} reverted to issued`);
-  }, [invoices]);
+    showToast('Invoice status updated.');
+  }, []);
 
   const handleVoidInvoice = useCallback((id: string) => {
-    const target = invoices.find((inv) => inv.id === id);
-    setInvoices((prev) =>
-      prev.map((inv) =>
-        inv.id === id ? { ...inv, status: 'voided' as InvoiceStatus } : inv,
-      ),
-    );
+    setInvoices((prev) => prev.filter((inv) => inv.id !== id));
     setVoidConfirmId(null);
-    showToast(`Invoice ${target?.invoiceNumber ?? id} voided (${formatCurrency(target?.amount ?? 0)})`);
-  }, [invoices]);
+    showToast('Invoice voided and removed.');
+  }, []);
 
   const handleViewPdf = useCallback((inv?: Invoice) => {
     const target = inv ?? filteredInvoices[0];
@@ -777,8 +798,7 @@ export default function BillingPage() {
   }, [filteredInvoices]);
 
   const handleSendReminder = useCallback((inv: Invoice) => {
-    setReminderInvoice(null);
-    showToast(`Reminder sent to ${inv.client} for ${inv.invoiceNumber}`);
+    showToast(`Reminder sent to ${inv.client} for ${inv.invoiceNumber}.`);
   }, []);
 
   // -- Commission actions --
@@ -795,21 +815,6 @@ export default function BillingPage() {
       }),
     );
     showToast(`Commission ${action.toLowerCase()}d successfully.`);
-  }, []);
-
-  // -- Dispute resolution actions (optimistic) --
-  const handleApproveDisputed = useCallback((id: string) => {
-    setCommissions((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, status: 'approved' as CommissionStatus } : c)),
-    );
-    showToast('Commission approved — dispute resolved in favor of partner.');
-  }, []);
-
-  const handleRejectDispute = useCallback((id: string) => {
-    setCommissions((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, status: 'rejected' as CommissionStatus } : c)),
-    );
-    showToast('Dispute rejected — commission will not be paid.');
   }, []);
 
   return (
@@ -829,16 +834,6 @@ export default function BillingPage() {
       )}
       {showUpgradeModal && <UpgradePlanModal onClose={() => setShowUpgradeModal(false)} />}
       {showPlanModal && <PlanDetailsModal onClose={() => setShowPlanModal(false)} />}
-      {showSeatModal && (
-        <AddSeatsModal
-          onClose={() => setShowSeatModal(false)}
-          onUpgradePlan={() => setShowUpgradeModal(true)}
-        />
-      )}
-      {evidenceCommission && (
-        <DisputeEvidenceModal
-          commission={evidenceCommission}
-          onClose={() => setEvidenceCommission(null)}
       {showBulkReminderModal && (
         <BulkReminderModal
           overdueInvoices={overdueInvoices}
@@ -854,146 +849,28 @@ export default function BillingPage() {
       )}
 
       {/* Void confirmation dialog */}
-      {voidConfirmId && (() => {
-        const voidTarget = invoices.find((i) => i.id === voidConfirmId);
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
-              <h3 className="text-lg font-bold text-white mb-2">Void Invoice?</h3>
-              <p className="text-sm text-gray-400 mb-5">
-                Void invoice <span className="font-mono text-[#C9A84C]">{voidTarget?.invoiceNumber}</span> for{' '}
-                <span className="font-semibold text-gray-200">{formatCurrency(voidTarget?.amount ?? 0)}</span>?
-                This cannot be undone.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setVoidConfirmId(null)}
-                  className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleVoidInvoice(voidConfirmId)}
-                  className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition-colors"
-                >
-                  Void Invoice
-                </button>
-              </div>
+      {voidConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
+            <h3 className="text-lg font-bold text-white mb-2">Void Invoice?</h3>
+            <p className="text-sm text-gray-400 mb-5">This action will permanently remove this invoice. Are you sure?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setVoidConfirmId(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleVoidInvoice(voidConfirmId)}
+                className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition-colors"
+              >
+                Void Invoice
+              </button>
             </div>
           </div>
-        );
-      })()}
-
-      {/* Pay confirmation dialog */}
-      {payConfirmId && (() => {
-        const payTarget = invoices.find((i) => i.id === payConfirmId);
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
-              <h3 className="text-lg font-bold text-white mb-2">Confirm Payment</h3>
-              <p className="text-sm text-gray-400 mb-1">
-                Mark invoice <span className="font-mono text-[#C9A84C]">{payTarget?.invoiceNumber}</span> as paid?
-              </p>
-              <p className="text-2xl font-black text-green-400 mb-5">{formatCurrency(payTarget?.amount ?? 0)}</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setPayConfirmId(null)}
-                  className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleMarkPaid(payConfirmId)}
-                  className="flex-1 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors"
-                >
-                  Confirm Payment
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Unpay confirmation dialog */}
-      {unpayConfirmId && (() => {
-        const unpayTarget = invoices.find((i) => i.id === unpayConfirmId);
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
-              <h3 className="text-lg font-bold text-white mb-2">Mark as Unpaid?</h3>
-              <p className="text-sm text-gray-400 mb-5">
-                Mark invoice <span className="font-mono text-[#C9A84C]">{unpayTarget?.invoiceNumber}</span> as unpaid?
-                This will revert the status to issued.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setUnpayConfirmId(null)}
-                  className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleUnpay(unpayConfirmId)}
-                  className="flex-1 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition-colors"
-                >
-                  Mark Unpaid
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Reminder modal */}
-      {reminderInvoice && (() => {
-        const daysOverdue = Math.max(0, Math.floor((Date.now() - new Date(reminderInvoice.dueDate).getTime()) / (1000 * 60 * 60 * 24)));
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-bold text-white">Send Payment Reminder</h3>
-                <button onClick={() => setReminderInvoice(null)} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
-                  ×
-                </button>
-              </div>
-              <div className="space-y-3 mb-5">
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500 uppercase">Client</span>
-                  <span className="text-sm font-semibold text-gray-100">{reminderInvoice.client}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500 uppercase">Invoice</span>
-                  <span className="text-sm font-mono text-[#C9A84C]">{reminderInvoice.invoiceNumber}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500 uppercase">Amount Due</span>
-                  <span className="text-sm font-bold text-red-400">{formatCurrency(reminderInvoice.amount)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500 uppercase">Days Overdue</span>
-                  <span className={`text-sm font-bold ${daysOverdue > 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                    {daysOverdue > 0 ? `${daysOverdue} days` : 'Not yet due'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setReminderInvoice(null)}
-                  className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleSendReminder(reminderInvoice)}
-                  className="flex-1 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition-colors"
-                >
-                  Send Reminder
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -1057,11 +934,6 @@ export default function BillingPage() {
         ))}
       </div>
 
-      {/* Revenue Analytics (collapsible) */}
-      <div className="mb-6">
-        <RevenueTrendChart />
-      </div>
-
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b border-gray-800">
         {(['invoices', 'commissions', 'usage'] as const).map((tab) => (
@@ -1084,7 +956,7 @@ export default function BillingPage() {
         <div>
           {/* Status filter */}
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {(['all', 'draft', 'issued', 'paid', 'overdue', 'refunded', 'voided'] as const).map((s) => (
+            {(['all', 'draft', 'issued', 'paid', 'overdue', 'refunded'] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setInvoiceFilter(s)}
@@ -1132,12 +1004,10 @@ export default function BillingPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                   {filteredInvoices.map((inv) => {
-                    const effectivelyOverdue = isOverdue(inv.dueDate, inv.status) && inv.status !== 'paid' && inv.status !== 'refunded' && inv.status !== 'voided';
+                    const effectivelyOverdue = isOverdue(inv.dueDate, inv.status) && inv.status !== 'paid' && inv.status !== 'refunded';
                     const statusCfg = INVOICE_STATUS_CONFIG[effectivelyOverdue ? 'overdue' : inv.status];
                     const rowBg = effectivelyOverdue || inv.status === 'overdue'
                       ? 'bg-red-950/20 hover:bg-red-950/40'
-                      : inv.status === 'voided'
-                      ? 'bg-gray-950/50 hover:bg-gray-900/50 opacity-60'
                       : 'hover:bg-gray-800/50';
                     return (
                       <tr key={inv.id} className={`${rowBg} transition-colors`}>
@@ -1180,32 +1050,23 @@ export default function BillingPage() {
                             </button>
                             {(effectivelyOverdue || inv.status === 'overdue') && (
                               <button
-                                onClick={() => setReminderInvoice(inv)}
+                                onClick={() => handleSendReminder(inv)}
                                 className="text-xs text-gray-500 hover:text-amber-400 transition-colors"
                                 title="Send Reminder"
                               >
                                 Remind
                               </button>
                             )}
-                            {inv.status !== 'refunded' && inv.status !== 'voided' && inv.status !== 'paid' && (
+                            {inv.status !== 'refunded' && (
                               <button
-                                onClick={() => setPayConfirmId(inv.id)}
+                                onClick={() => handleMarkPaid(inv.id)}
                                 className="text-xs text-gray-500 hover:text-green-400 transition-colors"
-                                title="Mark Paid"
+                                title={inv.status === 'paid' ? 'Unmark Paid' : 'Mark Paid'}
                               >
-                                Pay
+                                {inv.status === 'paid' ? 'Unpay' : 'Pay'}
                               </button>
                             )}
-                            {inv.status === 'paid' && (
-                              <button
-                                onClick={() => setUnpayConfirmId(inv.id)}
-                                className="text-xs text-gray-500 hover:text-amber-400 transition-colors"
-                                title="Revert to Issued"
-                              >
-                                Unpay
-                              </button>
-                            )}
-                            {inv.status !== 'paid' && inv.status !== 'refunded' && inv.status !== 'voided' && (
+                            {inv.status !== 'paid' && inv.status !== 'refunded' && (
                               <button
                                 onClick={() => setVoidConfirmId(inv.id)}
                                 className="text-xs text-gray-500 hover:text-red-400 transition-colors"
@@ -1248,7 +1109,7 @@ export default function BillingPage() {
 
           {/* Status filter */}
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {(['all', 'pending', 'approved', 'paid', 'disputed', 'rejected'] as const).map((s) => (
+            {(['all', 'pending', 'approved', 'paid', 'disputed'] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setCommissionFilter(s)}
@@ -1268,7 +1129,7 @@ export default function BillingPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-800">
-                    {['Partner / Advisor', 'Role', 'Deal', 'Deal Amount', 'Rate', 'Commission', 'Due Date', 'Status', 'Actions'].map((h) => (
+                    {['Partner / Advisor', 'Role', 'Deal', 'Deal Amount', 'Rate', 'Commission', 'Due Date', 'Status'].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
@@ -1316,33 +1177,6 @@ export default function BillingPage() {
                           {COMMISSION_STATUS_CONFIG[c.status].label}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        {c.status === 'disputed' && (
-                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => setEvidenceCommission(c)}
-                              className="text-xs text-gray-500 hover:text-blue-400 transition-colors whitespace-nowrap"
-                              title="View dispute evidence"
-                            >
-                              View Evidence
-                            </button>
-                            <button
-                              onClick={() => handleApproveDisputed(c.id)}
-                              className="text-xs text-gray-500 hover:text-green-400 transition-colors whitespace-nowrap"
-                              title="Approve commission"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleRejectDispute(c.id)}
-                              className="text-xs text-gray-500 hover:text-red-400 transition-colors whitespace-nowrap"
-                              title="Reject dispute"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        )}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1371,29 +1205,17 @@ export default function BillingPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {USAGE_METRICS.map((m) => {
-              const isBlocked = m.current >= m.limit;
-              const isSeatMetric = m.metricLabel === 'Active Users';
-              return (
-                <UsageMeter
-                  key={m.metricLabel}
-                  planName={m.planName}
-                  metricLabel={m.metricLabel}
-                  current={m.current}
-                  limit={m.limit}
-                  unit={m.unit}
-                  onUpgrade={() => {
-                    if (isBlocked && isSeatMetric) {
-                      setShowSeatModal(true);
-                    } else if (isBlocked) {
-                      openStripePortal();
-                    } else {
-                      openStripePortal();
-                    }
-                  }}
-                />
-              );
-            })}
+            {USAGE_METRICS.map((m) => (
+              <UsageMeter
+                key={m.metricLabel}
+                planName={m.planName}
+                metricLabel={m.metricLabel}
+                current={m.current}
+                limit={m.limit}
+                unit={m.unit}
+                onUpgrade={() => setShowUpgradeModal(true)}
+              />
+            ))}
           </div>
 
           {/* Plan details */}
@@ -1430,13 +1252,13 @@ export default function BillingPage() {
           {/* Upgrade CTA */}
           <div className="mt-4 flex gap-3">
             <button
-              onClick={openStripePortal}
+              onClick={() => setShowUpgradeModal(true)}
               className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-sm font-semibold transition-colors"
             >
               Upgrade Plan
             </button>
             <button
-              onClick={() => setShowSeatModal(true)}
+              onClick={() => setShowUpgradeModal(true)}
               className="px-4 py-2 rounded-lg border border-[#C9A84C]/40 text-[#C9A84C] hover:bg-[#C9A84C]/10 text-sm font-semibold transition-colors"
             >
               Unblock Now

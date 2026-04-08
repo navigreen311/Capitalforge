@@ -11,12 +11,6 @@ import { SectionCard, StatCard } from '@/components/ui/card';
 type BenefitStatus = 'used' | 'unused' | 'expired';
 type CardRenewalRec = 'keep' | 'negotiate' | 'cancel';
 
-interface ClaimData {
-  date: string;          // ISO date of claim
-  amount: number;        // claimed amount
-  notes: string;
-}
-
 interface Benefit {
   id: string;
   name: string;
@@ -24,7 +18,6 @@ interface Benefit {
   status: BenefitStatus;
   expiryDate?: string;   // ISO date — when the benefit resets/expires
   notes?: string;
-  claimData?: ClaimData;
 }
 
 interface CardBenefitProfile {
@@ -274,54 +267,25 @@ function RenewalBadge({ rec }: { rec: CardRenewalRec }) {
 
 function BenefitStatusPill({
   status,
-  onMarkUsed,
-  onUndo,
+  onClick,
 }: {
   status: BenefitStatus;
-  onMarkUsed?: () => void;
-  onUndo?: () => void;
+  onClick?: () => void;
 }) {
-  if (status === 'used') {
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onUndo?.();
-        }}
-        className="inline-flex items-center rounded-full text-[10px] font-semibold
-                    px-2 py-0.5 cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-emerald-300
-                    transition-all bg-emerald-50 text-emerald-700"
-        title="Click to undo — mark as Unused"
-      >
-        &#10003; Used &mdash; click to undo
-      </button>
-    );
-  }
-
-  if (status === 'expired') {
-    return (
-      <span className="inline-flex items-center rounded-full text-[10px] font-semibold
-                        px-2 py-0.5 bg-red-50 text-red-600">
-        Expired
-      </span>
-    );
-  }
-
-  // unused
+  const cfg = BENEFIT_STATUS_CONFIG[status];
   return (
     <button
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        onMarkUsed?.();
+        onClick?.();
       }}
-      className="inline-flex items-center rounded-full text-[10px] font-semibold
-                  px-2 py-0.5 cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-brand-gold-400
-                  transition-all bg-amber-50 text-amber-700 border border-amber-200"
-      title="Mark as Used"
+      className={`inline-flex items-center rounded-full text-[10px] font-semibold
+                  px-2 py-0.5 cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-300
+                  transition-all ${cfg.bg} ${cfg.text}`}
+      title={`Click to mark as ${status === 'used' ? 'Unused' : 'Used'}`}
     >
-      Mark as Used &rarr;
+      {cfg.label}
     </button>
   );
 }
@@ -343,109 +307,6 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   );
 }
 
-// ─── Claim modal ─────────────────────────────────────────────────────────────
-
-function ClaimModal({
-  benefitName,
-  benefitValue,
-  onConfirm,
-  onCancel,
-}: {
-  benefitName: string;
-  benefitValue: number;
-  onConfirm: (data: ClaimData) => void;
-  onCancel: () => void;
-}) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [amount, setAmount] = useState(benefitValue.toString());
-  const [notes, setNotes] = useState('');
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [onCancel]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onConfirm({
-      date,
-      amount: parseFloat(amount) || 0,
-      notes: notes.trim(),
-    });
-  };
-
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-[60]" onClick={onCancel} aria-hidden="true" />
-      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-        <form
-          onSubmit={handleSubmit}
-          onClick={(e) => e.stopPropagation()}
-          className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-4 animate-in zoom-in-95"
-        >
-          <div>
-            <h3 className="text-sm font-bold text-gray-900">Mark Benefit as Used</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{benefitName}</p>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Date claimed</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full border border-surface-border rounded-lg px-3 py-1.5 text-sm
-                         text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-navy/20"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Amount ($)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="w-full border border-surface-border rounded-lg px-3 py-1.5 text-sm
-                         text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-navy/20"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full border border-surface-border rounded-lg px-3 py-1.5 text-sm
-                         text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-navy/20 resize-none"
-              placeholder="Any details about the claim..."
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="text-xs font-medium text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="bg-brand-navy text-white text-xs font-semibold px-4 py-1.5 rounded-lg
-                         hover:bg-brand-navy/90 transition-colors"
-            >
-              Confirm Used
-            </button>
-          </div>
-        </form>
 // ─── Issuer phone directory ──────────────────────────────────────────────────
 
 const ISSUER_PHONE_DIRECTORY: Record<string, { phone: string; hours: string; tips: string[] }> = {
@@ -617,31 +478,24 @@ function UtilizationBar({
 
 // ─── Card benefit tile ────────────────────────────────────────────────────────
 
-const DEFAULT_VISIBLE_BENEFITS = 3;
-
 function CardBenefitTile({
   card,
-  onMarkUsed,
-  onUndoBenefit,
+  onToggleBenefitStatus,
   onClick,
-  forceExpanded,
   onCallIssuer,
   onLogCancellation,
   tileRef,
   highlightClass,
 }: {
   card: CardBenefitProfile;
-  onMarkUsed: (cardId: string, benefitId: string) => void;
-  onUndoBenefit: (cardId: string, benefitId: string) => void;
+  onToggleBenefitStatus: (cardId: string, benefitId: string) => void;
   onClick: () => void;
-  forceExpanded?: boolean;
   onCallIssuer?: (issuer: string) => void;
   onLogCancellation?: (cardId: string) => void;
   tileRef?: React.Ref<HTMLDivElement>;
   highlightClass?: string;
 }) {
-  const [localExpanded, setLocalExpanded] = useState(false);
-  const expanded = forceExpanded || localExpanded;
+  const [expanded, setExpanded] = useState(false);
   const unusedBenefits  = card.benefits.filter((b) => b.status === 'unused');
   const unusedCount     = unusedBenefits.length;
   const totalCount      = card.benefits.length;
@@ -724,7 +578,7 @@ function CardBenefitTile({
         </div>
 
         <ul className="space-y-1.5">
-          {(expanded ? card.benefits : card.benefits.slice(0, DEFAULT_VISIBLE_BENEFITS)).map((benefit) => (
+          {(expanded ? card.benefits : card.benefits.slice(0, 4)).map((benefit) => (
             <li
               key={benefit.id}
               className="flex items-start justify-between gap-2 py-1.5 border-b
@@ -734,8 +588,7 @@ function CardBenefitTile({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <BenefitStatusPill
                     status={benefit.status}
-                    onMarkUsed={() => onMarkUsed(card.id, benefit.id)}
-                    onUndo={() => onUndoBenefit(card.id, benefit.id)}
+                    onClick={() => onToggleBenefitStatus(card.id, benefit.id)}
                   />
                   <span className="text-xs text-gray-700 font-medium leading-tight">
                     {benefit.name}
@@ -759,14 +612,12 @@ function CardBenefitTile({
           ))}
         </ul>
 
-        {card.benefits.length > DEFAULT_VISIBLE_BENEFITS && (
+        {card.benefits.length > 4 && (
           <button
-            onClick={(e) => { e.stopPropagation(); setLocalExpanded((v) => !v); }}
+            onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
             className="text-xs text-brand-gold-600 hover:underline mt-2 block"
           >
-            {expanded
-              ? 'Show less \u2191'
-              : `Show all ${card.benefits.length} benefits \u2193`}
+            {expanded ? 'Show less' : `Show ${card.benefits.length - 4} more`}
           </button>
         )}
       </div>
@@ -792,13 +643,6 @@ function CardBenefitTile({
 function CardDetailDrawer({
   card,
   onClose,
-  onMarkUsed,
-  onUndoBenefit,
-}: {
-  card: CardBenefitProfile;
-  onClose: () => void;
-  onMarkUsed: (cardId: string, benefitId: string) => void;
-  onUndoBenefit: (cardId: string, benefitId: string) => void;
   onToggleBenefitStatus,
   onCallIssuer,
   onLogCancellation,
@@ -905,8 +749,7 @@ function CardDetailDrawer({
                   <div className="flex items-center gap-2 flex-wrap">
                     <BenefitStatusPill
                       status={benefit.status}
-                      onMarkUsed={() => onMarkUsed(card.id, benefit.id)}
-                      onUndo={() => onUndoBenefit(card.id, benefit.id)}
+                      onClick={() => onToggleBenefitStatus(card.id, benefit.id)}
                     />
                     <span className="text-sm font-medium text-gray-800">{benefit.name}</span>
                   </div>
@@ -953,28 +796,11 @@ function ClientSelector({
   onSelect: (client: typeof PLACEHOLDER_CLIENTS[number] | null) => void;
 }) {
   const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Debounce the search query by 250ms
-  const handleQueryChange = useCallback((value: string) => {
-    setQuery(value);
-    setOpen(true);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setDebouncedQuery(value);
-    }, 250);
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, []);
 
   const filtered = useMemo(
-    () => PLACEHOLDER_CLIENTS.filter((c) => c.name.toLowerCase().includes(debouncedQuery.toLowerCase())),
-    [debouncedQuery],
+    () => PLACEHOLDER_CLIENTS.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())),
+    [query],
   );
 
   if (selectedClient) {
@@ -1001,7 +827,7 @@ function ClientSelector({
         type="text"
         placeholder="Search clients..."
         value={query}
-        onChange={(e) => handleQueryChange(e.target.value)}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         className="bg-gray-50 border border-surface-border rounded-lg px-3 py-1.5 text-sm
@@ -1027,7 +853,7 @@ function ClientSelector({
   );
 }
 
-// ─── Export helpers ──────────────────────────────────────────────────────────
+// ─── CSV export helper ───────────────────────────────────────────────────────
 
 function exportCardBenefitsCSV(cards: CardBenefitProfile[]) {
   const header = 'Card Name,Benefit Name,Value,Status,Expiry Date';
@@ -1052,51 +878,6 @@ function exportCardBenefitsCSV(cards: CardBenefitProfile[]) {
   URL.revokeObjectURL(url);
 }
 
-function exportCardBenefitsSummary(cards: CardBenefitProfile[]) {
-  const totalValue = cards.reduce((s, c) => s + c.totalBenefitsValue, 0);
-  const totalUsed = cards.reduce((s, c) => s + c.benefitsUsedValue, 0);
-  const totalFees = cards.reduce((s, c) => s + c.annualFee, 0);
-  const utilPct = totalValue > 0 ? Math.round((totalUsed / totalValue) * 100) : 0;
-
-  const lines: string[] = [
-    '=== CARD BENEFITS SUMMARY ===',
-    `Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
-    '',
-    `Total Cards: ${cards.length}`,
-    `Total Benefits Value: $${totalValue.toLocaleString()}`,
-    `Benefits Used: $${totalUsed.toLocaleString()} (${utilPct}% utilization)`,
-    `Total Annual Fees: $${totalFees.toLocaleString()}`,
-    `Net Value: $${(totalUsed - totalFees).toLocaleString()}`,
-    '',
-  ];
-
-  for (const card of cards) {
-    const usedPct = card.totalBenefitsValue > 0
-      ? Math.round((card.benefitsUsedValue / card.totalBenefitsValue) * 100)
-      : 0;
-    lines.push(`--- ${card.cardName} (${card.issuer}) ---`);
-    lines.push(`  Annual Fee: $${card.annualFee.toLocaleString()} | Renewal: ${formatDate(card.renewalDate)} | Rec: ${card.renewal.toUpperCase()}`);
-    lines.push(`  Benefits: $${card.benefitsUsedValue.toLocaleString()} / $${card.totalBenefitsValue.toLocaleString()} used (${usedPct}%)`);
-    for (const b of card.benefits) {
-      const statusIcon = b.status === 'used' ? '[x]' : '[ ]';
-      const expiry = b.expiryDate ? ` (expires ${formatDate(b.expiryDate)})` : '';
-      lines.push(`    ${statusIcon} ${b.name} — $${b.value.toLocaleString()}${expiry}`);
-      if (b.notes) lines.push(`        Note: ${b.notes}`);
-      if (b.claimData) lines.push(`        Claimed: ${formatDate(b.claimData.date)} for $${b.claimData.amount.toLocaleString()}${b.claimData.notes ? ` — ${b.claimData.notes}` : ''}`);
-    }
-    lines.push('');
-  }
-
-  const text = lines.join('\n');
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'card-benefits-summary.txt';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CardBenefitsPage() {
@@ -1115,29 +896,6 @@ export default function CardBenefitsPage() {
   // State: toast
   const [toast, setToast] = useState<string | null>(null);
 
-  // State: expand all benefits on cards
-  const [expandAll, setExpandAll] = useState(false);
-
-  // State: claim modal
-  const [claimTarget, setClaimTarget] = useState<{ cardId: string; benefitId: string } | null>(null);
-
-  // Get the benefit targeted by the claim modal
-  const claimBenefit = useMemo(() => {
-    if (!claimTarget) return null;
-    const card = cards.find((c) => c.id === claimTarget.cardId);
-    if (!card) return null;
-    return card.benefits.find((b) => b.id === claimTarget.benefitId) ?? null;
-  }, [cards, claimTarget]);
-
-  // Open the claim modal for a benefit
-  const handleMarkUsed = useCallback((cardId: string, benefitId: string) => {
-    setClaimTarget({ cardId, benefitId });
-  }, []);
-
-  // Confirm claim from modal
-  const handleConfirmClaim = useCallback((data: ClaimData) => {
-    if (!claimTarget) return;
-    const { cardId, benefitId } = claimTarget;
   // State: call-issuer modal
   const [callIssuerModalIssuer, setCallIssuerModalIssuer] = useState<string | null>(null);
 
@@ -1190,36 +948,17 @@ export default function CardBenefitsPage() {
     setCards((prev) =>
       prev.map((card) => {
         if (card.id !== cardId) return card;
-        const updatedBenefits = card.benefits.map((b) => {
-          if (b.id !== benefitId) return b;
-          return { ...b, status: 'used' as BenefitStatus, claimData: data };
-        });
-        const newUsedValue = updatedBenefits
-          .filter((b) => b.status === 'used')
-          .reduce((s, b) => s + b.value, 0);
-        return { ...card, benefits: updatedBenefits, benefitsUsedValue: newUsedValue };
+        return {
+          ...card,
+          benefits: card.benefits.map((b) => {
+            if (b.id !== benefitId) return b;
+            const newStatus: BenefitStatus = b.status === 'used' ? 'unused' : 'used';
+            setToast(`Benefit marked as ${newStatus === 'used' ? 'Used' : 'Unused'}`);
+            return { ...b, status: newStatus };
+          }),
+        };
       }),
     );
-    setClaimTarget(null);
-    setToast('Benefit marked as Used');
-  }, [claimTarget]);
-
-  // Undo: revert a benefit to unused
-  const handleUndoBenefit = useCallback((cardId: string, benefitId: string) => {
-    setCards((prev) =>
-      prev.map((card) => {
-        if (card.id !== cardId) return card;
-        const updatedBenefits = card.benefits.map((b) => {
-          if (b.id !== benefitId) return b;
-          return { ...b, status: 'unused' as BenefitStatus, claimData: undefined };
-        });
-        const newUsedValue = updatedBenefits
-          .filter((b) => b.status === 'used')
-          .reduce((s, b) => s + b.value, 0);
-        return { ...card, benefits: updatedBenefits, benefitsUsedValue: newUsedValue };
-      }),
-    );
-    setToast('Benefit reverted to Unused');
   }, []);
 
   // Filtered cards by recommendation
@@ -1273,13 +1012,6 @@ export default function CardBenefitsPage() {
       {/* ── Toast ──────────────────────────────────────────────── */}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
 
-      {/* ── Claim modal ──────────────────────────────────────── */}
-      {claimTarget && claimBenefit && (
-        <ClaimModal
-          benefitName={claimBenefit.name}
-          benefitValue={claimBenefit.value}
-          onConfirm={handleConfirmClaim}
-          onCancel={() => setClaimTarget(null)}
       {/* ── Call Issuer Modal ──────────────────────────────────── */}
       {callIssuerModalIssuer && (
         <CallIssuerModal
@@ -1293,8 +1025,6 @@ export default function CardBenefitsPage() {
         <CardDetailDrawer
           card={selectedCard}
           onClose={() => setSelectedCardId(null)}
-          onMarkUsed={handleMarkUsed}
-          onUndoBenefit={handleUndoBenefit}
           onToggleBenefitStatus={handleToggleBenefitStatus}
           onCallIssuer={handleCallIssuer}
           onLogCancellation={handleLogCancellation}
@@ -1307,46 +1037,25 @@ export default function CardBenefitsPage() {
         <ClientSelector selectedClient={selectedClient} onSelect={setSelectedClient} />
       </div>
 
-      {/* ── Empty state when no client selected ────────────── */}
-      {!selectedClient && (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
-            <span className="text-2xl text-gray-400" aria-hidden="true">&#128179;</span>
-          </div>
-          <p className="text-lg font-semibold text-gray-600">Select a client to view their card benefits.</p>
-          <p className="text-sm text-gray-400 mt-1">
-            Use the search above to find and select a client.
-          </p>
-        </div>
-      )}
-
       {/* ── Page header ──────────────────────────────────────── */}
-      {selectedClient && <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Card Benefits Tracker</h1>
           <p className="text-sm text-gray-400 mt-0.5">
             Benefit utilization, expiry countdowns, and renewal recommendations
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            className="btn-accent btn"
-            onClick={() => exportCardBenefitsSummary(cards)}
-          >
-            <span aria-hidden="true">&#8595;</span>
-            Export Summary
-          </button>
-          <button
-            className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
-            onClick={() => exportCardBenefitsCSV(cards)}
-          >
-            CSV
-          </button>
-        </div>
-      </div>}
+        <button
+          className="btn-accent btn flex-shrink-0"
+          onClick={() => exportCardBenefitsCSV(cards)}
+        >
+          <span aria-hidden="true">↓</span>
+          Export
+        </button>
+      </div>
 
       {/* ── Expiring benefits alert ──────────────────────────── */}
-      {selectedClient && expiringBenefits.length > 0 && (
+      {expiringBenefits.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-lg" role="img" aria-label="Warning">&#9888;&#65039;</span>
@@ -1389,7 +1098,7 @@ export default function CardBenefitsPage() {
       )}
 
       {/* ── KPI strip ────────────────────────────────────────── */}
-      {selectedClient && <section aria-labelledby="benefits-kpi-heading">
+      <section aria-labelledby="benefits-kpi-heading">
         <h2 id="benefits-kpi-heading" className="sr-only">Benefits Key Metrics</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <StatCard
@@ -1433,10 +1142,9 @@ export default function CardBenefitsPage() {
             subtitle="Benefits cover fees"
           />
         </div>
-      </section>}
+      </section>
 
-      {/* ── Renewal legend / filter chips + expand all ────────── */}
-      {selectedClient && <div className="flex items-center justify-between gap-4 flex-wrap">
+      {/* ── Renewal legend / filter chips ────────────────────── */}
       <div className="flex items-center gap-6 text-xs text-gray-500">
         <span className="font-semibold text-gray-700">Renewal recommendation:</span>
         {/* "All" chip */}
@@ -1472,29 +1180,16 @@ export default function CardBenefitsPage() {
         })}
       </div>
 
-      {/* Expand all toggle */}
-      <button
-        onClick={() => setExpandAll((v) => !v)}
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600
-                   hover:text-brand-navy border border-surface-border rounded-lg px-3 py-1.5
-                   transition-colors flex-shrink-0"
-      >
-        {expandAll ? 'Collapse all \u2191' : 'Expand all \u2193'}
-      </button>
-      </div>}
-
       {/* ── Benefits grid ────────────────────────────────────── */}
-      {selectedClient && <section aria-labelledby="benefits-grid-heading">
+      <section aria-labelledby="benefits-grid-heading">
         <h2 id="benefits-grid-heading" className="sr-only">Card Benefits Grid</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredCards.map((card) => (
             <CardBenefitTile
               key={card.id}
               card={card}
-              onMarkUsed={handleMarkUsed}
-              onUndoBenefit={handleUndoBenefit}
+              onToggleBenefitStatus={handleToggleBenefitStatus}
               onClick={() => setSelectedCardId(card.id)}
-              forceExpanded={expandAll}
               onCallIssuer={handleCallIssuer}
               onLogCancellation={handleLogCancellation}
               tileRef={(el) => { cardTileRefs.current[card.id] = el; }}
@@ -1507,10 +1202,10 @@ export default function CardBenefitsPage() {
             No cards match the selected filter.
           </p>
         )}
-      </section>}
+      </section>
 
       {/* ── Benefits value vs fee bar chart ──────────────────── */}
-      {selectedClient && <SectionCard
+      <SectionCard
         title="Benefits Value vs Annual Fee"
         subtitle="Bar comparison per card — green = benefits value, red = annual fee"
       >
@@ -1588,7 +1283,7 @@ export default function CardBenefitsPage() {
             Annual fee
           </span>
         </div>
-      </SectionCard>}
+      </SectionCard>
     </div>
   );
 }
