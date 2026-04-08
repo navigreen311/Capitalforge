@@ -9,7 +9,8 @@
 // Full contract analysis view. Critical action banners.
 // ============================================================
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import UploadContractModal, { type UploadContractData } from '@/components/contracts/UploadContractModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -256,120 +257,6 @@ function RiskScoreGauge({ score, size = 88 }: { score: number; size?: number }) 
         <text x={cx} y={cy + size * 0.16} textAnchor="middle" fontSize={size * 0.09} fill="#6b7280">/100</text>
       </svg>
       <p className="text-2xs font-semibold mt-0.5" style={{ color }}>{scoreLabel(score)}</p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Upload Modal
-// ---------------------------------------------------------------------------
-
-function UploadModal({ open, onClose, onUpload }: {
-  open: boolean;
-  onClose: () => void;
-  onUpload: (file: File, client: string, contractType: string) => void;
-}) {
-  const [dragActive, setDragActive] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [client, setClient] = useState(CLIENTS[1].name);
-  const [contractType, setContractType] = useState(CONTRACT_TYPES[0]);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  if (!open) return null;
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) setSelectedFile(file);
-  };
-
-  const handleSubmit = () => {
-    if (!selectedFile) return;
-    onUpload(selectedFile, client, contractType);
-    setSelectedFile(null);
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg mx-4 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-white">Upload Contract for Analysis</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
-        </div>
-
-        {/* Drop zone */}
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
-          onClick={() => fileRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors mb-4 ${
-            dragActive ? 'border-yellow-500 bg-yellow-950/30' : 'border-gray-700 bg-gray-800 hover:border-gray-500'
-          }`}
-        >
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,.docx,.doc"
-            className="hidden"
-            onChange={(e) => { if (e.target.files?.[0]) setSelectedFile(e.target.files[0]); }}
-          />
-          {selectedFile ? (
-            <div>
-              <p className="text-sm text-yellow-400 font-semibold">{selectedFile.name}</p>
-              <p className="text-xs text-gray-400 mt-1">{(selectedFile.size / 1024).toFixed(1)} KB</p>
-            </div>
-          ) : (
-            <div>
-              <p className="text-gray-400 text-sm mb-1">Drop contract file here or click to browse</p>
-              <p className="text-gray-500 text-xs">Supports PDF, DOCX, DOC</p>
-            </div>
-          )}
-        </div>
-
-        {/* Client selector */}
-        <div className="mb-3">
-          <label className="block text-xs text-gray-400 uppercase tracking-wide mb-1 font-semibold">Client</label>
-          <select
-            value={client}
-            onChange={(e) => setClient(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
-          >
-            {CLIENTS.filter((c) => c.id !== 'all').map((c) => (
-              <option key={c.id} value={c.name}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Contract type */}
-        <div className="mb-5">
-          <label className="block text-xs text-gray-400 uppercase tracking-wide mb-1 font-semibold">Contract Type</label>
-          <select
-            value={contractType}
-            onChange={(e) => setContractType(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
-          >
-            {CONTRACT_TYPES.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-        </div>
-
-        <button
-          onClick={handleSubmit}
-          disabled={!selectedFile}
-          className={`w-full py-2.5 rounded-lg text-sm font-bold transition-colors ${
-            selectedFile
-              ? 'text-gray-900 hover:brightness-110'
-              : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-          }`}
-          style={selectedFile ? { backgroundColor: '#C9A84C', color: '#0A1628' } : {}}
-        >
-          Upload &amp; Analyze
-        </button>
-      </div>
     </div>
   );
 }
@@ -689,22 +576,24 @@ export default function ContractsPage() {
   const [compareB, setCompareB] = useState<string>(PLACEHOLDER_CONTRACTS[1].id);
   const [comparisonActive, setComparisonActive] = useState(false);
 
-  const handleUpload = useCallback((file: File, client: string, contractType: string) => {
+  const handleUpload = useCallback((data: UploadContractData) => {
     const newId = `ctr_${Date.now()}`;
     const newContract: AnalyzedContract = {
       id: newId,
-      fileName: file.name,
-      businessName: client,
-      contractType,
+      fileName: data.file?.name || 'unknown.pdf',
+      businessName: data.client,
+      contractType: data.contractType,
       uploadedAt: new Date().toISOString(),
       riskScore: 0,
       redFlags: [],
       missingProtections: [],
-      status: 'analyzing',
+      status: data.runAiAnalysis ? 'analyzing' : 'pending',
     };
     setContracts((prev) => [newContract, ...prev]);
+    showToast(data.runAiAnalysis ? 'Contract uploaded — AI analysis running' : 'Contract uploaded successfully');
 
-    // Simulate analysis completing after 2s
+    // Simulate analysis completing after 2s (only if AI analysis requested)
+    if (!data.runAiAnalysis) return;
     setTimeout(() => {
       setContracts((prev) =>
         prev.map((c) =>
@@ -766,10 +655,10 @@ export default function ContractsPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
       {/* Upload modal */}
-      <UploadModal
+      <UploadContractModal
         open={contractUploadOpen}
         onClose={() => setContractUploadOpen(false)}
-        onUpload={handleUpload}
+        onSubmit={handleUpload}
       />
 
       {/* Red flags slide-over */}
