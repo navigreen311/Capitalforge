@@ -6,6 +6,7 @@
 // indicator, and prioritized action items.
 // ============================================================
 
+import Link from 'next/link';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard } from '@/components/ui/card';
@@ -291,12 +292,12 @@ export function PortfolioHealthWidget() {
           )}
 
           {/* View full breakdown link */}
-          <a
+          <Link
             href="/portfolio"
             className="btn-outline btn btn-sm w-full justify-center"
           >
             View Full Breakdown
-          </a>
+          </Link>
         </div>
       )}
     </SectionCard>

@@ -7,6 +7,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -164,7 +165,7 @@ export function SetupChecklist() {
               </button>
 
               {/* Label + link */}
-              <a
+              <Link
                 href={item.href}
                 className={`text-sm flex-1 transition-colors ${
                   isChecked
@@ -173,15 +174,15 @@ export function SetupChecklist() {
                 }`}
               >
                 {item.label}
-              </a>
+              </Link>
 
-              {/* Arrow */}
-              {!isChecked && !isAlwaysChecked && (
-                <a href={item.href} className="text-gray-300 hover:text-[#C9A84C] transition-colors">
+              {/* Arrow — navigates to step page */}
+              {!isAlwaysChecked && (
+                <Link href={item.href} className="text-gray-300 hover:text-[#C9A84C] transition-colors">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
-                </a>
+                </Link>
               )}
             </div>
           );
