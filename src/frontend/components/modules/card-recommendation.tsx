@@ -41,6 +41,12 @@ export interface CardRecommendationProps {
   warnings?: IssuerRuleWarning[];
   scoreBreakdown?: ScoreBreakdown[];
   className?: string;
+  /** Whether this card is from a credit union issuer */
+  isCreditUnion?: boolean;
+  /** Bureau pulled by this CU (e.g. "TransUnion", "Equifax") */
+  bureauPull?: string;
+  /** Membership note for CU cards */
+  membershipNote?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -112,6 +118,9 @@ export function CardRecommendation({
   warnings = [],
   scoreBreakdown = [],
   className = '',
+  isCreditUnion = false,
+  bureauPull,
+  membershipNote,
 }: CardRecommendationProps) {
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const prob = Math.min(Math.max(Math.round(approvalProbability), 0), 100);
@@ -146,8 +155,13 @@ export function CardRecommendation({
           </div>
         </div>
 
-        {/* Network badge + score tooltip trigger */}
+        {/* Network badge + CU badge + score tooltip trigger */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {isCreditUnion && (
+            <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200">
+              CU
+            </span>
+          )}
           <span
             className={`
               inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border
@@ -213,6 +227,25 @@ export function CardRecommendation({
           {cautionWarnings.map((w) => (
             <WarningRow key={w.rule} warning={w} />
           ))}
+        </div>
+      )}
+
+      {/* ── Credit Union Info ──────────────────────────────── */}
+      {isCreditUnion && (bureauPull || membershipNote) && (
+        <div className="border-t border-teal-100 bg-teal-50/30 px-5 py-3 space-y-1.5">
+          {bureauPull && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wide">Bureau Pull:</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200">
+                {bureauPull}
+              </span>
+            </div>
+          )}
+          {membershipNote && (
+            <p className="text-xs text-teal-700 leading-relaxed">
+              {membershipNote}
+            </p>
+          )}
         </div>
       )}
     </div>
