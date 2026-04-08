@@ -184,11 +184,15 @@ function IntegrationCard({
   onConnect,
   onDisconnect,
   onTest,
+  testing,
+  testResult,
 }: {
   integration: Integration;
   onConnect: (id: string) => void;
   onDisconnect: (id: string) => void;
   onTest: (id: string) => void;
+  testing: boolean;
+  testResult: { ok: boolean; ms: number } | null;
 }) {
   const { status } = integration;
 
@@ -221,14 +225,24 @@ function IntegrationCard({
             Last synced: {new Date(integration.lastSynced).toLocaleString()}
           </p>
         )}
+        {/* Test result inline feedback */}
+        {testResult && (
+          <p className={`text-[11px] font-semibold mt-1.5 ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+            {testResult.ok ? `\u2713 Connection healthy (${testResult.ms}ms)` : '\u2717 Connection error'}
+          </p>
+        )}
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {status === 'connected' && (
           <button
             onClick={() => onTest(integration.id)}
-            className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 transition-colors"
+            disabled={testing}
+            className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
-            Test
+            {testing && (
+              <span className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin inline-block" />
+            )}
+            {testing ? 'Testing...' : 'Test'}
           </button>
         )}
         <button
@@ -525,23 +539,53 @@ function SettingsPageInner() {
   };
 
   // ── Integration state ──────────────────────────────────────
+  // API-key integrations open a key-input modal; OAuth integrations do a redirect flow
+  const API_KEY_INTEGRATIONS = new Set(['voiceforge', 'visionaudioforge', 'twilio', 'sendgrid', 'stripe']);
+  const OAUTH_INTEGRATIONS = new Set(['docusign', 'slack', 'plaid']);
+
   const [integrations, setIntegrations] = useState<Integration[]>(INTEGRATIONS_INIT);
   const [connectModal, setConnectModal] = useState<{ id: string; provider: string; phase: 'redirecting' | 'done' } | null>(null);
+  const [apiKeyModal, setApiKeyModal] = useState<{ id: string; label: string } | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiKeySaving, setApiKeySaving] = useState(false);
   const [disconnectModal, setDisconnectModal] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<{ id: string; ms: number } | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ id: string; ok: boolean; ms: number } | null>(null);
 
   const handleConnect = (id: string) => {
     const integ = integrations.find((i) => i.id === id);
     if (!integ) return;
-    setConnectModal({ id, provider: integ.label, phase: 'redirecting' });
-    setTimeout(() => {
-      setIntegrations((prev) => prev.map((i) => i.id === id ? { ...i, status: 'connected', lastSynced: new Date().toISOString() } : i));
-      setConnectModal((prev) => prev ? { ...prev, phase: 'done' } : null);
+
+    if (API_KEY_INTEGRATIONS.has(id)) {
+      // API key type: open modal with key input
+      setApiKeyInput('');
+      setApiKeyModal({ id, label: integ.label });
+    } else {
+      // OAuth type: show toast and simulate redirect
+      toast.show(`Redirecting to ${integ.label} OAuth...`);
+      setConnectModal({ id, provider: integ.label, phase: 'redirecting' });
       setTimeout(() => {
-        setConnectModal(null);
-        toast.show(`${integ.label} connected successfully`);
-      }, 600);
-    }, 1500);
+        setIntegrations((prev) => prev.map((i) => i.id === id ? { ...i, status: 'connected', lastSynced: new Date().toISOString() } : i));
+        setConnectModal((prev) => prev ? { ...prev, phase: 'done' } : null);
+        setTimeout(() => {
+          setConnectModal(null);
+          toast.show(`${integ.label} connected`);
+        }, 600);
+      }, 1500);
+    }
+  };
+
+  const handleApiKeySave = () => {
+    if (!apiKeyModal || !apiKeyInput.trim()) return;
+    setApiKeySaving(true);
+    setTimeout(() => {
+      setIntegrations((prev) => prev.map((i) => i.id === apiKeyModal.id ? { ...i, status: 'connected', lastSynced: new Date().toISOString() } : i));
+      setApiKeySaving(false);
+      const label = apiKeyModal.label;
+      setApiKeyModal(null);
+      setApiKeyInput('');
+      toast.show(`${label} connected`);
+    }, 800);
   };
 
   const confirmDisconnect = () => {
@@ -553,9 +597,15 @@ function SettingsPageInner() {
   };
 
   const handleTest = (id: string) => {
-    const ms = 80 + Math.floor(Math.random() * 120);
-    setTestResult({ id, ms });
-    setTimeout(() => setTestResult(null), 4000);
+    setTestingId(id);
+    setTestResult(null);
+    setTimeout(() => {
+      const ms = 80 + Math.floor(Math.random() * 120);
+      const ok = Math.random() > 0.15; // 85% success rate for demo
+      setTestingId(null);
+      setTestResult({ id, ok, ms });
+      setTimeout(() => setTestResult(null), 5000);
+    }, 1000);
   };
 
   // Group integrations by category
@@ -998,18 +1048,50 @@ function SettingsPageInner() {
       {/* ── Integrations Tab ────────────────────────────────── */}
       {activeTab === 'integrations' && (
         <section>
-          {/* Connect modal */}
+          {/* OAuth Connect modal */}
           {connectModal && (
             <Modal title={connectModal.phase === 'redirecting' ? 'Connecting...' : 'Connected!'} onClose={() => setConnectModal(null)}>
               <div className="text-center py-4">
                 {connectModal.phase === 'redirecting' ? (
                   <>
                     <div className="w-10 h-10 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <p className="text-sm text-gray-300">Redirecting to {connectModal.provider}...</p>
+                    <p className="text-sm text-gray-300">Redirecting to {connectModal.provider} OAuth...</p>
                   </>
                 ) : (
                   <p className="text-sm text-emerald-300">Successfully connected!</p>
                 )}
+              </div>
+            </Modal>
+          )}
+
+          {/* API Key Connect modal */}
+          {apiKeyModal && (
+            <Modal title={`Connect ${apiKeyModal.label}`} onClose={() => { setApiKeyModal(null); setApiKeyInput(''); }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5">API Key</label>
+                  <input
+                    type="password"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder={`Enter your ${apiKeyModal.label} API key`}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/40"
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleApiKeySave(); }}
+                  />
+                  <p className="text-[11px] text-gray-600 mt-1">Your key is encrypted and stored securely.</p>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => { setApiKeyModal(null); setApiKeyInput(''); }} className={grayBtn}>Cancel</button>
+                  <button
+                    onClick={handleApiKeySave}
+                    disabled={!apiKeyInput.trim() || apiKeySaving}
+                    className={`${goldBtn} disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2`}
+                  >
+                    {apiKeySaving && <span className="w-3.5 h-3.5 border-2 border-[#0A1628] border-t-transparent rounded-full animate-spin inline-block" />}
+                    {apiKeySaving ? 'Connecting...' : 'Save & Connect'}
+                  </button>
+                </div>
               </div>
             </Modal>
           )}
@@ -1032,19 +1114,15 @@ function SettingsPageInner() {
               <h2 className="text-base font-semibold text-white mb-3">{category}</h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {items.map((i) => (
-                  <div key={i.id} className="relative">
-                    <IntegrationCard
-                      integration={i}
-                      onConnect={handleConnect}
-                      onDisconnect={(id) => setDisconnectModal(id)}
-                      onTest={handleTest}
-                    />
-                    {testResult?.id === i.id && (
-                      <div className="absolute top-2 right-2 bg-emerald-900 border border-emerald-700 text-emerald-300 text-[11px] font-semibold px-2.5 py-1 rounded-lg">
-                        Healthy {testResult.ms}ms
-                      </div>
-                    )}
-                  </div>
+                  <IntegrationCard
+                    key={i.id}
+                    integration={i}
+                    onConnect={handleConnect}
+                    onDisconnect={(id) => setDisconnectModal(id)}
+                    onTest={handleTest}
+                    testing={testingId === i.id}
+                    testResult={testResult?.id === i.id ? { ok: testResult.ok, ms: testResult.ms } : null}
+                  />
                 ))}
               </div>
             </div>
