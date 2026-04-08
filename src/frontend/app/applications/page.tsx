@@ -8,9 +8,13 @@
 // Drag-and-drop between columns to update status.
 // ============================================================
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { applicationsApi } from '../../lib/api-client';
 import { ApplicationDetailDrawer } from '../../components/applications/ApplicationDetailDrawer';
+import { ApplicationFilterBar } from '../../components/applications/ApplicationFilterBar';
+import type { ApplicationFilters } from '../../components/applications/ApplicationFilterBar';
+import ApplicationTableView from '../../components/applications/ApplicationTableView';
+import type { ApplicationRow } from '../../components/applications/ApplicationTableView';
 import NewApplicationWizardModal from '../../components/applications/wizard/NewApplicationWizardModal';
 import type { ApplicationStatus } from '../../../shared/types';
 
@@ -165,6 +169,43 @@ function AppCard({
 }
 
 // ---------------------------------------------------------------------------
+// Status filter pills
+// ---------------------------------------------------------------------------
+
+const STATUS_FILTERS: { value: ApplicationStatus | 'all'; label: string }[] = [
+  { value: 'all',             label: 'All' },
+  { value: 'draft',           label: 'Draft' },
+  { value: 'pending_consent', label: 'Pending Consent' },
+  { value: 'submitted',       label: 'Submitted' },
+  { value: 'approved',        label: 'Approved' },
+  { value: 'declined',        label: 'Declined' },
+];
+
+// ---------------------------------------------------------------------------
+// Map ApplicationCard → ApplicationRow (for table view)
+// ---------------------------------------------------------------------------
+
+function cardToRow(card: ApplicationCard): ApplicationRow {
+  return {
+    id: card.id,
+    client_id: card.businessId,
+    client_name: card.businessName,
+    card_product: card.cardProduct,
+    issuer: card.issuer,
+    round_number: null,
+    round_id: null,
+    requested: card.requestedLimit,
+    approved: card.approvedLimit ?? null,
+    status: card.status,
+    apr_days_remaining: null,
+    submitted_date: card.createdAt,
+    advisor: '',
+    consent_status: card.status === 'pending_consent' ? 'pending' : 'none',
+    acknowledgment_status: 'none',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -173,6 +214,30 @@ export default function ApplicationsPage() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const dragId = useRef<string | null>(null);
+
+  // View mode state: kanban or table
+  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
+
+  // Status filter for table view
+  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | 'all'>('all');
+
+  // Filter bar filters
+  const [filters, setFilters] = useState<ApplicationFilters>({
+    client: '',
+    issuer: '',
+    advisor: '',
+    round: '',
+  });
+
+  const hasActiveFilters = Object.values(filters).some((v) => v !== '');
+
+  const handleFilterChange = useCallback((key: string, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    setFilters({ client: '', issuer: '', advisor: '', round: '' });
+  }, []);
 
   // Drawer state
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
@@ -231,6 +296,17 @@ export default function ApplicationsPage() {
   const byStatus = (status: ApplicationStatus) =>
     filtered.filter((a) => a.status === status);
 
+  // Apply status filter for table view
+  const statusFiltered = statusFilter === 'all'
+    ? filtered
+    : filtered.filter((a) => a.status === statusFilter);
+
+  // Map to table rows
+  const tableRows: ApplicationRow[] = useMemo(
+    () => statusFiltered.map(cardToRow),
+    [statusFiltered],
+  );
+
   const totalApproved = apps
     .filter((a) => a.status === 'approved')
     .reduce((s, a) => s + (a.approvedLimit ?? a.requestedLimit), 0);
@@ -263,59 +339,108 @@ export default function ApplicationsPage() {
         </div>
       </div>
 
+      {/* Filter bar with view toggle */}
+      <ApplicationFilterBar
+        filters={filters}
+        onFilterChange={handleFilterChange}
+        onClearFilters={handleClearFilters}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        hasActiveFilters={hasActiveFilters}
+      />
+
       {loading && (
         <p className="text-center text-gray-400 py-12">Loading pipeline...</p>
       )}
 
-      {/* Kanban board */}
-      {!loading && (
-        <div className="flex gap-4 overflow-x-auto pb-4">
-          {COLUMNS.map((col) => {
-            const cards = byStatus(col.status);
-            return (
-              <div
-                key={col.status}
-                onDrop={(e) => handleDrop(e, col.status)}
-                onDragOver={handleDragOver}
-                className="w-64 flex flex-col gap-2 flex-shrink-0"
-              >
-                {/* Column header */}
-                <div className="flex items-center gap-2 pb-2 mb-1 border-b border-surface-border">
-                  <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
-                  <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
-                    {col.label}
+      {/* Table view */}
+      {!loading && viewMode === 'table' && (
+        <>
+          {/* Status filter pills */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {STATUS_FILTERS.map((sf) => {
+              const isActive = statusFilter === sf.value;
+              const count = sf.value === 'all'
+                ? filtered.length
+                : filtered.filter((a) => a.status === sf.value).length;
+              return (
+                <button
+                  key={sf.value}
+                  onClick={() => setStatusFilter(sf.value)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                    isActive
+                      ? 'bg-brand-navy text-white border-brand-navy'
+                      : 'bg-white text-gray-600 border-surface-border hover:bg-gray-50 hover:text-gray-800'
+                  }`}
+                >
+                  {sf.label}
+                  <span className={`ml-1.5 ${isActive ? 'text-white/70' : 'text-gray-400'}`}>
+                    {count}
                   </span>
-                  <span className="ml-auto text-xs font-semibold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                    {cards.length}
-                  </span>
-                </div>
+                </button>
+              );
+            })}
+          </div>
 
-                {/* Cards */}
-                <div className="min-h-[120px] flex flex-col gap-2">
-                  {cards.map((card) => (
-                    <AppCard
-                      key={card.id}
-                      card={card}
-                      onDragStart={handleDragStart}
-                      onClick={() => setSelectedAppId(card.id)}
-                    />
-                  ))}
-
-                  {cards.length === 0 && (
-                    <div className="rounded-xl border-2 border-dashed border-gray-200 p-4 text-center text-xs text-gray-400">
-                      Drop here
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          {/* Table */}
+          <ApplicationTableView
+            applications={tableRows}
+            onCardClick={(appId) => setSelectedAppId(appId)}
+          />
+        </>
       )}
 
-      <p className="text-xs text-gray-400">
-        Tip: drag cards between columns to update status. Click a card to view details.
-      </p>
+      {/* Kanban board */}
+      {!loading && viewMode === 'kanban' && (
+        <>
+          <div className="flex gap-4 overflow-x-auto pb-4">
+            {COLUMNS.map((col) => {
+              const cards = byStatus(col.status);
+              return (
+                <div
+                  key={col.status}
+                  onDrop={(e) => handleDrop(e, col.status)}
+                  onDragOver={handleDragOver}
+                  className="w-64 flex flex-col gap-2 flex-shrink-0"
+                >
+                  {/* Column header */}
+                  <div className="flex items-center gap-2 pb-2 mb-1 border-b border-surface-border">
+                    <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
+                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                      {col.label}
+                    </span>
+                    <span className="ml-auto text-xs font-semibold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                      {cards.length}
+                    </span>
+                  </div>
+
+                  {/* Cards */}
+                  <div className="min-h-[120px] flex flex-col gap-2">
+                    {cards.map((card) => (
+                      <AppCard
+                        key={card.id}
+                        card={card}
+                        onDragStart={handleDragStart}
+                        onClick={() => setSelectedAppId(card.id)}
+                      />
+                    ))}
+
+                    {cards.length === 0 && (
+                      <div className="rounded-xl border-2 border-dashed border-gray-200 p-4 text-center text-xs text-gray-400">
+                        Drop here
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-xs text-gray-400">
+            Tip: drag cards between columns to update status. Click a card to view details.
+          </p>
+        </>
+      )}
 
       {/* Application Detail Drawer */}
       <ApplicationDetailDrawer
