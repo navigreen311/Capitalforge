@@ -233,6 +233,7 @@ export default function CommCompliancePage() {
 
       {/* ── Communication Log Tab ─────────────────────────────────── */}
       {activeTab === 'log' && (
+        <div className="rounded-xl border border-gray-800 bg-[#0f1d32] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -272,6 +273,7 @@ export default function CommCompliancePage() {
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 
@@ -314,6 +316,7 @@ export default function CommCompliancePage() {
 
       {/* ── Consent Audit Tab ─────────────────────────────────────── */}
       {activeTab === 'consent' && (
+        <div className="rounded-xl border border-gray-800 bg-[#0f1d32] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -343,6 +346,7 @@ export default function CommCompliancePage() {
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 
