@@ -3,10 +3,10 @@
 // ============================================================
 // /platform/workflows — Platform Workflow Manager
 // Workflow list with enable/disable toggle, pre-built workflows,
-// trigger/condition/action display, add workflow form
+// trigger/condition/action display, structured add workflow form
 // ============================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -20,6 +20,193 @@ interface Workflow {
   lastTriggered: string | null;
   createdAt: string;
 }
+
+// ── Trigger / Condition / Action definitions ────────────────
+
+type TriggerKey =
+  | 'apr_expires'
+  | 'readiness_score_exceeds'
+  | 'application_declined'
+  | 'ack_unsigned'
+  | 'payment_missed'
+  | 'utilization_exceeds'
+  | 'round_completed'
+  | 'hardship_added'
+  | 'referral_converted'
+  | 'compliance_failed';
+
+interface TriggerDef {
+  key: TriggerKey;
+  label: string;
+  /** If set, the trigger accepts an N-value parameter */
+  nParam?: { label: string; placeholder: string; defaultValue: string; suffix?: string };
+  /** Template for constructing the trigger string. {n} is replaced with N-value */
+  template: string;
+  /** Context-sensitive conditions offered for this trigger */
+  conditions: string[];
+  /** Default condition index */
+  defaultConditionIdx: number;
+  /** Suggested workflow name */
+  defaultName: string;
+  /** Suggested action key */
+  defaultAction: string;
+}
+
+const TRIGGERS: TriggerDef[] = [
+  {
+    key: 'apr_expires',
+    label: 'APR expires',
+    nParam: { label: 'Days before expiry', placeholder: '30', defaultValue: '30', suffix: 'days' },
+    template: 'APR expires in {n} days',
+    conditions: [
+      'Client has active card with intro APR',
+      'Client has active balance transfer',
+      'Client has any open tradeline',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'APR Expiry Alert',
+    defaultAction: 'action_queue',
+  },
+  {
+    key: 'readiness_score_exceeds',
+    label: 'Readiness score exceeds',
+    nParam: { label: 'Score threshold', placeholder: '75', defaultValue: '75' },
+    template: 'Client readiness score exceeds {n}',
+    conditions: [
+      'Last funded round > 90 days ago',
+      'Client has no pending applications',
+      'All tradelines in good standing',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'Restack Ready Flag',
+    defaultAction: 'flag_client',
+  },
+  {
+    key: 'application_declined',
+    label: 'Application declined',
+    template: 'Application is declined',
+    conditions: [
+      'Issuer allows reconsideration',
+      'Client has alternative issuer options',
+      'Decline reason is addressable',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'Decline Reconsideration',
+    defaultAction: 'generate_document',
+  },
+  {
+    key: 'ack_unsigned',
+    label: 'Acknowledgment unsigned',
+    nParam: { label: 'Days overdue', placeholder: '7', defaultValue: '7', suffix: 'days' },
+    template: 'Acknowledgment unsigned for {n} days',
+    conditions: [
+      'Client has pending acknowledgment',
+      'Client is in active onboarding',
+      'No prior reminder sent in last 48h',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'Unsigned Ack Reminder',
+    defaultAction: 'email_client',
+  },
+  {
+    key: 'payment_missed',
+    label: 'Payment missed',
+    nParam: { label: 'Days overdue', placeholder: '7', defaultValue: '7', suffix: 'days' },
+    template: 'Payment missed by {n} days',
+    conditions: [
+      'Client status is active',
+      'Balance exceeds minimum threshold',
+      'No hardship plan in effect',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'Late Payment Alert',
+    defaultAction: 'email_advisor',
+  },
+  {
+    key: 'utilization_exceeds',
+    label: 'Utilization exceeds',
+    nParam: { label: 'Utilization %', placeholder: '30', defaultValue: '30', suffix: '%' },
+    template: 'Credit utilization exceeds {n}%',
+    conditions: [
+      'Client is in active funding round',
+      'Client has credit score goal',
+      'Tradeline age > 6 months',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'High Utilization Warning',
+    defaultAction: 'action_queue',
+  },
+  {
+    key: 'round_completed',
+    label: 'Round completed',
+    template: 'Funding round is completed',
+    conditions: [
+      'All tradelines funded and verified',
+      'Client has remaining credit capacity',
+      'No outstanding compliance items',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'Round Completion Follow-up',
+    defaultAction: 'slack',
+  },
+  {
+    key: 'hardship_added',
+    label: 'Hardship added',
+    template: 'Hardship plan is added to client',
+    conditions: [
+      'Client has active tradelines',
+      'Client has upcoming payments',
+      'No prior hardship on file',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'Hardship Notification',
+    defaultAction: 'email_advisor',
+  },
+  {
+    key: 'referral_converted',
+    label: 'Referral converted',
+    template: 'Referral converts to funded client',
+    conditions: [
+      'Referrer is active client',
+      'Referral completed first round',
+      'Referral passed compliance check',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'Referral Reward Trigger',
+    defaultAction: 'action_queue',
+  },
+  {
+    key: 'compliance_failed',
+    label: 'Compliance failed',
+    template: 'Compliance check fails',
+    conditions: [
+      'Client has pending applications',
+      'Client is in active round',
+      'Failure is blocking-level severity',
+    ],
+    defaultConditionIdx: 0,
+    defaultName: 'Compliance Failure Alert',
+    defaultAction: 'compliance_task',
+  },
+];
+
+interface ActionDef {
+  key: string;
+  label: string;
+}
+
+const ACTIONS: ActionDef[] = [
+  { key: 'action_queue', label: 'Create action queue item' },
+  { key: 'voiceforge', label: 'Send VoiceForge campaign' },
+  { key: 'email_client', label: 'Email client' },
+  { key: 'email_advisor', label: 'Email advisor' },
+  { key: 'generate_document', label: 'Generate document' },
+  { key: 'flag_client', label: 'Flag client' },
+  { key: 'compliance_task', label: 'Create compliance task' },
+  { key: 'docusign', label: 'Send DocuSign envelope' },
+  { key: 'slack', label: 'Send Slack notification' },
+  { key: 'webhook', label: 'Fire webhook' },
+];
 
 // ── Fallback mock data ──────────────────────────────────────
 
@@ -57,6 +244,38 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
         }`}
       />
     </button>
+  );
+}
+
+// ── Styled Select ────────────────────────────────────────────
+
+function FormSelect({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label className="text-xs text-gray-400 block mb-1">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#C9A84C] appearance-none"
+      >
+        <option value="" disabled>{placeholder ?? 'Select...'}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -119,16 +338,48 @@ export default function PlatformWorkflowsPage() {
   // Add workflow form state
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState('');
-  const [formTrigger, setFormTrigger] = useState('');
+  const [formTriggerKey, setFormTriggerKey] = useState('');
+  const [formNValue, setFormNValue] = useState('');
   const [formCondition, setFormCondition] = useState('');
   const [formAction, setFormAction] = useState('');
+
+  const selectedTrigger = useMemo(
+    () => TRIGGERS.find((t) => t.key === formTriggerKey) ?? null,
+    [formTriggerKey],
+  );
+
+  const conditionOptions = useMemo(
+    () => selectedTrigger?.conditions.map((c) => ({ value: c, label: c })) ?? [],
+    [selectedTrigger],
+  );
+
+  // When trigger changes, auto-populate defaults
+  const handleTriggerChange = useCallback((key: string) => {
+    setFormTriggerKey(key);
+    const def = TRIGGERS.find((t) => t.key === key);
+    if (def) {
+      setFormName(def.defaultName);
+      setFormCondition(def.conditions[def.defaultConditionIdx]);
+      setFormAction(def.defaultAction);
+      setFormNValue(def.nParam?.defaultValue ?? '');
+    } else {
+      setFormCondition('');
+      setFormAction('');
+      setFormNValue('');
+    }
+  }, []);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) _h['Authorization'] = `Bearer ${token}`;
-        const res = await fetch('/api/platform/workflows', { headers: _h });
+      const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) _h['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/platform/workflows', { headers: _h });
       const json = await res.json();
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         setWorkflows(json.data);
@@ -144,53 +395,94 @@ export default function PlatformWorkflowsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleToggle = async (id: string, newStatus: 'active' | 'paused') => {
+  // ── 5A: Optimistic toggle with mock PATCH ─────────────────
+  const handleToggle = useCallback(async (id: string, newStatus: 'active' | 'paused') => {
+    // Optimistic update — immediately reflect in UI
+    setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, status: newStatus } : w)));
+    const label = newStatus === 'active' ? 'activated' : 'paused';
+    showToast(`Workflow ${label}`);
+
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) _h['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch(`/api/platform/workflows/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _h,
         body: JSON.stringify({ status: newStatus }),
       });
       const json = await res.json();
-      if (json.success) {
-        setWorkflows(prev => prev.map(w => w.id === id ? { ...w, status: newStatus } : w));
-        setToast(`Workflow ${newStatus === 'active' ? 'enabled' : 'paused'}`);
-        setTimeout(() => setToast(null), 3000);
+      if (!json.success) {
+        // Revert on server failure
+        const revertStatus = newStatus === 'active' ? 'paused' : 'active';
+        setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, status: revertStatus } : w)));
+        showToast('Failed to update workflow — reverted');
       }
     } catch {
-      // ignore
+      // Mock API: treat network error as success (mock mode)
+      // In production this would revert the optimistic update
     }
-  };
+  }, [showToast]);
 
-  const handleCreate = async () => {
-    if (!formName.trim() || !formTrigger.trim() || !formCondition.trim() || !formAction.trim()) return;
+  // ── Build trigger string from form state ───────────────────
+  const buildTriggerString = useCallback((): string => {
+    if (!selectedTrigger) return '';
+    if (selectedTrigger.nParam) {
+      return selectedTrigger.template.replace('{n}', formNValue || selectedTrigger.nParam.defaultValue);
+    }
+    return selectedTrigger.template;
+  }, [selectedTrigger, formNValue]);
+
+  const handleCreate = useCallback(async () => {
+    const triggerStr = buildTriggerString();
+    const actionLabel = ACTIONS.find((a) => a.key === formAction)?.label ?? formAction;
+    if (!formName.trim() || !triggerStr || !formCondition || !formAction) return;
+
+    const newWorkflow: Workflow = {
+      id: `wf_${Date.now()}`,
+      name: formName.trim(),
+      trigger: triggerStr,
+      condition: formCondition,
+      action: actionLabel,
+      status: 'active',
+      lastTriggered: null,
+      createdAt: new Date().toISOString(),
+    };
+
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) _h['Authorization'] = `Bearer ${token}`;
-        const res = await fetch('/api/platform/workflows', {
+      const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) _h['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/platform/workflows', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: formName, trigger: formTrigger, condition: formCondition, action: formAction }),
+        headers: _h,
+        body: JSON.stringify({ name: newWorkflow.name, trigger: newWorkflow.trigger, condition: newWorkflow.condition, action: newWorkflow.action }),
       });
       const json = await res.json();
       if (json.success) {
-        setWorkflows(prev => [...prev, json.data]);
-        setShowForm(false);
-        setFormName('');
-        setFormTrigger('');
-        setFormCondition('');
-        setFormAction('');
-        setToast('Workflow created');
-        setTimeout(() => setToast(null), 3000);
+        setWorkflows((prev) => [...prev, json.data]);
+      } else {
+        // Fallback: add locally
+        setWorkflows((prev) => [...prev, newWorkflow]);
       }
     } catch {
-      // ignore
+      // Mock mode: add locally
+      setWorkflows((prev) => [...prev, newWorkflow]);
     }
-  };
 
-  const activeCount = workflows.filter(w => w.status === 'active').length;
-  const pausedCount = workflows.filter(w => w.status === 'paused').length;
+    setShowForm(false);
+    setFormName('');
+    setFormTriggerKey('');
+    setFormNValue('');
+    setFormCondition('');
+    setFormAction('');
+    showToast('Workflow created');
+  }, [formName, formCondition, formAction, buildTriggerString, showToast]);
+
+  const activeCount = workflows.filter((w) => w.status === 'active').length;
+  const pausedCount = workflows.filter((w) => w.status === 'paused').length;
 
   if (loading) {
     return (
@@ -233,11 +525,44 @@ export default function PlatformWorkflowsPage() {
         </div>
       </div>
 
-      {/* Add Workflow Form */}
+      {/* ── Structured Add Workflow Form (5B) ───────────────── */}
       {showForm && (
         <div className="rounded-xl border border-gray-700/60 bg-gray-900/60 p-5 space-y-4">
           <h3 className="text-sm font-semibold text-white">New Workflow</h3>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Trigger dropdown */}
+            <FormSelect
+              label="Trigger"
+              value={formTriggerKey}
+              onChange={handleTriggerChange}
+              options={TRIGGERS.map((t) => ({ value: t.key, label: t.label }))}
+              placeholder="Select a trigger..."
+            />
+
+            {/* N-value input (conditional) */}
+            {selectedTrigger?.nParam ? (
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">{selectedTrigger.nParam.label}</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={formNValue}
+                    onChange={(e) => setFormNValue(e.target.value)}
+                    placeholder={selectedTrigger.nParam.placeholder}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
+                  />
+                  {selectedTrigger.nParam.suffix && (
+                    <span className="text-xs text-gray-500 shrink-0">{selectedTrigger.nParam.suffix}</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Spacer to keep grid alignment when no N-param */
+              <div />
+            )}
+
+            {/* Workflow Name */}
             <div>
               <label className="text-xs text-gray-400 block mb-1">Workflow Name</label>
               <input
@@ -247,43 +572,46 @@ export default function PlatformWorkflowsPage() {
                 placeholder="e.g. Late Payment Alert"
               />
             </div>
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">Trigger</label>
-              <input
-                value={formTrigger}
-                onChange={(e) => setFormTrigger(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
-                placeholder="e.g. Payment overdue by 7 days"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">Condition</label>
-              <input
-                value={formCondition}
-                onChange={(e) => setFormCondition(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
-                placeholder="e.g. Client status is active"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">Action</label>
-              <input
-                value={formAction}
-                onChange={(e) => setFormAction(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
-                placeholder="e.g. Send email to advisor"
-              />
-            </div>
+
+            {/* Condition dropdown (context-sensitive) */}
+            <FormSelect
+              label="Condition"
+              value={formCondition}
+              onChange={setFormCondition}
+              options={conditionOptions}
+              placeholder={selectedTrigger ? 'Select a condition...' : 'Select a trigger first'}
+            />
+
+            {/* Action dropdown */}
+            <FormSelect
+              label="Action"
+              value={formAction}
+              onChange={setFormAction}
+              options={ACTIONS.map((a) => ({ value: a.key, label: a.label }))}
+              placeholder="Select an action..."
+            />
           </div>
+
+          {/* Preview */}
+          {selectedTrigger && (
+            <div className="rounded-lg bg-gray-800/60 border border-gray-700/40 px-4 py-3 text-xs space-y-1">
+              <p className="text-gray-500 font-medium uppercase tracking-wide text-[10px] mb-2">Preview</p>
+              <p><span className="text-gray-500">When:</span> <span className="text-gray-300">{buildTriggerString()}</span></p>
+              <p><span className="text-gray-500">If:</span> <span className="text-gray-300">{formCondition || '—'}</span></p>
+              <p><span className="text-gray-500">Then:</span> <span className="text-[#C9A84C]">{ACTIONS.find((a) => a.key === formAction)?.label || '—'}</span></p>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button
               onClick={handleCreate}
-              className="px-4 py-2 bg-[#C9A84C] text-[#0A1628] rounded-lg text-sm font-semibold hover:bg-[#d4b45c] transition"
+              disabled={!formName.trim() || !formTriggerKey || !formCondition || !formAction}
+              className="px-4 py-2 bg-[#C9A84C] text-[#0A1628] rounded-lg text-sm font-semibold hover:bg-[#d4b45c] transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Create Workflow
             </button>
             <button
-              onClick={() => setShowForm(false)}
+              onClick={() => { setShowForm(false); setFormTriggerKey(''); setFormNValue(''); setFormCondition(''); setFormAction(''); setFormName(''); }}
               className="px-4 py-2 bg-gray-800 text-gray-400 rounded-lg text-sm hover:text-white transition"
             >
               Cancel
