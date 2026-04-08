@@ -23,6 +23,7 @@ import {
   type EligibilityResult,
   type CreditUnionIssuer,
 } from '@/lib/credit-union-issuers';
+import { useToast } from '@/components/global/ToastProvider';
 
 // ─── Types for Optimizer V2 API ──────────────────────────────────────────────
 
@@ -223,87 +224,73 @@ function CreditUnionStrategyPanel() {
 
 const MOCK_RESULTS: Omit<CardRecommendationProps, 'rank'>[] = [
   {
-    cardName: 'Ink Business Unlimited®',
+    cardName: 'Chase Ink Business Preferred',
     issuer: 'Chase',
     network: 'Visa',
-    approvalProbability: 82,
+    approvalProbability: 87,
     introApr: '0% for 12 months',
-    ongoingApr: '18.49%–24.49%',
-    creditLimitEstimate: '$10,000–$30,000',
-    rewardsSummary: '1.5% cash back on all purchases',
-    annualFee: '$0',
-    scoreBreakdown: [
-      { label: 'FICO alignment',   score: 91, weight: 0.35 },
-      { label: 'Business revenue', score: 78, weight: 0.25 },
-      { label: 'Issuer appetite',  score: 85, weight: 0.20 },
-      { label: 'Utilization ratio',score: 72, weight: 0.20 },
-    ],
-  },
-  {
-    cardName: 'Blue Business Cash™',
-    issuer: 'American Express',
-    network: 'Amex',
-    approvalProbability: 68,
-    introApr: '0% for 15 months',
-    ongoingApr: '19.49%–27.49%',
-    creditLimitEstimate: '$5,000–$20,000',
-    rewardsSummary: '2% cash back on first $50K/year',
-    annualFee: '$0',
-    warnings: [
-      {
-        rule: 'Amex Velocity (2/90)',
-        severity: 'caution',
-        explanation:
-          'Amex typically limits approvals to 2 cards per 90-day window. You have 1 Amex card opened in the past 90 days.',
-      },
-    ],
-    scoreBreakdown: [
-      { label: 'FICO alignment',   score: 80, weight: 0.35 },
-      { label: 'Business revenue', score: 74, weight: 0.25 },
-      { label: 'Issuer appetite',  score: 62, weight: 0.20 },
-      { label: 'Utilization ratio',score: 70, weight: 0.20 },
-    ],
-  },
-  {
-    cardName: 'Spark Cash Plus',
-    issuer: 'Capital One',
-    network: 'Mastercard',
-    approvalProbability: 55,
-    introApr: 'N/A (charge card)',
-    ongoingApr: 'N/A',
+    ongoingApr: '21.24%–26.24%',
     creditLimitEstimate: '$15,000–$50,000',
-    rewardsSummary: '2% cash back on every purchase',
-    annualFee: '$150',
-    scoreBreakdown: [
-      { label: 'FICO alignment',   score: 65, weight: 0.35 },
-      { label: 'Business revenue', score: 71, weight: 0.25 },
-      { label: 'Issuer appetite',  score: 58, weight: 0.20 },
-      { label: 'Utilization ratio',score: 60, weight: 0.20 },
-    ],
-  },
-  {
-    cardName: 'Freedom Flex℠ Business',
-    issuer: 'Chase',
-    network: 'Visa',
-    approvalProbability: 28,
-    introApr: '0% for 15 months',
-    ongoingApr: '20.49%–29.24%',
-    creditLimitEstimate: '$2,000–$10,000',
-    rewardsSummary: '5% on rotating quarterly categories',
-    annualFee: '$0',
+    rewardsSummary: '3x points on travel & select categories',
+    annualFee: '$95',
     warnings: [
       {
         rule: 'Chase 5/24',
-        severity: 'block',
+        severity: 'caution',
         explanation:
-          'Chase denies applicants with 5+ new card accounts in the past 24 months. Profile shows 5 new accounts — this application will likely be auto-denied.',
+          'You have 3 new cards in the past 24 months — 2 slots remaining under the Chase 5/24 rule.',
       },
     ],
     scoreBreakdown: [
-      { label: 'FICO alignment',    score: 45, weight: 0.35 },
-      { label: 'Business revenue',  score: 60, weight: 0.25 },
-      { label: 'Issuer appetite',   score: 20, weight: 0.20 },
-      { label: 'Utilization ratio', score: 55, weight: 0.20 },
+      { label: 'FICO alignment',   score: 92, weight: 0.35 },
+      { label: 'Business revenue', score: 85, weight: 0.25 },
+      { label: 'Issuer appetite',  score: 88, weight: 0.20 },
+      { label: 'Utilization ratio',score: 78, weight: 0.20 },
+    ],
+  },
+  {
+    cardName: 'Amex Business Gold Card',
+    issuer: 'American Express',
+    network: 'Amex',
+    approvalProbability: 82,
+    introApr: 'N/A (charge card)',
+    ongoingApr: 'N/A',
+    creditLimitEstimate: '$20,000–$50,000',
+    rewardsSummary: '4x points on top 2 spending categories',
+    annualFee: '$375',
+    warnings: [
+      {
+        rule: 'Amex Once-per-Lifetime',
+        severity: 'caution',
+        explanation:
+          'Verify you have not previously held the Amex Business Gold. Amex restricts welcome bonuses to once per lifetime per product.',
+      },
+    ],
+    scoreBreakdown: [
+      { label: 'FICO alignment',   score: 86, weight: 0.35 },
+      { label: 'Business revenue', score: 80, weight: 0.25 },
+      { label: 'Issuer appetite',  score: 78, weight: 0.20 },
+      { label: 'Utilization ratio',score: 76, weight: 0.20 },
+    ],
+  },
+  {
+    cardName: 'Alliant Visa Business Card',
+    issuer: 'Alliant Credit Union',
+    network: 'Visa',
+    approvalProbability: 79,
+    introApr: '0% for 12 months',
+    ongoingApr: '13.99%–17.99%',
+    creditLimitEstimate: '$10,000–$30,000',
+    rewardsSummary: '2.5% cash back on all purchases',
+    annualFee: '$0',
+    isCreditUnion: true,
+    bureauPull: 'TransUnion',
+    membershipNote: 'Alliant CU membership required ($5 donation to join). Does not count against Chase 5/24.',
+    scoreBreakdown: [
+      { label: 'FICO alignment',   score: 82, weight: 0.35 },
+      { label: 'Business revenue', score: 76, weight: 0.25 },
+      { label: 'Issuer appetite',  score: 74, weight: 0.20 },
+      { label: 'Utilization ratio',score: 72, weight: 0.20 },
     ],
   },
 ];
@@ -410,24 +397,24 @@ interface SequenceRound {
 const SEQUENCE_ROUNDS: SequenceRound[] = [
   {
     round: 1,
-    label: 'Round 1 — Apply Now',
-    cards: ['Ink Business Unlimited®', 'Blue Business Cash™'],
-    waitPeriod: 'Wait 91 days',
-    rationale: 'Apply simultaneously to Chase and Amex to avoid bureau pulls cross-contaminating velocity counts.',
+    label: 'Week 1 — Chase First',
+    cards: ['Chase Ink Business Preferred'],
+    waitPeriod: 'Same week',
+    rationale: 'Apply for Chase first to maximize 5/24 slot usage. Chase is the most sensitive to new account velocity — prioritize before other issuers.',
   },
   {
     round: 2,
-    label: 'Round 2 — Q3 2026',
-    cards: ['Spark Cash Plus'],
-    waitPeriod: 'Wait 6 months',
-    rationale: 'Capital One prefers 6+ months between applications. Previous round\'s accounts will age favorably.',
+    label: 'Week 1 — Amex Same Day',
+    cards: ['Amex Business Gold Card'],
+    waitPeriod: 'Wait 2 weeks',
+    rationale: 'Apply for Amex on the same day or within 24 hours of Chase. Amex does not count toward Chase 5/24 (charge card). Combining same-day reduces total inquiry impact.',
   },
   {
     round: 3,
-    label: 'Round 3 — Q1 2027',
-    cards: ['Freedom Flex℠ Business'],
+    label: 'Week 3 — Credit Union Layer',
+    cards: ['Alliant Visa Business Card'],
     waitPeriod: '—',
-    rationale: 'Chase 5/24 window clears by Jan 2027. Apply after oldest new account drops off the 24-month count.',
+    rationale: 'Apply after major bank cards. Alliant uses TransUnion (separate bureau from Chase/Amex). CU cards do not trigger velocity flags at major issuers. Membership must be established first ($5 donation).',
   },
 ];
 
@@ -443,18 +430,18 @@ interface ViolationEntry {
 
 const VIOLATIONS: ViolationEntry[] = [
   {
-    rule: 'Chase 5/24',
+    rule: 'Chase 5/24 Count',
     issuer: 'Chase',
-    severity: 'block',
-    detail: 'You have opened 5 new credit accounts in the past 24 months. Chase auto-declines applicants above this threshold regardless of credit score.',
-    recommendation: 'Wait until the oldest qualifying account exits the 24-month window (estimated Jan 2027) before applying for Chase products.',
+    severity: 'caution',
+    detail: 'You have 3 new credit card accounts in the past 24 months, leaving 2 slots remaining under Chase 5/24. The recommended Chase Ink Preferred will consume 1 slot.',
+    recommendation: 'Apply for Chase cards first to preserve remaining 5/24 slots. Alliant CU card does NOT count against 5/24. Consider timing to avoid burning both slots at once.',
   },
   {
-    rule: 'Amex Velocity (2/90)',
+    rule: 'Amex Once-per-Lifetime Check',
     issuer: 'American Express',
     severity: 'caution',
-    detail: '1 Amex card was opened 42 days ago. Amex restricts new approvals to 2 accounts per 90-day rolling window.',
-    recommendation: 'Wait until Day 91 before applying for a second Amex card to avoid soft-block and preserve approval odds.',
+    detail: 'Amex restricts welcome bonus eligibility to once per lifetime per card product. If you have previously held the Amex Business Gold Card, you will not receive the welcome bonus on a new application.',
+    recommendation: 'Before applying, check your Amex login for "pre-qualified offers" or call Amex to verify welcome bonus eligibility for the Business Gold Card.',
   },
 ];
 
@@ -544,6 +531,7 @@ const INITIAL_CU_FORM: CUFormState = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OptimizerPage() {
+  const toast = useToast();
   const [form, setForm]           = useState<FormState>(INITIAL_FORM);
   const [hasResults, setHasResults] = useState(false);
   const [loading, setLoading]     = useState(false);
@@ -1289,20 +1277,75 @@ export default function OptimizerPage() {
             </>
           ) : (
             <>
-              {/* ── Fallback: Mock Card Recommendations ───── */}
+              {/* ── Summary Header: Total Credit + 5/24 Badge ── */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="rounded-xl border border-surface-border bg-white shadow-card p-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Total Estimated Credit</p>
+                  <p className="text-3xl font-bold" style={{ color: '#C9A84C' }}>$45K–$130K</p>
+                  <p className="text-xs text-gray-400 mt-1">Across 3 recommended cards</p>
+                </div>
+                <div className="rounded-xl border border-surface-border bg-white shadow-card p-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Cards Recommended</p>
+                  <p className="text-3xl font-bold text-gray-900">3</p>
+                  <p className="text-xs text-gray-400 mt-1">Chase + Amex + Credit Union</p>
+                </div>
+                <div className="rounded-xl border border-surface-border bg-white shadow-card p-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Chase 5/24 Status</p>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-3xl font-bold text-amber-600">2</span>
+                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                      SLOTS REMAINING
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">3 of 5 accounts used in past 24 months</p>
+                </div>
+              </div>
+
+              {/* ── Card Recommendations (Mock) ─────────────── */}
               <SectionCard
                 title="Card Recommendations"
                 subtitle="Ranked by modeled approval probability given your profile"
               >
                 <div className="space-y-4 p-0">
-                  {MOCK_RESULTS.map((card, i) => (
-                    <CardRecommendation key={card.cardName} rank={i + 1} {...card} />
-                  ))}
+                  {MOCK_RESULTS.map((card, i) => {
+                    const timing = i < 2 ? 'Week 1' : 'Week 3';
+                    return (
+                      <div key={card.cardName} className="relative">
+                        <CardRecommendation rank={i + 1} {...card} />
+                        {/* Apply timing badge */}
+                        <div className="absolute top-3 right-3">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            timing === 'Week 1'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-blue-50 text-blue-700 border-blue-200'
+                          }`}>
+                            {timing}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </SectionCard>
 
+              {/* ── Application Sequence Timeline ────────────── */}
               <SectionCard
-                title="Issuer Rule Violations"
+                title="Application Sequence"
+                subtitle="Recommended timeline for applying to maximize approvals"
+              >
+                <div className="relative">
+                  <div className="absolute left-4 top-2 bottom-2 w-px bg-gray-200" aria-hidden="true" />
+                  <div className="space-y-6 pl-10">
+                    {SEQUENCE_ROUNDS.map((r) => (
+                      <SequenceStep key={r.round} step={r} />
+                    ))}
+                  </div>
+                </div>
+              </SectionCard>
+
+              {/* ── Issuer Rule Warnings ─────────────────────── */}
+              <SectionCard
+                title="Issuer Rule Warnings"
                 subtitle="Policy limits that may affect approval outcomes"
               >
                 <div className="space-y-4">
@@ -1312,21 +1355,25 @@ export default function OptimizerPage() {
                 </div>
               </SectionCard>
 
+              {/* ── Network Diversity ────────────────────────── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div className="md:col-span-2">
-                  <SectionCard
-                    title="Multi-Round Sequencing"
-                    subtitle="Optimal application order to maximize approvals"
-                  >
-                    <div className="relative">
-                      <div className="absolute left-4 top-2 bottom-2 w-px bg-gray-200" aria-hidden="true" />
-                      <div className="space-y-6 pl-10">
-                        {SEQUENCE_ROUNDS.map((r) => (
-                          <SequenceStep key={r.round} step={r} />
-                        ))}
-                      </div>
-                    </div>
-                  </SectionCard>
+                  {/* ── Action Buttons ────────────────────────── */}
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      onClick={() => toast.success('Strategy saved to client profile. You can view it under the client\'s Credit tab.')}
+                      className="flex-1 py-3 px-5 rounded-xl font-semibold text-sm transition-all duration-150 bg-brand-navy text-white hover:bg-brand-navy-800 shadow-md hover:shadow-lg"
+                    >
+                      Save Strategy to Client &rarr;
+                    </button>
+                    <button
+                      onClick={() => toast.success('Funding round created from optimization results. Visit Funding Rounds to manage it.')}
+                      className="flex-1 py-3 px-5 rounded-xl font-semibold text-sm transition-all duration-150 border-2 border-brand-navy text-brand-navy bg-white hover:bg-brand-navy/5 shadow-md hover:shadow-lg"
+                      style={{ borderColor: '#C9A84C', color: '#C9A84C' }}
+                    >
+                      Create Funding Round from Results &rarr;
+                    </button>
+                  </div>
                 </div>
 
                 <div>
