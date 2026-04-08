@@ -31,6 +31,7 @@ const CLIENTS = {
   brightline: { id: 'biz_brightline_003', name: 'Brightline Corp', initials: 'BC' },
   thornwood: { id: 'biz_thornwood_004', name: 'Thornwood Capital', initials: 'TC' },
   norcal: { id: 'biz_norcal_005', name: 'Norcal Transport LLC', initials: 'NT' },
+  westbrook: { id: 'biz_westbrook_006', name: 'Westbrook Partners', initials: 'WP' },
 } as const;
 
 // ── Date helpers ───────────────────────────────────────────────────────────
@@ -147,7 +148,7 @@ export const MOCK_APR_EXPIRY = {
     upcoming: 3,
   },
   alerts: [
-    // Critical: 5 days
+    // Critical: 5 days — Thornwood Capital, Chase ****4821, $75K
     {
       client_id: CLIENTS.thornwood.id,
       client_name: CLIENTS.thornwood.name,
@@ -160,70 +161,70 @@ export const MOCK_APR_EXPIRY = {
       card_id: 'card_tw_chase_001',
       funding_round_id: 'round_tw_002',
     },
-    // Warning: 22 days
-    {
-      client_id: CLIENTS.meridian.id,
-      client_name: CLIENTS.meridian.name,
-      issuer: 'American Express',
-      card_last_four: '9173',
-      credit_limit: 150000,
-      expiry_date: daysFromNow(22),
-      days_remaining: 22,
-      tier: 'warning' as const,
-      card_id: 'card_mh_amex_001',
-      funding_round_id: 'round_mh_001',
-    },
-    // Warning: 28 days
-    {
-      client_id: CLIENTS.apex.id,
-      client_name: CLIENTS.apex.name,
-      issuer: 'Capital One',
-      card_last_four: '6502',
-      credit_limit: 100000,
-      expiry_date: daysFromNow(28),
-      days_remaining: 28,
-      tier: 'warning' as const,
-      card_id: 'card_av_cap1_001',
-      funding_round_id: 'round_av_001',
-    },
-    // Upcoming: 45 days
+    // Warning: 15 days — Brightline Corp, Capital One, $50K
     {
       client_id: CLIENTS.brightline.id,
       client_name: CLIENTS.brightline.name,
-      issuer: 'Wells Fargo',
-      card_last_four: '3347',
+      issuer: 'Capital One',
+      card_last_four: '7104',
       credit_limit: 50000,
-      expiry_date: daysFromNow(45),
-      days_remaining: 45,
-      tier: 'upcoming' as const,
-      card_id: 'card_bc_wf_001',
+      expiry_date: daysFromNow(15),
+      days_remaining: 15,
+      tier: 'warning' as const,
+      card_id: 'card_bc_cap1_001',
       funding_round_id: 'round_bc_001',
     },
-    // Upcoming: 50 days
+    // Warning: 21 days — Apex Ventures, Amex, $100K
+    {
+      client_id: CLIENTS.apex.id,
+      client_name: CLIENTS.apex.name,
+      issuer: 'American Express',
+      card_last_four: '6502',
+      credit_limit: 100000,
+      expiry_date: daysFromNow(21),
+      days_remaining: 21,
+      tier: 'warning' as const,
+      card_id: 'card_av_amex_001',
+      funding_round_id: 'round_av_001',
+    },
+    // Upcoming: 33 days — Norcal Transport, Citi, $60K
     {
       client_id: CLIENTS.norcal.id,
       client_name: CLIENTS.norcal.name,
-      issuer: 'US Bank',
+      issuer: 'Citi',
       card_last_four: '8814',
-      credit_limit: 200000,
-      expiry_date: daysFromNow(50),
-      days_remaining: 50,
+      credit_limit: 60000,
+      expiry_date: daysFromNow(33),
+      days_remaining: 33,
       tier: 'upcoming' as const,
-      card_id: 'card_nt_usb_001',
+      card_id: 'card_nt_citi_001',
       funding_round_id: null,
     },
-    // Upcoming: 55 days
+    // Upcoming: 41 days — Meridian Holdings, Chase, $120K
     {
       client_id: CLIENTS.meridian.id,
       client_name: CLIENTS.meridian.name,
-      issuer: 'Citi',
+      issuer: 'Chase',
       card_last_four: '2290',
-      credit_limit: 125000,
-      expiry_date: daysFromNow(55),
-      days_remaining: 55,
+      credit_limit: 120000,
+      expiry_date: daysFromNow(41),
+      days_remaining: 41,
       tier: 'upcoming' as const,
-      card_id: 'card_mh_citi_001',
+      card_id: 'card_mh_chase_001',
       funding_round_id: 'round_mh_001',
+    },
+    // Upcoming: 48 days — Westbrook Partners, BofA, $45K
+    {
+      client_id: CLIENTS.westbrook.id,
+      client_name: CLIENTS.westbrook.name,
+      issuer: 'Bank of America',
+      card_last_four: '5531',
+      credit_limit: 45000,
+      expiry_date: daysFromNow(48),
+      days_remaining: 48,
+      tier: 'upcoming' as const,
+      card_id: 'card_wp_bofa_001',
+      funding_round_id: 'round_wp_001',
     },
   ],
   last_updated: new Date().toISOString(),
