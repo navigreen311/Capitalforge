@@ -14,12 +14,14 @@ interface Referral {
   id: string;
   advisorId: string;
   advisorName: string;
+  businessName?: string;
   referralLink: string;
   source: string;
   referredDate: string;
   status: 'pending' | 'converted' | 'expired' | 'active';
   conversionDate?: string;
   commission: number;
+  notes?: string;
 }
 
 interface CommissionTier {
@@ -55,6 +57,16 @@ function statusBadge(status: Referral['status']) {
     </span>
   );
 }
+
+const REFERRAL_SOURCES = [
+  'LinkedIn',
+  'Email Campaign',
+  'Conference',
+  'Website',
+  'Partner',
+  'Cold Outreach',
+  'Other',
+] as const;
 
 // ── Fallback mock data ──────────────────────────────────────
 
@@ -99,10 +111,13 @@ export default function PlatformReferralsPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
-  // Add referral form state
-  const [showForm, setShowForm] = useState(false);
+  // Add referral modal state
+  const [showModal, setShowModal] = useState(false);
+  const [formBusinessName, setFormBusinessName] = useState('');
   const [formAdvisor, setFormAdvisor] = useState('');
   const [formSource, setFormSource] = useState('');
+  const [formDate, setFormDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [formNotes, setFormNotes] = useState('');
 
   const loadData = useCallback(async () => {
     try {
@@ -132,34 +147,88 @@ export default function PlatformReferralsPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleCopy = async (link: string) => {
-    await navigator.clipboard.writeText(link);
-    setCopiedLink(link);
-    setTimeout(() => setCopiedLink(null), 2000);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        // Fallback for older browsers / insecure contexts
+        const textarea = document.createElement('textarea');
+        textarea.value = link;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedLink(link);
+      setToast('Referral link copied');
+      setTimeout(() => setCopiedLink(null), 2000);
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      setToast('Failed to copy link');
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const resetForm = () => {
+    setFormBusinessName('');
+    setFormAdvisor('');
+    setFormSource('');
+    setFormDate(new Date().toISOString().slice(0, 10));
+    setFormNotes('');
   };
 
   const handleCreateReferral = async () => {
-    if (!formAdvisor.trim() || !formSource.trim()) return;
+    if (!formBusinessName.trim() || !formAdvisor.trim() || !formSource.trim()) return;
+
+    // Build a local referral entry
+    const advisorSlug = formAdvisor.toLowerCase().replace(/\s+/g, '-').slice(0, 20);
+    const newReferral: Referral = {
+      id: `ref_${Date.now()}`,
+      advisorId: `adv_${Date.now()}`,
+      advisorName: formAdvisor.trim(),
+      businessName: formBusinessName.trim(),
+      referralLink: `https://capitalforge.io/r/${advisorSlug}`,
+      source: formSource,
+      referredDate: formDate,
+      status: 'pending',
+      commission: 0,
+      notes: formNotes.trim() || undefined,
+    };
+
+    // Try to persist via API, but always add locally
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) _h['Authorization'] = `Bearer ${token}`;
-        const res = await fetch('/api/platform/referrals', {
+      const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) _h['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/platform/referrals', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ advisorId: 'adv_new', advisorName: formAdvisor, source: formSource }),
+        headers: _h,
+        body: JSON.stringify({
+          advisorId: newReferral.advisorId,
+          advisorName: newReferral.advisorName,
+          businessName: newReferral.businessName,
+          source: newReferral.source,
+          referredDate: newReferral.referredDate,
+          notes: newReferral.notes,
+        }),
       });
       const json = await res.json();
-      if (json.success) {
+      if (json.success && json.data) {
         setReferrals(prev => [...prev, json.data]);
-        setShowForm(false);
-        setFormAdvisor('');
-        setFormSource('');
-        setToast('Referral created successfully');
-        setTimeout(() => setToast(null), 3000);
+      } else {
+        setReferrals(prev => [...prev, newReferral]);
       }
     } catch {
-      // ignore
+      // Offline / API unavailable — add locally
+      setReferrals(prev => [...prev, newReferral]);
     }
+
+    setShowModal(false);
+    resetForm();
+    setToast('Referral logged');
+    setTimeout(() => setToast(null), 3000);
   };
 
   // Unique referral links by advisor
@@ -184,50 +253,115 @@ export default function PlatformReferralsPage() {
           <p className="text-sm text-gray-500 mt-1">Generate referral links, track conversions, and view commissions</p>
         </div>
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => setShowModal(true)}
           className="px-4 py-2 bg-[#C9A84C] text-[#0A1628] rounded-lg text-sm font-semibold hover:bg-[#d4b45c] transition"
         >
           + Add Referral
         </button>
       </div>
 
-      {/* Add Referral Form */}
-      {showForm && (
-        <div className="rounded-xl border border-gray-700/60 bg-gray-900/60 p-5 space-y-4">
-          <h3 className="text-sm font-semibold text-white">New Referral</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Add Referral Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => { setShowModal(false); resetForm(); }}
+          />
+          {/* Modal */}
+          <div className="relative w-full max-w-lg mx-4 rounded-xl border border-gray-700/60 bg-[#0F1D32] p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">Add Referral</h3>
+              <button
+                onClick={() => { setShowModal(false); resetForm(); }}
+                className="text-gray-500 hover:text-white text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Business Name */}
             <div>
-              <label className="text-xs text-gray-400 block mb-1">Advisor Name</label>
+              <label className="text-xs text-gray-400 block mb-1">Business Name</label>
               <input
-                value={formAdvisor}
-                onChange={(e) => setFormAdvisor(e.target.value)}
+                value={formBusinessName}
+                onChange={(e) => setFormBusinessName(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
-                placeholder="e.g. Sarah Chen"
+                placeholder="e.g. Acme Financial"
               />
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Referring Advisor */}
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Referring Advisor</label>
+                <select
+                  value={formAdvisor}
+                  onChange={(e) => setFormAdvisor(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#C9A84C]"
+                >
+                  <option value="" disabled>Select advisor</option>
+                  {Array.from(new Set(referrals.map(r => r.advisorName))).map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Source */}
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Source</label>
+                <select
+                  value={formSource}
+                  onChange={(e) => setFormSource(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#C9A84C]"
+                >
+                  <option value="" disabled>Select source</option>
+                  {REFERRAL_SOURCES.map(src => (
+                    <option key={src} value={src}>{src}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Referral Date */}
             <div>
-              <label className="text-xs text-gray-400 block mb-1">Source</label>
+              <label className="text-xs text-gray-400 block mb-1">Referral Date</label>
               <input
-                value={formSource}
-                onChange={(e) => setFormSource(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
-                placeholder="e.g. LinkedIn, Webinar"
+                type="date"
+                value={formDate}
+                onChange={(e) => setFormDate(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#C9A84C]"
               />
             </div>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={handleCreateReferral}
-              className="px-4 py-2 bg-[#C9A84C] text-[#0A1628] rounded-lg text-sm font-semibold hover:bg-[#d4b45c] transition"
-            >
-              Create
-            </button>
-            <button
-              onClick={() => setShowForm(false)}
-              className="px-4 py-2 bg-gray-800 text-gray-400 rounded-lg text-sm hover:text-white transition"
-            >
-              Cancel
-            </button>
+
+            {/* Notes */}
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Notes</label>
+              <textarea
+                value={formNotes}
+                onChange={(e) => setFormNotes(e.target.value)}
+                rows={3}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] resize-none"
+                placeholder="Optional notes about this referral..."
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={handleCreateReferral}
+                disabled={!formBusinessName.trim() || !formAdvisor.trim() || !formSource.trim()}
+                className="px-5 py-2 bg-[#C9A84C] text-[#0A1628] rounded-lg text-sm font-semibold hover:bg-[#d4b45c] transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Add Referral
+              </button>
+              <button
+                onClick={() => { setShowModal(false); resetForm(); }}
+                className="px-4 py-2 bg-gray-800 text-gray-400 rounded-lg text-sm hover:text-white transition"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -243,9 +377,13 @@ export default function PlatformReferralsPage() {
                 <code className="text-xs text-[#C9A84C] bg-gray-800 px-2 py-1 rounded flex-1 truncate">{link}</code>
                 <button
                   onClick={() => handleCopy(link)}
-                  className="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded hover:border-[#C9A84C] text-gray-400 hover:text-[#C9A84C] transition"
+                  className={`px-2 py-1 text-xs rounded transition ${
+                    copiedLink === link
+                      ? 'bg-emerald-900/40 border border-emerald-700 text-emerald-400'
+                      : 'bg-gray-800 border border-gray-700 hover:border-[#C9A84C] text-gray-400 hover:text-[#C9A84C]'
+                  }`}
                 >
-                  {copiedLink === link ? 'Copied!' : 'Copy'}
+                  {copiedLink === link ? '\u2713 Copied!' : 'Copy'}
                 </button>
               </div>
             </div>
