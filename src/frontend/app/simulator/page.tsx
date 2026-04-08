@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import CashFlowStressTest from '../../components/simulator/CashFlowStressTest';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -767,6 +768,33 @@ export default function SimulatorPage() {
           <ResultsPanel results={simulationResults} input={input} onSave={handleSave} onExport={handleExport} />
         </section>
       )}
+
+      {/* ── Cash Flow Stress Test ──────────────────────────────── */}
+      {simulationResults && !running && (() => {
+        // Estimate monthly debt payment: total credit spread over horizon with avg APR
+        const totalCredit = simulationResults.totalEstimatedCredit;
+        const horizonMonths = parseInt(input.months, 10) || 12;
+        const allCards = simulationResults.rounds.flatMap((r) => r.cards);
+        const avgApr = allCards.length > 0
+          ? allCards.reduce((sum, c) => sum + c.apr, 0) / allCards.length
+          : 18;
+        const monthlyRate = avgApr / 100 / 12;
+        // Amortized monthly payment
+        const monthlyDebtPayment = monthlyRate > 0
+          ? Math.round(totalCredit * (monthlyRate * Math.pow(1 + monthlyRate, horizonMonths)) / (Math.pow(1 + monthlyRate, horizonMonths) - 1))
+          : Math.round(totalCredit / horizonMonths);
+
+        return (
+          <section aria-label="Cash Flow Stress Test">
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Cash Flow Stress Test</h2>
+            <CashFlowStressTest
+              monthlyRevenue={45000}
+              monthlyDebtPayment={monthlyDebtPayment}
+              months={horizonMonths}
+            />
+          </section>
+        );
+      })()}
 
       {!simulationResults && !running && (
         <div className="rounded-xl border border-dashed border-gray-700 p-10 text-center text-gray-600">
