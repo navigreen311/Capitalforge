@@ -14,7 +14,7 @@
 //   8. Card detail drawer + balance transfer panel (modals)
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import PaymentCalendar, { PLACEHOLDER_PAYMENTS } from '../../components/modules/payment-calendar';
 import InterestShockAlert, { PLACEHOLDER_PROMO_CARDS } from '../../components/modules/interest-shock-alert';
 import {
@@ -25,6 +25,7 @@ import {
   InterestShockAlertActions,
 } from '@/components/repayment';
 import type { RepaymentClient, RepaymentCardDetailPlan } from '@/components/repayment';
+import { useToast } from '@/components/global/ToastProvider';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -232,6 +233,16 @@ function SummaryCard({ label, value, sub, accent }: { label: string; value: stri
 // Page
 // ---------------------------------------------------------------------------
 
+type AutopayPaymentType = 'minimum' | 'fixed' | 'full';
+
+interface AutopayConfig {
+  planId: string;
+  cardName: string;
+  paymentType: AutopayPaymentType;
+  paymentDay: number;
+  fixedAmount?: number;
+}
+
 export default function RepaymentPage() {
   const [strategy, setStrategy] = useState<Strategy>('avalanche');
   const [plans, setPlans] = useState<RepaymentPlan[]>(PLACEHOLDER_PLANS);
@@ -247,6 +258,46 @@ export default function RepaymentPage() {
 
   // Calendar month navigation state
   const [calendarMonth] = useState<Date>(new Date());
+
+  // Bug 4B: highlight state for at-risk scroll
+  const [highlightPlanId, setHighlightPlanId] = useState<string | null>(null);
+  const tableRef = useRef<HTMLTableSectionElement>(null);
+
+  // Bug 4C: autopay modal state
+  const [autopayModal, setAutopayModal] = useState<{ planId: string; cardName: string } | null>(null);
+  const [autopayType, setAutopayType] = useState<AutopayPaymentType>('minimum');
+  const [autopayDay, setAutopayDay] = useState<number>(1);
+  const [autopayFixedAmount, setAutopayFixedAmount] = useState<number>(100);
+  const toast = useToast();
+
+  // Bug 4B: scroll to first at-risk/behind card and pulse it
+  const scrollToAtRiskCard = useCallback(() => {
+    if (!tableRef.current) return;
+    const row = tableRef.current.querySelector<HTMLElement>('[data-status="at_risk"], [data-status="behind"]');
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const planId = row.getAttribute('data-plan-id');
+      if (planId) {
+        setHighlightPlanId(planId);
+        setTimeout(() => setHighlightPlanId(null), 1_800); // 3 pulses * 600ms
+      }
+    }
+  }, []);
+
+  // Bug 4C: save autopay handler
+  const handleSaveAutopay = useCallback(() => {
+    if (!autopayModal) return;
+    setPlans((prev) =>
+      prev.map((p) =>
+        p.id === autopayModal.planId ? { ...p, autopay: 'confirmed' as AutopayStatus } : p,
+      ),
+    );
+    toast.success(`Autopay configured for ${autopayModal.cardName}`);
+    setAutopayModal(null);
+    setAutopayType('minimum');
+    setAutopayDay(1);
+    setAutopayFixedAmount(100);
+  }, [autopayModal, toast]);
 
   useEffect(() => {
     // Future: fetch from API
@@ -265,11 +316,13 @@ export default function RepaymentPage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-6">
 
       {/* Client selector — top of page */}
-      <RepaymentClientSelector
-        selectedClient={selectedClient}
-        onClientSelect={setSelectedClient}
-        onClear={() => setSelectedClient(null)}
-      />
+      <Suspense fallback={<div className="h-12" />}>
+        <RepaymentClientSelector
+          selectedClient={selectedClient}
+          onClientSelect={setSelectedClient}
+          onClear={() => setSelectedClient(null)}
+        />
+      </Suspense>
 
       {/* Page header */}
       <div className="flex items-start justify-between">
@@ -281,9 +334,7 @@ export default function RepaymentPage() {
         </div>
         {atRiskCount > 0 && (
           <button
-            onClick={() => {
-              document.getElementById('interest-shock-alerts')?.scrollIntoView({ behavior: 'smooth' });
-            }}
+            onClick={scrollToAtRiskCard}
             className="flex items-center gap-2 bg-red-900/40 border border-red-700 rounded-lg px-3 py-2 cursor-pointer hover:bg-red-900/60 transition-colors"
           >
             <span className="text-red-400 text-sm font-semibold">
@@ -427,17 +478,22 @@ export default function RepaymentPage() {
                 <th className="text-center px-4 py-3 font-semibold">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800">
+            <tbody ref={tableRef} className="divide-y divide-gray-800">
               {sorted.map((plan, idx) => {
                 const s = STATUS_STYLES[plan.status];
                 const ap = AUTOPAY_DISPLAY[plan.autopay];
                 // Payoff progress: what % of original credit limit has been freed up
                 const paidPct = Math.round(((plan.creditLimit - plan.balance) / plan.creditLimit) * 100);
+                const isHighlighted = highlightPlanId === plan.id;
 
                 return (
                   <tr
                     key={plan.id}
-                    className="bg-[#0A1628] hover:bg-gray-900/50 transition-colors group cursor-pointer"
+                    data-status={plan.status}
+                    data-plan-id={plan.id}
+                    className={`bg-[#0A1628] hover:bg-gray-900/50 transition-colors group cursor-pointer border-2 ${
+                      isHighlighted ? 'animate-highlight-pulse border-[#C9A84C]' : 'border-transparent'
+                    }`}
                     onClick={() => setSelectedPlan(plan)}
                   >
                     {/* Priority rank */}
@@ -534,9 +590,22 @@ export default function RepaymentPage() {
 
                     {/* Autopay */}
                     <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-semibold ${ap.className}`}>
-                        {ap.icon} {ap.text}
-                      </span>
+                      {plan.autopay === 'not_set' ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAutopayModal({ planId: plan.id, cardName: plan.cardName });
+                          }}
+                          className="text-xs font-semibold text-[#C9A84C] hover:text-[#e0c166] border border-[#C9A84C]/40 rounded-md px-2 py-1 hover:bg-[#C9A84C]/10 transition-colors"
+                        >
+                          Set Up Autopay
+                        </button>
+                      ) : (
+                        <span className={`text-xs font-semibold ${ap.className}`}>
+                          {ap.icon} {ap.text}
+                        </span>
+                      )}
                     </td>
 
                     {/* Status badge */}
@@ -592,6 +661,98 @@ export default function RepaymentPage() {
           isOpen={transferPlan !== null}
           onClose={() => setTransferPlan(null)}
         />
+      )}
+
+      {/* Autopay setup modal (inline overlay) */}
+      {autopayModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-gray-700 bg-[#0A1628] p-6 shadow-2xl animate-fade-in">
+            <h3 className="text-lg font-semibold text-white mb-1">Set Up Autopay</h3>
+            <p className="text-sm text-gray-400 mb-5">
+              Configure automatic payments for <span className="text-gray-200 font-medium">{autopayModal.cardName}</span>
+            </p>
+
+            {/* Payment type */}
+            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              Payment Type
+            </label>
+            <div className="flex gap-2 mb-5">
+              {([
+                { value: 'minimum', label: 'Minimum' },
+                { value: 'fixed', label: 'Fixed Amount' },
+                { value: 'full', label: 'Full Balance' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setAutopayType(opt.value)}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                    autopayType === opt.value
+                      ? 'border-[#C9A84C] bg-[#C9A84C]/10 text-[#C9A84C]'
+                      : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Fixed amount input (only when fixed is selected) */}
+            {autopayType === 'fixed' && (
+              <div className="mb-5">
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Monthly Amount ($)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={autopayFixedAmount}
+                  onChange={(e) => setAutopayFixedAmount(Number(e.target.value))}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/40 transition-colors"
+                />
+              </div>
+            )}
+
+            {/* Payment day */}
+            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              Payment Day of Month
+            </label>
+            <select
+              value={autopayDay}
+              onChange={(e) => setAutopayDay(Number(e.target.value))}
+              className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/40 transition-colors mb-6"
+            >
+              {Array.from({ length: 28 }, (_, i) => i + 1).map((day) => (
+                <option key={day} value={day}>
+                  {day}{day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th'}
+                </option>
+              ))}
+            </select>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setAutopayModal(null);
+                  setAutopayType('minimum');
+                  setAutopayDay(1);
+                  setAutopayFixedAmount(100);
+                }}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAutopay}
+                className="rounded-lg bg-[#C9A84C] px-4 py-2 text-sm font-semibold text-[#0A1628] hover:bg-[#d8b85b] transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
