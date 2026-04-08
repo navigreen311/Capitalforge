@@ -4,7 +4,8 @@
 // /settings — Tenant settings, integrations, API keys, users
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -436,9 +437,20 @@ function BillingTab({
 
 // ── Page ─────────────────────────────────────────────────────
 
+const VALID_TABS: TabId[] = ['profile', 'firm', 'billing', 'notifications', 'integrations', 'api-keys', 'tenant', 'users', 'security'];
+
 export default function SettingsPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const toast = useToast();
+
+  // Honour ?tab= query param (e.g. from billing "View Full Plan" link)
+  useEffect(() => {
+    const tabParam = searchParams.get('tab') as TabId | null;
+    if (tabParam && VALID_TABS.includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   // ── Profile state ─────────────────────────────────────────
   const [profileName, setProfileName] = useState('Jonathan Wright');
