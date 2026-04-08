@@ -394,7 +394,7 @@ const cancelledCards: Record<string, { cancelledAt: string; reason: string }> = 
 rewardsRouter.get(
   '/:clientId/points-balances',
   async (req: Request, res: Response): Promise<void> => {
-    const { clientId } = req.params;
+    const clientId = Array.isArray(req.params['clientId']) ? req.params['clientId'][0]! : (req.params['clientId'] ?? '');
 
     logger.debug('GET rewards points-balances', { clientId });
 
@@ -440,7 +440,7 @@ rewardsRouter.get(
 rewardsRouter.post(
   '/:clientId/export',
   async (req: Request, res: Response): Promise<void> => {
-    const { clientId } = req.params;
+    const clientId = Array.isArray(req.params['clientId']) ? req.params['clientId'][0]! : (req.params['clientId'] ?? '');
 
     logger.info('Rewards report exported', { clientId });
 
@@ -485,7 +485,7 @@ rewardsRouter.post(
 rewardsRouter.post(
   '/cards/:id/cancel',
   async (req: Request, res: Response): Promise<void> => {
-    const cardId = req.params['id'];
+    const cardId = Array.isArray(req.params['id']) ? req.params['id'][0]! : (req.params['id'] ?? '');
     const { reason } = req.body as Record<string, unknown>;
 
     const cancellation = {
@@ -493,7 +493,7 @@ rewardsRouter.post(
       reason: typeof reason === 'string' ? reason : 'No reason provided',
     };
 
-    cancelledCards[cardId!] = cancellation;
+    cancelledCards[cardId] = cancellation;
 
     logger.info('Card cancellation logged', { cardId, reason: cancellation.reason });
 

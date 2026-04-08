@@ -14,6 +14,12 @@ import logger from '../../config/logger.js';
 
 export const creditBuilderRouter = Router({ mergeParams: true });
 
+/** Safely extract a single string param (Express 5 params may be string | string[]). */
+function param(req: Request, name: string): string {
+  const val = req.params[name];
+  return Array.isArray(val) ? val[0]! : (val ?? '');
+}
+
 // ── Mock data ────────────────────────────────────────────────
 
 const MOCK_SCORES = {
@@ -51,7 +57,7 @@ const disputes: Record<string, Array<{ id: string; tradelineId: string; reason: 
 creditBuilderRouter.get(
   '/:clientId/scores',
   async (req: Request, res: Response): Promise<void> => {
-    const { clientId } = req.params;
+    const clientId = param(req, 'clientId');
     logger.debug('GET credit-builder scores', { clientId });
 
     res.status(200).json({
@@ -70,7 +76,7 @@ creditBuilderRouter.get(
 creditBuilderRouter.get(
   '/:clientId/score-history',
   async (req: Request, res: Response): Promise<void> => {
-    const { clientId } = req.params;
+    const clientId = param(req, 'clientId');
     logger.debug('GET credit-builder score-history', { clientId });
 
     res.status(200).json({
@@ -88,7 +94,7 @@ creditBuilderRouter.get(
 creditBuilderRouter.get(
   '/:clientId/tradelines',
   async (req: Request, res: Response): Promise<void> => {
-    const { clientId } = req.params;
+    const clientId = param(req, 'clientId');
     logger.debug('GET credit-builder tradelines', { clientId });
 
     const extra = addedTradelines[clientId] ?? [];
@@ -109,7 +115,7 @@ creditBuilderRouter.get(
 creditBuilderRouter.post(
   '/:clientId/tradelines',
   async (req: Request, res: Response): Promise<void> => {
-    const { clientId } = req.params;
+    const clientId = param(req, 'clientId');
     const { vendor, creditLimit, reportsTo } = req.body as Record<string, unknown>;
 
     if (!vendor || typeof vendor !== 'string') {
@@ -147,7 +153,7 @@ creditBuilderRouter.post(
 creditBuilderRouter.post(
   '/:clientId/tradeline-disputes',
   async (req: Request, res: Response): Promise<void> => {
-    const { clientId } = req.params;
+    const clientId = param(req, 'clientId');
     const { tradelineId, reason } = req.body as Record<string, unknown>;
 
     if (!tradelineId || typeof tradelineId !== 'string') {
