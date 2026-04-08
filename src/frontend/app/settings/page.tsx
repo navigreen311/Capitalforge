@@ -458,7 +458,34 @@ function SettingsPageInner() {
   const [profilePhone, setProfilePhone] = useState('+1 (555) 234-5678');
   const [profileTimezone, setProfileTimezone] = useState('America/New_York');
 
-  const saveProfile = () => toast.show('Profile saved successfully');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const saveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      // Mock POST — replace with real API call
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      toast.show('Profile saved');
+    } catch {
+      toast.show('Failed to save profile');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  // ── Firm save state ────────────────────────────────────────
+  const [firmSaving, setFirmSaving] = useState(false);
+  const saveFirm = async () => {
+    setFirmSaving(true);
+    try {
+      // Mock POST — replace with real API call
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      toast.show('Firm settings saved');
+    } catch {
+      toast.show('Failed to save firm settings');
+    } finally {
+      setFirmSaving(false);
+    }
+  };
 
   // ── Security state ─────────────────────────────────────────
   const [currentPassword, setCurrentPassword] = useState('');
@@ -683,7 +710,15 @@ function SettingsPageInner() {
             </div>
           </div>
           <div className="flex justify-end">
-            <button onClick={saveProfile} className={goldBtn}>Save Profile</button>
+            <button onClick={saveProfile} disabled={profileSaving} className={`${goldBtn} flex items-center gap-2 ${profileSaving ? 'opacity-70 cursor-not-allowed' : ''}`}>
+              {profileSaving && (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {profileSaving ? 'Saving...' : 'Save Profile'}
+            </button>
           </div>
         </section>
       )}
@@ -720,7 +755,15 @@ function SettingsPageInner() {
             </div>
           </div>
           <div className="flex justify-end">
-            <button onClick={() => toast.show('Firm settings saved')} className={goldBtn}>Save Firm Settings</button>
+            <button onClick={saveFirm} disabled={firmSaving} className={`${goldBtn} flex items-center gap-2 ${firmSaving ? 'opacity-70 cursor-not-allowed' : ''}`}>
+              {firmSaving && (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {firmSaving ? 'Saving...' : 'Save Firm Settings'}
+            </button>
           </div>
         </section>
       )}
