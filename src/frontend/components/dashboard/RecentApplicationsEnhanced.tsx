@@ -450,18 +450,18 @@ export function RecentApplicationsEnhanced() {
         <TableSkeleton />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
             <thead>
               <tr className="border-b border-surface-border bg-gray-50/50">
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">App ID</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Round</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Consent</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Submitted</th>
-                <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[80px]">App ID</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[160px]">Client</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[100px]">Type</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[90px]">Amount</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[60px]">Round</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[90px]">Consent</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[90px]">Status</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[100px]">Submitted</th>
+                <th className="text-right px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-border">
@@ -478,7 +478,7 @@ export function RecentApplicationsEnhanced() {
                     className="group hover:bg-gray-50/50 transition-colors"
                   >
                     {/* App ID */}
-                    <td className="px-6 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 truncate">
                       <a
                         href={`/applications/${app.id}`}
                         className="text-sm font-medium text-brand-navy hover:underline"
@@ -488,7 +488,7 @@ export function RecentApplicationsEnhanced() {
                     </td>
 
                     {/* Client */}
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 truncate">
                       <a
                         href={`/clients/${app.clientId}`}
                         className="text-sm text-gray-700 hover:text-brand-navy hover:underline"
@@ -498,17 +498,17 @@ export function RecentApplicationsEnhanced() {
                     </td>
 
                     {/* Type */}
-                    <td className="px-4 py-3 whitespace-nowrap text-gray-600">
+                    <td className="px-3 py-3 truncate text-gray-600">
                       {app.type}
                     </td>
 
                     {/* Amount */}
-                    <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
+                    <td className="px-3 py-3 truncate font-medium text-gray-900">
                       {app.amount}
                     </td>
 
                     {/* Round */}
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 truncate">
                       <a
                         href={`/funding-rounds/${app.roundId}`}
                         className="text-sm text-brand-navy hover:underline"
@@ -518,23 +518,28 @@ export function RecentApplicationsEnhanced() {
                     </td>
 
                     {/* Consent */}
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 truncate">
                       <ConsentChip status={app.consent} tooltip={app.consentTooltip} />
                     </td>
 
                     {/* Status */}
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 truncate">
                       <DashboardBadge status={app.status} />
                     </td>
 
                     {/* Submitted */}
-                    <td className="px-4 py-3 whitespace-nowrap text-gray-500">
+                    <td className="px-3 py-3 truncate text-gray-500">
                       {app.submitted}
                     </td>
 
                     {/* Actions */}
-                    <td className="px-6 py-3 whitespace-nowrap text-right">
-                      <KebabMenu app={app} />
+                    <td className="px-3 py-3 text-right">
+                      <a
+                        href={`/applications/${app.id}`}
+                        className="text-sm font-medium text-brand-navy hover:text-brand-navy/80 transition-colors"
+                      >
+                        View &rarr;
+                      </a>
                     </td>
                   </tr>
                 ))
