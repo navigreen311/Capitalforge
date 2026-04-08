@@ -287,10 +287,54 @@ function CardBreakdownTable({ apps }: { apps: FundingApplication[] }) {
   );
 }
 
+function HighUtilizationAlert({ utilization }: { utilization: number }) {
+  if (utilization < 80) return null;
+
+  const isDanger = utilization >= 90;
+  const borderColor = isDanger ? 'border-red-500' : 'border-amber-500';
+  const bgColor = isDanger ? 'bg-red-900/30' : 'bg-amber-900/30';
+  const textColor = isDanger ? 'text-red-300' : 'text-amber-300';
+  const iconColor = isDanger ? 'text-red-400' : 'text-amber-400';
+
+  return (
+    <div className={`mt-3 rounded-lg border ${borderColor} ${bgColor} p-3 flex items-start gap-2`}>
+      <svg className={`w-4 h-4 mt-0.5 shrink-0 ${iconColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <div className={`text-xs ${textColor}`}>
+        <p className="font-semibold">
+          {utilization}% utilization above recommended 30% threshold.
+        </p>
+        <p className="mt-1">
+          High utilization reduces future approval probability and can lower business credit scores by 15-25 points. Consider partial paydown before next round.
+          {isDanger && (
+            <span className="font-bold text-red-400"> Immediate paydown recommended.</span>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function FeesSummary({ round }: { round: FundingRound }) {
   const totalAnnualFees = round.applications.reduce((s, a) => s + (a.annualFee ?? 0), 0);
   const totalBalance = round.applications.reduce((s, a) => s + a.balance, 0);
   const totalLimit = round.applications.reduce((s, a) => s + a.approvedLimit, 0);
+  const utilization = totalLimit > 0 ? Math.round((totalBalance / totalLimit) * 100) : 0;
+
+  // Fee breakdown: program fee = totalFees - annualFees (or estimate as totalFees * 0.6)
+  const programFee = round.totalFees != null
+    ? Math.max(0, round.totalFees - totalAnnualFees)
+    : 0;
+  const displayTotalFees = round.totalFees != null ? round.totalFees : totalAnnualFees;
+
+  // Projected monthly interest post-promo: weighted average APR * totalBalance / 12
+  const weightedAprSum = round.applications.reduce((s, a) => s + a.regularApr * a.balance, 0);
+  const weightedAvgApr = totalBalance > 0 ? weightedAprSum / totalBalance : 0;
+  const monthlyInterestPostPromo = (weightedAvgApr / 100) * totalBalance / 12;
+  const annualInterestIfCarried = (weightedAvgApr / 100) * totalBalance;
+
+  const [feeBreakdownOpen, setFeeBreakdownOpen] = useState(false);
 
   if (round.applications.length === 0) return null;
 
@@ -300,7 +344,7 @@ function FeesSummary({ round }: { round: FundingRound }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
         <div>
           <p className="text-gray-500">Total Fees</p>
-          <p className="text-gray-200 font-semibold">{round.totalFees != null ? formatCurrency(round.totalFees) : formatCurrency(totalAnnualFees)}</p>
+          <p className="text-gray-200 font-semibold">{formatCurrency(displayTotalFees)}</p>
         </div>
         <div>
           <p className="text-gray-500">Effective APR</p>
@@ -312,9 +356,66 @@ function FeesSummary({ round }: { round: FundingRound }) {
         </div>
         <div>
           <p className="text-gray-500">Utilization</p>
-          <p className="text-gray-200 font-semibold">{totalLimit > 0 ? `${Math.round((totalBalance / totalLimit) * 100)}%` : '0%'}</p>
+          <p className="text-gray-200 font-semibold">{utilization}%</p>
         </div>
       </div>
+
+      {/* Fee Breakdown expandable row */}
+      <div className="mt-3 border-t border-gray-700 pt-3">
+        <button
+          onClick={() => setFeeBreakdownOpen(!feeBreakdownOpen)}
+          className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors w-full text-left"
+        >
+          <svg className={`w-3.5 h-3.5 transition-transform ${feeBreakdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+          <span className="font-semibold uppercase tracking-wide">Fee Breakdown</span>
+        </button>
+        {feeBreakdownOpen && (
+          <div className="mt-2 space-y-1.5 text-xs pl-5">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Program Fee</span>
+              <span className="text-gray-300">{formatCurrency(programFee)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Annual Card Fees</span>
+              <span className="text-gray-300">{formatCurrency(totalAnnualFees)}</span>
+            </div>
+            {round.applications.map((app) => (
+              app.annualFee != null && app.annualFee > 0 ? (
+                <div key={app.id} className="flex justify-between pl-3">
+                  <span className="text-gray-600">{app.cardProduct} ({app.issuer})</span>
+                  <span className="text-gray-500">{formatCurrency(app.annualFee)}</span>
+                </div>
+              ) : null
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Projected Interest row */}
+      <div className="mt-3 border-t border-gray-700 pt-3 space-y-1.5 text-xs">
+        <div className="flex justify-between">
+          <span className="text-gray-500">Projected Interest</span>
+          <span className="text-gray-300">
+            <span className="text-green-400">$0/mo</span>
+            <span className="text-gray-600 mx-1">&rarr;</span>
+            <span className="text-red-400 font-semibold">{formatCurrency(Math.round(monthlyInterestPostPromo))}/mo post-promo</span>
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Projected Annual Interest if Carried</span>
+          <span className="text-red-400 font-semibold">{formatCurrency(Math.round(annualInterestIfCarried))}</span>
+        </div>
+      </div>
+
+      {/* High Utilization Alert */}
+      <HighUtilizationAlert utilization={utilization} />
+
+      {/* IRC note */}
+      <p className="mt-3 text-[10px] text-gray-600 leading-relaxed border-t border-gray-700 pt-2">
+        Business interest expense may be deductible up to 30% of ATI under IRC &sect;163(j). Consult your tax advisor.
+      </p>
     </div>
   );
 }
