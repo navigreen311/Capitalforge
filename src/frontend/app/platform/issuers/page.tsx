@@ -4,7 +4,15 @@
 // /platform/issuers — Issuer Directory & Intelligence
 // Issuer table grouped by type (banks vs credit unions),
 // filter toggle, CU summary stats, expandable detail rows
-// with credit union membership metadata
+// with credit union membership metadata.
+//
+// Features:
+// 3A — Enhanced expand: velocity rules list, approval criteria
+//      breakdown, decline reasons with %, action buttons
+// 3B — DNA Flag detail panel (US Bank): reason, flagged date,
+//      decline count, approval window, removal criteria, recommendation
+// 3C — Inline SVG sparklines next to approval rate badges
+//      (green=up, red=down, gray=flat trend)
 // ============================================================
 
 import { useState, useEffect, useMemo } from 'react';
