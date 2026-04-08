@@ -181,8 +181,8 @@ export default function FinancialControlHardshipPage() {
   const [cases, setCases] = useState<HardshipCase[]>(PLACEHOLDER_CASES);
   const [filterFlag, setFilterFlag] = useState<HardshipFlag | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<ResolutionStatus | 'all'>('all');
-  const [selectedCase, setSelectedCase] = useState<HardshipCase | null>(null);
-  const [editingNotes, setEditingNotes] = useState('');
+  const [selectedCase, setSelectedCase] = useState<HardshipCase | null>(PLACEHOLDER_CASES[0]);
+  const [editingNotes, setEditingNotes] = useState(PLACEHOLDER_CASES[0].workoutNotes);
   const [showNewCase, setShowNewCase] = useState(false);
 
   // New case form
