@@ -8,9 +8,10 @@
 // Per-statement expandable detail rows with normalized data.
 // ============================================================
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import AnomalyAlert from '../../components/modules/anomaly-alert';
 import type { Anomaly } from '../../components/modules/anomaly-alert';
+import DisputeLetterModal from '../../components/modules/dispute-letter-modal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -610,6 +611,15 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
 // Client Selector
 // ---------------------------------------------------------------------------
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
 function StatementsClientSelector({
   selectedClient,
   onClientSelect,
@@ -620,13 +630,25 @@ function StatementsClientSelector({
   onClear: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebounce(query, 250);
   const [isOpen, setIsOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const filtered = PLACEHOLDER_CLIENTS.filter((c) =>
-    c.legal_name.toLowerCase().includes(query.toLowerCase()),
+  const filtered = useMemo(
+    () =>
+      PLACEHOLDER_CLIENTS.filter((c) =>
+        c.legal_name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+        c.entity_type.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+        c.state.toLowerCase().includes(debouncedQuery.toLowerCase()),
+      ),
+    [debouncedQuery],
   );
+
+  useEffect(() => {
+    setHighlightIndex(-1);
+  }, [debouncedQuery]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -642,8 +664,17 @@ function StatementsClientSelector({
     if (e.key === 'Escape') {
       setIsOpen(false);
       inputRef.current?.blur();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIndex((prev) => Math.min(prev + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIndex((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && highlightIndex >= 0 && highlightIndex < filtered.length) {
+      e.preventDefault();
+      handleSelect(filtered[highlightIndex]);
     }
-  }, []);
+  }, [filtered, highlightIndex]);
 
   function handleSelect(client: StatementsClient) {
     onClientSelect(client);
@@ -656,6 +687,20 @@ function StatementsClientSelector({
     setQuery('');
   }
 
+  // Highlight matching text
+  function highlightMatch(text: string) {
+    if (!debouncedQuery) return text;
+    const idx = text.toLowerCase().indexOf(debouncedQuery.toLowerCase());
+    if (idx === -1) return text;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <span className="text-[#C9A84C] font-bold">{text.slice(idx, idx + debouncedQuery.length)}</span>
+        {text.slice(idx + debouncedQuery.length)}
+      </>
+    );
+  }
+
   return (
     <div ref={containerRef} className="relative">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
@@ -663,33 +708,68 @@ function StatementsClientSelector({
       </p>
 
       {!selectedClient && (
-        <div className="relative">
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
-            onFocus={() => setIsOpen(true)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search for a client..."
-            className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40 transition-colors"
-          />
+        <div className="relative max-w-md">
+          <div className="relative">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none"
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
+              onFocus={() => setIsOpen(true)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search clients by name, type, or state..."
+              className="w-full rounded-lg border border-gray-700 bg-gray-900 pl-9 pr-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/40 transition-colors"
+              role="combobox"
+              aria-expanded={isOpen}
+              aria-haspopup="listbox"
+              aria-autocomplete="list"
+            />
+            {query && (
+              <button
+                onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors text-sm"
+                aria-label="Clear search"
+              >
+                &#10005;
+              </button>
+            )}
+          </div>
           {isOpen && (
-            <ul className="absolute z-20 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+            <ul
+              className="absolute z-20 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl"
+              role="listbox"
+            >
               {filtered.length === 0 ? (
-                <li className="px-3 py-2 text-sm text-gray-500">No clients found</li>
+                <li className="px-3 py-4 text-center">
+                  <p className="text-sm text-gray-500">No clients found</p>
+                  <p className="text-xs text-gray-600 mt-1">Try a different search term</p>
+                </li>
               ) : (
-                filtered.map((client) => (
-                  <li key={client.id}>
+                filtered.map((client, i) => (
+                  <li key={client.id} role="option" aria-selected={i === highlightIndex}>
                     <button
                       type="button"
                       onClick={() => handleSelect(client)}
-                      className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-800 focus:bg-gray-800 outline-none transition-colors"
+                      onMouseEnter={() => setHighlightIndex(i)}
+                      className={`w-full text-left px-3 py-2.5 text-sm outline-none transition-colors flex items-center justify-between ${
+                        i === highlightIndex ? 'bg-gray-800' : 'hover:bg-gray-800'
+                      }`}
                     >
-                      <span className="font-medium text-gray-100">{client.legal_name}</span>
-                      <span className="ml-2 text-xs text-gray-500">
-                        {client.entity_type} &middot; {client.state}
-                      </span>
+                      <div>
+                        <span className="font-medium text-gray-100">{highlightMatch(client.legal_name)}</span>
+                        <span className="ml-2 text-xs text-gray-500">
+                          {client.entity_type} &middot; {client.state}
+                        </span>
+                      </div>
+                      <svg className="h-3.5 w-3.5 text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
                     </button>
                   </li>
                 ))
@@ -703,7 +783,10 @@ function StatementsClientSelector({
       )}
 
       {selectedClient && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-900 px-3 py-1.5">
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#C9A84C]/30 bg-[#C9A84C]/5 px-3 py-1.5">
+          <span className="h-5 w-5 rounded-full bg-[#C9A84C]/20 flex items-center justify-center text-[10px] text-[#C9A84C] font-bold">
+            {selectedClient.legal_name.charAt(0)}
+          </span>
           <span className="text-sm font-medium text-gray-100">{selectedClient.legal_name}</span>
           <span className="text-xs text-gray-400">
             {selectedClient.entity_type} &middot; {selectedClient.state}
@@ -1290,6 +1373,7 @@ export default function StatementsPage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [investigationModal, setInvestigationModal] = useState<Anomaly | null>(null);
   const [dismissConfirm, setDismissConfirm] = useState<Anomaly | null>(null);
+  const [disputeLetterAnomaly, setDisputeLetterAnomaly] = useState<Anomaly | null>(null);
 
   // Client selector
   const [selectedClient, setSelectedClient] = useState<StatementsClient | null>(null);
@@ -1370,203 +1454,253 @@ export default function StatementsPage() {
         />
       </div>
 
-      {/* Page header */}
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-white">
-            Statement Reconciliation
-            {selectedClient && <span className="text-yellow-400"> — {selectedClient.legal_name}</span>}
-          </h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {statements.length} statements · {reconciledCount} reconciled
-            {mismatchCount > 0 && (
-              <span className="ml-2 text-red-400 font-semibold">
-                {mismatchCount} mismatch{mismatchCount > 1 ? 'es' : ''}
-              </span>
-            )}
-            {pendingCount > 0 && (
-              <span className="ml-2 text-yellow-400 font-semibold">
-                {pendingCount} pending
-              </span>
-            )}
+      {/* Empty state when no client selected */}
+      {!selectedClient && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="h-16 w-16 rounded-2xl bg-gray-800 border border-gray-700 flex items-center justify-center mb-4">
+            <svg className="h-8 w-8 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-bold text-gray-300 mb-1">No Client Selected</h2>
+          <p className="text-sm text-gray-500 max-w-sm mb-4">
+            Search and select a client above to view their statement reconciliation data, anomaly alerts, and dispute tools.
           </p>
-        </div>
-        <button
-          onClick={() => setUploadModalOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-sm font-bold transition-colors"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v13m-4-4l4 4 4-4" />
-          </svg>
-          Upload / Import
-        </button>
-      </div>
-
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        {[
-          { label: 'Total Statements', value: statements.length, color: 'text-gray-100' },
-          { label: 'Reconciled',       value: reconciledCount,   color: 'text-emerald-400' },
-          { label: 'Mismatches',       value: mismatchCount,     color: mismatchCount > 0 ? 'text-red-400' : 'text-gray-500' },
-          { label: 'Anomalies',        value: anomalies.length,  color: anomalies.length > 0 ? 'text-yellow-400' : 'text-gray-500' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-1">{label}</p>
-            <p className={`text-3xl font-black ${color}`}>{value}</p>
+          <div className="flex items-center gap-3 text-xs text-gray-600">
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+              {PLACEHOLDER_CLIENTS.length} clients available
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />
+              {PLACEHOLDER_STATEMENTS.length} total statements
+            </span>
           </div>
-        ))}
-      </div>
-
-      {/* Anomaly alerts panel */}
-      {anomalies.length > 0 && (
-        <div className="rounded-xl border border-orange-800 bg-orange-950/30 p-4 mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
-              <h2 className="text-sm font-bold text-orange-300 uppercase tracking-wide">
-                Anomaly Alerts
-              </h2>
-              <span className="text-[10px] bg-orange-900 text-orange-300 border border-orange-700 px-1.5 py-0.5 rounded-full font-bold">
-                {anomalies.length}
-              </span>
-            </div>
-            <button
-              onClick={() => setShowAnomalies((v) => !v)}
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              {showAnomalies ? 'Collapse' : 'Expand'}
-            </button>
-          </div>
-
-          {showAnomalies && (
-            <div className="space-y-3">
-              {/* Critical/high first */}
-              {activeAnomalies.length > 0 && (
-                <div className="space-y-2">
-                  {activeAnomalies.map((a) => (
-                    <AnomalyAlert
-                      key={a.id}
-                      anomaly={a}
-                      onDismiss={dismissAnomaly}
-                      onAction={(anomaly) => {
-                        setInvestigationModal(anomaly);
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-              {/* Lower severity compact */}
-              {anomalies.filter((a) => a.severity === 'medium' || a.severity === 'low').map((a) => (
-                <AnomalyAlert
-                  key={a.id}
-                  anomaly={a}
-                  compact
-                  onDismiss={dismissAnomaly}
-                />
-              ))}
-            </div>
-          )}
         </div>
       )}
 
-      {/* Filter bar */}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <span className="text-xs text-gray-500 font-semibold uppercase tracking-wide mr-1">Filter:</span>
-        {(['all', 'reconciled', 'mismatch', 'pending', 'importing'] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setFilterStatus(s)}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors border ${
-              filterStatus === s
-                ? 'bg-[#0A1628] text-[#C9A84C] border-[#C9A84C]'
-                : 'bg-gray-900 text-gray-400 border-gray-700 hover:text-gray-200 hover:border-gray-500'
-            }`}
-          >
-            {s === 'all' ? 'All' : STATUS_CONFIG[s].label}
-          </button>
-        ))}
-      </div>
+      {/* Main content — only visible when a client is selected */}
+      {selectedClient && (
+        <>
+          {/* Page header */}
+          <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-white">
+                Statement Reconciliation
+                <span className="text-[#C9A84C]"> — {selectedClient.legal_name}</span>
+              </h1>
+              <p className="text-sm text-gray-400 mt-0.5">
+                {statements.length} statements · {reconciledCount} reconciled
+                {mismatchCount > 0 && (
+                  <span className="ml-2 text-red-400 font-semibold">
+                    {mismatchCount} mismatch{mismatchCount > 1 ? 'es' : ''}
+                  </span>
+                )}
+                {pendingCount > 0 && (
+                  <span className="ml-2 text-yellow-400 font-semibold">
+                    {pendingCount} pending
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => setUploadModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-sm font-bold transition-colors"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v13m-4-4l4 4 4-4" />
+              </svg>
+              Upload / Import
+            </button>
+          </div>
 
-      {/* Statements table */}
-      <div className="rounded-xl border border-gray-800 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-900 border-b border-gray-800">
-              <th className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide">Issuer / Card</th>
-              <th className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide">Statement Date</th>
-              <th className="text-right px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide">Closing Balance</th>
-              <th className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide">Status</th>
-              <th className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">Imported</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((stmt) => {
-              const isExpanded = expandedStatements.has(stmt.id);
-              const hasAnomalies = anomalies.some((a) => a.statementId === stmt.id);
+          {/* Summary stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            {[
+              { label: 'Total Statements', value: statements.length, color: 'text-gray-100' },
+              { label: 'Reconciled',       value: reconciledCount,   color: 'text-emerald-400' },
+              { label: 'Mismatches',       value: mismatchCount,     color: mismatchCount > 0 ? 'text-red-400' : 'text-gray-500' },
+              { label: 'Anomalies',        value: anomalies.length,  color: anomalies.length > 0 ? 'text-yellow-400' : 'text-gray-500' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+                <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-1">{label}</p>
+                <p className={`text-3xl font-black ${color}`}>{value}</p>
+              </div>
+            ))}
+          </div>
 
-              return (
-                <>
-                  <tr
-                    key={stmt.id}
-                    className={`border-b border-gray-800 transition-colors cursor-pointer ${
-                      isExpanded ? 'bg-gray-900' : 'bg-gray-950 hover:bg-gray-900'
-                    }`}
-                    onClick={() => toggleExpand(stmt.id)}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <IssuerBadge issuer={stmt.issuer} />
-                        {hasAnomalies && (
-                          <span className="h-2 w-2 rounded-full bg-orange-400 flex-shrink-0" title="Has anomalies" />
-                        )}
+          {/* Anomaly alerts panel */}
+          {anomalies.length > 0 && (
+            <div className="rounded-xl border border-orange-800 bg-orange-950/30 p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
+                  <h2 className="text-sm font-bold text-orange-300 uppercase tracking-wide">
+                    Anomaly Alerts
+                  </h2>
+                  <span className="text-[10px] bg-orange-900 text-orange-300 border border-orange-700 px-1.5 py-0.5 rounded-full font-bold">
+                    {anomalies.length}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowAnomalies((v) => !v)}
+                  className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                >
+                  {showAnomalies ? 'Collapse' : 'Expand'}
+                </button>
+              </div>
+
+              {showAnomalies && (
+                <div className="space-y-3">
+                  {/* Critical/high first */}
+                  {activeAnomalies.length > 0 && (
+                    <div className="space-y-2">
+                      {activeAnomalies.map((a) => (
+                        <div key={a.id}>
+                          <AnomalyAlert
+                            anomaly={a}
+                            onDismiss={dismissAnomaly}
+                            onAction={(anomaly) => {
+                              setInvestigationModal(anomaly);
+                            }}
+                          />
+                          <div className="flex justify-end mt-1.5 mr-1">
+                            <button
+                              onClick={() => setDisputeLetterAnomaly(a)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#C9A84C]/10 hover:bg-[#C9A84C]/20 text-[#C9A84C] border border-[#C9A84C]/30 transition-colors"
+                            >
+                              <span className="text-sm">&#10022;</span>
+                              Generate Dispute Letter
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Lower severity compact */}
+                  {anomalies.filter((a) => a.severity === 'medium' || a.severity === 'low').map((a) => (
+                    <div key={a.id}>
+                      <AnomalyAlert
+                        anomaly={a}
+                        compact
+                        onDismiss={dismissAnomaly}
+                      />
+                      <div className="flex justify-end mt-1 mr-1">
+                        <button
+                          onClick={() => setDisputeLetterAnomaly(a)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-[#C9A84C]/10 hover:bg-[#C9A84C]/20 text-[#C9A84C] border border-[#C9A84C]/30 transition-colors"
+                        >
+                          <span className="text-xs">&#10022;</span>
+                          Generate Dispute Letter
+                        </button>
                       </div>
-                      <p className="text-gray-200 font-semibold mt-0.5 text-xs">
-                        {stmt.cardName}
-                        <span className="text-gray-500 font-normal ml-1">···{stmt.last4}</span>
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 text-gray-300 whitespace-nowrap">{fmtDate(stmt.statementDate)}</td>
-                    <td className="px-4 py-3 text-right font-bold text-gray-100 whitespace-nowrap">
-                      {fmtCurrency(stmt.closingBalance)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={stmt.status} />
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs hidden sm:table-cell">
-                      {stmt.importedAt ? fmtDate(stmt.importedAt) : <span className="text-gray-700">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <svg
-                        className={`h-4 w-4 text-gray-500 inline-block transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Filter bar */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <span className="text-xs text-gray-500 font-semibold uppercase tracking-wide mr-1">Filter:</span>
+            {(['all', 'reconciled', 'mismatch', 'pending', 'importing'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setFilterStatus(s)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors border ${
+                  filterStatus === s
+                    ? 'bg-[#0A1628] text-[#C9A84C] border-[#C9A84C]'
+                    : 'bg-gray-900 text-gray-400 border-gray-700 hover:text-gray-200 hover:border-gray-500'
+                }`}
+              >
+                {s === 'all' ? 'All' : STATUS_CONFIG[s].label}
+              </button>
+            ))}
+          </div>
+
+          {/* Statements table */}
+          <div className="rounded-xl border border-gray-800 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-900 border-b border-gray-800">
+                  <th className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide">Issuer / Card</th>
+                  <th className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide">Statement Date</th>
+                  <th className="text-right px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide">Closing Balance</th>
+                  <th className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide">Status</th>
+                  <th className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">Imported</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((stmt) => {
+                  const isExpanded = expandedStatements.has(stmt.id);
+                  const hasAnomalies = anomalies.some((a) => a.statementId === stmt.id);
+
+                  return (
+                    <>
+                      <tr
+                        key={stmt.id}
+                        className={`border-b border-gray-800 transition-colors cursor-pointer ${
+                          isExpanded ? 'bg-gray-900' : 'bg-gray-950 hover:bg-gray-900'
+                        }`}
+                        onClick={() => toggleExpand(stmt.id)}
                       >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                      </svg>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <IssuerBadge issuer={stmt.issuer} />
+                            {hasAnomalies && (
+                              <span className="h-2 w-2 rounded-full bg-orange-400 flex-shrink-0" title="Has anomalies" />
+                            )}
+                          </div>
+                          <p className="text-gray-200 font-semibold mt-0.5 text-xs">
+                            {stmt.cardName}
+                            <span className="text-gray-500 font-normal ml-1">···{stmt.last4}</span>
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap">{fmtDate(stmt.statementDate)}</td>
+                        <td className="px-4 py-3 text-right font-bold text-gray-100 whitespace-nowrap">
+                          {fmtCurrency(stmt.closingBalance)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={stmt.status} />
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 text-xs hidden sm:table-cell">
+                          {stmt.importedAt ? fmtDate(stmt.importedAt) : <span className="text-gray-700">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <svg
+                            className={`h-4 w-4 text-gray-500 inline-block transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </td>
+                      </tr>
+
+                      {isExpanded && (
+                        <tr key={`${stmt.id}-detail`} className="bg-gray-900">
+                          <td colSpan={6} className="p-0">
+                            <ExpandedDetail stmt={stmt} onReconcile={handleReconcile} />
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
+
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-gray-600 text-sm">
+                      No statements match this filter.
                     </td>
                   </tr>
-
-                  {isExpanded && (
-                    <tr key={`${stmt.id}-detail`} className="bg-gray-900">
-                      <td colSpan={6} className="p-0">
-                        <ExpandedDetail stmt={stmt} onReconcile={handleReconcile} />
-                      </td>
-                    </tr>
-                  )}
-                </>
-              );
-            })}
-
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-600 text-sm">
-                  No statements match this filter.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {/* Modals */}
       {uploadModalOpen && (
@@ -1590,6 +1724,17 @@ export default function StatementsPage() {
           anomaly={dismissConfirm}
           onConfirm={confirmDismiss}
           onCancel={() => setDismissConfirm(null)}
+        />
+      )}
+      {disputeLetterAnomaly && (
+        <DisputeLetterModal
+          anomaly={disputeLetterAnomaly}
+          clientName={selectedClient?.legal_name}
+          onClose={() => setDisputeLetterAnomaly(null)}
+          onSave={(letter) => {
+            setToast('Dispute letter saved successfully');
+            setDisputeLetterAnomaly(null);
+          }}
         />
       )}
 
