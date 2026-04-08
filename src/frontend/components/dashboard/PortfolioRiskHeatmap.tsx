@@ -45,6 +45,39 @@ interface CellSelection {
 }
 
 // ---------------------------------------------------------------------------
+// Mock client data for slide-over drill-down (used when API doesn't provide
+// detail records for a given cell, e.g. non-critical severity buckets).
+// ---------------------------------------------------------------------------
+
+const MOCK_CLIENTS_BY_RISK: Record<string, { name: string; detail: string }[]> = {
+  apr_expiry: [
+    { name: 'Thornwood Capital', detail: 'Chase ****4821 — 5 days remaining' },
+    { name: 'Beacon Ridge LLC', detail: 'Wells Fargo ****7103 — 12 days remaining' },
+    { name: 'Ironclad Ventures', detail: 'BofA ****9954 — 22 days remaining' },
+  ],
+  utilization_spike: [
+    { name: 'Summit Growth Partners', detail: 'Utilization jumped to 87% (+23pp this month)' },
+    { name: 'Verdant Holdings', detail: 'Utilization at 74% (+18pp this month)' },
+    { name: 'Apex Funding Group', detail: 'Utilization at 69% (+15pp this month)' },
+  ],
+  missed_payment: [
+    { name: 'Coastal Revenue Corp', detail: '2 consecutive missed payments — $4,200 outstanding' },
+    { name: 'Highland Merchant Services', detail: '1 missed payment — $1,850 outstanding' },
+    { name: 'Redstone Capital', detail: 'Payment 14 days overdue — $3,100 outstanding' },
+  ],
+  hardship_flag: [
+    { name: 'Pinnacle Bridge LLC', detail: 'Hardship application filed 3 days ago' },
+    { name: 'Lakewood Financial', detail: 'Revenue decline >40% — flagged for review' },
+    { name: 'Northstar Lending', detail: 'Natural disaster declaration — SBA eligible' },
+  ],
+  processor_risk: [
+    { name: 'Vanguard Processing', detail: 'Processor hold — chargeback ratio 1.8%' },
+    { name: 'Atlas Merchant Solutions', detail: 'Reserve increase pending — compliance review' },
+    { name: 'Pacific Gateway Inc', detail: 'Processor migration required within 30 days' },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -217,8 +250,9 @@ function SlideOver({
       selection.bucket.client_ids.includes(c.id),
   );
 
-  // For non-critical cells we may not have detail records — show IDs
+  // For non-critical cells we may not have detail records — use mock data as fallback
   const clientIds = selection.bucket.client_ids;
+  const mockPool = MOCK_CLIENTS_BY_RISK[selection.riskType] ?? [];
 
   return (
     <>
@@ -232,7 +266,7 @@ function SlideOver({
       {/* Panel */}
       <div
         ref={panelRef}
-        className="fixed right-0 top-0 h-full w-96 bg-white shadow-xl z-50 flex flex-col animate-slide-in-right"
+        className="fixed right-0 top-0 h-full w-[400px] bg-white shadow-xl z-50 flex flex-col animate-slide-in-right"
         role="dialog"
         aria-modal="true"
         aria-label={`${riskLabel} — ${severityLabel} clients`}
@@ -240,10 +274,12 @@ function SlideOver({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">{riskLabel}</h3>
+            <h3 className="text-lg font-semibold text-gray-900">
+              {riskLabel} &mdash; {severityLabel} Clients
+            </h3>
             <p className="text-sm text-gray-500">
-              {severityLabel} severity — {selection.bucket.count} client
-              {selection.bucket.count !== 1 ? 's' : ''}
+              {selection.bucket.count} client
+              {selection.bucket.count !== 1 ? 's' : ''} in this bucket
             </p>
           </div>
           <button
@@ -273,7 +309,7 @@ function SlideOver({
                       href={`/clients/${client.id}`}
                       className="text-xs font-medium text-blue-600 hover:text-blue-700 px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 transition-colors"
                     >
-                      View Client
+                      View Client &rarr;
                     </a>
                     <a
                       href={`/clients/${client.id}?action=contact`}
@@ -284,31 +320,35 @@ function SlideOver({
                   </div>
                 </div>
               ))
-            : clientIds.map((id) => (
-                <div
-                  key={id}
-                  className="p-4 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
-                >
-                  <p className="font-medium text-gray-900">Client</p>
-                  <p className="text-sm text-gray-500 mt-1 font-mono text-xs truncate">
-                    {id}
-                  </p>
-                  <div className="flex gap-2 mt-3">
-                    <a
-                      href={`/clients/${id}`}
-                      className="text-xs font-medium text-blue-600 hover:text-blue-700 px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 transition-colors"
-                    >
-                      View Client
-                    </a>
-                    <a
-                      href={`/clients/${id}?action=contact`}
-                      className="text-xs font-medium text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors"
-                    >
-                      Contact
-                    </a>
+            : clientIds.map((id, idx) => {
+                const mock = mockPool[idx % mockPool.length];
+                const displayName = mock?.name ?? 'Client';
+                const displayDetail = mock?.detail ?? id;
+
+                return (
+                  <div
+                    key={id}
+                    className="p-4 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+                  >
+                    <p className="font-medium text-gray-900">{displayName}</p>
+                    <p className="text-sm text-gray-500 mt-1">{displayDetail}</p>
+                    <div className="flex gap-2 mt-3">
+                      <a
+                        href={`/clients/${id}`}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-700 px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 transition-colors"
+                      >
+                        View Client &rarr;
+                      </a>
+                      <a
+                        href={`/clients/${id}?action=contact`}
+                        className="text-xs font-medium text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                      >
+                        Contact
+                      </a>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
         </div>
       </div>
     </>
