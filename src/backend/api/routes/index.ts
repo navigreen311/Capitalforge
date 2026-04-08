@@ -335,3 +335,30 @@ apiRouter.use('/notifications', notificationsRouter);
 // POST /api/chat — Streaming AI chat with portfolio context
 import { chatRouter } from './chat.routes.js';
 apiRouter.use('/chat', chatRouter);
+
+// ── Credit Builder ──────────────────────────────────────────────
+// GET  /api/credit-builder/:clientId/scores
+// GET  /api/credit-builder/:clientId/score-history
+// GET  /api/credit-builder/:clientId/tradelines
+// POST /api/credit-builder/:clientId/tradelines
+// POST /api/credit-builder/:clientId/tradeline-disputes
+import { creditBuilderRouter } from './credit-builder.routes.js';
+apiRouter.use('/credit-builder', creditBuilderRouter);
+
+// ── Spend Governance ────────────────────────────────────────────
+// POST  /api/spend-governance/violations/:id/acknowledge
+// PATCH /api/spend-governance/transactions/:id/business-purpose
+// POST  /api/spend-governance/export-evidence
+// (also mounts existing /api/businesses/:id/transactions/* routes)
+import { spendGovernanceRouter } from './spend-governance.routes.js';
+apiRouter.use('/spend-governance', spendGovernanceRouter);
+apiRouter.use('/', spendGovernanceRouter);
+
+// ── Rewards Points & Card Management ────────────────────────────
+// GET  /api/rewards/:clientId/points-balances
+// POST /api/rewards/:clientId/export
+// POST /api/cards/:id/cancel
+// (also mounts existing /api/businesses/:id/rewards/* & benefits/* routes)
+import { rewardsRouter } from './rewards.routes.js';
+apiRouter.use('/rewards', rewardsRouter);
+apiRouter.use('/', rewardsRouter);

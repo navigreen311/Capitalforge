@@ -380,4 +380,132 @@ rewardsRouter.get(
   },
 );
 
+// ============================================================
+// Client-Level Rewards Points & Card Management
+// ============================================================
+
+// In-memory stores for mock data
+const cancelledCards: Record<string, { cancelledAt: string; reason: string }> = {};
+
+// ── GET /api/rewards/:clientId/points-balances ──────────────
+//
+// Returns mock points / cash-back balances across reward programs.
+
+rewardsRouter.get(
+  '/:clientId/points-balances',
+  async (req: Request, res: Response): Promise<void> => {
+    const clientId = Array.isArray(req.params['clientId']) ? req.params['clientId'][0]! : (req.params['clientId'] ?? '');
+
+    logger.debug('GET rewards points-balances', { clientId });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        clientId,
+        asOf: new Date().toISOString(),
+        balances: [
+          {
+            program: 'American Express Membership Rewards',
+            shortName: 'Amex MR',
+            points: 124500,
+            estimatedValue: 1556.25,
+            valueCentsPerPoint: 1.25,
+          },
+          {
+            program: 'Chase Ultimate Rewards',
+            shortName: 'Chase UR',
+            points: 89200,
+            estimatedValue: 1338.00,
+            valueCentsPerPoint: 1.50,
+          },
+          {
+            program: 'Capital One Cash Rewards',
+            shortName: 'CapOne Cash',
+            points: 0,
+            cashBack: 312.47,
+            estimatedValue: 312.47,
+            valueCentsPerPoint: null,
+          },
+        ],
+        totalEstimatedValue: 3206.72,
+      },
+    } satisfies ApiResponse);
+  },
+);
+
+// ── POST /api/rewards/:clientId/export ──────────────────────
+//
+// Export a mock text rewards summary report.
+
+rewardsRouter.post(
+  '/:clientId/export',
+  async (req: Request, res: Response): Promise<void> => {
+    const clientId = Array.isArray(req.params['clientId']) ? req.params['clientId'][0]! : (req.params['clientId'] ?? '');
+
+    logger.info('Rewards report exported', { clientId });
+
+    const report = [
+      'REWARDS PORTFOLIO REPORT',
+      `Client: ${clientId}`,
+      `Generated: ${new Date().toISOString()}`,
+      '='.repeat(50),
+      '',
+      'Program Balances:',
+      '  Amex Membership Rewards:   124,500 pts  (~$1,556.25)',
+      '  Chase Ultimate Rewards:     89,200 pts  (~$1,338.00)',
+      '  Capital One Cash Rewards:   $312.47 cash back',
+      '',
+      'Total Estimated Value: $3,206.72',
+      '',
+      'Recommendations:',
+      '  - Transfer 50,000 Amex MR to Delta SkyMiles for 1.4 cpp value',
+      '  - Redeem Chase UR via Pay Yourself Back for 1.5 cpp',
+      '  - Request Capital One cash-back statement credit',
+      '',
+      'END OF REPORT',
+    ].join('\n');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        clientId,
+        format: 'text',
+        report,
+        generatedAt: new Date().toISOString(),
+      },
+    } satisfies ApiResponse);
+  },
+);
+
+// ── POST /api/cards/:id/cancel ──────────────────────────────
+//
+// Log a card cancellation.
+// Body: { reason?: string }
+
+rewardsRouter.post(
+  '/cards/:id/cancel',
+  async (req: Request, res: Response): Promise<void> => {
+    const cardId = Array.isArray(req.params['id']) ? req.params['id'][0]! : (req.params['id'] ?? '');
+    const { reason } = req.body as Record<string, unknown>;
+
+    const cancellation = {
+      cancelledAt: new Date().toISOString(),
+      reason: typeof reason === 'string' ? reason : 'No reason provided',
+    };
+
+    cancelledCards[cardId] = cancellation;
+
+    logger.info('Card cancellation logged', { cardId, reason: cancellation.reason });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        cardId,
+        ...cancellation,
+        status: 'cancelled',
+      },
+    } satisfies ApiResponse);
+  },
+);
+
 export default rewardsRouter;

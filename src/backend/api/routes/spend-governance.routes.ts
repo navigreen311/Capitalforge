@@ -420,3 +420,120 @@ spendGovernanceRouter.get(
     }
   },
 );
+
+// ── In-memory stores for mock violation ack & business purpose ──
+
+const acknowledgedViolations: Record<string, { acknowledgedAt: string; acknowledgedBy: string }> = {};
+const businessPurposeUpdates: Record<string, { businessPurpose: string; updatedAt: string }> = {};
+
+// ── POST /api/spend-governance/violations/:id/acknowledge ────
+//
+// Acknowledge a violation by ID.
+// Body: { acknowledgedBy?: string }
+
+spendGovernanceRouter.post(
+  '/violations/:id/acknowledge',
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const violationId = req.params.id;
+    const { acknowledgedBy } = req.body as Record<string, unknown>;
+
+    const ack = {
+      acknowledgedAt: new Date().toISOString(),
+      acknowledgedBy: typeof acknowledgedBy === 'string' ? acknowledgedBy : 'system',
+    };
+
+    acknowledgedViolations[violationId] = ack;
+
+    logger.info('Violation acknowledged', { violationId, ...ack });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        violationId,
+        ...ack,
+        status: 'acknowledged',
+      },
+    } satisfies ApiResponse);
+  },
+);
+
+// ── PATCH /api/spend-governance/transactions/:id/business-purpose ──
+//
+// Update the business purpose for a transaction.
+// Body: { businessPurpose: string }
+
+spendGovernanceRouter.patch(
+  '/transactions/:id/business-purpose',
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const transactionId = req.params.id;
+    const { businessPurpose } = req.body as Record<string, unknown>;
+
+    if (!businessPurpose || typeof businessPurpose !== 'string') {
+      res.status(422).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'businessPurpose (string) is required.' },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    const update = {
+      businessPurpose,
+      updatedAt: new Date().toISOString(),
+    };
+
+    businessPurposeUpdates[transactionId] = update;
+
+    logger.info('Business purpose updated', { transactionId, businessPurpose });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        transactionId,
+        ...update,
+      },
+    } satisfies ApiResponse);
+  },
+);
+
+// ── POST /api/spend-governance/export-evidence ───────────────
+//
+// Export a mock text evidence report for spend governance compliance.
+
+spendGovernanceRouter.post(
+  '/export-evidence',
+  async (_req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const report = [
+      'SPEND GOVERNANCE EVIDENCE REPORT',
+      `Generated: ${new Date().toISOString()}`,
+      '='.repeat(50),
+      '',
+      'Summary:',
+      '  Total transactions reviewed: 142',
+      '  Violations found: 3',
+      '  Violations acknowledged: 2',
+      '  Unresolved: 1',
+      '',
+      'Violation Details:',
+      '  1. [ACK] Personal purchase at Best Buy — $249.99 — acknowledged 2026-03-15',
+      '  2. [ACK] Cash-like MCC at Western Union — $500.00 — acknowledged 2026-03-18',
+      '  3. [OPEN] Suspicious merchant "CryptoEx" — $1,200.00 — pending review',
+      '',
+      'Business Purpose Coverage:',
+      '  Transactions with purpose tagged: 138 / 142 (97.2%)',
+      '  Evidence documents attached: 130 / 142 (91.5%)',
+      '',
+      'END OF REPORT',
+    ].join('\n');
+
+    logger.info('Spend governance evidence report exported');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        format: 'text',
+        report,
+        generatedAt: new Date().toISOString(),
+      },
+    } satisfies ApiResponse);
+  },
+);
