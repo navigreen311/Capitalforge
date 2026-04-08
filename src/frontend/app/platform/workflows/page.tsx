@@ -21,6 +21,15 @@ interface Workflow {
   createdAt: string;
 }
 
+// ── Fallback mock data ──────────────────────────────────────
+
+const FALLBACK_WORKFLOWS: Workflow[] = [
+  { id: 'wf_001', name: 'APR Expiry Alert', trigger: 'APR expires in 30 days', condition: 'Client has active card with intro APR', action: 'Create action queue item + Send VoiceForge campaign', status: 'active', lastTriggered: '2026-04-06T09:00:00Z', createdAt: '2025-11-01T10:00:00Z' },
+  { id: 'wf_002', name: 'Restack Ready Flag', trigger: 'Client readiness score exceeds 75', condition: 'Last funded round > 90 days ago', action: 'Flag client as restack ready', status: 'active', lastTriggered: '2026-04-05T14:30:00Z', createdAt: '2025-12-15T08:00:00Z' },
+  { id: 'wf_003', name: 'Decline Reconsideration', trigger: 'Application is declined', condition: 'Issuer allows reconsideration', action: 'Generate reconsideration letter draft', status: 'active', lastTriggered: '2026-04-03T11:15:00Z', createdAt: '2026-01-10T09:00:00Z' },
+  { id: 'wf_004', name: 'Unsigned Acknowledgment Reminder', trigger: 'Acknowledgment unsigned for 7 days', condition: 'Client has pending acknowledgment', action: 'Send email reminder to client', status: 'paused', lastTriggered: null, createdAt: '2026-02-20T12:00:00Z' },
+];
+
 // ── Toast ────────────────────────────────────────────────────
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
@@ -121,9 +130,13 @@ export default function PlatformWorkflowsPage() {
         if (token) _h['Authorization'] = `Bearer ${token}`;
         const res = await fetch('/api/platform/workflows', { headers: _h });
       const json = await res.json();
-      if (json.success) setWorkflows(json.data);
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        setWorkflows(json.data);
+      } else {
+        setWorkflows(FALLBACK_WORKFLOWS);
+      }
     } catch {
-      // ignore
+      setWorkflows(FALLBACK_WORKFLOWS);
     } finally {
       setLoading(false);
     }

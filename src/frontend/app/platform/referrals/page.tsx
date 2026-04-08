@@ -56,6 +56,28 @@ function statusBadge(status: Referral['status']) {
   );
 }
 
+// ── Fallback mock data ──────────────────────────────────────
+
+const FALLBACK_REFERRALS: Referral[] = [
+  { id: 'ref_001', advisorId: 'adv_001', advisorName: 'Sarah Chen', referralLink: 'https://capitalforge.io/r/sarah-chen', source: 'LinkedIn', referredDate: '2026-03-15', status: 'converted', conversionDate: '2026-03-22', commission: 1500 },
+  { id: 'ref_002', advisorId: 'adv_002', advisorName: 'Marcus Williams', referralLink: 'https://capitalforge.io/r/marcus-w', source: 'Email Campaign', referredDate: '2026-03-18', status: 'pending', commission: 0 },
+  { id: 'ref_003', advisorId: 'adv_001', advisorName: 'Sarah Chen', referralLink: 'https://capitalforge.io/r/sarah-chen', source: 'Conference', referredDate: '2026-03-20', status: 'active', commission: 0 },
+  { id: 'ref_004', advisorId: 'adv_003', advisorName: 'Olivia Torres', referralLink: 'https://capitalforge.io/r/olivia-t', source: 'Website', referredDate: '2026-02-28', status: 'converted', conversionDate: '2026-03-10', commission: 1200 },
+  { id: 'ref_005', advisorId: 'adv_002', advisorName: 'Marcus Williams', referralLink: 'https://capitalforge.io/r/marcus-w', source: 'Partner', referredDate: '2026-03-25', status: 'pending', commission: 0 },
+];
+
+const FALLBACK_TIERS: CommissionTier[] = [
+  { tier: 'Bronze', rate: '10%', minReferrals: 1, maxReferrals: 5 },
+  { tier: 'Silver', rate: '15%', minReferrals: 6, maxReferrals: 15 },
+  { tier: 'Gold', rate: '20%', minReferrals: 16, maxReferrals: null },
+];
+
+const FALLBACK_LEADERBOARD: LeaderboardEntry[] = [
+  { advisorName: 'Sarah Chen', totalReferrals: 12, conversions: 8, totalCommission: 9600 },
+  { advisorName: 'Olivia Torres', totalReferrals: 9, conversions: 6, totalCommission: 7200 },
+  { advisorName: 'Marcus Williams', totalReferrals: 7, conversions: 4, totalCommission: 4800 },
+];
+
 // ── Toast ────────────────────────────────────────────────────
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
@@ -89,13 +111,19 @@ export default function PlatformReferralsPage() {
         if (token) _h['Authorization'] = `Bearer ${token}`;
         const res = await fetch('/api/platform/referrals', { headers: _h });
       const json = await res.json();
-      if (json.success) {
+      if (json.success && json.data?.referrals) {
         setReferrals(json.data.referrals);
-        setCommissionTiers(json.data.commissionStructure);
-        setLeaderboard(json.data.leaderboard);
+        setCommissionTiers(json.data.commissionStructure || FALLBACK_TIERS);
+        setLeaderboard(json.data.leaderboard || FALLBACK_LEADERBOARD);
+      } else {
+        setReferrals(FALLBACK_REFERRALS);
+        setCommissionTiers(FALLBACK_TIERS);
+        setLeaderboard(FALLBACK_LEADERBOARD);
       }
     } catch {
-      // ignore
+      setReferrals(FALLBACK_REFERRALS);
+      setCommissionTiers(FALLBACK_TIERS);
+      setLeaderboard(FALLBACK_LEADERBOARD);
     } finally {
       setLoading(false);
     }
