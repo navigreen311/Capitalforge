@@ -74,9 +74,17 @@ function LoadingSkeleton() {
   );
 }
 
+// ── Callback type ──────────────────────────────────────────
+
+export interface RestackStartRoundPayload {
+  client_id: string;
+  client_name: string;
+  round: number;
+}
+
 // ── Eligible row ────────────────────────────────────────────
 
-function EligibleRow({ item }: { item: RestackEligible }) {
+function EligibleRow({ item, onStartRound }: { item: RestackEligible; onStartRound?: (payload: RestackStartRoundPayload) => void }) {
   const scoreColor = getScoreColor(item.readinessScore);
   const scoreBg = getScoreBg(item.readinessScore);
 
@@ -109,14 +117,21 @@ function EligibleRow({ item }: { item: RestackEligible }) {
       </span>
 
       {/* Action */}
-      <a
-        href={`/applications/new?client_id=${item.businessId}&round=${item.recommendedRoundNumber}`}
+      <button
+        type="button"
+        onClick={() =>
+          onStartRound?.({
+            client_id: item.businessId,
+            client_name: item.businessName,
+            round: item.recommendedRoundNumber,
+          })
+        }
         className="flex-shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md
                    bg-[#0A1628] text-[#C9A84C] border border-[#C9A84C]/40
                    hover:bg-[#C9A84C]/10 transition-colors duration-150"
       >
         Start Round {item.recommendedRoundNumber}
-      </a>
+      </button>
     </div>
   );
 }
@@ -152,7 +167,11 @@ const MOCK_ELIGIBLE: RestackEligible[] = [
 
 // ── Main component ──────────────────────────────────────────
 
-export function RestackWidget() {
+interface RestackWidgetProps {
+  onStartRound?: (payload: RestackStartRoundPayload) => void;
+}
+
+export function RestackWidget({ onStartRound }: RestackWidgetProps = {}) {
   const { data, isLoading, error, refetch } = useAuthFetch<RestackResponse>(
     '/api/restack/eligible',
   );
@@ -189,7 +208,7 @@ export function RestackWidget() {
       {!isLoading && !error && displayItems.length > 0 && (
         <div>
           {displayItems.map((item) => (
-            <EligibleRow key={item.businessId} item={item} />
+            <EligibleRow key={item.businessId} item={item} onStartRound={onStartRound} />
           ))}
 
           {total > 5 && (
