@@ -43,6 +43,8 @@ const INITIAL_FORM_DATA: WizardFormData = {
   requestedLimit: '',
   businessPurpose: '',
   spendCategory: '',
+  isCreditUnion: false,
+  membershipConfirmed: false,
 };
 
 const TOTAL_STEPS = 5;
@@ -236,6 +238,8 @@ export default function NewApplicationWizardModal({
             issuer={formData.issuer}
             cardProduct={formData.cardProduct}
             requestedLimit={formData.requestedLimit}
+            isCreditUnion={formData.isCreditUnion ?? false}
+            membershipConfirmed={formData.membershipConfirmed ?? false}
             onIssuerChange={(issuer) =>
               setFormData((prev) => ({ ...prev, issuer }))
             }
@@ -244,6 +248,12 @@ export default function NewApplicationWizardModal({
             }
             onRequestedLimitChange={(limit) =>
               setFormData((prev) => ({ ...prev, requestedLimit: limit }))
+            }
+            onCreditUnionChange={(isCU) =>
+              setFormData((prev) => ({ ...prev, isCreditUnion: isCU }))
+            }
+            onMembershipConfirmedChange={(confirmed) =>
+              setFormData((prev) => ({ ...prev, membershipConfirmed: confirmed }))
             }
             onBack={onBack}
             onNext={onNext}
