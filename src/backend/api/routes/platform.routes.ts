@@ -137,6 +137,58 @@ router.post('/billing/send-overdue-reminders', (_req: Request, res: Response) =>
 });
 
 // ============================================================
+// Admin — Tenant Feature Flags, Impersonate, Suspend
+// ============================================================
+
+const FeatureFlagSchema = z.object({
+  flag: z.string().min(1),
+  enabled: z.boolean(),
+});
+
+router.patch('/tenants/:id/feature-flags', (req: Request, res: Response) => {
+  const tenantId = req.params.id;
+  logger.info(`[platform] PATCH /tenants/${tenantId}/feature-flags`);
+  const parsed = FeatureFlagSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed.error);
+  const { flag, enabled } = parsed.data;
+  return ok(res, {
+    tenantId,
+    flag,
+    enabled,
+    updatedAt: new Date().toISOString(),
+  });
+});
+
+router.post('/tenants/:id/impersonate', (req: Request, res: Response) => {
+  const tenantId = req.params.id;
+  logger.info(`[platform] POST /tenants/${tenantId}/impersonate`);
+  const impersonation_token = `imp_${tenantId}_${Date.now().toString(36)}`;
+  return ok(res, {
+    impersonation_token,
+    tenantId,
+    expiresIn: 3600,
+    message: 'Impersonation session started. Token valid for 1 hour.',
+  });
+});
+
+const SuspendSchema = z.object({
+  reason: z.string().min(1).optional(),
+});
+
+router.post('/tenants/:id/suspend', (req: Request, res: Response) => {
+  const tenantId = req.params.id;
+  logger.info(`[platform] POST /tenants/${tenantId}/suspend`);
+  const parsed = SuspendSchema.safeParse(req.body || {});
+  if (!parsed.success) return validationError(res, parsed.error);
+  return ok(res, {
+    tenantId,
+    status: 'suspended',
+    reason: parsed.data.reason ?? 'No reason provided',
+    suspendedAt: new Date().toISOString(),
+  });
+});
+
+// ============================================================
 // Issuers
 // ============================================================
 
