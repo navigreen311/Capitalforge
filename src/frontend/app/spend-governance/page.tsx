@@ -229,6 +229,10 @@ export default function SpendGovernancePage() {
   const chargebackRatio = totalTxns > 0 ? ((chargedBackCount / totalTxns) * 100).toFixed(2) : '0.00';
   const totalAmount = transactions.reduce((s, t) => s + t.amount, 0);
 
+  // Verification progress
+  const verifiedCount = transactions.filter((t) => t.businessPurpose !== 'Unverified').length;
+  const unverifiedCount = totalTxns - verifiedCount;
+
   // Filter transactions based on txnFilter tabs
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
@@ -238,38 +242,55 @@ export default function SpendGovernancePage() {
     });
   }, [transactions, txnFilter]);
 
-  // Export CSV with all columns
+  // Export business purpose evidence as .txt summary
   function handleExport() {
     setExportLoading(true);
     setTimeout(() => {
-      const headers = [
-        'ID', 'Merchant', 'MCC Code', 'MCC Category', 'Amount', 'Date',
-        'Risk Score', 'Risk Level', 'Cash-Like', 'Business Purpose',
-        'Flagged', 'Charged Back',
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const lines: string[] = [
+        '==========================================================',
+        '  BUSINESS PURPOSE EVIDENCE REPORT',
+        '==========================================================',
+        `  Generated: ${now}`,
+        `  Verification Progress: ${verifiedCount}/${totalTxns} verified`,
+        `  Total Spend: ${formatCurrency(totalAmount)}`,
+        '==========================================================',
+        '',
       ];
-      const rows = [
-        headers.join(','),
-        ...transactions.map((t) => [
-          t.id,
-          `"${t.merchant}"`,
-          t.mccCode,
-          `"${t.mccCategory}"`,
-          t.amount.toFixed(2),
-          t.date,
-          t.riskScore,
-          t.riskLevel,
-          t.isCashLike ? 'Yes' : 'No',
-          `"${t.businessPurpose}"`,
-          t.flagged ? 'Yes' : 'No',
-          t.chargedBack ? 'Yes' : 'No',
-        ].join(',')),
-      ].join('\n');
 
-      const blob = new Blob([rows], { type: 'text/csv' });
+      // Verified transactions
+      const verified = transactions.filter((t) => t.businessPurpose !== 'Unverified');
+      const unverified = transactions.filter((t) => t.businessPurpose === 'Unverified');
+
+      lines.push(`--- VERIFIED (${verified.length}) ---`);
+      lines.push('');
+      verified.forEach((t) => {
+        lines.push(`  [${t.id}] ${t.merchant}`);
+        lines.push(`    Amount: ${formatCurrency(t.amount)}  |  Date: ${formatDate(t.date)}  |  MCC: ${t.mccCode} (${t.mccCategory})`);
+        lines.push(`    Risk: ${t.riskLevel.toUpperCase()} (${t.riskScore}/100)${t.isCashLike ? '  |  CASH-LIKE' : ''}${t.flagged ? '  |  FLAGGED' : ''}${t.chargedBack ? '  |  CHARGEBACK' : ''}`);
+        lines.push(`    Purpose: ${t.businessPurpose}`);
+        lines.push('');
+      });
+
+      lines.push(`--- UNVERIFIED (${unverified.length}) ---`);
+      lines.push('');
+      unverified.forEach((t) => {
+        lines.push(`  [${t.id}] ${t.merchant}`);
+        lines.push(`    Amount: ${formatCurrency(t.amount)}  |  Date: ${formatDate(t.date)}  |  MCC: ${t.mccCode} (${t.mccCategory})`);
+        lines.push(`    Risk: ${t.riskLevel.toUpperCase()} (${t.riskScore}/100)${t.isCashLike ? '  |  CASH-LIKE' : ''}${t.flagged ? '  |  FLAGGED' : ''}${t.chargedBack ? '  |  CHARGEBACK' : ''}`);
+        lines.push(`    Purpose: ** UNVERIFIED — requires business justification **`);
+        lines.push('');
+      });
+
+      lines.push('==========================================================');
+      lines.push('  END OF REPORT');
+      lines.push('==========================================================');
+
+      const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `spend-governance-evidence-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `spend-governance-evidence-${new Date().toISOString().slice(0, 10)}.txt`;
       a.click();
       URL.revokeObjectURL(url);
       setExportLoading(false);
@@ -367,7 +388,7 @@ export default function SpendGovernancePage() {
           disabled={exportLoading}
           className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
         >
-          {exportLoading ? 'Exporting…' : 'Export Business Purpose Evidence'}
+          {exportLoading ? 'Exporting…' : `Export Business Purpose Evidence (${verifiedCount}/${totalTxns} verified)`}
         </button>
       </div>
 
@@ -449,7 +470,16 @@ export default function SpendGovernancePage() {
       <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
         {/* Toolbar */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Transactions</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Transactions</h2>
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+              unverifiedCount === 0
+                ? 'bg-green-900/50 text-green-300 border-green-700'
+                : 'bg-amber-900/50 text-amber-300 border-amber-700'
+            }`}>
+              {verifiedCount}/{totalTxns} verified
+            </span>
+          </div>
           <div className="flex gap-1">
             {(['all', 'flagged', 'cash-like'] as const).map((f) => (
               <button
@@ -545,33 +575,39 @@ export default function SpendGovernancePage() {
                             if (e.key === 'Escape') handleCancelEditPurpose();
                           }}
                           autoFocus
-                          className="w-full rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-gray-100 outline-none focus:border-blue-500"
+                          className="w-full rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-gray-100 outline-none focus:border-[#C9A84C]"
                           placeholder="Enter business purpose..."
                         />
                         <button
                           onClick={() => handleSaveInlinePurpose(t.id)}
-                          className="text-xs text-green-400 hover:text-green-300 font-semibold px-1"
+                          className="flex items-center justify-center w-6 h-6 rounded text-green-400 hover:text-green-300 hover:bg-green-900/30 transition-colors"
+                          title="Save (Enter)"
+                          aria-label="Save business purpose"
                         >
-                          Save
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
                         </button>
                         <button
                           onClick={handleCancelEditPurpose}
-                          className="text-xs text-gray-500 hover:text-gray-300 px-1"
+                          className="flex items-center justify-center w-6 h-6 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
+                          title="Cancel (Escape)"
+                          aria-label="Cancel editing"
                         >
-                          Cancel
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
                       </div>
                     ) : (
                       <p
-                        className={`text-xs ${
+                        className={`text-xs cursor-pointer hover:underline ${
                           t.businessPurpose === 'Unverified'
-                            ? 'text-red-400 font-semibold cursor-pointer hover:underline'
+                            ? 'text-amber-400 font-semibold'
                             : 'text-gray-400'
                         }`}
-                        onClick={() => {
-                          if (t.businessPurpose === 'Unverified') handleStartEditPurpose(t);
-                        }}
-                        title={t.businessPurpose === 'Unverified' ? 'Click to add business purpose' : undefined}
+                        onClick={() => handleStartEditPurpose(t)}
+                        title={t.businessPurpose === 'Unverified' ? 'Click to add business purpose' : 'Click to edit business purpose'}
                       >
                         {t.businessPurpose}
                       </p>
