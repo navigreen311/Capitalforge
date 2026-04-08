@@ -375,6 +375,9 @@ export default function SpendGovernancePage() {
   // Cash-Like Contact Client modal (2E)
   const [cashLikeContactTxn, setCashLikeContactTxn] = useState<Transaction | null>(null);
 
+  // Category bar filter (2G)
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+
   // Summary stats
   const totalTxns = transactions.length;
   const flaggedCount = transactions.filter((t) => t.flagged).length;
@@ -383,14 +386,34 @@ export default function SpendGovernancePage() {
   const chargebackRatio = totalTxns > 0 ? ((chargedBackCount / totalTxns) * 100).toFixed(2) : '0.00';
   const totalAmount = transactions.reduce((s, t) => s + t.amount, 0);
 
-  // Filter transactions based on txnFilter tabs
+  // Map chart category labels to transaction mccCategory substrings
+  function matchesCategoryFilter(mccCategory: string, chartCategory: string): boolean {
+    const mcc = mccCategory.toLowerCase();
+    const chart = chartCategory.toLowerCase();
+    // Direct match
+    if (mcc.includes(chart) || chart.includes(mcc)) return true;
+    // Specific mappings for chart labels that differ from mccCategory
+    const mappings: Record<string, string[]> = {
+      'wire transfer': ['wire transfer'],
+      'saas': ['saas', 'technology'],
+      'airlines': ['airlines', 'travel'],
+      'office': ['office supplies', 'office'],
+      'cash advance': ['cash advance', 'atm', 'crypto', 'quasi-cash', 'payday', 'financial'],
+      'other': ['lodging', 'restaurants', 'auto fuel'],
+    };
+    const keywords = mappings[chart] ?? [];
+    return keywords.some((kw) => mcc.includes(kw));
+  }
+
+  // Filter transactions based on txnFilter tabs + category bar filter
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
-      if (txnFilter === 'flagged') return t.flagged;
-      if (txnFilter === 'cash-like') return t.isCashLike;
+      if (txnFilter === 'flagged' && !t.flagged) return false;
+      if (txnFilter === 'cash-like' && !t.isCashLike) return false;
+      if (categoryFilter && !matchesCategoryFilter(t.mccCategory, categoryFilter)) return false;
       return true;
     });
-  }, [transactions, txnFilter]);
+  }, [transactions, txnFilter, categoryFilter]);
 
   // Export CSV with all columns
   function handleExport() {
@@ -556,7 +579,11 @@ export default function SpendGovernancePage() {
 
       {/* Spend by Category Chart — below KPI cards, above violations */}
       <div className="mb-6">
-        <SpendByCategoryChart data={PLACEHOLDER_SPEND_BY_CATEGORY} />
+        <SpendByCategoryChart
+          data={PLACEHOLDER_SPEND_BY_CATEGORY}
+          activeCategory={categoryFilter}
+          onCategoryClick={(cat) => setCategoryFilter((prev) => (prev === cat ? null : cat))}
+        />
       </div>
 
       {/* Network Rule Violations Alert Panel */}
@@ -596,6 +623,24 @@ export default function SpendGovernancePage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Category filter indicator (2G) */}
+      {categoryFilter && (
+        <div className="flex items-center gap-3 mb-4 px-1">
+          <p className="text-sm text-gray-300">
+            Showing <span className="font-bold text-[#C9A84C]">{filtered.length}</span>{' '}
+            transaction{filtered.length !== 1 ? 's' : ''} in{' '}
+            <span className="font-bold text-[#C9A84C]">{categoryFilter}</span>
+          </p>
+          <button
+            onClick={() => setCategoryFilter(null)}
+            className="text-xs font-medium text-gray-400 hover:text-white px-2 py-1 rounded border
+              border-gray-700 hover:border-gray-500 transition-colors"
+          >
+            Clear filter
+          </button>
         </div>
       )}
 
