@@ -305,7 +305,7 @@ export default function DecisionsPage() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-sm bg-gray-800 border border-gray-600 text-gray-100 text-sm rounded-xl shadow-2xl px-5 py-3 flex items-center gap-3">
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm bg-[#0A1628] border border-[#C9A84C]/30 text-gray-100 text-sm rounded-xl shadow-2xl px-5 py-3 flex items-center gap-3">
           <span className="flex-1">{toast}</span>
           <button onClick={() => setToast(null)} className="text-gray-400 hover:text-white text-lg leading-none">&times;</button>
         </div>
