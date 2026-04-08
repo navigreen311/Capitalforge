@@ -93,6 +93,10 @@ export default function DisclosuresPage() {
   const [disclosures, setDisclosures] = useState<Disclosure[]>(PLACEHOLDER_DISCLOSURES);
   const [stateFilter, setStateFilter] = useState<string>('All');
   const [toast, setToast] = useState<string | null>(null);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkFiling, setBulkFiling] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(0);
 
   // Fetch from API
   useEffect(() => {
@@ -137,6 +141,44 @@ export default function DisclosuresPage() {
     }
   }, [disclosures]);
 
+  // Bulk modal helpers
+  const pendingDisclosures = disclosures.filter((d) => d.status === 'Pending' || d.status === 'Overdue');
+
+  const openBulkModal = useCallback(() => {
+    setBulkSelected(new Set(pendingDisclosures.map((d) => d.id)));
+    setBulkProgress(0);
+    setBulkFiling(false);
+    setBulkModalOpen(true);
+  }, [pendingDisclosures]);
+
+  const toggleBulkItem = useCallback((id: string) => {
+    setBulkSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleBulkFile = useCallback(async () => {
+    const ids = Array.from(bulkSelected);
+    if (ids.length === 0) return;
+    setBulkFiling(true);
+    setBulkProgress(0);
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      setDisclosures((prev) =>
+        prev.map((d) => d.id === id ? { ...d, status: 'Filed' as DisclosureStatus, filedAt: new Date().toISOString() } : d)
+      );
+      fetch(`/api/compliance/disclosures/${id}/file`, { method: 'POST' }).catch(() => {});
+      setBulkProgress(i + 1);
+      // Small delay for visual feedback
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    setBulkFiling(false);
+    setBulkModalOpen(false);
+    setToast(`${ids.length} disclosure${ids.length > 1 ? 's' : ''} filed successfully`);
+  }, [bulkSelected]);
+
   // Summary stats
   const overdue = disclosures.filter((d) => d.status === 'Overdue').length;
   const pending = disclosures.filter((d) => d.status === 'Pending').length;
@@ -175,6 +217,21 @@ export default function DisclosuresPage() {
           </button>
         ))}
       </div>
+
+      {/* Bulk action bar */}
+      {pendingDisclosures.length > 0 && (
+        <div className="mb-4 flex items-center justify-between px-4 py-3 rounded-xl bg-[#0f1d32] border border-yellow-700/40">
+          <span className="text-sm text-yellow-300 font-medium">
+            {pendingDisclosures.length} disclosure{pendingDisclosures.length > 1 ? 's' : ''} pending action
+          </span>
+          <button
+            onClick={openBulkModal}
+            className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8973f] text-sm font-semibold text-[#0A1628] transition-colors"
+          >
+            File All Pending ({pendingDisclosures.length}) &rarr;
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="rounded-xl border border-gray-800 bg-[#0f1d32] overflow-hidden">
@@ -261,6 +318,75 @@ export default function DisclosuresPage() {
           </table>
         </div>
       </div>
+
+      {/* Bulk File Modal */}
+      {bulkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-[#0f1d32] border border-gray-700 rounded-2xl shadow-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-white">File Pending Disclosures</h2>
+              <button onClick={() => setBulkModalOpen(false)} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            {/* Checklist */}
+            <div className="max-h-64 overflow-y-auto space-y-2 mb-4">
+              {pendingDisclosures.map((d) => (
+                <label key={d.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#0A1628]/50 cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={bulkSelected.has(d.id)}
+                    onChange={() => toggleBulkItem(d.id)}
+                    disabled={bulkFiling}
+                    className="w-4 h-4 rounded border-gray-600 text-[#C9A84C] focus:ring-[#C9A84C] bg-gray-800"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm text-gray-100 font-medium block truncate">{d.businessName}</span>
+                    <span className="text-xs text-gray-400 block truncate">{d.regulation} ({d.state})</span>
+                  </div>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${statusBadge(d.status)}`}>{d.status}</span>
+                </label>
+              ))}
+            </div>
+
+            {/* Progress bar */}
+            {bulkFiling && (
+              <div className="mb-4">
+                <div className="flex justify-between text-xs text-gray-400 mb-1">
+                  <span>Filing disclosures...</span>
+                  <span>{bulkProgress}/{bulkSelected.size}</span>
+                </div>
+                <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#C9A84C] rounded-full transition-all duration-300"
+                    style={{ width: `${(bulkProgress / bulkSelected.size) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">{bulkSelected.size} selected</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setBulkModalOpen(false)}
+                  disabled={bulkFiling}
+                  className="px-4 py-2 rounded-lg border border-gray-600 text-sm text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleBulkFile}
+                  disabled={bulkFiling || bulkSelected.size === 0}
+                  className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8973f] text-sm font-semibold text-[#0A1628] transition-colors disabled:opacity-50"
+                >
+                  {bulkFiling ? 'Filing...' : `File Selected (${bulkSelected.size})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
