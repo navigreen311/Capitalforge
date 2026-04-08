@@ -8,3 +8,4 @@ export { MethodComparisonPanel } from './MethodComparisonPanel';
 export type { MethodComparisonPanelProps } from './MethodComparisonPanel';
 export { InterestShockAlertActions } from './InterestShockAlertActions';
 export type { InterestShockAlertActionsProps } from './InterestShockAlertActions';
+export { EscalationModal } from './EscalationModal';
