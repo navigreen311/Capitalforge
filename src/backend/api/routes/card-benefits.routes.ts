@@ -102,7 +102,7 @@ function buildBenefitsData(clientId: string) {
 cardBenefitsApiRouter.get(
   '/:clientId',
   async (req: Request, res: Response): Promise<void> => {
-    const clientId = req.params['clientId'] ?? '';
+    const clientId = String(req.params['clientId'] ?? '');
 
     if (!clientId) {
       const body: ApiResponse = {
@@ -141,8 +141,8 @@ cardBenefitsApiRouter.get(
 cardBenefitsApiRouter.post(
   '/:cardId/benefits/:benefitId/mark-used',
   async (req: Request, res: Response): Promise<void> => {
-    const cardId = req.params['cardId'] ?? '';
-    const benefitId = req.params['benefitId'] ?? '';
+    const cardId = String(req.params['cardId'] ?? '');
+    const benefitId = String(req.params['benefitId'] ?? '');
 
     if (!cardId || !benefitId) {
       const body: ApiResponse = {
@@ -181,7 +181,7 @@ cardBenefitsApiRouter.post(
 cardBenefitsApiRouter.post(
   '/:clientId/export',
   async (req: Request, res: Response): Promise<void> => {
-    const clientId = req.params['clientId'] ?? '';
+    const clientId = String(req.params['clientId'] ?? '');
 
     if (!clientId) {
       const body: ApiResponse = {

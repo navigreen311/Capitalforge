@@ -470,7 +470,7 @@ const resolvedCommissions: Record<string, { resolvedAt: string; resolution: stri
 billingRouter.get(
   '/billing/invoices/:id/pdf',
   async (req: Request, res: Response): Promise<void> => {
-    const invoiceId = req.params['id'];
+    const invoiceId = String(req.params['id'] ?? '');
 
     if (!invoiceId) {
       const body: ApiResponse = {
@@ -531,7 +531,7 @@ billingRouter.get(
 billingRouter.post(
   '/billing/invoices/:id/void',
   async (req: Request, res: Response): Promise<void> => {
-    const invoiceId = req.params['id'];
+    const invoiceId = String(req.params['id'] ?? '');
     const { reason } = req.body as Record<string, unknown>;
 
     if (!invoiceId) {
@@ -579,7 +579,7 @@ billingRouter.post(
 billingRouter.post(
   '/billing/invoices/:id/unpay',
   async (req: Request, res: Response): Promise<void> => {
-    const invoiceId = req.params['id'];
+    const invoiceId = String(req.params['id'] ?? '');
 
     if (!invoiceId) {
       const body: ApiResponse = {
@@ -623,7 +623,7 @@ billingRouter.post(
 billingRouter.post(
   '/billing/commissions/:id/resolve',
   async (req: Request, res: Response): Promise<void> => {
-    const commissionId = req.params['id'];
+    const commissionId = String(req.params['id'] ?? '');
     const { resolution, amount } = req.body as Record<string, unknown>;
 
     if (!commissionId) {
