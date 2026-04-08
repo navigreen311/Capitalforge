@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { useToast } from '@/components/global/ToastProvider';
 import { DashboardErrorState } from './DashboardErrorState';
 
 // ── Types ────────────────────────────────────────────────────
@@ -149,6 +150,8 @@ export function ActionQueue() {
   const [data, setData] = useState<ActionQueueData | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
+  const [fadingOutIds, setFadingOutIds] = useState<Set<string>>(new Set());
+  const toast = useToast();
 
   // Sync local state from fetched data (local state needed for optimistic updates)
   useEffect(() => {
@@ -157,6 +160,10 @@ export function ActionQueue() {
 
   const markComplete = async (task: ActionTask) => {
     setCompletingIds((prev) => new Set(prev).add(task.id));
+
+    // Start fade-out animation immediately (optimistic)
+    setFadingOutIds((prev) => new Set(prev).add(task.id));
+
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
       await fetch('/api/v1/events', {
@@ -175,7 +182,23 @@ export function ActionQueue() {
           },
         }),
       });
-      // Remove completed task from local state
+    } catch {
+      // Silently fail — removal still proceeds optimistically
+    } finally {
+      setCompletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+    }
+
+    // Remove from DOM after fade-out animation completes (300ms)
+    setTimeout(() => {
+      setFadingOutIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
       setData((prev) =>
         prev
           ? {
@@ -185,15 +208,8 @@ export function ActionQueue() {
             }
           : prev,
       );
-    } catch {
-      // Silently fail — task stays in queue
-    } finally {
-      setCompletingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(task.id);
-        return next;
-      });
-    }
+      toast.success('Task marked complete');
+    }, 300);
   };
 
   const visibleTasks =
@@ -239,11 +255,13 @@ export function ActionQueue() {
               };
               const monogram = TYPE_MONOGRAMS[task.type] ?? 'TK';
               const isCompleting = completingIds.has(task.id);
+              const isFadingOut = fadingOutIds.has(task.id);
 
               return (
                 <div
                   key={task.id}
-                  className="flex items-center gap-3 p-3 rounded-lg border border-surface-border bg-white hover:shadow-card transition-shadow duration-150"
+                  className="flex items-center gap-3 p-3 rounded-lg border border-surface-border bg-white hover:shadow-card transition-all duration-300"
+                  style={{ opacity: isFadingOut ? 0 : 1 }}
                 >
                   {/* Priority badge */}
                   <span
