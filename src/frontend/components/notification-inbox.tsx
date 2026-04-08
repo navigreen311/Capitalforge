@@ -10,7 +10,10 @@ export type NotificationType =
   | 'compliance_flag'
   | 'payment_due'
   | 'application_status'
-  | 'system';
+  | 'system'
+  | 'task'
+  | 'consent'
+  | 'restack';
 
 export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'INFO';
 
@@ -33,6 +36,9 @@ const TYPE_CONFIG: Record<NotificationType, { icon: string; iconBg: string; icon
   payment_due:       { icon: '$',  iconBg: 'bg-blue-500/15',   iconColor: 'text-blue-400' },
   application_status:{ icon: 'AP', iconBg: 'bg-purple-500/15', iconColor: 'text-purple-400' },
   system:            { icon: 'i',  iconBg: 'bg-white/10',      iconColor: 'text-gray-400' },
+  task:              { icon: 'T',  iconBg: 'bg-green-500/15',  iconColor: 'text-green-400' },
+  consent:           { icon: 'C',  iconBg: 'bg-orange-500/15', iconColor: 'text-orange-400' },
+  restack:           { icon: 'R',  iconBg: 'bg-cyan-500/15',   iconColor: 'text-cyan-400' },
 };
 
 const SEVERITY_BADGE: Record<Severity, string> = {
@@ -49,101 +55,51 @@ const MOCK_NOTIFICATIONS: Notification[] = [
     id: 'n-1',
     type: 'apr_expiry',
     severity: 'CRITICAL',
-    title: 'APR Expiry Warning',
-    description: 'Apex Ventures promotional APR expires in 12 days. Review and action required.',
-    timestamp: '2 hours ago',
+    title: 'APR Expiry — Thornwood Capital',
+    description: 'Chase ****4821 expires in 5 days',
+    timestamp: '2h ago',
     read: false,
-    href: '/clients/cl-001',
+    href: '/clients/cl-004',
   },
   {
     id: 'n-2',
     type: 'compliance_flag',
-    severity: 'CRITICAL',
-    title: 'Compliance Flag — Missing KYC',
-    description: 'Sam Delgado flagged for missing KYC documentation. Immediate review needed.',
-    timestamp: '3 hours ago',
+    severity: 'HIGH',
+    title: 'Compliance flag — James Park call',
+    description: 'Disclosure Missing detected',
+    timestamp: '3h ago',
     read: false,
     href: '/compliance',
   },
   {
     id: 'n-3',
-    type: 'compliance_flag',
-    severity: 'HIGH',
-    title: 'KYC Verification Mismatch',
-    description: 'Robert Osei identity verification returned a mismatch. Manual review required.',
-    timestamp: '5 hours ago',
-    read: false,
-    href: '/compliance',
-  },
-  {
-    id: 'n-4',
-    type: 'payment_due',
-    severity: 'HIGH',
-    title: 'Payment Due — Meridian Holdings',
-    description: 'Meridian Holdings quarterly payment of $12,500 due in 3 days.',
-    timestamp: '6 hours ago',
-    read: false,
-    href: '/repayment',
-  },
-  {
-    id: 'n-5',
-    type: 'application_status',
+    type: 'task',
     severity: 'MEDIUM',
-    title: 'Application Approved',
-    description: 'Brightline Corp SBA 7(a) $750K application has been approved by underwriting.',
-    timestamp: '8 hours ago',
+    title: 'Deal committee review needed',
+    description: 'Apex Ventures $250K awaiting decision',
+    timestamp: '4h ago',
     read: false,
-    href: '/applications/app-103',
-  },
-  {
-    id: 'n-6',
-    type: 'apr_expiry',
-    severity: 'MEDIUM',
-    title: 'APR Review Upcoming',
-    description: 'Thornwood Capital intro APR period ends in 30 days. Schedule review.',
-    timestamp: '10 hours ago',
-    read: true,
-    href: '/clients/cl-004',
-  },
-  {
-    id: 'n-7',
-    type: 'application_status',
-    severity: 'INFO',
-    title: 'Application Submitted',
-    description: 'Meridian Holdings Term $250K application submitted for committee review.',
-    timestamp: '1 day ago',
-    read: true,
     href: '/applications/app-102',
   },
   {
-    id: 'n-8',
-    type: 'compliance_flag',
-    severity: 'INFO',
-    title: 'Partner Review Completed',
-    description: 'FastFund partner agreement review completed. No issues found.',
-    timestamp: '1 day ago',
-    read: true,
-    href: '/partners',
+    id: 'n-4',
+    type: 'consent',
+    severity: 'MEDIUM',
+    title: 'Consent expired — Brightline Corp',
+    description: 'Annual credit monitoring consent needs renewal',
+    timestamp: '1d ago',
+    read: false,
+    href: '/clients/cl-003',
   },
   {
-    id: 'n-9',
-    type: 'payment_due',
+    id: 'n-5',
+    type: 'restack',
     severity: 'INFO',
-    title: 'Payment Received',
-    description: 'Apex Ventures monthly payment of $8,200 received and processed.',
-    timestamp: '2 days ago',
+    title: 'Re-stack opportunity — Meridian Holdings',
+    description: '$275K available',
+    timestamp: '2d ago',
     read: true,
-    href: '/repayment',
-  },
-  {
-    id: 'n-10',
-    type: 'system',
-    severity: 'INFO',
-    title: 'System Update',
-    description: 'CapitalForge v2.4 deployed. New compliance dashboard features available.',
-    timestamp: '2 days ago',
-    read: true,
-    href: '/dashboard',
+    href: '/clients/cl-002',
   },
 ];
 
@@ -268,9 +224,9 @@ export function NotificationInbox({ open, onClose, onUnreadCountChange }: Notifi
           </div>
         </div>
 
-        {/* Notification list — last 10 */}
+        {/* Notification list */}
         <div className="flex-1 overflow-y-auto">
-          {notifications.slice(0, 10).map((n) => {
+          {notifications.map((n) => {
             const cfg = TYPE_CONFIG[n.type];
             return (
               <button
@@ -281,7 +237,7 @@ export function NotificationInbox({ open, onClose, onUnreadCountChange }: Notifi
                   transition-colors duration-100 cursor-pointer
                   ${n.read
                     ? 'bg-transparent hover:bg-white/[0.03]'
-                    : 'bg-white/[0.04] hover:bg-white/[0.07]'}
+                    : 'bg-white/[0.04] hover:bg-white/[0.07] border-l-2 border-l-brand-gold'}
                 `}
               >
                 <div className="flex items-start gap-3">
@@ -331,7 +287,7 @@ export function NotificationInbox({ open, onClose, onUnreadCountChange }: Notifi
 
 export function useNotificationInbox() {
   const [open, setOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(5); // initial mock count
+  const [unreadCount, setUnreadCount] = useState(4); // initial mock count (4 of 5 are unread)
 
   const openInbox = useCallback(() => setOpen(true), []);
   const closeInbox = useCallback(() => setOpen(false), []);
