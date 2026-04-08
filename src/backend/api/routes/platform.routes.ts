@@ -109,6 +109,34 @@ router.get('/crm/revenue', (_req: Request, res: Response) => {
 });
 
 // ============================================================
+// CRM MRR Trend
+// ============================================================
+
+const MRR_TREND_DATA = [
+  { month: '2025-11', mrr: 62400, new_business: 8200, churn: 3100 },
+  { month: '2025-12', mrr: 67500, new_business: 9400, churn: 4300 },
+  { month: '2026-01', mrr: 71200, new_business: 7800, churn: 4100 },
+  { month: '2026-02', mrr: 74800, new_business: 8600, churn: 5000 },
+  { month: '2026-03', mrr: 76500, new_business: 6200, churn: 4500 },
+  { month: '2026-04', mrr: 78200, new_business: 5400, churn: 3700 },
+];
+
+router.get('/crm/mrr-trend', (_req: Request, res: Response) => {
+  logger.info('[platform] GET /crm/mrr-trend');
+  return ok(res, { months: MRR_TREND_DATA });
+});
+
+// ============================================================
+// Billing — Send Overdue Reminders
+// ============================================================
+
+router.post('/billing/send-overdue-reminders', (_req: Request, res: Response) => {
+  logger.info('[platform] POST /billing/send-overdue-reminders');
+  const sent_count = Math.floor(Math.random() * 8) + 3;
+  return ok(res, { sent_count, message: `Sent ${sent_count} overdue payment reminders.` });
+});
+
+// ============================================================
 // Issuers
 // ============================================================
 
