@@ -9,7 +9,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSearchParams, useRouter } from 'next/navigation';
 import { complianceApi } from '../../lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -303,9 +302,8 @@ export default function ComplianceCenterPage() {
   const [running, setRunning] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const activeFilter = (searchParams.get('filter') as CheckType | null) || null;
+  const [activeFilter, setActiveFilter] = useState<CheckType | null>(null);
 
   // Fetch from API on mount
   useEffect(() => {
@@ -346,7 +344,6 @@ export default function ComplianceCenterPage() {
     { level: 'low',      count: items.filter((i) => i.riskLevel === 'low').length },
   ];
 
-  const router = useRouter();
   const [runProgress, setRunProgress] = useState(0);
 
   // Mark an item as resolved
