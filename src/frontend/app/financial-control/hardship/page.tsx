@@ -14,7 +14,7 @@
 //   8. Interactive 4-stage pipeline dots (3B)
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -189,6 +189,149 @@ function formatDate(s: string): string {
   catch { return s; }
 }
 
+// ---------------------------------------------------------------------------
+// Workout Proposal Generator — mock AI content
+// ---------------------------------------------------------------------------
+
+function generateWorkoutProposal(c: HardshipCase): string {
+  const reducedPayment = Math.round(c.totalDebt * 0.02);
+  const monthlyOriginal = Math.round(c.totalDebt * 0.035);
+  const settlementPct = c.missedPayments >= 3 ? 55 : 65;
+  const settlementAmt = Math.round(c.totalDebt * (settlementPct / 100));
+  const timeline = c.missedPayments >= 3 ? 24 : 18;
+
+  return `WORKOUT PROPOSAL — ${c.clientName}
+${c.businessName}
+Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+Advisor: ${c.assignedAdvisor}
+─────────────────────────────────────────
+
+Dear ${c.clientName},
+
+We understand that ${c.businessName} is experiencing financial difficulties, and we want to work with you to find a sustainable path forward. After a thorough review of your account, we are pleased to present the following workout proposal for your consideration.
+
+CURRENT SITUATION:
+- Outstanding Balance: ${formatCurrency(c.totalDebt)}
+- Missed Payments: ${c.missedPayments}
+- Credit Utilization: ${c.utilization}%
+- Current Status: ${STATUS_CONFIG[c.status].label}
+
+PROPOSED TERMS:
+1. Reduced Monthly Payment: ${formatCurrency(reducedPayment)}/mo (down from ${formatCurrency(monthlyOriginal)}/mo) for the first 6 months
+2. Interest Rate Reduction: Temporary reduction to 9.99% APR (from current variable rate) during the workout period
+3. Late Fee Waiver: All accumulated late fees (estimated ${formatCurrency(c.missedPayments * 39)}) will be waived upon enrollment
+4. Settlement Option: One-time lump sum settlement at ${settlementPct}% (${formatCurrency(settlementAmt)}) if paid within 90 days
+5. Timeline: ${timeline}-month structured repayment plan with quarterly reviews
+
+TAX CONSIDERATIONS:
+Note: Per IRC Section 163(j), business interest expense deductions may be limited to 30% of adjusted taxable income. Any forgiven debt exceeding $600 may be reported on Form 1099-C. We recommend consulting with your tax advisor regarding the implications of debt settlement or forgiveness on your business tax obligations.
+
+NEXT STEPS:
+- Review and sign the enclosed workout agreement
+- Set up automatic payment via ACH (reduces rate by additional 0.25%)
+- Schedule quarterly financial review with your assigned advisor
+- Maintain communication regarding any changes in business revenue
+
+This proposal is valid for 30 days from the date above. We are committed to supporting ${c.businessName} through this challenging period and are confident that, together, we can establish a manageable repayment plan.
+
+Respectfully,
+CapitalForge Hardship Resolution Team`;
+}
+
+// ---------------------------------------------------------------------------
+// VoiceForge Call Script Guidance — stage-based
+// ---------------------------------------------------------------------------
+
+type VoiceForgeStage = 1 | 2 | 3 | 4;
+
+interface VoiceForgeScript {
+  stage: VoiceForgeStage;
+  title: string;
+  objective: string;
+  keyPoints: string[];
+  openingScript: string;
+  toneGuidance: string;
+}
+
+function getVoiceForgeScript(c: HardshipCase): VoiceForgeScript {
+  const stageMap: Record<ResolutionStatus, VoiceForgeStage> = {
+    open: 1,
+    in_negotiation: 2,
+    resolved: 3,
+    written_off: 4,
+  };
+
+  const stage = stageMap[c.status];
+
+  const scripts: Record<VoiceForgeStage, VoiceForgeScript> = {
+    1: {
+      stage: 1,
+      title: 'Empathetic Introduction',
+      objective: 'Understand the client\'s current financial situation and express willingness to help.',
+      keyPoints: [
+        'Introduce yourself and CapitalForge\'s hardship program',
+        'Express empathy — acknowledge the difficulty of the situation',
+        'Ask open-ended questions about their business challenges',
+        'Listen actively — do not push solutions yet',
+        'Gather information about income changes, expenses, and timeline expectations',
+        'Confirm contact preferences and best times to reach them',
+      ],
+      openingScript: `"Good [morning/afternoon], ${c.clientName}. This is [Your Name] from CapitalForge's Client Support team. I'm reaching out because we noticed some recent changes on your account with ${c.businessName}, and I wanted to personally check in to see how things are going. We have programs designed specifically to help businesses through challenging periods, and I'd love to understand your situation better so we can explore what options might work for you."`,
+      toneGuidance: 'Warm, patient, non-judgmental. Avoid financial jargon. Let the client lead the conversation.',
+    },
+    2: {
+      stage: 2,
+      title: 'Proposal Follow-Up',
+      objective: 'Review the workout proposal, answer questions, and address concerns.',
+      keyPoints: [
+        'Reference the previously sent workout proposal',
+        'Walk through each proposed term clearly',
+        'Address any questions about payment amounts or timeline',
+        'Explain the interest rate reduction and fee waiver benefits',
+        'Discuss the settlement option if appropriate',
+        'Mention the Section 163(j) tax consideration and recommend their tax advisor',
+        'Set clear next steps and timeline for decision',
+      ],
+      openingScript: `"Hi ${c.clientName}, this is [Your Name] from CapitalForge. I'm following up on the workout proposal we prepared for ${c.businessName}. I wanted to make sure you had a chance to review it and answer any questions you might have about the proposed terms. Our goal is to find an arrangement that works for both sides — shall we walk through the details together?"`,
+      toneGuidance: 'Professional yet approachable. Be prepared with specific numbers. Show flexibility on terms.',
+    },
+    3: {
+      stage: 3,
+      title: 'Terms Discussion & Modification',
+      objective: 'Negotiate final terms and explore modifications if needed.',
+      keyPoints: [
+        'Review any counter-proposals from the client',
+        'Discuss modified payment schedules if standard terms don\'t fit',
+        'Explore alternative structures (longer timeline, different payment cadence)',
+        'Confirm the client\'s ability to meet proposed obligations',
+        'Document any agreed modifications',
+        'Prepare the final agreement for signature',
+        'Discuss monitoring and quarterly review process',
+      ],
+      openingScript: `"Hello ${c.clientName}, thank you for getting back to us regarding ${c.businessName}'s workout plan. I understand you had some thoughts on the proposed terms, and I'm here to work with you on finding the right balance. Let's discuss what adjustments might make this plan more sustainable for your business."`,
+      toneGuidance: 'Collaborative and solution-oriented. Be ready to offer alternatives. Document everything discussed.',
+    },
+    4: {
+      stage: 4,
+      title: 'Confirm Agreed Plan & Next Steps',
+      objective: 'Finalize the agreed-upon workout plan and establish clear next steps.',
+      keyPoints: [
+        'Summarize all agreed terms clearly',
+        'Confirm the start date and first payment date',
+        'Explain the ACH setup process for automatic payments',
+        'Provide contact information for ongoing support',
+        'Schedule the first quarterly review',
+        'Send written confirmation and agreement documents',
+        'Express confidence in the plan and continued partnership',
+      ],
+      openingScript: `"${c.clientName}, great news — I have the finalized workout agreement ready for ${c.businessName}. I'd like to walk through the confirmed terms one more time to make sure everything aligns with what we discussed, and then we can get you set up with the new payment schedule. This is a positive step forward, and we're here to support you throughout the process."`,
+      toneGuidance: 'Confident and reassuring. Celebrate the resolution. Be clear on logistics and deadlines.',
+    },
+  };
+
+  return scripts[stage];
+}
+
 function showToast(message: string) {
   const el = document.createElement('div');
   el.textContent = message;
@@ -318,6 +461,18 @@ export default function FinancialControlHardshipPage() {
   const [selectedCase, setSelectedCase] = useState<HardshipCase | null>(PLACEHOLDER_CASES[0]);
   const [editingNotes, setEditingNotes] = useState(PLACEHOLDER_CASES[0].workoutNotes);
   const [showNewCase, setShowNewCase] = useState(false);
+
+  // Workout Proposal Generator (3D)
+  const [showProposalModal, setShowProposalModal] = useState(false);
+  const [proposalText, setProposalText] = useState('');
+  const [proposalDisplayed, setProposalDisplayed] = useState('');
+  const [proposalGenerating, setProposalGenerating] = useState(false);
+  const [proposalDone, setProposalDone] = useState(false);
+  const proposalIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // VoiceForge Call Trigger (3E)
+  const [showVoiceForgeModal, setShowVoiceForgeModal] = useState(false);
+  const [voiceForgeScript, setVoiceForgeScript] = useState<VoiceForgeScript | null>(null);
 
   // New case form
   const [newCaseClient, setNewCaseClient] = useState('');
@@ -464,6 +619,93 @@ export default function FinancialControlHardshipPage() {
     setNewCaseResolution('undetermined');
     showToast(`Hardship case opened for ${client.name}.`);
   }
+
+  // ── 3D: Workout Proposal Generator handlers ──
+
+  const handleOpenProposalModal = useCallback(() => {
+    if (!selectedCase) return;
+    const fullText = generateWorkoutProposal(selectedCase);
+    setProposalText(fullText);
+    setProposalDisplayed('');
+    setProposalDone(false);
+    setProposalGenerating(true);
+    setShowProposalModal(true);
+
+    // Typing effect — reveal characters in chunks
+    let idx = 0;
+    const chunkSize = 4;
+    if (proposalIntervalRef.current) clearInterval(proposalIntervalRef.current);
+    proposalIntervalRef.current = setInterval(() => {
+      idx += chunkSize;
+      if (idx >= fullText.length) {
+        idx = fullText.length;
+        if (proposalIntervalRef.current) clearInterval(proposalIntervalRef.current);
+        setProposalGenerating(false);
+        setProposalDone(true);
+      }
+      setProposalDisplayed(fullText.slice(0, idx));
+    }, 12);
+  }, [selectedCase]);
+
+  const handleRegenerateProposal = useCallback(() => {
+    if (!selectedCase) return;
+    handleOpenProposalModal();
+  }, [selectedCase, handleOpenProposalModal]);
+
+  function handleSaveProposal() {
+    if (!selectedCase) return;
+    // Update the workout notes with the proposal
+    const updated = proposalDisplayed || proposalText;
+    setCases((prev) =>
+      prev.map((c) =>
+        c.id === selectedCase.id
+          ? { ...c, workoutNotes: updated, lastUpdated: new Date().toISOString().split('T')[0] }
+          : c,
+      ),
+    );
+    setSelectedCase({ ...selectedCase, workoutNotes: updated });
+    setEditingNotes(updated);
+    setShowProposalModal(false);
+    if (proposalIntervalRef.current) clearInterval(proposalIntervalRef.current);
+    showToast('Proposal saved to Document Vault');
+  }
+
+  function handleCopyProposal() {
+    const text = proposalDisplayed || proposalText;
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Proposal copied to clipboard.');
+    }).catch(() => {
+      showToast('Failed to copy — please select and copy manually.');
+    });
+  }
+
+  function handleCloseProposalModal() {
+    setShowProposalModal(false);
+    if (proposalIntervalRef.current) clearInterval(proposalIntervalRef.current);
+    setProposalGenerating(false);
+  }
+
+  // ── 3E: VoiceForge Call Trigger handlers ──
+
+  function handleOpenVoiceForge() {
+    if (!selectedCase) return;
+    const script = getVoiceForgeScript(selectedCase);
+    setVoiceForgeScript(script);
+    setShowVoiceForgeModal(true);
+  }
+
+  function handleInitiateVoiceForge() {
+    if (!selectedCase) return;
+    setShowVoiceForgeModal(false);
+    showToast(`VoiceForge outreach initiated for ${selectedCase.clientName}`);
+  }
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (proposalIntervalRef.current) clearInterval(proposalIntervalRef.current);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-6">
@@ -803,6 +1045,24 @@ export default function FinancialControlHardshipPage() {
                 </button>
               </div>
 
+              {/* AI Actions: Workout Proposal + VoiceForge */}
+              <div className="flex flex-col gap-2 pt-2 border-t border-gray-800">
+                <button
+                  onClick={handleOpenProposalModal}
+                  className="w-full px-4 py-2.5 rounded-lg bg-gradient-to-r from-[#C9A84C] to-amber-500 hover:from-amber-400 hover:to-amber-500 text-[#0A1628] text-xs font-bold transition-all shadow-lg shadow-amber-900/20 flex items-center justify-center gap-2"
+                >
+                  <span>Generate Workout Proposal</span>
+                  <span className="text-sm">&#10022;</span>
+                </button>
+                <button
+                  onClick={handleOpenVoiceForge}
+                  className="w-full px-4 py-2.5 rounded-lg bg-[#0A1628] border border-[#C9A84C]/40 hover:border-[#C9A84C] text-[#C9A84C] text-xs font-bold transition-all flex items-center justify-center gap-2"
+                >
+                  <span>Contact Client (VoiceForge)</span>
+                  <span>&rarr;</span>
+                </button>
+              </div>
+
               <div className="text-xs text-gray-600 pt-2 border-t border-gray-800">
                 Opened {formatDate(selectedCase.openedAt)} | Last updated {formatDate(selectedCase.lastUpdated)}
               </div>
@@ -947,6 +1207,197 @@ export default function FinancialControlHardshipPage() {
                 className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-sm font-semibold transition-colors"
               >
                 Open Case
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3D: Workout Proposal Generator Modal */}
+      {showProposalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-2xl mx-4 p-6 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#C9A84C] to-amber-500 flex items-center justify-center text-[#0A1628] text-sm font-bold">
+                  &#10022;
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">AI Workout Proposal</h2>
+                  <p className="text-xs text-gray-400">
+                    {proposalGenerating ? 'Generating proposal...' : proposalDone ? 'Proposal ready — review and edit below' : 'Preparing...'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={handleCloseProposalModal} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+                &#215;
+              </button>
+            </div>
+
+            {/* Generating indicator */}
+            {proposalGenerating && (
+              <div className="flex items-center gap-2 mb-3">
+                <div className="flex gap-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" style={{ animationDelay: '0.2s' }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" style={{ animationDelay: '0.4s' }} />
+                </div>
+                <span className="text-xs text-[#C9A84C] font-semibold">AI analyzing case data...</span>
+              </div>
+            )}
+
+            {/* Proposal content — read-only during generation, editable after */}
+            <div className="flex-1 overflow-hidden mb-4">
+              {proposalDone ? (
+                <textarea
+                  value={proposalDisplayed}
+                  onChange={(e) => setProposalDisplayed(e.target.value)}
+                  className="w-full h-full min-h-[350px] rounded-lg bg-gray-800 border border-gray-700 px-4 py-3 text-sm text-gray-100 font-mono leading-relaxed placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] resize-none"
+                />
+              ) : (
+                <div className="w-full h-full min-h-[350px] rounded-lg bg-gray-800 border border-gray-700 px-4 py-3 text-sm text-gray-100 font-mono leading-relaxed overflow-y-auto whitespace-pre-wrap">
+                  {proposalDisplayed}
+                  {proposalGenerating && <span className="inline-block w-2 h-4 bg-[#C9A84C] animate-pulse ml-0.5 align-text-bottom" />}
+                </div>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={handleCloseProposalModal}
+                className="px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRegenerateProposal}
+                disabled={proposalGenerating}
+                className="px-4 py-2 rounded-lg border border-[#C9A84C]/40 text-sm font-semibold text-[#C9A84C] hover:border-[#C9A84C] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Regenerate
+              </button>
+              <button
+                onClick={handleCopyProposal}
+                disabled={proposalGenerating}
+                className="px-4 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm font-semibold text-gray-300 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Copy
+              </button>
+              <button
+                onClick={handleSaveProposal}
+                disabled={proposalGenerating}
+                className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-[#0A1628] text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Save to Document Vault
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3E: VoiceForge Call Trigger Modal */}
+      {showVoiceForgeModal && voiceForgeScript && selectedCase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#0A1628] border border-[#C9A84C]/40 flex items-center justify-center text-[#C9A84C] text-sm">
+                  &#9742;
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">VoiceForge Call Script</h2>
+                  <p className="text-xs text-gray-400">Stage {voiceForgeScript.stage}: {voiceForgeScript.title}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowVoiceForgeModal(false)} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+                &#215;
+              </button>
+            </div>
+
+            {/* Stage indicator */}
+            <div className="flex items-center gap-2 mb-5">
+              {[1, 2, 3, 4].map((s) => (
+                <div key={s} className="flex items-center gap-2">
+                  <div
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border transition-colors ${
+                      s === voiceForgeScript.stage
+                        ? 'bg-[#C9A84C] text-[#0A1628] border-[#C9A84C]'
+                        : s < voiceForgeScript.stage
+                        ? 'bg-gray-700 text-gray-300 border-gray-600'
+                        : 'bg-gray-900 text-gray-600 border-gray-800'
+                    }`}
+                  >
+                    {s}
+                  </div>
+                  {s < 4 && (
+                    <div className={`w-6 h-0.5 ${s < voiceForgeScript.stage ? 'bg-[#C9A84C]' : 'bg-gray-800'}`} />
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Client info */}
+            <div className="rounded-lg bg-[#0A1628] border border-gray-800 px-4 py-3 mb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-white">{selectedCase.clientName}</p>
+                  <p className="text-xs text-gray-400">{selectedCase.businessName}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">Debt: <span className="text-white font-bold">{formatCurrency(selectedCase.totalDebt)}</span></p>
+                  <p className="text-xs text-gray-500">Status: <span className="text-[#C9A84C] font-bold">{STATUS_CONFIG[selectedCase.status].label}</span></p>
+                </div>
+              </div>
+            </div>
+
+            {/* Objective */}
+            <div className="mb-4">
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Objective</p>
+              <p className="text-sm text-gray-200">{voiceForgeScript.objective}</p>
+            </div>
+
+            {/* Key Points */}
+            <div className="mb-4">
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-2">Key Points</p>
+              <ul className="space-y-1.5">
+                {voiceForgeScript.keyPoints.map((point, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                    <span className="text-[#C9A84C] mt-0.5 text-xs">&#9679;</span>
+                    {point}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Opening Script */}
+            <div className="mb-4">
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-2">Suggested Opening</p>
+              <div className="rounded-lg bg-gray-800 border border-gray-700 px-4 py-3 text-sm text-gray-200 italic leading-relaxed">
+                {voiceForgeScript.openingScript}
+              </div>
+            </div>
+
+            {/* Tone Guidance */}
+            <div className="mb-5">
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Tone Guidance</p>
+              <p className="text-sm text-amber-300/80">{voiceForgeScript.toneGuidance}</p>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowVoiceForgeModal(false)}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleInitiateVoiceForge}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-[#0A1628] text-sm font-bold transition-colors flex items-center justify-center gap-2"
+              >
+                <span>Initiate Call</span>
+                <span>&rarr;</span>
               </button>
             </div>
           </div>
