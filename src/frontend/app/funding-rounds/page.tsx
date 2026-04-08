@@ -8,10 +8,11 @@
 // fees/cost-of-capital section, Start New Round button.
 // ============================================================
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { fundingRoundsApi } from '../../lib/api-client';
 import AprCountdown from '../../components/modules/apr-countdown';
+import { RoundActionButtons } from '../../components/funding-rounds/RoundActionButtons';
 import type { RoundStatus } from '../../../shared/types';
 
 // ---------------------------------------------------------------------------
@@ -298,6 +299,7 @@ export default function FundingRoundsPage() {
   const [rounds, setRounds] = useState<FundingRound[]>(PLACEHOLDER_ROUNDS);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<RoundStatus | ''>('');
+  const [clientSearch, setClientSearch] = useState('');
   const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -313,7 +315,14 @@ export default function FundingRoundsPage() {
     })();
   }, [statusFilter]);
 
-  const displayed = useMemo(() => rounds.filter((r) => !statusFilter || r.status === statusFilter), [rounds, statusFilter]);
+  const displayed = useMemo(() => {
+    const query = clientSearch.trim().toLowerCase();
+    return rounds.filter((r) => {
+      if (statusFilter && r.status !== statusFilter) return false;
+      if (query && !r.businessName.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [rounds, statusFilter, clientSearch]);
 
   const totalObtained = rounds
     .filter((r) => r.status === 'in_progress' || r.status === 'completed')
@@ -327,6 +336,12 @@ export default function FundingRoundsPage() {
   // or when there are no in_progress rounds
   const canStartNewRound = !rounds.some((r) => r.status === 'planning');
 
+  const handleRoundStatusChange = useCallback((roundId: string, newStatus: string) => {
+    setRounds((prev) =>
+      prev.map((r) => (r.id === roundId ? { ...r, status: newStatus as RoundStatus } : r)),
+    );
+  }, []);
+
   const toggleExpanded = (id: string) => {
     setExpandedRounds((prev) => {
       const next = new Set(prev);
@@ -339,7 +354,7 @@ export default function FundingRoundsPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Funding Rounds</h1>
           <p className="text-sm text-gray-400 mt-0.5">
@@ -352,26 +367,61 @@ export default function FundingRoundsPage() {
             )}
           </p>
         </div>
-        <div className="flex gap-2">
+      </div>
+
+      {/* Filter bar */}
+      <div className="rounded-xl border border-gray-700 bg-gray-900/60 shadow-lg px-4 py-3 mb-6">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Client search */}
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <circle cx="11" cy="11" r="7" />
+              <path strokeLinecap="round" d="m16 16 4 4" />
+            </svg>
+            <input
+              type="text"
+              value={clientSearch}
+              onChange={(e) => setClientSearch(e.target.value)}
+              placeholder="Search by client name..."
+              aria-label="Search rounds by client name"
+              className="bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 min-w-[220px]"
+            />
+          </div>
+
+          {/* Status dropdown */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as RoundStatus | '')}
             className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
           >
-            <option value="">All Rounds</option>
+            <option value="">All Statuses</option>
             <option value="planning">Planning</option>
             <option value="in_progress">In Progress</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
           </select>
-          {canStartNewRound && (
+
+          {/* Clear filters */}
+          {(statusFilter || clientSearch) && (
             <button
-              onClick={() => router.push('/funding-rounds/new')}
-              className="px-4 py-2 rounded-lg bg-[#C9A84C] text-[#0A1628] text-sm font-bold hover:bg-[#D4B65E] transition-colors whitespace-nowrap"
+              type="button"
+              onClick={() => { setStatusFilter(''); setClientSearch(''); }}
+              className="text-xs text-[#C9A84C] hover:text-[#D4B65E] font-medium underline underline-offset-2 transition-colors"
             >
-              + Start New Round
+              Clear Filters
             </button>
           )}
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* + New Round */}
+          <button
+            onClick={() => router.push('/funding-rounds/new')}
+            className="px-4 py-2 rounded-lg bg-[#C9A84C] text-[#0A1628] text-sm font-bold hover:bg-[#D4B65E] transition-colors whitespace-nowrap"
+          >
+            + New Round
+          </button>
         </div>
       </div>
 
@@ -470,6 +520,25 @@ export default function FundingRoundsPage() {
                     <FeesSummary round={round} />
                   </div>
                 )}
+
+                {/* Round action buttons */}
+                <RoundActionButtons
+                  roundId={round.id}
+                  businessId={round.businessId}
+                  businessName={round.businessName}
+                  roundNumber={round.roundNumber}
+                  status={round.status}
+                  obtainedAmount={round.obtainedAmount}
+                  targetAmount={round.targetAmount}
+                  startedAt={round.startedAt}
+                  targetCloseAt={round.targetCloseAt}
+                  advisorName={round.advisorName}
+                  applications={round.applications}
+                  totalFees={round.totalFees}
+                  effectiveApr={round.effectiveApr}
+                  notes={round.notes}
+                  onStatusChange={handleRoundStatusChange}
+                />
               </div>
             );
           })}
