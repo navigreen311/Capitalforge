@@ -218,6 +218,10 @@ apiRouter.use('/', complaintsRouter);
 import { voiceForgeRouter } from './voiceforge.routes.js';
 apiRouter.use('/', voiceForgeRouter);
 
+// ── Payment Reminder SMS Campaign (TCPA-gated) ─────────────────
+import { smsCampaignRouter } from './payment-reminders.routes.js';
+apiRouter.use('/v1/voiceforge/sms-campaign', smsCampaignRouter);
+
 // ── VisionAudioForge — Document Intelligence & Agent Orchestration
 // POST /api/vaf/process
 // GET  /api/vaf/results/:id

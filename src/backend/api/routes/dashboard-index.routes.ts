@@ -38,6 +38,7 @@ const SUB_ROUTES: SubRoute[] = [
   { path: '/voiceforge',             modulePath: './dashboard-voiceforge.routes.js',           exportName: 'dashboardVoiceforgeRouter' },
   { path: '/events',                 modulePath: './dashboard-events.routes.js',               exportName: 'dashboardEventsRouter' },
   { path: '/nav-counts',             modulePath: './dashboard-nav-counts.routes.js',           exportName: 'dashboardNavCountsRouter' },
+  { path: '/payment-reminder-eligible', modulePath: './payment-reminders.routes.js',           exportName: 'paymentReminderEligibleRouter' },
 ];
 
 // ── Mount each sub-route with graceful fallback ───────────────────────────

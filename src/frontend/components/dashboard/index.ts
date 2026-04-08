@@ -10,6 +10,7 @@ export { ActionQueue } from './ActionQueue';
 export { ActiveFundingRounds } from './ActiveFundingRounds';
 export { RecentApplicationsEnhanced } from './RecentApplicationsEnhanced';
 export { UpcomingPayments } from './UpcomingPayments';
+export { TCPAReminderModal } from './TCPAReminderModal';
 export { DealCommitteeQueue } from './DealCommitteeQueue';
 export { StateDisclosureDeadlines } from './StateDisclosureDeadlines';
 export { PortfolioRiskHeatmap } from './PortfolioRiskHeatmap';

@@ -12,6 +12,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
+import { TCPAReminderModal } from '@/components/dashboard/TCPAReminderModal';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -331,9 +332,9 @@ export function UpcomingPayments() {
 
   const handleCloseModal = useCallback(() => setShowReminderModal(false), []);
 
-  const handleRemindersSent = useCallback(() => {
-    setToastMessage('Reminders sent successfully!');
-    setTimeout(() => setToastMessage(null), 4000);
+  const handleRemindersSent = useCallback((message: string) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(null), 5000);
   }, []);
 
   // Auto-select today on first data load
@@ -508,10 +509,9 @@ export function UpcomingPayments() {
           </div>
         )}
 
-        {/* ── Reminder Modal ──────────────────────────────────── */}
+        {/* ── TCPA Reminder Modal ─────────────────────────────── */}
         {showReminderModal && (
-          <ReminderModal
-            payments={reminderPayments}
+          <TCPAReminderModal
             onClose={handleCloseModal}
             onSent={handleRemindersSent}
           />
