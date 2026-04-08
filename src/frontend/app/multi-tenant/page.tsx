@@ -1038,6 +1038,15 @@ export default function MultiTenantPage() {
   // Feature flag save status
   const [flagSaveStatus, setFlagSaveStatus] = useState<Record<string, 'saving' | 'saved' | 'error' | null>>({});
 
+  // Hydrate impersonation from localStorage on mount
+  useEffect(() => {
+    const storedId = localStorage.getItem('impersonatedTenantId');
+    const storedName = localStorage.getItem('impersonatedTenantName');
+    if (storedId && storedName) {
+      setImpersonating({ tenantId: storedId, tenantName: storedName });
+    }
+  }, []);
+
   const selectedTenant = tenants.find((t) => t.id === selected) ?? null;
   const allSlugs = tenants.map(t => t.slug);
 
@@ -1059,7 +1068,7 @@ export default function MultiTenantPage() {
     // Store tenantId in localStorage for testing/impersonation
     localStorage.setItem('impersonatedTenantId', selectedTenant.id);
     localStorage.setItem('impersonatedTenantName', selectedTenant.name);
-    addToast(`Now impersonating ${selectedTenant.name} admin`, 'info');
+    addToast(`Now impersonating ${selectedTenant.name}`, 'info');
   }
 
   function exitImpersonation() {
@@ -1078,7 +1087,7 @@ export default function MultiTenantPage() {
     setTenants((prev) =>
       prev.map((t) => (t.id === selectedTenant.id ? { ...t, status: 'Suspended' as const } : t))
     );
-    addToast(`${selectedTenant.name} suspended (${reason}, ${duration})${notifyAdmin ? ' — admin notified' : ''}`, 'success');
+    addToast(`${selectedTenant.name} suspended`, 'success');
   }
 
   // ── Reactivate ──
@@ -1094,20 +1103,31 @@ export default function MultiTenantPage() {
   // ── Feature flag toggle with optimistic update ──
   function handleToggleFlag(tenantId: string, key: string) {
     const statusKey = `${tenantId}-${key}`;
+    const currentTenant = tenants.find((t) => t.id === tenantId);
+    const currentValue = currentTenant?.features[key] ?? false;
+    const newValue = !currentValue;
+
     // Optimistic update
     setTenants((prev) =>
       prev.map((t) =>
-        t.id === tenantId ? { ...t, features: { ...t.features, [key]: !t.features[key] } } : t
+        t.id === tenantId ? { ...t, features: { ...t.features, [key]: newValue } } : t
       )
     );
     setFlagSaveStatus((prev) => ({ ...prev, [statusKey]: 'saving' }));
 
-    // Simulate async save
+    // Mock API PATCH /api/tenants/:id/features
+    // In production, replace with: fetch(`/api/tenants/${tenantId}/features`, { method: 'PATCH', body: JSON.stringify({ [key]: newValue }) })
     setTimeout(() => {
       // 90% success rate simulation
       const success = Math.random() > 0.1;
       if (success) {
         setFlagSaveStatus((prev) => ({ ...prev, [statusKey]: 'saved' }));
+        // Show toast with flag name and tenant
+        const flagLabel = FEATURE_LABELS[key] ?? key;
+        addToast(
+          `${flagLabel} ${newValue ? 'enabled' : 'disabled'} for ${currentTenant?.name ?? 'tenant'}`,
+          'success'
+        );
         // Clear "Saved" after 2s
         setTimeout(() => {
           setFlagSaveStatus((prev) => ({ ...prev, [statusKey]: null }));
@@ -1190,7 +1210,7 @@ export default function MultiTenantPage() {
             onClick={exitImpersonation}
             className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold transition-colors"
           >
-            Exit Impersonation
+            End Session
           </button>
         </div>
       )}
