@@ -282,6 +282,10 @@ apiRouter.use('/', platformExtendedRouter);
 import { issuerRulesRouter } from './issuer-rules.routes.js';
 apiRouter.use('/', issuerRulesRouter);
 
+// ── Credit Union (slug-based routes, eligibility, membership) ───
+import { creditUnionRouter } from './credit-union.routes.js';
+apiRouter.use('/credit-unions', creditUnionRouter);
+
 // ── DocuSign E-Signature ─────────────────────────────────────────
 import { docuSignRouter } from './docusign.routes.js';
 apiRouter.use('/docusign', docuSignRouter);
