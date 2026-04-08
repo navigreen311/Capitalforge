@@ -22,6 +22,7 @@ import { useState, useMemo } from 'react';
 
 type HardshipFlag = 'missed_payment' | 'high_utilization' | 'income_change' | 'business_closure';
 type ResolutionStatus = 'open' | 'in_negotiation' | 'resolved' | 'written_off';
+type ProposedResolution = 'payment_plan' | 'settlement' | 'card_closure' | 'deferral' | 'balance_transfer' | 'undetermined';
 
 /** 4-stage pipeline for case advancement (3B) */
 const STAGE_LABELS = ['Initial Contact', 'Proposal Sent', 'Negotiation', 'Resolved'] as const;
@@ -45,6 +46,11 @@ interface AtRiskClient {
   totalDebt: number;
 }
 
+interface MockCard {
+  id: string;
+  label: string;
+}
+
 interface HardshipCase {
   id: string;
   clientId: string;
@@ -61,6 +67,9 @@ interface HardshipCase {
   assignedAdvisor: string;
   workoutNotes: string;
   stageIndex: StageIndex;
+  debtAtRisk?: number;
+  affectedCards?: string[];
+  proposedResolution?: ProposedResolution;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +82,24 @@ const AT_RISK_CLIENTS: AtRiskClient[] = [
   { id: 'arc_3', name: 'James Thornton', businessName: 'Thornton Construction Inc', fico: 590, utilization: 95, missedPayments: 4, totalDebt: 128_700 },
   { id: 'arc_4', name: 'Maria Santos', businessName: 'Santos Bakery & Cafe', fico: 660, utilization: 78, missedPayments: 1, totalDebt: 34_200 },
   { id: 'arc_5', name: 'Robert Kim', businessName: 'Kim Auto Parts LLC', fico: 610, utilization: 88, missedPayments: 3, totalDebt: 95_600 },
+];
+
+const MOCK_CARDS: MockCard[] = [
+  { id: 'card_1', label: 'Chase Ink Business Preferred' },
+  { id: 'card_2', label: 'Amex Business Gold' },
+  { id: 'card_3', label: 'Capital One Spark Cash Plus' },
+  { id: 'card_4', label: 'Citi Business Platinum' },
+  { id: 'card_5', label: 'Bank of America Business Advantage' },
+  { id: 'card_6', label: 'Wells Fargo Business Elite' },
+];
+
+const RESOLUTION_OPTIONS: { value: ProposedResolution; label: string }[] = [
+  { value: 'undetermined', label: 'Undetermined' },
+  { value: 'payment_plan', label: 'Payment Plan' },
+  { value: 'settlement', label: 'Settlement' },
+  { value: 'card_closure', label: 'Card Closure' },
+  { value: 'deferral', label: 'Deferral' },
+  { value: 'balance_transfer', label: 'Balance Transfer' },
 ];
 
 const PLACEHOLDER_CASES: HardshipCase[] = [
@@ -296,6 +323,9 @@ export default function FinancialControlHardshipPage() {
   const [newCaseClient, setNewCaseClient] = useState('');
   const [newCaseFlag, setNewCaseFlag] = useState<HardshipFlag>('missed_payment');
   const [newCaseNotes, setNewCaseNotes] = useState('');
+  const [newCaseDebtAtRisk, setNewCaseDebtAtRisk] = useState<number | ''>('');
+  const [newCaseAffectedCards, setNewCaseAffectedCards] = useState<string[]>([]);
+  const [newCaseResolution, setNewCaseResolution] = useState<ProposedResolution>('undetermined');
 
   const filtered = useMemo(
     () => cases.filter((c) => {
@@ -417,13 +447,21 @@ export default function FinancialControlHardshipPage() {
       assignedAdvisor: 'Unassigned',
       workoutNotes: newCaseNotes,
       stageIndex: 0,
+      debtAtRisk: newCaseDebtAtRisk === '' ? undefined : newCaseDebtAtRisk,
+      affectedCards: newCaseAffectedCards.length > 0 ? [...newCaseAffectedCards] : undefined,
+      proposedResolution: newCaseResolution,
     };
 
     setCases((prev) => [newCase, ...prev]);
+    setSelectedCase(newCase);
+    setEditingNotes(newCase.workoutNotes);
     setShowNewCase(false);
     setNewCaseClient('');
     setNewCaseFlag('missed_payment');
     setNewCaseNotes('');
+    setNewCaseDebtAtRisk('');
+    setNewCaseAffectedCards([]);
+    setNewCaseResolution('undetermined');
     showToast(`Hardship case opened for ${client.name}.`);
   }
 
@@ -517,7 +555,11 @@ export default function FinancialControlHardshipPage() {
         <div className="lg:col-span-2 rounded-xl border border-gray-800 bg-[#0A1628] overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-800">
             <h3 className="text-base font-semibold text-white">Active Hardship Cases</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{filtered.length} case{filtered.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {filterFlag !== 'all' || filterStatus !== 'all'
+                ? `Showing ${filtered.length} of ${cases.length} cases`
+                : `${filtered.length} case${filtered.length !== 1 ? 's' : ''}`}
+            </p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -780,7 +822,7 @@ export default function FinancialControlHardshipPage() {
       {/* New Case Modal */}
       {showNewCase && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-md mx-4 p-6">
+          <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-lg font-bold text-white">New Hardship Case</h2>
               <button onClick={() => setShowNewCase(false)} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
@@ -818,6 +860,63 @@ export default function FinancialControlHardshipPage() {
                 >
                   {(Object.keys(FLAG_CONFIG) as HardshipFlag[]).map((f) => (
                     <option key={f} value={f}>{FLAG_CONFIG[f].label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                  Total Debt at Risk ($)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={newCaseDebtAtRisk}
+                  onChange={(e) => setNewCaseDebtAtRisk(e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder="e.g. 50000"
+                  className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                  Affected Cards
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {MOCK_CARDS.map((card) => (
+                    <label
+                      key={card.id}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 cursor-pointer hover:border-gray-600 transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={newCaseAffectedCards.includes(card.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewCaseAffectedCards((prev) => [...prev, card.id]);
+                          } else {
+                            setNewCaseAffectedCards((prev) => prev.filter((id) => id !== card.id));
+                          }
+                        }}
+                        className="accent-[#C9A84C] w-3.5 h-3.5"
+                      />
+                      <span className="text-xs text-gray-300">{card.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                  Initial Proposed Resolution
+                </label>
+                <select
+                  value={newCaseResolution}
+                  onChange={(e) => setNewCaseResolution(e.target.value as ProposedResolution)}
+                  className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
+                >
+                  {RESOLUTION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
               </div>
