@@ -169,6 +169,38 @@ const ISSUERS_DATA = [
     approvalRate: 60.1, avgCreditLimit: 18000,
     doNotApply: false, doNotApplyReason: null,
   },
+  {
+    id: 'iss_008', name: 'Navy Federal Credit Union', logo: '⚓',
+    velocityRules: 'No 5/24 equivalent; lenient velocity rules for members',
+    approvalCriteria: 'Military/DoD affiliation required; TransUnion pull; min 650 FICO',
+    totalApps: 87, approved: 72, declined: 10, pending: 5,
+    approvalRate: 82.8, avgCreditLimit: 32000,
+    doNotApply: false, doNotApplyReason: null,
+  },
+  {
+    id: 'iss_009', name: 'Alliant Credit Union', logo: '🏦',
+    velocityRules: 'No strict velocity rules; open membership via $5 donation',
+    approvalCriteria: 'Anyone can join ($5 Foster Care donation); min 660 FICO; $25k+ revenue',
+    totalApps: 54, approved: 41, declined: 9, pending: 4,
+    approvalRate: 75.9, avgCreditLimit: 25000,
+    doNotApply: false, doNotApplyReason: null,
+  },
+  {
+    id: 'iss_010', name: 'PenFed Credit Union', logo: '🛡️',
+    velocityRules: 'No velocity rules; open membership via savings account',
+    approvalCriteria: 'Open to anyone; Equifax + TransUnion pull; min 670 FICO',
+    totalApps: 43, approved: 31, declined: 8, pending: 4,
+    approvalRate: 72.1, avgCreditLimit: 22000,
+    doNotApply: false, doNotApplyReason: null,
+  },
+  {
+    id: 'iss_011', name: 'First Tech Federal Credit Union', logo: '💻',
+    velocityRules: 'No strict velocity rules; less inquiry-sensitive than banks',
+    approvalCriteria: 'Tech industry or Computer History Museum member; min 680 FICO',
+    totalApps: 38, approved: 28, declined: 7, pending: 3,
+    approvalRate: 73.7, avgCreditLimit: 20000,
+    doNotApply: false, doNotApplyReason: null,
+  },
 ];
 
 router.get('/issuers', (_req: Request, res: Response) => {
