@@ -20,6 +20,10 @@ export interface AprCountdownProps {
   regularApr?: number;
   /** Current balance on this card */
   balance?: number;
+  /** Last 4 digits of card number for display */
+  lastFour?: string;
+  /** Callback when the urgency action button is clicked */
+  onAction?: (context: { cardProduct: string; issuer: string; daysRemaining: number; balance?: number }) => void;
   compact?: boolean;
   className?: string;
 }
@@ -177,6 +181,8 @@ export default function AprCountdown({
   expiresAt,
   regularApr,
   balance,
+  lastFour,
+  onAction,
   compact = false,
   className = '',
 }: AprCountdownProps) {
@@ -191,23 +197,46 @@ export default function AprCountdown({
   const urgency = getUrgency(days);
   const cfg = URGENCY_CONFIG[urgency];
 
+  const fullCardLabel = lastFour
+    ? `${cardProduct} ****${lastFour}`
+    : cardProduct;
+
+  const handleAction = () => {
+    if (onAction) {
+      onAction({ cardProduct, issuer, daysRemaining: days, balance });
+    }
+  };
+
   if (compact) {
     return (
       <div
         className={`inline-flex items-center gap-3 rounded-lg border px-3 py-2 ${cfg.bgClass} ${cfg.borderClass} ${className}`}
       >
         <TimerRing days={days} urgency={urgency} size={44} maxDays={90} />
-        <div>
-          <p className="text-xs font-semibold text-gray-100 truncate max-w-[120px]">
-            {cardProduct}
+        <div className="min-w-0 flex-1">
+          <p
+            className="text-xs font-semibold text-gray-100"
+            title={`${fullCardLabel}${balance != null ? ` — ${formatCurrency(balance)}` : ''}`}
+          >
+            {fullCardLabel}
           </p>
           <p className={`text-xs ${cfg.textClass}`}>
             {urgency === 'expired' ? 'APR active' : `${days}d left`}
+            {balance != null && <span className="text-gray-400 ml-1.5">· {formatCurrency(balance)}</span>}
           </p>
         </div>
-        <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${cfg.badgeClass} ml-auto`}>
-          {cfg.badgeLabel}
-        </span>
+        {(urgency === 'warning' || urgency === 'critical') ? (
+          <button
+            onClick={handleAction}
+            className={`text-xs font-bold px-1.5 py-0.5 rounded border ${cfg.badgeClass} ml-auto cursor-pointer hover:brightness-125 transition-all`}
+          >
+            {cfg.badgeLabel}
+          </button>
+        ) : (
+          <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${cfg.badgeClass} ml-auto`}>
+            {cfg.badgeLabel}
+          </span>
+        )}
       </div>
     );
   }
@@ -219,12 +248,21 @@ export default function AprCountdown({
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <p className="font-semibold text-gray-100 text-sm">{cardProduct}</p>
+          <p className="font-semibold text-gray-100 text-sm" title={fullCardLabel}>{fullCardLabel}</p>
           <p className="text-xs text-gray-400">{issuer}</p>
         </div>
-        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${cfg.badgeClass}`}>
-          {cfg.badgeLabel}
-        </span>
+        {(urgency === 'warning' || urgency === 'critical') ? (
+          <button
+            onClick={handleAction}
+            className={`text-xs font-bold px-2 py-0.5 rounded-full border ${cfg.badgeClass} cursor-pointer hover:brightness-125 transition-all`}
+          >
+            {cfg.badgeLabel}
+          </button>
+        ) : (
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${cfg.badgeClass}`}>
+            {cfg.badgeLabel}
+          </span>
+        )}
       </div>
 
       {/* Timer ring + details */}
