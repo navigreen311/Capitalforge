@@ -9,7 +9,7 @@
 // Network rule violations alert panel.
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   SpendClientSelector,
   SpendByCategoryChart,
@@ -197,6 +197,157 @@ function RiskGauge({ score }: { score: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Cash-Like Contact Client Modal (2E)
+// Shows cash advance warning details + mock VoiceForge outreach action
+// ---------------------------------------------------------------------------
+
+function CashLikeContactModal({
+  transaction,
+  isOpen,
+  onClose,
+}: {
+  transaction: Transaction | null;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const [outreachStatus, setOutreachStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
+
+  useEffect(() => {
+    if (!isOpen) setOutreachStatus('idle');
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
+  const handleBackdrop = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.target === e.currentTarget) onClose();
+    },
+    [onClose],
+  );
+
+  function handleVoiceForgeOutreach() {
+    setOutreachStatus('sending');
+    // Mock VoiceForge API call
+    setTimeout(() => setOutreachStatus('sent'), 1200);
+  }
+
+  if (!isOpen || !transaction) return null;
+
+  const feeEstimate = estimateCashAdvanceFee(transaction.amount);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={handleBackdrop}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cashlike-modal-title"
+    >
+      <div className="relative w-full max-w-md rounded-xl bg-gray-900 border border-orange-800/50 shadow-2xl">
+        {/* Close */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+          aria-label="Close cash-like alert modal"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-gray-700">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-amber-400 text-lg" aria-hidden="true">&#x26A0;</span>
+            <h3 id="cashlike-modal-title" className="text-lg font-bold text-white">
+              Cash-Like Transaction Alert
+            </h3>
+          </div>
+          <p className="text-sm text-gray-400">
+            This transaction has been flagged as cash-like and may violate card program rules.
+          </p>
+        </div>
+
+        {/* Details */}
+        <div className="px-6 py-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Merchant</p>
+              <p className="text-sm font-semibold text-gray-100">{transaction.merchant}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Category</p>
+              <p className="text-sm text-gray-300">{transaction.mccCategory}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Amount</p>
+              <p className="text-lg font-bold text-orange-300">{formatCurrency(transaction.amount)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Est. Cash Advance Fee</p>
+              <p className="text-lg font-bold text-red-400">{feeEstimate}</p>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-orange-950/40 border border-orange-800/40 p-3">
+            <p className="text-xs text-orange-300 leading-relaxed">
+              Cash advance transactions typically incur a 3-5% fee with no grace period on interest.
+              The cardholder should be informed of additional costs and the transaction should be
+              reviewed for business purpose compliance.
+            </p>
+          </div>
+        </div>
+
+        {/* VoiceForge Action */}
+        <div className="px-6 py-4 border-t border-gray-700">
+          <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-2">VoiceForge Outreach</p>
+          {outreachStatus === 'sent' ? (
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-900/30 border border-emerald-700/40 px-4 py-3">
+              <span className="text-emerald-400">&#x2705;</span>
+              <p className="text-sm text-emerald-300 font-medium">
+                VoiceForge outreach initiated — client will receive a call within 15 minutes.
+              </p>
+            </div>
+          ) : (
+            <button
+              onClick={handleVoiceForgeOutreach}
+              disabled={outreachStatus === 'sending'}
+              className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold
+                bg-[#C9A84C] hover:bg-amber-400 text-gray-900
+                disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {outreachStatus === 'sending' ? 'Initiating VoiceForge Call...' : 'Contact Client via VoiceForge'}
+            </button>
+          )}
+          <p className="text-xs text-gray-600 mt-2">
+            Automated voice call will inform the client about the cash advance flag, associated fees,
+            and request business purpose verification.
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-700 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white
+              border border-gray-600 hover:border-gray-500 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -220,6 +371,9 @@ export default function SpendGovernancePage() {
 
   // ViolationActionButtons — track acknowledged violations
   const [acknowledgedViolations, setAcknowledgedViolations] = useState<Set<string>>(new Set());
+
+  // Cash-Like Contact Client modal (2E)
+  const [cashLikeContactTxn, setCashLikeContactTxn] = useState<Transaction | null>(null);
 
   // Summary stats
   const totalTxns = transactions.length;
@@ -511,7 +665,7 @@ export default function SpendGovernancePage() {
                   <td className="px-4 py-3">
                     <RiskGauge score={t.riskScore} />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <div className="flex flex-col gap-1">
                       {t.isCashLike && (
                         <span className="text-xs font-bold px-2 py-0.5 rounded border bg-orange-900 text-orange-300 border-orange-700 w-fit">
@@ -528,8 +682,19 @@ export default function SpendGovernancePage() {
                           Chargeback
                         </span>
                       )}
+                      {t.isCashLike && (
+                        <button
+                          type="button"
+                          onClick={() => setCashLikeContactTxn(t)}
+                          className="mt-1 rounded-lg border border-[#C9A84C]/40 bg-[#C9A84C]/10 px-2.5 py-1 text-xs
+                            font-semibold text-[#C9A84C] hover:bg-[#C9A84C]/20 hover:border-[#C9A84C]/60
+                            focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/40 transition-colors w-fit"
+                        >
+                          Contact Client
+                        </button>
+                      )}
                       {!t.isCashLike && !t.flagged && !t.chargedBack && (
-                        <span className="text-xs text-gray-600">—</span>
+                        <span className="text-xs text-gray-600">---</span>
                       )}
                     </div>
                   </td>
@@ -596,6 +761,13 @@ export default function SpendGovernancePage() {
         onClose={() => setSelectedTransaction(null)}
         onSavePurpose={handleSavePurpose}
         onMarkReviewed={handleMarkReviewed}
+      />
+
+      {/* Cash-Like Contact Client Modal (2E) */}
+      <CashLikeContactModal
+        transaction={cashLikeContactTxn}
+        isOpen={cashLikeContactTxn !== null}
+        onClose={() => setCashLikeContactTxn(null)}
       />
     </div>
   );
