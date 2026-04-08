@@ -129,6 +129,14 @@ export default function DisclosuresPage() {
     }
   }, [disclosures]);
 
+  const handleCreatePriorityTask = useCallback((id: string) => {
+    const disc = disclosures.find((d) => d.id === id);
+    if (disc) {
+      setToast('Priority task created in Action Queue');
+      fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'priority', disclosureId: id }) }).catch(() => {});
+    }
+  }, [disclosures]);
+
   // Summary stats
   const overdue = disclosures.filter((d) => d.status === 'Overdue').length;
   const pending = disclosures.filter((d) => d.status === 'Pending').length;
@@ -188,9 +196,17 @@ export default function DisclosuresPage() {
               ) : (
                 sorted.map((d) => {
                   const days = daysUntil(d.deadline);
+                  const isOverdue = d.status === 'Overdue';
                   return (
-                    <tr key={d.id} className={`border-b border-gray-800/50 border-l-4 ${deadlineRowBorder(d.deadline, d.status)} hover:bg-[#0A1628]/50 transition-colors`}>
-                      <td className="px-4 py-3 text-gray-100 font-medium">{d.businessName}</td>
+                    <tr key={d.id} className={`border-b border-gray-800/50 border-l-4 ${deadlineRowBorder(d.deadline, d.status)} hover:bg-[#0A1628]/50 transition-colors ${isOverdue ? 'bg-red-950/20' : ''}`}>
+                      <td className="px-4 py-3 text-gray-100 font-medium">
+                        {d.businessName}
+                        {isOverdue && (
+                          <div className="mt-1.5 px-2 py-1 rounded bg-red-900/40 border border-red-700/50 text-red-300 text-xs font-semibold">
+                            OVERDUE: {Math.abs(days)} days &mdash; immediate action required
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="text-xs font-bold bg-gray-800 text-gray-300 border border-gray-600 px-2 py-0.5 rounded">
                           {d.state}
@@ -211,7 +227,22 @@ export default function DisclosuresPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {d.status !== 'Filed' ? (
+                        {isOverdue ? (
+                          <div className="flex flex-col gap-1.5">
+                            <button
+                              onClick={() => handleCreatePriorityTask(d.id)}
+                              className="px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-600 text-xs font-semibold text-white transition-colors"
+                            >
+                              Create Priority Task
+                            </button>
+                            <button
+                              onClick={() => handleFile(d.id)}
+                              className="px-3 py-1.5 rounded-lg bg-[#C9A84C] hover:bg-[#b8973f] text-xs font-semibold text-[#0A1628] transition-colors"
+                            >
+                              File Now &rarr;
+                            </button>
+                          </div>
+                        ) : d.status !== 'Filed' ? (
                           <button
                             onClick={() => handleFile(d.id)}
                             className="px-3 py-1.5 rounded-lg bg-[#C9A84C] hover:bg-[#b8973f] text-xs font-semibold text-[#0A1628] transition-colors"
