@@ -439,4 +439,149 @@ sandboxRouter.post(
   },
 );
 
+// ── POST /api/simulator/export-comparison ─────────────────
+//
+// Return a mock text comparison report for two scenarios.
+
+const ExportComparisonBodySchema = z.object({
+  baselineLabel:     z.string().max(120).default('Baseline'),
+  alternativeLabel:  z.string().max(120).default('Alternative'),
+  baselineProfile:   SimulatorProfileSchema,
+  alternativeProfile: SimulatorProfileSchema,
+  format:            z.enum(['text', 'csv']).default('text'),
+});
+
+simulatorRouter.post(
+  '/export-comparison',
+  async (req: Request, res: Response): Promise<void> => {
+    if (!requireAuth(req, res)) return;
+
+    const parsed = ExportComparisonBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      handleZodError(parsed.error, res);
+      return;
+    }
+
+    try {
+      const { baselineLabel, alternativeLabel, baselineProfile, alternativeProfile, format } = parsed.data;
+
+      const baselineResult = simulator.runScenario(
+        baselineProfile as SimulatorProfile,
+        baselineLabel,
+      );
+      const alternativeResult = simulator.runScenario(
+        alternativeProfile as SimulatorProfile,
+        alternativeLabel,
+      );
+      const comparison = simulator.compareScenarios(baselineResult, alternativeResult);
+
+      // Build a human-readable text report
+      const reportLines = [
+        `=== CapitalForge Scenario Comparison Report ===`,
+        `Generated: ${new Date().toISOString()}`,
+        ``,
+        `Baseline:    ${baselineLabel}`,
+        `Alternative: ${alternativeLabel}`,
+        ``,
+        `── Baseline Summary ──`,
+        `  FICO Score:        ${baselineProfile.ficoScore}`,
+        `  Annual Revenue:    $${baselineProfile.annualRevenue.toLocaleString()}`,
+        `  Target Credit:     $${baselineProfile.targetCreditLimit.toLocaleString()}`,
+        `  Approval Prob:     ${(comparison.baseline?.approvalProbability ?? 0).toFixed(1)}%`,
+        ``,
+        `── Alternative Summary ──`,
+        `  FICO Score:        ${alternativeProfile.ficoScore}`,
+        `  Annual Revenue:    $${alternativeProfile.annualRevenue.toLocaleString()}`,
+        `  Target Credit:     $${alternativeProfile.targetCreditLimit.toLocaleString()}`,
+        `  Approval Prob:     ${(comparison.alternative?.approvalProbability ?? 0).toFixed(1)}%`,
+        ``,
+        `── Delta ──`,
+        `  Approval Delta:    ${comparison.delta?.approvalProbability ?? 'N/A'}`,
+        ``,
+        `=== End of Report ===`,
+      ];
+
+      const reportText = reportLines.join('\n');
+
+      if (format === 'csv') {
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="comparison-report.csv"');
+        const csv = [
+          'Metric,Baseline,Alternative',
+          `FICO,${baselineProfile.ficoScore},${alternativeProfile.ficoScore}`,
+          `Revenue,${baselineProfile.annualRevenue},${alternativeProfile.annualRevenue}`,
+          `TargetCredit,${baselineProfile.targetCreditLimit},${alternativeProfile.targetCreditLimit}`,
+        ].join('\n');
+        res.status(200).send(csv);
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          report: reportText,
+          comparison,
+        },
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleError(err, res, 'POST /simulator/export-comparison');
+    }
+  },
+);
+
+// ── POST /api/simulator/save-scenario ─────────────────────
+//
+// Save a named scenario to a client (mock persistence).
+
+const SaveScenarioBodySchema = z.object({
+  clientId: z.string().min(1),
+  label:    z.string().min(1).max(120),
+  profile:  SimulatorProfileSchema,
+  overrides: WhatIfOverridesSchema.optional(),
+  notes:    z.string().max(2000).default(''),
+});
+
+simulatorRouter.post(
+  '/save-scenario',
+  async (req: Request, res: Response): Promise<void> => {
+    if (!requireAuth(req, res)) return;
+
+    const parsed = SaveScenarioBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      handleZodError(parsed.error, res);
+      return;
+    }
+
+    try {
+      const { clientId, label, profile, overrides, notes } = parsed.data;
+
+      // Mock: run the scenario and return a saved reference
+      const result = simulator.runScenario(
+        profile as SimulatorProfile,
+        label,
+        overrides as WhatIfOverrides | undefined,
+      );
+
+      const savedScenario = {
+        id:        `scenario-${clientId}-${Date.now()}`,
+        clientId,
+        label,
+        notes,
+        savedAt:   new Date().toISOString(),
+        savedBy:   req.tenant!.userId,
+        result,
+      };
+
+      logger.info('Scenario saved', { clientId, label, scenarioId: savedScenario.id });
+
+      res.status(201).json({
+        success: true,
+        data:    savedScenario,
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleError(err, res, 'POST /simulator/save-scenario');
+    }
+  },
+);
+
 export default simulatorRouter;

@@ -398,3 +398,15 @@ apiRouter.use('/', billingRouter);
 // POST /api/tax/documents/generate
 import { taxRouter } from './tax.routes.js';
 apiRouter.use('/tax', taxRouter);
+
+// ── Simulator (run, compare, export-comparison, save-scenario) ──
+// POST /api/simulator/run
+// POST /api/simulator/compare
+// POST /api/simulator/export-comparison
+// POST /api/simulator/save-scenario
+import { simulatorRouter } from './simulator.routes.js';
+apiRouter.use('/simulator', simulatorRouter);
+
+// ── Sandbox (profiles, practice, regression, simulate-round) ──
+import { sandboxRouter } from './simulator.routes.js';
+apiRouter.use('/sandbox', sandboxRouter);
