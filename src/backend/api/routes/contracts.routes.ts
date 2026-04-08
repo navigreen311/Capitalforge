@@ -8,6 +8,9 @@
 //   GET    /api/contracts/analyses          — list analyses for tenant
 //   GET    /api/contracts/:id/red-flags     — red flags for an analysis
 //   POST   /api/contracts/compare          — side-by-side comparison lab
+//   GET    /api/contracts/:id/detail        — mock contract detail with key terms
+//   POST   /api/contracts/:id/renew         — create contract renewal
+//   POST   /api/contracts/upload            — upload contract with metadata
 //
 // Disclosure Template CMS:
 //   GET    /api/disclosures/templates                  — list templates
@@ -347,6 +350,190 @@ contractsRouter.post(
       } else {
         next(err);
       }
+    }
+  },
+);
+
+/**
+ * POST /api/contracts/upload
+ * Upload a contract with metadata. Returns mock upload result.
+ * Must be registered BEFORE :id routes to avoid "upload" matching as an ID.
+ */
+contractsRouter.post(
+  '/contracts/upload',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const schema = z.object({
+        title: z.string().min(1).max(200),
+        contractType: z.string().min(1).max(100),
+        counterparty: z.string().min(1).max(200).optional(),
+        effectiveDate: z.string().optional(),
+        expirationDate: z.string().optional(),
+        documentText: z.string().min(10).optional(),
+        tags: z.array(z.string()).max(20).optional(),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        next(badRequest(parsed.error.issues[0]?.message ?? 'Invalid request body'));
+        return;
+      }
+
+      const tenantId = req.tenant!.tenantId;
+      const data = parsed.data;
+
+      const contractId = `con_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const responseData = {
+        id: contractId,
+        title: data.title,
+        contractType: data.contractType,
+        counterparty: data.counterparty ?? null,
+        effectiveDate: data.effectiveDate ?? null,
+        expirationDate: data.expirationDate ?? null,
+        status: 'uploaded' as const,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: req.tenant!.userId ?? 'system',
+        tags: data.tags ?? [],
+      };
+
+      logger.info('Contract uploaded', {
+        tenantId,
+        contractId,
+        contractType: data.contractType,
+      });
+
+      const response: ApiResponse<typeof responseData> = {
+        success: true,
+        data: responseData,
+      };
+
+      res.status(201).json(response);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * GET /api/contracts/:id/detail
+ * Returns mock contract detail with key terms and risk flags.
+ */
+contractsRouter.get(
+  '/contracts/:id/detail',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ ?? 'COMPLIANCE_READ'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.tenant!.tenantId;
+
+      // Mock contract detail — in production this would fetch from DB
+      const responseData = {
+        id,
+        title: `Contract ${id}`,
+        contractType: 'vendor_agreement',
+        counterparty: 'Acme Financial Services LLC',
+        status: 'active',
+        effectiveDate: '2025-01-15',
+        expirationDate: '2026-01-15',
+        autoRenew: true,
+        totalValue: 150000,
+        currency: 'USD',
+        keyTerms: [
+          { clause: 'Payment Terms', summary: 'Net 30 from invoice date', section: '4.1' },
+          { clause: 'Termination', summary: '90-day written notice required', section: '8.2' },
+          { clause: 'Liability Cap', summary: 'Limited to 12 months of fees paid', section: '9.1' },
+          { clause: 'Data Protection', summary: 'SOC 2 Type II compliance required', section: '11.3' },
+          { clause: 'Indemnification', summary: 'Mutual indemnification for IP claims', section: '10.1' },
+        ],
+        riskFlags: [
+          { severity: 'high', flag: 'Auto-renewal clause with no cap on price increases', clause: '3.4' },
+          { severity: 'medium', flag: 'Broad force majeure definition may limit recourse', clause: '12.1' },
+          { severity: 'low', flag: 'Governing law is Delaware — verify jurisdictional preference', clause: '14.2' },
+        ],
+        renewalHistory: [
+          { date: '2024-01-15', action: 'initial_execution', notes: 'Original contract signed' },
+          { date: '2025-01-15', action: 'auto_renewed', notes: 'Auto-renewed for 12 months' },
+        ],
+      };
+
+      logger.info('Contract detail retrieved', { tenantId, contractId: id });
+
+      const response: ApiResponse<typeof responseData> = {
+        success: true,
+        data: responseData,
+      };
+
+      res.json(response);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * POST /api/contracts/:id/renew
+ * Create a contract renewal. Returns the renewed contract summary.
+ */
+contractsRouter.post(
+  '/contracts/:id/renew',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.tenant!.tenantId;
+
+      const schema = z.object({
+        renewalTermMonths: z.number().int().min(1).max(120).default(12),
+        notes: z.string().max(500).optional(),
+        newTerms: z.record(z.string()).optional(),
+      });
+
+      const parsed = schema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        next(badRequest(parsed.error.issues[0]?.message ?? 'Invalid request body'));
+        return;
+      }
+
+      const { renewalTermMonths, notes, newTerms } = parsed.data;
+      const renewalId = `ren_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const now = new Date();
+      const newExpiration = new Date(now);
+      newExpiration.setMonth(newExpiration.getMonth() + renewalTermMonths);
+
+      const responseData = {
+        renewalId,
+        originalContractId: id,
+        status: 'renewed' as const,
+        renewalTermMonths,
+        effectiveDate: now.toISOString().split('T')[0],
+        newExpirationDate: newExpiration.toISOString().split('T')[0],
+        notes: notes ?? null,
+        newTerms: newTerms ?? {},
+        renewedAt: now.toISOString(),
+        renewedBy: req.tenant!.userId ?? 'system',
+      };
+
+      logger.info('Contract renewed', {
+        tenantId,
+        contractId: id,
+        renewalId,
+        renewalTermMonths,
+      });
+
+      const response: ApiResponse<typeof responseData> = {
+        success: true,
+        data: responseData,
+        meta: { message: `Contract ${id} renewed for ${renewalTermMonths} months.` },
+      };
+
+      res.status(201).json(response);
+    } catch (err) {
+      next(err);
     }
   },
 );
