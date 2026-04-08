@@ -5,7 +5,8 @@
 // Pipeline view, revenue stats, fee collection, cohort analysis
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -92,9 +93,16 @@ function PipelineColumn({ stage, total }: { stage: PipelineStage; total: number 
 // ── Main Page ────────────────────────────────────────────────
 
 export default function PlatformCrmPage() {
+  const router = useRouter();
   const [pipeline, setPipeline] = useState<PipelineData | null>(null);
   const [revenue, setRevenue] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  }, []);
 
   // ── Fallback mock data (shown when API unavailable) ─────────
   const FALLBACK_PIPELINE: PipelineData = {
@@ -241,22 +249,46 @@ export default function PlatformCrmPage() {
                   <th className="text-right px-4 py-3">Pending</th>
                   <th className="text-right px-4 py-3">Overdue</th>
                   <th className="text-right px-4 py-3">Collection Rate</th>
+                  <th className="text-right px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {revenue.feeCollectionStatus.map((f) => (
-                  <tr key={f.period} className="border-t border-gray-800 hover:bg-gray-800/40 transition">
-                    <td className="px-4 py-3 text-gray-200 font-medium">{f.period}</td>
-                    <td className="px-4 py-3 text-right text-emerald-400">{money(f.collected)}</td>
-                    <td className="px-4 py-3 text-right text-yellow-400">{money(f.pending)}</td>
-                    <td className="px-4 py-3 text-right text-red-400">{money(f.overdue)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className={`font-semibold ${f.rate >= 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                        {f.rate}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {revenue.feeCollectionStatus.map((f) => {
+                  const overdueClients = f.overdue > 0 ? Math.max(1, Math.round(f.overdue / 1000)) : 0;
+                  return (
+                    <tr key={f.period} className="border-t border-gray-800 hover:bg-gray-800/40 transition">
+                      <td className="px-4 py-3 text-gray-200 font-medium">{f.period}</td>
+                      <td className="px-4 py-3 text-right text-emerald-400">{money(f.collected)}</td>
+                      <td className="px-4 py-3 text-right text-yellow-400">{money(f.pending)}</td>
+                      <td className="px-4 py-3 text-right text-red-400">{money(f.overdue)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`font-semibold ${f.rate >= 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                          {f.rate}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {f.overdue > 0 ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => showToast(`Overdue fee reminders sent to ${overdueClients} clients`)}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-[#C9A84C]/10 text-[#C9A84C] border border-[#C9A84C]/30 hover:bg-[#C9A84C]/20 transition font-medium"
+                            >
+                              Send Reminders ({overdueClients} clients)
+                            </button>
+                            <button
+                              onClick={() => router.push('/platform/billing')}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 border border-gray-700 hover:bg-gray-700 transition font-medium"
+                            >
+                              View in Billing &rarr;
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-600">No action needed</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -284,8 +316,14 @@ export default function PlatformCrmPage() {
               <tbody>
                 {revenue.cohortAnalysis.map((c) => {
                   const retention = c.funded > 0 ? (((c.active + c.graduated) / c.funded) * 100).toFixed(1) : '0';
+                  const retentionNum = Number(retention);
+                  const retentionColor = retentionNum >= 90 ? 'text-emerald-400' : retentionNum >= 80 ? 'text-yellow-400' : 'text-red-400';
                   return (
-                    <tr key={c.cohort} className="border-t border-gray-800 hover:bg-gray-800/40 transition">
+                    <tr
+                      key={c.cohort}
+                      onClick={() => router.push(`/platform/clients?cohort=${encodeURIComponent(c.cohort)}`)}
+                      className="border-t border-gray-800 hover:bg-gray-800/40 transition cursor-pointer"
+                    >
                       <td className="px-4 py-3 text-[#C9A84C] font-medium">{c.cohort}</td>
                       <td className="px-4 py-3 text-right text-white">{c.funded}</td>
                       <td className="px-4 py-3 text-right text-emerald-400">{c.active}</td>
@@ -293,7 +331,7 @@ export default function PlatformCrmPage() {
                       <td className="px-4 py-3 text-right text-red-400">{c.churned}</td>
                       <td className="px-4 py-3 text-right text-gray-300">{money(c.avgRevenue)}</td>
                       <td className="px-4 py-3 text-right">
-                        <span className={`font-semibold ${Number(retention) >= 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                        <span className={`font-semibold ${retentionColor}`}>
                           {retention}%
                         </span>
                       </td>
@@ -304,6 +342,18 @@ export default function PlatformCrmPage() {
             </table>
           </div>
         </section>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-fade-in">
+          <div className="bg-[#C9A84C] text-[#0A1628] px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            {toast}
+          </div>
+        </div>
       )}
     </div>
   );
