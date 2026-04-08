@@ -17,6 +17,9 @@ import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState'
 export interface TradelineTrackerProps {
   clientId: string | null;
   clientName: string | null;
+  prefillVendor?: string | null;
+  showAddModal?: boolean;
+  onCloseAddModal?: () => void;
 }
 
 type TradelineStatus = 'Applied' | 'Approved' | 'Reporting' | 'Late';
@@ -149,13 +152,20 @@ function Skeleton() {
 function AddTradelineModal({
   onClose,
   onSave,
+  prefillVendor,
 }: {
   onClose: () => void;
   onSave: (form: NewTradelineForm) => void;
+  prefillVendor?: string | null;
 }) {
+  const initialVendor = prefillVendor && VENDOR_LIST.includes(prefillVendor as typeof VENDOR_LIST[number])
+    ? prefillVendor
+    : prefillVendor
+      ? 'Custom...'
+      : VENDOR_LIST[0];
   const [form, setForm] = useState<NewTradelineForm>({
-    vendor: VENDOR_LIST[0],
-    customVendor: '',
+    vendor: initialVendor,
+    customVendor: prefillVendor && !VENDOR_LIST.includes(prefillVendor as typeof VENDOR_LIST[number]) ? prefillVendor : '',
     appliedDate: new Date().toISOString().slice(0, 10),
     approvalStatus: 'Applied',
     creditLimit: '',
@@ -298,17 +308,22 @@ function AddTradelineModal({
 
 // ── Main Export ──────────────────────────────────────────────────────────────
 
-export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps) {
+export function TradelineTracker({ clientId, clientName, prefillVendor, showAddModal: externalShowAdd, onCloseAddModal }: TradelineTrackerProps) {
   const apiPath = clientId ? `/api/v1/clients/${clientId}/tradelines` : null;
 
   const { data, isLoading, error, refetch } = useAuthFetch<TradelinesResponse>(
     apiPath ?? '/api/v1/clients/null/tradelines',
   );
 
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [internalShowAdd, setInternalShowAdd] = useState(false);
+  const showAddModal = externalShowAdd ?? internalShowAdd;
+  const setShowAddModal = useCallback((val: boolean) => {
+    setInternalShowAdd(val);
+    if (!val && onCloseAddModal) onCloseAddModal();
+  }, [onCloseAddModal]);
   const [localTradelines, setLocalTradelines] = useState<Tradeline[]>([]);
 
-  const handleCloseModal = useCallback(() => setShowAddModal(false), []);
+  const handleCloseModal = useCallback(() => setShowAddModal(false), [setShowAddModal]);
 
   // Resolve the display data: API response or placeholder fallback
   const resolved = data ?? (clientId ? null : PLACEHOLDER_DATA);
@@ -458,7 +473,7 @@ export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps
 
         {/* ── Add Tradeline Modal ─────────────────────────────── */}
         {showAddModal && (
-          <AddTradelineModal onClose={handleCloseModal} onSave={handleSave} />
+          <AddTradelineModal onClose={handleCloseModal} onSave={handleSave} prefillVendor={prefillVendor} />
         )}
       </div>
     </section>
