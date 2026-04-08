@@ -31,9 +31,19 @@ interface ClientRow {
   state: string;
   aprAlert: AprAlert | null;
   consentStatus: 'complete' | 'pending' | 'blocked';
+  currentRound: number | null;   // highest completed round (1, 2, 3…) or null
+  totalFunded: number;           // sum of approved card limits in dollars
 }
 
-type SortColumn = 'businessName' | 'status' | 'advisorName' | 'fundingReadinessScore' | 'lastActivityAt';
+type SortColumn =
+  | 'businessName'
+  | 'status'
+  | 'advisorName'
+  | 'consentStatus'
+  | 'currentRound'
+  | 'totalFunded'
+  | 'fundingReadinessScore'
+  | 'lastActivityAt';
 type SortDirection = 'asc' | 'desc';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +62,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'TX',
     aprAlert: { days: 12, tier: 'critical' },
     consentStatus: 'complete',
+    currentRound: 3,
+    totalFunded: 245000,
   },
   {
     id: 'biz_002',
@@ -64,6 +76,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'CA',
     aprAlert: null,
     consentStatus: 'pending',
+    currentRound: null,
+    totalFunded: 0,
   },
   {
     id: 'biz_003',
@@ -76,6 +90,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'NC',
     aprAlert: { days: 45, tier: 'warning' },
     consentStatus: 'complete',
+    currentRound: 2,
+    totalFunded: 180000,
   },
   {
     id: 'biz_004',
@@ -88,6 +104,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'NY',
     aprAlert: null,
     consentStatus: 'complete',
+    currentRound: 4,
+    totalFunded: 1250000,
   },
   {
     id: 'biz_005',
@@ -100,6 +118,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'FL',
     aprAlert: { days: 8, tier: 'critical' },
     consentStatus: 'blocked',
+    currentRound: null,
+    totalFunded: 0,
   },
   {
     id: 'biz_006',
@@ -112,6 +132,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'OH',
     aprAlert: null,
     consentStatus: 'complete',
+    currentRound: 1,
+    totalFunded: 75000,
   },
   {
     id: 'biz_007',
@@ -124,6 +146,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'IL',
     aprAlert: null,
     consentStatus: 'pending',
+    currentRound: 5,
+    totalFunded: 2400000,
   },
   {
     id: 'biz_008',
@@ -136,6 +160,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'WA',
     aprAlert: null,
     consentStatus: 'complete',
+    currentRound: 2,
+    totalFunded: 120000,
   },
 ];
 
@@ -167,6 +193,23 @@ const STATUS_SORT_ORDER: Record<BusinessStatus, number> = {
   closed: 5,
 };
 
+const CONSENT_SORT_ORDER: Record<string, number> = {
+  complete: 0,
+  pending: 1,
+  blocked: 2,
+};
+
+function formatFunded(amount: number): string {
+  if (amount === 0) return '$0';
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (amount >= 1_000) return `$${Math.round(amount / 1_000)}K`;
+  return `$${amount}`;
+}
+
+function fundedColor(amount: number): string {
+  return amount > 100_000 ? 'text-green-400' : 'text-gray-300';
+}
+
 function scoreColor(score: number): string {
   if (score >= 75) return 'text-green-400';
   if (score >= 55) return 'text-yellow-400';
@@ -192,7 +235,8 @@ const ADVISORS_LIST = ['Sarah Chen', 'Marcus Williams', 'James Okafor'];
 function downloadCsv(rows: ClientRow[], filename: string) {
   const headers = [
     'Business Name', 'Status', 'Advisor', 'Entity Type', 'State',
-    'Readiness Score', 'Last Activity', 'APR Days', 'APR Tier', 'Consent Status',
+    'Consent Status', 'Round', 'Total Funded',
+    'Readiness Score', 'Last Activity', 'APR Days', 'APR Tier',
   ];
   const csvRows = [
     headers.join(','),
@@ -203,11 +247,13 @@ function downloadCsv(rows: ClientRow[], filename: string) {
         `"${r.advisorName}"`,
         r.entityType,
         r.state,
+        r.consentStatus,
+        r.currentRound ?? '',
+        r.totalFunded,
         r.fundingReadinessScore,
         r.lastActivityAt,
         r.aprAlert?.days ?? '',
         r.aprAlert?.tier ?? '',
-        r.consentStatus,
       ].join(','),
     ),
   ];
@@ -328,6 +374,15 @@ export default function ClientsPage() {
         case 'advisorName':
           cmp = a.advisorName.localeCompare(b.advisorName);
           break;
+        case 'consentStatus':
+          cmp = CONSENT_SORT_ORDER[a.consentStatus] - CONSENT_SORT_ORDER[b.consentStatus];
+          break;
+        case 'currentRound':
+          cmp = (a.currentRound ?? 0) - (b.currentRound ?? 0);
+          break;
+        case 'totalFunded':
+          cmp = a.totalFunded - b.totalFunded;
+          break;
         case 'fundingReadinessScore':
           cmp = a.fundingReadinessScore - b.fundingReadinessScore;
           break;
@@ -367,7 +422,8 @@ export default function ClientsPage() {
       setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortColumn(col);
-      setSortDirection(col === 'fundingReadinessScore' ? 'desc' : 'asc');
+      const descByDefault = ['fundingReadinessScore', 'totalFunded', 'currentRound', 'lastActivityAt'];
+      setSortDirection(descByDefault.includes(col) ? 'desc' : 'asc');
     }
   };
 
@@ -409,7 +465,7 @@ export default function ClientsPage() {
     downloadCsv(sorted, 'clients-export.csv');
   };
 
-  const colSpan = 9; // checkbox + 6 data cols + consent + arrow
+  const colSpan = 11; // checkbox + 8 data cols + entity/state + arrow
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
@@ -540,7 +596,9 @@ export default function ClientsPage() {
               <SortableHeader label="Business Name" column="businessName" activeColumn={sortColumn} direction={sortDirection} onClick={handleSort} />
               <SortableHeader label="Status" column="status" activeColumn={sortColumn} direction={sortDirection} onClick={handleSort} />
               <SortableHeader label="Advisor" column="advisorName" activeColumn={sortColumn} direction={sortDirection} onClick={handleSort} />
-              <th className="text-left px-4 py-3 font-semibold">Consent</th>
+              <SortableHeader label="Consent" column="consentStatus" activeColumn={sortColumn} direction={sortDirection} onClick={handleSort} />
+              <SortableHeader label="Round" column="currentRound" activeColumn={sortColumn} direction={sortDirection} onClick={handleSort} />
+              <SortableHeader label="Total Funded" column="totalFunded" activeColumn={sortColumn} direction={sortDirection} align="right" onClick={handleSort} />
               <th className="text-left px-4 py-3 font-semibold">Entity / State</th>
               <SortableHeader label="Readiness" column="fundingReadinessScore" activeColumn={sortColumn} direction={sortDirection} align="right" onClick={handleSort} />
               <SortableHeader label="Last Activity" column="lastActivityAt" activeColumn={sortColumn} direction={sortDirection} align="right" onClick={handleSort} />
@@ -567,6 +625,7 @@ export default function ClientsPage() {
                 <tr
                   key={client.id}
                   className="bg-gray-950 hover:bg-gray-900 cursor-pointer transition-colors group"
+                  onClick={() => router.push(`/clients/${client.id}`)}
                 >
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <input
@@ -576,10 +635,7 @@ export default function ClientsPage() {
                       className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer"
                     />
                   </td>
-                  <td
-                    className="px-4 py-3 font-medium text-gray-100 group-hover:text-white"
-                    onClick={() => router.push(`/clients/${client.id}`)}
-                  >
+                  <td className="px-4 py-3 font-medium text-gray-100 group-hover:text-white">
                     <span>{client.businessName}</span>
                     {client.aprAlert && (
                       <span
@@ -593,37 +649,45 @@ export default function ClientsPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3" onClick={() => router.push(`/clients/${client.id}`)}>
+                  <td className="px-4 py-3">
                     <span
                       className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_BADGE[client.status]}`}
                     >
                       {client.status.charAt(0).toUpperCase() + client.status.slice(1)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-300" onClick={() => router.push(`/clients/${client.id}`)}>
+                  <td className="px-4 py-3 text-gray-300">
                     {client.advisorName}
                   </td>
-                  <td className="px-4 py-3" onClick={() => router.push(`/clients/${client.id}`)}>
+                  <td className="px-4 py-3">
                     <span
                       className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${CONSENT_CHIP[client.consentStatus]}`}
                     >
                       {client.consentStatus.charAt(0).toUpperCase() + client.consentStatus.slice(1)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-400" onClick={() => router.push(`/clients/${client.id}`)}>
+                  <td className="px-4 py-3 text-gray-300">
+                    {client.currentRound != null ? `R${client.currentRound}` : '\u2014'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className={`font-semibold ${fundedColor(client.totalFunded)}`}>
+                      {formatFunded(client.totalFunded)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-400">
                     {client.entityType.toUpperCase()} · {client.state}
                   </td>
-                  <td className="px-4 py-3 text-right" onClick={() => router.push(`/clients/${client.id}`)}>
+                  <td className="px-4 py-3 text-right">
                     <span className={`font-bold text-base ${scoreColor(client.fundingReadinessScore)}`}>
                       {client.fundingReadinessScore}
                     </span>
                     <span className="text-gray-600 text-xs"> / 100</span>
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-400" onClick={() => router.push(`/clients/${client.id}`)}>
+                  <td className="px-4 py-3 text-right text-gray-400">
                     {formatDate(client.lastActivityAt)}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-500 group-hover:text-gray-300" onClick={() => router.push(`/clients/${client.id}`)}>
-                    →
+                  <td className="px-4 py-3 text-right text-gray-500 group-hover:text-gray-300">
+                    &rarr;
                   </td>
                 </tr>
               ))}
