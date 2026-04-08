@@ -35,15 +35,41 @@ const CLIENT_OPTIONS = [
   'Thornwood Capital',
 ] as const;
 
-const ISSUER_OPTIONS = [
-  'Chase',
-  'Amex',
-  'Capital One',
-  'BofA',
-  'Citi',
-  'US Bank',
-  'Wells Fargo',
-] as const;
+/** Grouped issuer options by category */
+const ISSUER_GROUPS: { label: string; issuers: string[] }[] = [
+  {
+    label: 'Major Banks',
+    issuers: [
+      'Chase',
+      'American Express',
+      'Capital One',
+      'Citi',
+      'Bank of America',
+      'US Bank',
+      'Wells Fargo',
+      'Barclays',
+    ],
+  },
+  {
+    label: 'Credit Unions',
+    issuers: [
+      'Navy Federal Credit Union',
+      'Alliant Credit Union',
+      'PenFed Credit Union',
+      'Boeing Employees Credit Union',
+      'First Tech Federal Credit Union',
+      'Lake Michigan Credit Union',
+    ],
+  },
+  {
+    label: 'Other',
+    issuers: [
+      'Synchrony',
+      'Bread Financial',
+      'Celtic Bank',
+    ],
+  },
+];
 
 const ADVISOR_OPTIONS = [
   'Sarah Chen',
@@ -113,6 +139,41 @@ function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
   );
 }
 
+/** Issuer dropdown with grouped <optgroup> categories */
+function IssuerFilterSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label="All Issuers"
+      className="cf-input !py-1.5 !px-2.5 !text-xs !rounded-md appearance-none
+                 cursor-pointer min-w-[140px] bg-[length:16px_16px] bg-[right_6px_center]
+                 bg-no-repeat pr-7"
+      style={{
+        backgroundImage:
+          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+      }}
+    >
+      <option value="">All Issuers</option>
+      {ISSUER_GROUPS.map((group) => (
+        <optgroup key={group.label} label={group.label}>
+          {group.issuers.map((issuer) => (
+            <option key={issuer} value={issuer}>
+              {issuer}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function ApplicationFilterBar({
@@ -134,10 +195,8 @@ export function ApplicationFilterBar({
           onChange={(v) => onFilterChange('client', v)}
         />
 
-        <FilterSelect
-          label="All Issuers"
+        <IssuerFilterSelect
           value={filters.issuer}
-          options={ISSUER_OPTIONS}
           onChange={(v) => onFilterChange('issuer', v)}
         />
 
