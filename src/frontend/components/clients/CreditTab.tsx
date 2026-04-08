@@ -9,6 +9,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import CreditScoreCard from '@/components/modules/credit-score-card';
+import CreditUnionMemberships from '@/components/clients/CreditUnionMemberships';
 import { apiClient } from '@/lib/api-client';
 
 // ─── Props ─────────────────────────────────────────────────────────────────
@@ -668,7 +669,13 @@ export default function CreditTab({ clientId, clientName }: CreditTabProps) {
         </div>
       </section>
 
-      {/* ─── Section 4: Score Trend Chart ────────────────────────────────── */}
+      {/* ─── Section 4: Credit Union Memberships ─────────────────────────── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Credit Union Memberships</h3>
+        <CreditUnionMemberships clientId={clientId} compact />
+      </section>
+
+      {/* ─── Section 5: Score Trend Chart ────────────────────────────────── */}
       <section>
         {historyError && <DashboardErrorState error={historyError} onRetry={refetchHistory} />}
 
@@ -679,7 +686,7 @@ export default function CreditTab({ clientId, clientName }: CreditTabProps) {
         )}
       </section>
 
-      {/* ─── Section 5: Credit Optimization Roadmap ──────────────────────── */}
+      {/* ─── Section 6: Credit Optimization Roadmap ──────────────────────── */}
       <section>
         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Credit Optimization Roadmap</h3>
 
