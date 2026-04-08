@@ -1,18 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface TaxDocument {
-  id: string;
-  type: string;
-  taxYear: number;
-  status: 'Generated';
-  generatedAt: string;
-}
+import type { TaxDocument } from './GenerateDocumentModal';
 
 // ---------------------------------------------------------------------------
 // Helpers
