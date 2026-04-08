@@ -10,6 +10,8 @@
 //   4. Workout proposal section (text area for notes)
 //   5. Table of active hardship cases
 //   6. New case creation modal
+//   7. Case detail panel with debt summary, timeline, and actions (3A)
+//   8. Interactive 4-stage pipeline dots (3B)
 // ============================================================
 
 import { useState, useMemo } from 'react';
@@ -20,6 +22,18 @@ import { useState, useMemo } from 'react';
 
 type HardshipFlag = 'missed_payment' | 'high_utilization' | 'income_change' | 'business_closure';
 type ResolutionStatus = 'open' | 'in_negotiation' | 'resolved' | 'written_off';
+
+/** 4-stage pipeline for case advancement (3B) */
+const STAGE_LABELS = ['Initial Contact', 'Proposal Sent', 'Negotiation', 'Resolved'] as const;
+type StageIndex = 0 | 1 | 2 | 3;
+
+interface ActivityEvent {
+  id: string;
+  caseId: string;
+  timestamp: string;
+  label: string;
+  type: 'call' | 'email' | 'note' | 'status' | 'system';
+}
 
 interface AtRiskClient {
   id: string;
@@ -39,12 +53,14 @@ interface HardshipCase {
   flag: HardshipFlag;
   status: ResolutionStatus;
   totalDebt: number;
+  cardsAffected: number;
   missedPayments: number;
   utilization: number;
   openedAt: string;
   lastUpdated: string;
   assignedAdvisor: string;
   workoutNotes: string;
+  stageIndex: StageIndex;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,39 +78,59 @@ const AT_RISK_CLIENTS: AtRiskClient[] = [
 const PLACEHOLDER_CASES: HardshipCase[] = [
   {
     id: 'hc_001', clientId: 'arc_1', clientName: 'Carlos Mendez', businessName: 'Mendez Trucking LLC',
-    flag: 'missed_payment', status: 'in_negotiation', totalDebt: 84_500, missedPayments: 3,
+    flag: 'missed_payment', status: 'in_negotiation', totalDebt: 84_500, cardsAffected: 3, missedPayments: 3,
     utilization: 92, openedAt: '2026-02-15', lastUpdated: '2026-03-28',
-    assignedAdvisor: 'Sarah Mitchell',
+    assignedAdvisor: 'Sarah Mitchell', stageIndex: 2,
     workoutNotes: 'Client experiencing cash flow disruption due to fleet maintenance costs. Proposed 6-month reduced payment plan at 60% of minimum. Awaiting issuer response on Chase Ink account.',
   },
   {
     id: 'hc_002', clientId: 'arc_3', clientName: 'James Thornton', businessName: 'Thornton Construction Inc',
-    flag: 'high_utilization', status: 'open', totalDebt: 128_700, missedPayments: 4,
+    flag: 'high_utilization', status: 'open', totalDebt: 128_700, cardsAffected: 5, missedPayments: 4,
     utilization: 95, openedAt: '2026-03-05', lastUpdated: '2026-03-30',
-    assignedAdvisor: 'David Park',
+    assignedAdvisor: 'David Park', stageIndex: 0,
     workoutNotes: 'High utilization across 5 cards. Construction project delayed 90 days. Evaluating settlement offers from Amex and Capital One.',
   },
   {
     id: 'hc_003', clientId: 'arc_2', clientName: 'Patricia Wong', businessName: 'Wong Consulting Group',
-    flag: 'income_change', status: 'in_negotiation', totalDebt: 62_300, missedPayments: 2,
+    flag: 'income_change', status: 'in_negotiation', totalDebt: 62_300, cardsAffected: 2, missedPayments: 2,
     utilization: 87, openedAt: '2026-01-20', lastUpdated: '2026-03-15',
-    assignedAdvisor: 'Sarah Mitchell',
+    assignedAdvisor: 'Sarah Mitchell', stageIndex: 1,
     workoutNotes: 'Lost major client (35% of revenue). Negotiating hardship rate reduction with Chase and Citi. Client enrolled in business counseling program.',
   },
   {
     id: 'hc_004', clientId: 'arc_5', clientName: 'Robert Kim', businessName: 'Kim Auto Parts LLC',
-    flag: 'business_closure', status: 'open', totalDebt: 95_600, missedPayments: 3,
+    flag: 'business_closure', status: 'open', totalDebt: 95_600, cardsAffected: 4, missedPayments: 3,
     utilization: 88, openedAt: '2026-03-20', lastUpdated: '2026-04-01',
-    assignedAdvisor: 'David Park',
+    assignedAdvisor: 'David Park', stageIndex: 0,
     workoutNotes: 'Business winding down operations. Exploring settlement options for all outstanding balances. Priority: negotiate below 50 cents on the dollar where possible.',
   },
   {
     id: 'hc_005', clientId: 'arc_4', clientName: 'Maria Santos', businessName: 'Santos Bakery & Cafe',
-    flag: 'missed_payment', status: 'resolved', totalDebt: 34_200, missedPayments: 1,
+    flag: 'missed_payment', status: 'resolved', totalDebt: 34_200, cardsAffected: 1, missedPayments: 1,
     utilization: 78, openedAt: '2025-12-10', lastUpdated: '2026-02-28',
-    assignedAdvisor: 'Sarah Mitchell',
+    assignedAdvisor: 'Sarah Mitchell', stageIndex: 3,
     workoutNotes: 'Resolved. Client enrolled in 12-month payment plan. First two payments received on time. Late fees waived by Amex.',
   },
+];
+
+// ---------------------------------------------------------------------------
+// Mock activity timeline events (3A)
+// ---------------------------------------------------------------------------
+
+const MOCK_ACTIVITY: ActivityEvent[] = [
+  { id: 'ev_01', caseId: 'hc_001', timestamp: '2026-03-28T14:30:00', label: 'Follow-up call with client — confirmed receipt of proposal', type: 'call' },
+  { id: 'ev_02', caseId: 'hc_001', timestamp: '2026-03-20T09:00:00', label: 'Proposal emailed to Chase Ink issuer relations', type: 'email' },
+  { id: 'ev_03', caseId: 'hc_001', timestamp: '2026-02-15T11:15:00', label: 'Case opened — missed payment flag triggered', type: 'system' },
+  { id: 'ev_04', caseId: 'hc_002', timestamp: '2026-03-30T10:00:00', label: 'Initial assessment completed — 5 cards identified', type: 'note' },
+  { id: 'ev_05', caseId: 'hc_002', timestamp: '2026-03-05T08:45:00', label: 'Case opened — high utilization flag triggered', type: 'system' },
+  { id: 'ev_06', caseId: 'hc_003', timestamp: '2026-03-15T16:00:00', label: 'Rate reduction proposal sent to Chase and Citi', type: 'email' },
+  { id: 'ev_07', caseId: 'hc_003', timestamp: '2026-02-10T13:30:00', label: 'Client enrolled in business counseling program', type: 'note' },
+  { id: 'ev_08', caseId: 'hc_003', timestamp: '2026-01-20T09:00:00', label: 'Case opened — income change flag triggered', type: 'system' },
+  { id: 'ev_09', caseId: 'hc_004', timestamp: '2026-04-01T11:00:00', label: 'Settlement evaluation started for all balances', type: 'note' },
+  { id: 'ev_10', caseId: 'hc_004', timestamp: '2026-03-20T09:30:00', label: 'Case opened — business closure flag triggered', type: 'system' },
+  { id: 'ev_11', caseId: 'hc_005', timestamp: '2026-02-28T15:00:00', label: 'Case resolved — payment plan confirmed, late fees waived', type: 'status' },
+  { id: 'ev_12', caseId: 'hc_005', timestamp: '2026-01-15T10:00:00', label: 'Amex agreed to waive late fees and reduce APR', type: 'email' },
+  { id: 'ev_13', caseId: 'hc_005', timestamp: '2025-12-10T08:00:00', label: 'Case opened — missed payment flag triggered', type: 'system' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -137,7 +173,7 @@ function showToast(message: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Resolution Tracker component
+// Resolution Tracker component (status-based, read-only)
 // ---------------------------------------------------------------------------
 
 function ResolutionTracker({ status }: { status: ResolutionStatus }) {
@@ -172,6 +208,77 @@ function ResolutionTracker({ status }: { status: ResolutionStatus }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Stage Dots component (3B) — Interactive 4-stage pipeline
+// ---------------------------------------------------------------------------
+
+function StageDots({
+  stageIndex,
+  onAdvance,
+}: {
+  stageIndex: StageIndex;
+  onAdvance: (nextStage: StageIndex) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {STAGE_LABELS.map((label, i) => {
+        const isCompleted = i < stageIndex;
+        const isCurrent = i === stageIndex;
+        const isNext = i === stageIndex + 1;
+        const isFuture = i > stageIndex + 1;
+        const canClick = isNext;
+
+        return (
+          <div key={label} className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={!canClick}
+              onClick={() => {
+                if (canClick) onAdvance(i as StageIndex);
+              }}
+              title={
+                canClick
+                  ? `Advance to Stage ${i + 1}: ${label}`
+                  : isCompleted
+                  ? `Completed: ${label}`
+                  : isCurrent
+                  ? `Current: ${label}`
+                  : label
+              }
+              className={`flex items-center justify-center w-7 h-7 rounded-full text-[10px] font-bold border-2 transition-all ${
+                isCompleted
+                  ? 'bg-green-600 text-white border-green-500 cursor-default'
+                  : isCurrent
+                  ? 'bg-[#C9A84C] text-[#0A1628] border-[#C9A84C] cursor-default ring-2 ring-[#C9A84C]/30'
+                  : canClick
+                  ? 'bg-gray-900 text-[#C9A84C] border-[#C9A84C]/50 hover:bg-[#C9A84C]/20 hover:border-[#C9A84C] cursor-pointer'
+                  : 'bg-gray-900 text-gray-600 border-gray-800 cursor-default'
+              }`}
+            >
+              {isCompleted ? '\u2713' : i + 1}
+            </button>
+            {i < STAGE_LABELS.length - 1 && (
+              <div className={`w-5 h-0.5 ${isCompleted ? 'bg-green-500' : isCurrent && !isFuture ? 'bg-[#C9A84C]/40' : 'bg-gray-800'}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Activity event type icon helper
+// ---------------------------------------------------------------------------
+
+const ACTIVITY_ICON: Record<ActivityEvent['type'], { icon: string; color: string }> = {
+  call:   { icon: '\u260E', color: 'text-blue-400' },
+  email:  { icon: '\u2709', color: 'text-purple-400' },
+  note:   { icon: '\u270E', color: 'text-gray-400' },
+  status: { icon: '\u25CF', color: 'text-green-400' },
+  system: { icon: '\u26A0', color: 'text-yellow-400' },
+};
 
 // ---------------------------------------------------------------------------
 // Page
@@ -238,6 +345,55 @@ export default function FinancialControlHardshipPage() {
     showToast(`Case status updated to ${STATUS_CONFIG[newStatus].label}.`);
   }
 
+  function handleAdvanceStage(caseId: string, nextStage: StageIndex) {
+    setCases((prev) =>
+      prev.map((c) =>
+        c.id === caseId
+          ? { ...c, stageIndex: nextStage, lastUpdated: new Date().toISOString().split('T')[0] }
+          : c,
+      ),
+    );
+    if (selectedCase?.id === caseId) {
+      setSelectedCase({ ...selectedCase, stageIndex: nextStage });
+    }
+    showToast(`Case advanced to Stage ${nextStage + 1}: ${STAGE_LABELS[nextStage]}`);
+  }
+
+  function handleMarkResolved(caseId: string) {
+    setCases((prev) =>
+      prev.map((c) =>
+        c.id === caseId
+          ? { ...c, status: 'resolved' as ResolutionStatus, stageIndex: 3 as StageIndex, lastUpdated: new Date().toISOString().split('T')[0] }
+          : c,
+      ),
+    );
+    if (selectedCase?.id === caseId) {
+      setSelectedCase({ ...selectedCase, status: 'resolved', stageIndex: 3 });
+    }
+    showToast('Case marked as Resolved.');
+  }
+
+  function handleWriteOff(caseId: string) {
+    setCases((prev) =>
+      prev.map((c) =>
+        c.id === caseId
+          ? { ...c, status: 'written_off' as ResolutionStatus, lastUpdated: new Date().toISOString().split('T')[0] }
+          : c,
+      ),
+    );
+    if (selectedCase?.id === caseId) {
+      setSelectedCase({ ...selectedCase, status: 'written_off' });
+    }
+    showToast('Case written off.');
+  }
+
+  // Activity events for selected case
+  const caseActivity = selectedCase
+    ? MOCK_ACTIVITY.filter((e) => e.caseId === selectedCase.id).sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+      )
+    : [];
+
   function handleCreateCase() {
     const client = AT_RISK_CLIENTS.find((c) => c.id === newCaseClient);
     if (!client) {
@@ -253,12 +409,14 @@ export default function FinancialControlHardshipPage() {
       flag: newCaseFlag,
       status: 'open',
       totalDebt: client.totalDebt,
+      cardsAffected: Math.floor(Math.random() * 4) + 1,
       missedPayments: client.missedPayments,
       utilization: client.utilization,
       openedAt: new Date().toISOString().split('T')[0],
       lastUpdated: new Date().toISOString().split('T')[0],
       assignedAdvisor: 'Unassigned',
       workoutNotes: newCaseNotes,
+      stageIndex: 0,
     };
 
     setCases((prev) => [newCase, ...prev]);
@@ -369,7 +527,7 @@ export default function FinancialControlHardshipPage() {
                   <th className="text-center px-4 py-3 font-semibold">Flag</th>
                   <th className="text-center px-4 py-3 font-semibold">Status</th>
                   <th className="text-right px-4 py-3 font-semibold">Debt</th>
-                  <th className="text-center px-4 py-3 font-semibold">Resolution</th>
+                  <th className="text-center px-4 py-3 font-semibold">Stage</th>
                   <th className="text-right px-4 py-3 font-semibold">Updated</th>
                 </tr>
               </thead>
@@ -406,7 +564,28 @@ export default function FinancialControlHardshipPage() {
                         <p className="text-[10px] text-gray-500">{c.missedPayments} missed | {c.utilization}% util</p>
                       </td>
                       <td className="px-4 py-3">
-                        <ResolutionTracker status={c.status} />
+                        <div className="flex items-center gap-0.5">
+                          {STAGE_LABELS.map((label, si) => (
+                            <div key={label} className="flex items-center gap-0.5">
+                              <div
+                                className={`w-4 h-4 rounded-full text-[7px] font-bold flex items-center justify-center border ${
+                                  si < c.stageIndex
+                                    ? 'bg-green-600 text-white border-green-500'
+                                    : si === c.stageIndex
+                                    ? 'bg-[#C9A84C] text-[#0A1628] border-[#C9A84C]'
+                                    : 'bg-gray-900 text-gray-600 border-gray-800'
+                                }`}
+                                title={`${label}${si < c.stageIndex ? ' (done)' : si === c.stageIndex ? ' (current)' : ''}`}
+                              >
+                                {si < c.stageIndex ? '\u2713' : si + 1}
+                              </div>
+                              {si < STAGE_LABELS.length - 1 && (
+                                <div className={`w-2 h-px ${si < c.stageIndex ? 'bg-green-500' : 'bg-gray-800'}`} />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-[9px] text-gray-500 mt-0.5">{STAGE_LABELS[c.stageIndex]}</p>
                       </td>
                       <td className="px-4 py-3 text-right text-xs text-gray-400">
                         {formatDate(c.lastUpdated)}
@@ -424,67 +603,153 @@ export default function FinancialControlHardshipPage() {
           </div>
         </div>
 
-        {/* Detail / Workout panel */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+        {/* Detail / Workout panel (3A) */}
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 max-h-[calc(100vh-12rem)] overflow-y-auto">
           {selectedCase ? (
-            <div className="space-y-4">
+            <div className="space-y-5">
+              {/* Client header + badges */}
               <div>
-                <h3 className="text-base font-bold text-white">{selectedCase.clientName}</h3>
-                <p className="text-xs text-gray-400">{selectedCase.businessName}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Total Debt</p>
-                  <p className="text-sm font-bold text-white">{formatCurrency(selectedCase.totalDebt)}</p>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-white">{selectedCase.clientName}</h3>
+                    <p className="text-xs text-gray-400">{selectedCase.businessName}</p>
+                  </div>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${STATUS_CONFIG[selectedCase.status].badgeClass}`}>
+                    {STATUS_CONFIG[selectedCase.status].label}
+                  </span>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Missed Payments</p>
-                  <p className="text-sm font-bold text-red-400">{selectedCase.missedPayments}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Utilization</p>
-                  <p className="text-sm font-bold text-orange-400">{selectedCase.utilization}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Advisor</p>
-                  <p className="text-sm font-semibold text-gray-200">{selectedCase.assignedAdvisor}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${FLAG_CONFIG[selectedCase.flag].badgeClass}`}>
+                    {FLAG_CONFIG[selectedCase.flag].label}
+                  </span>
+                  <span className="text-[10px] text-gray-500">Advisor: {selectedCase.assignedAdvisor}</span>
                 </div>
               </div>
 
+              {/* Stage dots (3B) */}
               <div>
-                <p className="text-xs text-gray-500 uppercase mb-1">Resolution Progress</p>
-                <ResolutionTracker status={selectedCase.status} />
+                <p className="text-xs text-gray-500 uppercase mb-2 font-semibold">Pipeline Stage</p>
+                <StageDots
+                  stageIndex={selectedCase.stageIndex}
+                  onAdvance={(next) => handleAdvanceStage(selectedCase.id, next)}
+                />
+                <p className="text-[10px] text-gray-500 mt-1.5">
+                  Stage {selectedCase.stageIndex + 1} of 4: <span className="text-gray-300">{STAGE_LABELS[selectedCase.stageIndex]}</span>
+                  {selectedCase.stageIndex < 3 && (
+                    <span className="text-gray-600"> &mdash; click next dot to advance</span>
+                  )}
+                </p>
               </div>
 
-              {/* Status actions */}
+              {/* Debt summary */}
               <div>
-                <p className="text-xs text-gray-500 uppercase mb-2">Update Status</p>
-                <div className="flex flex-wrap gap-2">
-                  {STATUS_STEPS.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => handleUpdateStatus(selectedCase.id, s)}
-                      disabled={selectedCase.status === s}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                        selectedCase.status === s
-                          ? 'bg-[#C9A84C] text-[#0A1628] cursor-default'
-                          : 'bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-                      }`}
-                    >
-                      {STATUS_CONFIG[s].label}
-                    </button>
-                  ))}
+                <p className="text-xs text-gray-500 uppercase mb-2 font-semibold">Debt Summary</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg bg-gray-800/60 px-3 py-2">
+                    <p className="text-[10px] text-gray-500 uppercase">Total Debt</p>
+                    <p className="text-sm font-bold text-white">{formatCurrency(selectedCase.totalDebt)}</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-800/60 px-3 py-2">
+                    <p className="text-[10px] text-gray-500 uppercase">Cards Affected</p>
+                    <p className="text-sm font-bold text-blue-400">{selectedCase.cardsAffected}</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-800/60 px-3 py-2">
+                    <p className="text-[10px] text-gray-500 uppercase">Missed Payments</p>
+                    <p className="text-sm font-bold text-red-400">{selectedCase.missedPayments}</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-800/60 px-3 py-2">
+                    <p className="text-[10px] text-gray-500 uppercase">Utilization</p>
+                    <p className="text-sm font-bold text-orange-400">{selectedCase.utilization}%</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Activity timeline */}
+              <div>
+                <p className="text-xs text-gray-500 uppercase mb-2 font-semibold">Activity Timeline</p>
+                {caseActivity.length > 0 ? (
+                  <div className="space-y-0 border-l-2 border-gray-800 ml-2">
+                    {caseActivity.map((ev) => {
+                      const iconCfg = ACTIVITY_ICON[ev.type];
+                      return (
+                        <div key={ev.id} className="relative pl-5 pb-3">
+                          <span className={`absolute -left-[7px] top-0.5 text-xs ${iconCfg.color}`}>{iconCfg.icon}</span>
+                          <p className="text-xs text-gray-200 leading-snug">{ev.label}</p>
+                          <p className="text-[10px] text-gray-600 mt-0.5">{formatDate(ev.timestamp.split('T')[0])}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-600 italic">No activity recorded yet.</p>
+                )}
+              </div>
+
+              {/* Action buttons */}
+              <div>
+                <p className="text-xs text-gray-500 uppercase mb-2 font-semibold">Actions</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => showToast(`Contacting ${selectedCase.clientName}...`)}
+                    className="px-3 py-2 rounded-lg bg-blue-900/40 border border-blue-800 text-blue-300 text-xs font-semibold hover:bg-blue-900/60 transition-colors"
+                  >
+                    Contact Client
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedCase.stageIndex < 3) {
+                        handleAdvanceStage(selectedCase.id, (selectedCase.stageIndex + 1) as StageIndex);
+                      } else {
+                        showToast('Case is already at the final stage.');
+                      }
+                    }}
+                    disabled={selectedCase.stageIndex >= 3}
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                      selectedCase.stageIndex < 3
+                        ? 'bg-[#C9A84C]/20 border border-[#C9A84C]/40 text-[#C9A84C] hover:bg-[#C9A84C]/30'
+                        : 'bg-gray-800 border border-gray-700 text-gray-600 cursor-not-allowed'
+                    }`}
+                  >
+                    Advance Stage
+                  </button>
+                  <button
+                    onClick={() => showToast(`Generating proposal for ${selectedCase.clientName}...`)}
+                    className="px-3 py-2 rounded-lg bg-purple-900/40 border border-purple-800 text-purple-300 text-xs font-semibold hover:bg-purple-900/60 transition-colors"
+                  >
+                    Generate Proposal
+                  </button>
+                  <button
+                    onClick={() => handleMarkResolved(selectedCase.id)}
+                    disabled={selectedCase.status === 'resolved'}
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                      selectedCase.status !== 'resolved'
+                        ? 'bg-green-900/40 border border-green-800 text-green-300 hover:bg-green-900/60'
+                        : 'bg-gray-800 border border-gray-700 text-gray-600 cursor-not-allowed'
+                    }`}
+                  >
+                    Mark Resolved
+                  </button>
+                  <button
+                    onClick={() => handleWriteOff(selectedCase.id)}
+                    disabled={selectedCase.status === 'written_off'}
+                    className={`col-span-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                      selectedCase.status !== 'written_off'
+                        ? 'bg-red-900/30 border border-red-900 text-red-400 hover:bg-red-900/50'
+                        : 'bg-gray-800 border border-gray-700 text-gray-600 cursor-not-allowed'
+                    }`}
+                  >
+                    Write Off
+                  </button>
                 </div>
               </div>
 
               {/* Workout notes */}
               <div>
-                <p className="text-xs text-gray-500 uppercase mb-2">Workout Proposal / Notes</p>
+                <p className="text-xs text-gray-500 uppercase mb-2 font-semibold">Workout Notes</p>
                 <textarea
                   value={editingNotes}
                   onChange={(e) => setEditingNotes(e.target.value)}
-                  rows={6}
+                  rows={4}
                   className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] resize-none"
                   placeholder="Enter workout proposal details, negotiation notes, or resolution plan..."
                 />
@@ -501,8 +766,12 @@ export default function FinancialControlHardshipPage() {
               </div>
             </div>
           ) : (
-            <div className="text-center py-10">
-              <p className="text-sm text-gray-500">Select a case from the table to view details and manage the workout proposal.</p>
+            <div className="flex flex-col items-center justify-center py-16">
+              <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center mb-3">
+                <span className="text-xl text-gray-600">&#128203;</span>
+              </div>
+              <p className="text-sm text-gray-500 font-medium">Select a case to view details</p>
+              <p className="text-xs text-gray-600 mt-1">Click a row in the table to load case information.</p>
             </div>
           )}
         </div>
