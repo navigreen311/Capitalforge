@@ -10,13 +10,17 @@ import { useState, useCallback, useMemo } from 'react';
 
 // ── Types ────────────────────────────────────────────────────
 
+type EventCategory = 'client' | 'application' | 'funding' | 'compliance' | 'payment';
+
 interface LedgerEventEntry {
   id: string;
   timestamp: string;
   eventType: string;
+  category: EventCategory;
   payloadSummary: string;
   actor: string;
   version: number;
+  linkedRecord?: { label: string; id: string };
   metadata?: Record<string, string>;
 }
 
@@ -37,21 +41,10 @@ const BUSINESSES: BusinessOption[] = [
 
 const EVENT_TYPES = [
   'business.created',
-  'business.updated',
-  'kyb.initiated',
-  'kyb.completed',
+  'compliance.consent_captured',
   'application.submitted',
   'application.approved',
-  'application.declined',
-  'funding.disbursed',
-  'compliance.check_passed',
-  'compliance.check_failed',
-  'document.uploaded',
-  'document.verified',
-  'credit.score_updated',
-  'ach.payment_initiated',
   'ach.payment_completed',
-  'offboarding.requested',
 ];
 
 function generateEventsForBusiness(bizId: string): LedgerEventEntry[] {
@@ -61,96 +54,50 @@ function generateEventsForBusiness(bizId: string): LedgerEventEntry[] {
   return [
     {
       id: `evt-${bizId}-001`, timestamp: new Date(baseDate.getTime() - 86400000 * 30).toISOString(),
-      eventType: 'business.created', payloadSummary: 'Business entity created with initial intake data',
+      eventType: 'business.created', category: 'client',
+      payloadSummary: 'Client entity created with initial intake data and KYC details',
       actor: actors[2], version: 1,
+      linkedRecord: { label: 'Client Profile', id: `client-${bizId}` },
     },
     {
-      id: `evt-${bizId}-002`, timestamp: new Date(baseDate.getTime() - 86400000 * 28).toISOString(),
-      eventType: 'document.uploaded', payloadSummary: 'Articles of Incorporation uploaded (PDF, 2.4MB)',
+      id: `evt-${bizId}-002`, timestamp: new Date(baseDate.getTime() - 86400000 * 25).toISOString(),
+      eventType: 'compliance.consent_captured', category: 'compliance',
+      payloadSummary: 'E-Sign consent and TCPA authorization captured via secure form',
       actor: actors[1], version: 1,
+      linkedRecord: { label: 'Consent Record', id: `consent-${bizId}` },
     },
     {
-      id: `evt-${bizId}-003`, timestamp: new Date(baseDate.getTime() - 86400000 * 27).toISOString(),
-      eventType: 'document.verified', payloadSummary: 'Articles of Incorporation verified via OCR + manual review',
-      actor: actors[4], version: 1,
+      id: `evt-${bizId}-003`, timestamp: new Date(baseDate.getTime() - 86400000 * 20).toISOString(),
+      eventType: 'application.submitted', category: 'application',
+      payloadSummary: 'SBA 7(a) loan application submitted ($250,000 requested)',
+      actor: actors[1], version: 1,
+      linkedRecord: { label: 'Application', id: `app-${bizId}` },
     },
     {
-      id: `evt-${bizId}-004`, timestamp: new Date(baseDate.getTime() - 86400000 * 25).toISOString(),
-      eventType: 'kyb.initiated', payloadSummary: 'KYB verification started: EIN lookup, Secretary of State check',
+      id: `evt-${bizId}-004`, timestamp: new Date(baseDate.getTime() - 86400000 * 15).toISOString(),
+      eventType: 'application.approved', category: 'funding',
+      payloadSummary: 'Application approved: $225,000 at 6.75% APR, 10yr term',
       actor: actors[0], version: 1,
+      linkedRecord: { label: 'Funding Offer', id: `offer-${bizId}` },
     },
     {
-      id: `evt-${bizId}-005`, timestamp: new Date(baseDate.getTime() - 86400000 * 23).toISOString(),
-      eventType: 'kyb.completed', payloadSummary: 'KYB passed: Entity verified, good standing confirmed',
-      actor: actors[0], version: 1,
-    },
-    {
-      id: `evt-${bizId}-006`, timestamp: new Date(baseDate.getTime() - 86400000 * 22).toISOString(),
-      eventType: 'credit.score_updated', payloadSummary: 'FICO score updated: 742 (Experian pull)',
+      id: `evt-${bizId}-005`, timestamp: new Date(baseDate.getTime() - 86400000 * 5).toISOString(),
+      eventType: 'ach.payment_completed', category: 'payment',
+      payloadSummary: 'First repayment completed: $2,847.50 (confirmation #ACH-88241)',
       actor: actors[3], version: 1,
-    },
-    {
-      id: `evt-${bizId}-007`, timestamp: new Date(baseDate.getTime() - 86400000 * 20).toISOString(),
-      eventType: 'compliance.check_passed', payloadSummary: 'UDAP compliance check passed (risk score: 18/100)',
-      actor: actors[4], version: 1,
-    },
-    {
-      id: `evt-${bizId}-008`, timestamp: new Date(baseDate.getTime() - 86400000 * 18).toISOString(),
-      eventType: 'application.submitted', payloadSummary: 'SBA 7(a) loan application submitted ($250,000 requested)',
-      actor: actors[1], version: 1,
-    },
-    {
-      id: `evt-${bizId}-009`, timestamp: new Date(baseDate.getTime() - 86400000 * 15).toISOString(),
-      eventType: 'application.approved', payloadSummary: 'Application approved: $225,000 at 6.75% APR, 10yr term',
-      actor: actors[0], version: 1,
-    },
-    {
-      id: `evt-${bizId}-010`, timestamp: new Date(baseDate.getTime() - 86400000 * 12).toISOString(),
-      eventType: 'document.uploaded', payloadSummary: 'Signed loan agreement uploaded (PDF, 1.8MB)',
-      actor: actors[1], version: 1,
-    },
-    {
-      id: `evt-${bizId}-011`, timestamp: new Date(baseDate.getTime() - 86400000 * 10).toISOString(),
-      eventType: 'funding.disbursed', payloadSummary: 'Funds disbursed: $225,000 via ACH to account ending 4821',
-      actor: actors[0], version: 1,
-    },
-    {
-      id: `evt-${bizId}-012`, timestamp: new Date(baseDate.getTime() - 86400000 * 5).toISOString(),
-      eventType: 'ach.payment_initiated', payloadSummary: 'First repayment initiated: $2,847.50',
-      actor: actors[0], version: 1,
-    },
-    {
-      id: `evt-${bizId}-013`, timestamp: new Date(baseDate.getTime() - 86400000 * 3).toISOString(),
-      eventType: 'ach.payment_completed', payloadSummary: 'Payment completed: $2,847.50 (confirmation #ACH-88241)',
-      actor: actors[3], version: 1,
-    },
-    {
-      id: `evt-${bizId}-014`, timestamp: new Date(baseDate.getTime() - 86400000 * 1).toISOString(),
-      eventType: 'business.updated', payloadSummary: 'Status updated to "funded", readiness score: 85',
-      actor: actors[0], version: 2,
+      linkedRecord: { label: 'Payment Record', id: `pay-${bizId}` },
     },
   ];
 }
 
 // ── Helpers ──────────────────────────────────────────────────
 
-const TYPE_COLORS: Record<string, string> = {
-  'business.created': 'bg-blue-500',
-  'business.updated': 'bg-blue-400',
-  'kyb.initiated': 'bg-purple-500',
-  'kyb.completed': 'bg-purple-400',
-  'application.submitted': 'bg-yellow-500',
-  'application.approved': 'bg-emerald-500',
-  'application.declined': 'bg-red-500',
-  'funding.disbursed': 'bg-[#C9A84C]',
-  'compliance.check_passed': 'bg-emerald-400',
-  'compliance.check_failed': 'bg-red-400',
-  'document.uploaded': 'bg-cyan-500',
-  'document.verified': 'bg-cyan-400',
-  'credit.score_updated': 'bg-orange-400',
-  'ach.payment_initiated': 'bg-indigo-500',
-  'ach.payment_completed': 'bg-indigo-400',
-  'offboarding.requested': 'bg-red-500',
+const CATEGORY_COLORS: Record<EventCategory, { dot: string; badge: string; label: string }> = {
+  client:     { dot: 'bg-teal-500',    badge: 'bg-teal-500/20 text-teal-400 border border-teal-500/30',    label: 'Client' },
+  application:{ dot: 'bg-blue-500',    badge: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',    label: 'Application' },
+  funding:    { dot: 'bg-[#C9A84C]',   badge: 'bg-[#C9A84C]/20 text-[#C9A84C] border border-[#C9A84C]/30', label: 'Funding' },
+  compliance: { dot: 'bg-amber-500',   badge: 'bg-amber-500/20 text-amber-400 border border-amber-500/30', label: 'Compliance' },
+  payment:    { dot: 'bg-green-500',   badge: 'bg-green-500/20 text-green-400 border border-green-500/30', label: 'Payment' },
 };
 
 function formatTimestamp(iso: string): string {
@@ -188,24 +135,39 @@ export default function PlatformDataLineagePage() {
   }, [events]);
 
   const handleExport = useCallback(() => {
-    if (filteredEvents.length === 0) return;
+    if (!selectedBizId || filteredEvents.length === 0) return;
     const biz = BUSINESSES.find((b) => b.id === selectedBizId);
-    const csv = [
-      'Timestamp,Event Type,Summary,Actor,Version',
-      ...filteredEvents.map(
-        (e) =>
-          `"${formatTimestamp(e.timestamp)}","${e.eventType}","${e.payloadSummary}","${e.actor}",${e.version}`,
-      ),
-    ].join('\n');
+    const divider = '─'.repeat(60);
 
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const lines = [
+      `DATA LINEAGE REPORT`,
+      `Generated: ${new Date().toISOString()}`,
+      `Business: ${biz?.name ?? selectedBizId}`,
+      `Events: ${filteredEvents.length}${typeFilter !== 'all' ? ` (filtered by ${formatEventType(typeFilter)})` : ''}`,
+      divider,
+      '',
+      ...filteredEvents.flatMap((e, i) => [
+        `[${i + 1}] ${formatEventType(e.eventType)}`,
+        `    Category:  ${CATEGORY_COLORS[e.category].label}`,
+        `    Timestamp: ${formatTimestamp(e.timestamp)}`,
+        `    Summary:   ${e.payloadSummary}`,
+        `    Actor:     ${e.actor}`,
+        `    Version:   ${e.version}`,
+        ...(e.linkedRecord ? [`    Linked:    ${e.linkedRecord.label} (${e.linkedRecord.id})`] : []),
+        '',
+      ]),
+      divider,
+      `End of report.`,
+    ];
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `data-lineage-${biz?.name.replace(/\s+/g, '-') ?? selectedBizId}.csv`;
+    a.download = `data-lineage-${biz?.name.replace(/\s+/g, '-') ?? selectedBizId}.txt`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [filteredEvents, selectedBizId]);
+  }, [filteredEvents, selectedBizId, typeFilter]);
 
   return (
     <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6 lg:p-10">
@@ -263,10 +225,10 @@ export default function PlatformDataLineagePage() {
           </div>
 
           {/* Export */}
-          <div className="flex items-end">
+          <div className="flex flex-col items-start justify-end gap-2">
             <button
               onClick={handleExport}
-              disabled={filteredEvents.length === 0}
+              disabled={!selectedBizId}
               className="px-5 py-2.5 border border-gray-600 text-gray-300 font-semibold rounded-lg hover:bg-[#111c33] transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Export Lineage Report
@@ -288,6 +250,11 @@ export default function PlatformDataLineagePage() {
             <div>
               <span className="text-xs text-gray-500">Filtered</span>
               <span className="block text-lg font-bold text-[#C9A84C]">{filteredEvents.length}</span>
+              {typeFilter !== 'all' && (
+                <span className="text-[10px] text-amber-400">
+                  Showing {filteredEvents.length} of {events.length} events
+                </span>
+              )}
             </div>
             <div>
               <span className="text-xs text-gray-500">Time Span</span>
@@ -308,61 +275,72 @@ export default function PlatformDataLineagePage() {
       {/* Timeline */}
       {selectedBizId && filteredEvents.length > 0 ? (
         <div className="relative">
-          {/* Vertical line */}
-          <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-700/50" />
-
           <div className="space-y-4">
-            {filteredEvents.map((evt, idx) => (
-              <div key={evt.id} className="relative pl-14">
-                {/* Dot on timeline */}
-                <div
-                  className={`absolute left-4 top-4 w-5 h-5 rounded-full border-2 border-[#0A1628] ${
-                    TYPE_COLORS[evt.eventType] ?? 'bg-gray-500'
-                  }`}
-                />
+            {filteredEvents.map((evt, idx) => {
+              const catStyle = CATEGORY_COLORS[evt.category];
+              return (
+                <div key={evt.id} className="relative pl-14">
+                  {/* Category-colored dot */}
+                  <div
+                    className={`absolute left-4 top-4 w-5 h-5 rounded-full border-2 border-[#0A1628] ${catStyle.dot} z-10`}
+                  />
 
-                {/* Event Card */}
-                <div className="bg-[#0f1b2e] border border-gray-700/50 rounded-xl p-4 hover:border-gray-600 transition">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      {/* Event Type Badge */}
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full text-white ${
-                            TYPE_COLORS[evt.eventType] ?? 'bg-gray-500'
-                          }`}
-                        >
-                          {formatEventType(evt.eventType)}
-                        </span>
-                        <span className="text-[10px] text-gray-500">v{evt.version}</span>
+                  {/* Connector line segment between dots */}
+                  {idx < filteredEvents.length - 1 && (
+                    <div className="absolute left-[23px] top-9 bottom-[-16px] w-0.5 bg-gray-700/50" />
+                  )}
+
+                  {/* Event Card */}
+                  <div className="bg-[#0f1b2e] border border-gray-700/50 rounded-xl p-4 hover:border-gray-600 transition">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        {/* Event Type Badge */}
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${catStyle.badge}`}
+                          >
+                            {formatEventType(evt.eventType)}
+                          </span>
+                          <span className="text-[10px] text-gray-500">v{evt.version}</span>
+                        </div>
+
+                        {/* Summary */}
+                        <p className="text-sm text-gray-200 mt-1">{evt.payloadSummary}</p>
+
+                        {/* Actor + Linked Record */}
+                        <div className="flex items-center gap-4 mt-2">
+                          <p className="text-xs text-gray-500">
+                            Actor: <span className="text-gray-400">{evt.actor}</span>
+                          </p>
+                          {evt.linkedRecord && (
+                            <button
+                              className={`text-[10px] font-medium px-2 py-0.5 rounded ${catStyle.badge} hover:opacity-80 transition`}
+                              title={`View ${evt.linkedRecord.label} (${evt.linkedRecord.id})`}
+                            >
+                              {evt.linkedRecord.label} &rarr;
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Summary */}
-                      <p className="text-sm text-gray-200 mt-1">{evt.payloadSummary}</p>
-
-                      {/* Actor */}
-                      <p className="text-xs text-gray-500 mt-2">
-                        Actor: <span className="text-gray-400">{evt.actor}</span>
-                      </p>
-                    </div>
-
-                    {/* Timestamp */}
-                    <div className="text-right shrink-0">
-                      <p className="text-xs text-gray-400">{formatTimestamp(evt.timestamp)}</p>
-                      {idx > 0 && (
-                        <p className="text-[10px] text-gray-600 mt-1">
-                          +{Math.ceil(
-                            (new Date(evt.timestamp).getTime() -
-                              new Date(filteredEvents[idx - 1].timestamp).getTime()) /
-                              (1000 * 60 * 60 * 24),
-                          )}d
-                        </p>
-                      )}
+                      {/* Timestamp */}
+                      <div className="text-right shrink-0">
+                        <p className="text-xs text-gray-400">{formatTimestamp(evt.timestamp)}</p>
+                        {idx > 0 && (
+                          <p className="text-[10px] text-gray-600 mt-1">
+                            +{Math.ceil(
+                              (new Date(evt.timestamp).getTime() -
+                                new Date(filteredEvents[idx - 1].timestamp).getTime()) /
+                                (1000 * 60 * 60 * 24),
+                            )}d
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : selectedBizId ? (
