@@ -5,8 +5,6 @@
 // violation items (Acknowledge, Contact Network, Document Response).
 // Contact Network opens a modal with phone, dispute portal,
 // department, and calling notes for Visa / Mastercard / Amex.
-// violation items (Acknowledge, Contact, Document Response).
-// Shows acknowledged-by info when a violation has been ack'd.
 // ============================================================
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -78,7 +76,6 @@ export function ViolationActionButtons({
   violationId,
   network,
   acknowledged,
-  acknowledgedInfo,
   onAcknowledge,
   onDocumentResponse,
 }: ViolationActionButtonsProps) {
@@ -108,10 +105,6 @@ export function ViolationActionButtons({
       <div className="flex items-center gap-2 flex-wrap">
         {/* Acknowledge button / badge */}
         {acknowledged ? (
-    <div className="flex items-center gap-2 flex-wrap">
-      {/* Acknowledge button / badge */}
-      {acknowledged ? (
-        <div className="flex items-center gap-2">
           <span
             className="inline-flex items-center gap-1.5 rounded-full bg-emerald-900/40
               border border-emerald-700/50 px-3 py-1.5 text-xs font-medium text-emerald-400"
@@ -131,18 +124,6 @@ export function ViolationActionButtons({
         )}
 
         {/* Contact network button — opens modal */}
-          {acknowledgedInfo && (
-            <span className="text-xs text-gray-500">
-              by {acknowledgedInfo.by} on{' '}
-              {new Date(acknowledgedInfo.date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-            </span>
-          )}
-        </div>
-      ) : (
         <button
           type="button"
           onClick={() => setContactModalOpen(true)}
@@ -251,30 +232,5 @@ export function ViolationActionButtons({
         </div>
       )}
     </>
-
-      {/* Contact network button */}
-      <button
-        type="button"
-        onClick={() => {
-          window.open(`mailto:support@${network.toLowerCase().replace(/\s+/g, '')}.com`, '_blank');
-        }}
-        className="rounded-lg border border-blue-700/50 bg-blue-900/30 px-3 py-1.5 text-xs
-          font-medium text-blue-300 hover:bg-blue-900/50 hover:border-blue-600
-          focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-colors"
-      >
-        Contact {network}
-      </button>
-
-      {/* Document Response button */}
-      <button
-        type="button"
-        onClick={() => onDocumentResponse(violationId)}
-        className="rounded-lg border border-amber-700/50 bg-amber-900/30 px-3 py-1.5 text-xs
-          font-medium text-amber-300 hover:bg-amber-900/50 hover:border-amber-600
-          focus:outline-none focus:ring-2 focus:ring-amber-500/40 transition-colors"
-      >
-        Document Response
-      </button>
-    </div>
   );
 }

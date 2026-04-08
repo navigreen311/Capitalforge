@@ -901,6 +901,8 @@ export default function SpendGovernancePage() {
         transaction={cashLikeContactTxn}
         isOpen={cashLikeContactTxn !== null}
         onClose={() => setCashLikeContactTxn(null)}
+      />
+
       {/* Document Response Modal */}
       <DocumentResponseModal
         violation={docResponseViolation}
