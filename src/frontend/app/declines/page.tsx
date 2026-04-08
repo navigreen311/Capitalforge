@@ -10,7 +10,7 @@
 //   4. Adverse action notice parser upload
 // ============================================================
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 // ---------------------------------------------------------------------------
@@ -353,16 +353,22 @@ function CooldownTimer({ endsDate }: { endsDate: string | null }) {
   return <span className={`text-xs ${cls}`}>{text}</span>;
 }
 
-function LetterGeneratorModal({
-  record,
-  onClose,
-}: {
-  record: DeclineRecord;
-  onClose: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
+// ---------------------------------------------------------------------------
+// Mock AI Letter Generation (typing effect)
+// ---------------------------------------------------------------------------
 
-  const letterText = `[DATE: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}]
+function generateMockLetter(record: DeclineRecord): string {
+  const reasonRebuttals: Record<ReasonCategory, string> = {
+    too_many_inquiries: `The recent credit inquiries reflect a one-time strategic initiative to establish business credit lines for ${record.businessName}. This was a planned, short-term effort and does not represent ongoing credit-seeking behavior. No additional applications are planned for the next 12 months.`,
+    insufficient_history: `While ${record.businessName} is a newer entity on business credit bureaus, the company has been operating successfully for over 18 months with consistent monthly revenue of $45,000+. We have attached bank statements demonstrating strong deposit activity and cash reserves.`,
+    high_utilization: `The elevated utilization on personal revolving accounts was a temporary situation related to a business expansion investment. Since the application date, we have paid down balances by over 40%, bringing personal utilization below 30%. Updated credit reports should reflect this improvement.`,
+    income_verification: `${record.businessName} generates annual revenue of approximately $540,000, supported by our most recent tax filing (Form 1120S) and 6 months of business bank statements enclosed. Our net operating income comfortably supports the requested ${formatCurrency(record.requestedLimit)} credit line.`,
+    velocity: `We understand ${record.issuer}'s policy regarding new account velocity. The recent accounts were part of a deliberate business credit strategy and each serves a distinct operational purpose. ${record.businessName} maintains excellent payment history across all existing accounts with zero late payments.`,
+    internal_policy: `We respectfully request that a senior analyst review this application with the additional documentation we are providing. ${record.businessName} has a strong financial profile with consistent revenue growth, no derogatory marks, and a clear business need for the ${record.cardProduct}.`,
+    derogatory_marks: `The tax lien referenced in our credit file has been fully resolved and satisfied as of [RESOLUTION DATE]. We have attached the Certificate of Release from the relevant tax authority. This was an isolated event related to a prior accounting error that has since been corrected.`,
+  };
+
+  return `[DATE: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}]
 
 To: ${record.issuer} Reconsideration Department
 Re: Application #${record.appId} — ${record.cardProduct}
@@ -377,17 +383,20 @@ I understand the application was declined due to: ${record.reasonDetail}
 
 I would like to provide the following context to support reconsideration:
 
-1. Our business has demonstrated consistent revenue growth over the past 12 months and maintains strong cash flow to service the requested credit line.
+REBUTTAL — ${REASON_LABELS[record.reasonCategory].label}:
+${reasonRebuttals[record.reasonCategory]}
 
-2. [ADD: Specific rebuttal to the decline reason above. E.g., for inquiries: "The recent inquiries reflect a one-time strategic credit-building initiative and do not represent ongoing credit-seeking behavior."]
+BUSINESS STRENGTH:
+${record.businessName} has demonstrated consistent revenue growth over the past 12 months, maintaining strong cash flow with monthly deposits averaging $45,000. Our business accounts with other financial institutions remain in excellent standing with zero missed payments.
 
-3. We have been a valued customer of ${record.issuer} and are committed to responsibly managing this account.
+TALKING POINTS FOR PHONE RECON:
+- Emphasize the specific business need for this credit product
+- Offer to provide additional documentation (bank statements, tax returns, P&L)
+- Ask if a secured deposit or reduced credit line would facilitate approval
+- Mention existing positive relationship with ${record.issuer} if applicable
+- Request the specific department or analyst code for follow-up
 
-I am confident that upon review of the additional context provided, ${record.issuer} will find our application merits approval. I am available to provide any supporting documentation, including bank statements, tax returns, or financial projections.
-
-Please contact me at your earliest convenience at [PHONE] or [EMAIL].
-
-Thank you for your time and consideration.
+I am confident that upon review of the additional context provided, ${record.issuer} will find our application merits approval. I am available to provide any supporting documentation at your earliest convenience.
 
 Sincerely,
 [AUTHORIZED SIGNER NAME]
@@ -395,13 +404,79 @@ Sincerely,
 ${record.businessName}
 [ADDRESS]
 [PHONE] | [EMAIL]`;
+}
+
+function LetterGeneratorModal({
+  record,
+  onClose,
+  onToast,
+}: {
+  record: DeclineRecord;
+  onClose: () => void;
+  onToast: (msg: string) => void;
+}) {
+  const fullLetter = useRef(generateMockLetter(record));
+  const [displayedText, setDisplayedText] = useState('');
+  const [isTyping, setIsTyping] = useState(true);
+  const [editableText, setEditableText] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const typingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const charIndexRef = useRef(0);
+
+  const startTypingEffect = useCallback(() => {
+    // Reset state
+    charIndexRef.current = 0;
+    setDisplayedText('');
+    setIsTyping(true);
+    setIsEditing(false);
+
+    // Clear any previous interval
+    if (typingRef.current) clearInterval(typingRef.current);
+
+    const text = fullLetter.current;
+    typingRef.current = setInterval(() => {
+      charIndexRef.current += 3; // type 3 chars at a time for speed
+      if (charIndexRef.current >= text.length) {
+        charIndexRef.current = text.length;
+        if (typingRef.current) clearInterval(typingRef.current);
+        setDisplayedText(text);
+        setEditableText(text);
+        setIsTyping(false);
+      } else {
+        setDisplayedText(text.slice(0, charIndexRef.current));
+      }
+    }, 8);
+  }, []);
+
+  // Start typing on mount
+  useEffect(() => {
+    startTypingEffect();
+    return () => {
+      if (typingRef.current) clearInterval(typingRef.current);
+    };
+  }, [startTypingEffect]);
+
+  const handleRegenerate = () => {
+    fullLetter.current = generateMockLetter(record);
+    startTypingEffect();
+  };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(letterText).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+    const text = isEditing ? editableText : displayedText;
+    navigator.clipboard.writeText(text).then(() => {
+      onToast('Letter copied to clipboard');
     });
   };
+
+  const handleSaveToVault = () => {
+    onToast('Letter saved to Vault');
+  };
+
+  const handleEmailToClient = () => {
+    onToast('Letter queued for email delivery to client');
+  };
+
+  const currentText = isEditing ? editableText : displayedText;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -409,8 +484,18 @@ ${record.businessName}
         {/* Modal header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
           <div>
-            <h3 className="text-base font-semibold text-white">Reconsideration Letter</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{record.issuer} · {record.cardProduct} · {record.businessName}</p>
+            <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              AI Reconsideration Letter
+              {isTyping && (
+                <span className="inline-flex items-center gap-1 text-xs font-normal text-[#C9A84C]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
+                  Generating...
+                </span>
+              )}
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {record.issuer} · {record.cardProduct} · {record.businessName}
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -424,27 +509,74 @@ ${record.businessName}
         {/* Letter body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <p className="text-xs text-yellow-500 mb-3 bg-yellow-900/20 border border-yellow-800 rounded-lg px-3 py-2">
-            Review and customize bracketed fields before sending. This letter is a template — consult legal counsel for compliance review.
+            AI-generated reconsideration letter with tailored rebuttal for &quot;{REASON_LABELS[record.reasonCategory].label}&quot;. Review and edit before sending.
           </p>
-          <pre className="text-xs text-gray-300 bg-gray-950 rounded-lg p-4 whitespace-pre-wrap font-mono leading-relaxed border border-gray-800">
-            {letterText}
-          </pre>
+
+          {isEditing ? (
+            <textarea
+              value={editableText}
+              onChange={(e) => setEditableText(e.target.value)}
+              className="w-full text-xs text-gray-300 bg-gray-950 rounded-lg p-4 font-mono leading-relaxed border border-[#C9A84C]/40 focus:border-[#C9A84C] focus:outline-none resize-none"
+              style={{ minHeight: '400px' }}
+            />
+          ) : (
+            <div
+              onClick={() => {
+                if (!isTyping) {
+                  setIsEditing(true);
+                  setEditableText(displayedText);
+                }
+              }}
+              className={`text-xs text-gray-300 bg-gray-950 rounded-lg p-4 whitespace-pre-wrap font-mono leading-relaxed border border-gray-800 ${
+                !isTyping ? 'cursor-text hover:border-gray-600' : ''
+              }`}
+              title={!isTyping ? 'Click to edit' : undefined}
+            >
+              {currentText}
+              {isTyping && <span className="inline-block w-2 h-4 bg-[#C9A84C] ml-0.5 animate-pulse" />}
+            </div>
+          )}
+
+          {!isTyping && !isEditing && (
+            <p className="text-xs text-gray-600 mt-1.5">Click the letter text to edit</p>
+          )}
         </div>
 
-        {/* Modal footer */}
-        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-800">
+        {/* Modal footer — action buttons */}
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-800">
           <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+            onClick={handleRegenerate}
+            disabled={isTyping}
+            className="px-3 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
-            Close
+            <svg className={`w-3.5 h-3.5 ${isTyping ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Regenerate
           </button>
-          <button
-            onClick={handleCopy}
-            className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 text-sm font-semibold text-white transition-colors"
-          >
-            {copied ? 'Copied!' : 'Copy Letter'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSaveToVault}
+              disabled={isTyping}
+              className="px-3 py-2 rounded-lg border border-blue-700 bg-blue-900/40 hover:bg-blue-900/70 text-sm text-blue-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Save to Vault
+            </button>
+            <button
+              onClick={handleCopy}
+              disabled={isTyping}
+              className="px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700 text-sm text-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Copy
+            </button>
+            <button
+              onClick={handleEmailToClient}
+              disabled={isTyping}
+              className="px-3 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#B89A3F] text-sm font-semibold text-[#0A1628] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Email to Client
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -873,6 +1005,7 @@ export default function DeclinesPage() {
         <LetterGeneratorModal
           record={selectedRecord}
           onClose={() => setSelectedRecord(null)}
+          onToast={showToast}
         />
       )}
     </div>
