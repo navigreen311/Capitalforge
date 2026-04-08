@@ -4,9 +4,10 @@
 // /platform/offboarding — Offboarding Management
 // Request table, new offboarding form, data deletion checklist,
 // 30-day retention hold indicator, status workflow.
+// Case detail panel with advance-stage workflow.
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -14,10 +15,23 @@ type OffboardingStatus = 'requested' | 'retention_hold' | 'deleting' | 'complete
 type OffboardingReason = 'graduated' | 'requested' | 'non-payment' | 'compliance';
 
 interface DeletionChecklist {
+  clientProfile: boolean;
+  applications: boolean;
   documents: boolean;
-  events: boolean;
-  creditData: boolean;
-  achRecords: boolean;
+  consent: boolean;
+  financial: boolean;
+  communications: boolean;
+}
+
+interface RetainedItem {
+  label: string;
+  reason: 'legal_hold' | 'regulatory';
+}
+
+interface ActivityEvent {
+  timestamp: string;
+  action: string;
+  user: string;
 }
 
 interface OffboardingRequest {
@@ -29,6 +43,8 @@ interface OffboardingRequest {
   deletionDate: string;
   status: OffboardingStatus;
   checklist: DeletionChecklist;
+  retainedItems: RetainedItem[];
+  activityLog: ActivityEvent[];
   notes: string;
 }
 
@@ -42,6 +58,24 @@ const MOCK_BUSINESSES = [
   { id: 'biz-005', name: 'Meridian Finance Group' },
 ];
 
+const EMPTY_CHECKLIST: DeletionChecklist = {
+  clientProfile: false,
+  applications: false,
+  documents: false,
+  consent: false,
+  financial: false,
+  communications: false,
+};
+
+const CHECKLIST_LABELS: Record<keyof DeletionChecklist, string> = {
+  clientProfile: 'Client Profile',
+  applications: 'Applications',
+  documents: 'Documents',
+  consent: 'Consent Records',
+  financial: 'Financial Data',
+  communications: 'Communications',
+};
+
 const INITIAL_REQUESTS: OffboardingRequest[] = [
   {
     id: 'off-001',
@@ -51,7 +85,16 @@ const INITIAL_REQUESTS: OffboardingRequest[] = [
     requestedDate: '2026-03-15',
     deletionDate: '2026-04-14',
     status: 'retention_hold',
-    checklist: { documents: false, events: false, creditData: false, achRecords: false },
+    checklist: { ...EMPTY_CHECKLIST },
+    retainedItems: [
+      { label: 'Tax filings (IRS 7-year hold)', reason: 'regulatory' },
+      { label: 'Loan agreement records', reason: 'legal_hold' },
+    ],
+    activityLog: [
+      { timestamp: '2026-03-15 09:12', action: 'Offboarding request created', user: 'Sarah Chen' },
+      { timestamp: '2026-03-15 14:30', action: 'Status advanced to Retention Hold', user: 'System' },
+      { timestamp: '2026-03-20 10:05', action: 'Retention hold acknowledged by compliance', user: 'Mark Liu' },
+    ],
     notes: 'Client successfully funded, graduating from program.',
   },
   {
@@ -62,7 +105,16 @@ const INITIAL_REQUESTS: OffboardingRequest[] = [
     requestedDate: '2026-03-01',
     deletionDate: '2026-03-31',
     status: 'deleting',
-    checklist: { documents: true, events: true, creditData: false, achRecords: false },
+    checklist: { clientProfile: false, applications: false, documents: true, consent: true, financial: false, communications: false },
+    retainedItems: [
+      { label: 'Outstanding debt records', reason: 'legal_hold' },
+    ],
+    activityLog: [
+      { timestamp: '2026-03-01 11:00', action: 'Offboarding request created', user: 'James Wright' },
+      { timestamp: '2026-03-01 11:05', action: 'Status advanced to Retention Hold', user: 'James Wright' },
+      { timestamp: '2026-03-15 08:00', action: 'Retention period expired', user: 'System' },
+      { timestamp: '2026-03-15 08:01', action: 'Status advanced to Deleting', user: 'System' },
+    ],
     notes: '90 days past due. Final notice sent.',
   },
   {
@@ -73,7 +125,14 @@ const INITIAL_REQUESTS: OffboardingRequest[] = [
     requestedDate: '2026-02-20',
     deletionDate: '2026-03-22',
     status: 'completed',
-    checklist: { documents: true, events: true, creditData: true, achRecords: true },
+    checklist: { clientProfile: true, applications: true, documents: true, consent: true, financial: true, communications: true },
+    retainedItems: [],
+    activityLog: [
+      { timestamp: '2026-02-20 15:20', action: 'Offboarding request created', user: 'Sarah Chen' },
+      { timestamp: '2026-02-20 15:25', action: 'Status advanced to Retention Hold', user: 'Sarah Chen' },
+      { timestamp: '2026-03-10 09:00', action: 'Status advanced to Deleting', user: 'Mark Liu' },
+      { timestamp: '2026-03-22 00:00', action: 'All data deleted. Status set to Completed.', user: 'System' },
+    ],
     notes: 'Client requested voluntary exit.',
   },
   {
@@ -84,7 +143,16 @@ const INITIAL_REQUESTS: OffboardingRequest[] = [
     requestedDate: '2026-04-01',
     deletionDate: '2026-05-01',
     status: 'requested',
-    checklist: { documents: false, events: false, creditData: false, achRecords: false },
+    checklist: { ...EMPTY_CHECKLIST },
+    retainedItems: [
+      { label: 'KYC/AML audit trail', reason: 'regulatory' },
+      { label: 'Compliance violation reports', reason: 'regulatory' },
+      { label: 'Legal correspondence', reason: 'legal_hold' },
+    ],
+    activityLog: [
+      { timestamp: '2026-04-01 10:30', action: 'Offboarding request created', user: 'Risk Team' },
+      { timestamp: '2026-04-01 10:35', action: 'Compliance flag raised — review required', user: 'System' },
+    ],
     notes: 'Multiple compliance violations. Escalated by risk team.',
   },
   {
@@ -95,7 +163,14 @@ const INITIAL_REQUESTS: OffboardingRequest[] = [
     requestedDate: '2026-03-25',
     deletionDate: '2026-04-24',
     status: 'retention_hold',
-    checklist: { documents: false, events: false, creditData: false, achRecords: false },
+    checklist: { ...EMPTY_CHECKLIST },
+    retainedItems: [
+      { label: 'SBA loan documentation', reason: 'regulatory' },
+    ],
+    activityLog: [
+      { timestamp: '2026-03-25 13:00', action: 'Offboarding request created', user: 'Sarah Chen' },
+      { timestamp: '2026-03-25 13:10', action: 'Status advanced to Retention Hold', user: 'Sarah Chen' },
+    ],
     notes: 'Successfully funded. 30-day retention hold active.',
   },
 ];
@@ -196,6 +271,70 @@ function ChecklistItem({
   );
 }
 
+// ── Toast Component ─────────────────────────────────────────
+
+function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning' | 'danger'; onClose: () => void }) {
+  const colors = {
+    success: 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300',
+    info: 'bg-blue-500/20 border-blue-500/40 text-blue-300',
+    warning: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300',
+    danger: 'bg-red-500/20 border-red-500/40 text-red-300',
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3500);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className={`fixed top-6 right-6 z-[100] px-5 py-3 rounded-lg border text-sm font-medium shadow-lg ${colors[type]} animate-fade-in`}>
+      {message}
+    </div>
+  );
+}
+
+// ── Confirmation Modal ──────────────────────────────────────
+
+function ConfirmationModal({
+  title,
+  message,
+  confirmLabel,
+  danger,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  danger?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+      <div className="bg-[#0f1b2e] border border-gray-700/50 rounded-xl w-full max-w-md p-6">
+        <h2 className={`text-lg font-bold mb-2 ${danger ? 'text-red-400' : 'text-white'}`}>{title}</h2>
+        <p className="text-sm text-gray-300 mb-6">{message}</p>
+        <div className="flex justify-end gap-3">
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`px-5 py-2 text-sm font-semibold rounded-lg transition ${
+              danger
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : 'bg-[#C9A84C] text-[#0A1628] hover:bg-[#b8993f]'
+            }`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────
 
 export default function PlatformOffboardingPage() {
@@ -203,6 +342,14 @@ export default function PlatformOffboardingPage() {
   const [selectedId, setSelectedId] = useState<string | null>(INITIAL_REQUESTS[0]?.id ?? null);
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState<OffboardingStatus | 'all'>('all');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' | 'danger' } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    danger?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
 
   // New request form state
   const [formBizId, setFormBizId] = useState('');
@@ -229,7 +376,11 @@ export default function PlatformOffboardingPage() {
       requestedDate: new Date().toISOString().slice(0, 10),
       deletionDate,
       status: 'requested',
-      checklist: { documents: false, events: false, creditData: false, achRecords: false },
+      checklist: { ...EMPTY_CHECKLIST },
+      retainedItems: [],
+      activityLog: [
+        { timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16), action: 'Offboarding request created', user: 'Current User' },
+      ],
       notes: formNotes,
     };
 
@@ -241,18 +392,134 @@ export default function PlatformOffboardingPage() {
     setFormNotes('');
   }, [formBizId, formReason, formDate, formNotes, requests.length]);
 
-  const advanceStatus = useCallback(
+  const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' | 'danger' = 'success') => {
+    setToast({ message, type });
+  }, []);
+
+  const doAdvance = useCallback(
     (id: string) => {
       setRequests((prev) =>
         prev.map((r) => {
           if (r.id !== id) return r;
           const idx = STATUS_STEPS.indexOf(r.status);
           if (idx >= STATUS_STEPS.length - 1) return r;
-          return { ...r, status: STATUS_STEPS[idx + 1] };
+          const nextStatus = STATUS_STEPS[idx + 1];
+          return {
+            ...r,
+            status: nextStatus,
+            activityLog: [
+              ...r.activityLog,
+              {
+                timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+                action: `Status advanced to ${STATUS_LABELS[nextStatus]}`,
+                user: 'Current User',
+              },
+            ],
+          };
         }),
       );
     },
     [],
+  );
+
+  const advanceStatus = useCallback(
+    (id: string) => {
+      const req = requests.find((r) => r.id === id);
+      if (!req) return;
+      const idx = STATUS_STEPS.indexOf(req.status);
+      if (idx >= STATUS_STEPS.length - 1) return;
+      const nextStatus = STATUS_STEPS[idx + 1];
+
+      if (nextStatus === 'deleting') {
+        setConfirmModal({
+          title: 'Confirm Data Deletion',
+          message:
+            'You are about to move this case to the Deleting stage. This will begin irreversible data deletion. Are you sure you want to proceed?',
+          confirmLabel: 'Begin Deletion',
+          danger: true,
+          onConfirm: () => {
+            doAdvance(id);
+            showToast(`${req.businessName} advanced to Deleting`, 'danger');
+            setConfirmModal(null);
+          },
+        });
+      } else {
+        doAdvance(id);
+        showToast(`${req.businessName} advanced to ${STATUS_LABELS[nextStatus]}`, 'success');
+      }
+    },
+    [requests, doAdvance, showToast],
+  );
+
+  const applyRetentionHold = useCallback(
+    (id: string) => {
+      const req = requests.find((r) => r.id === id);
+      if (!req) return;
+      showToast(`Retention hold applied to ${req.businessName}`, 'warning');
+    },
+    [requests, showToast],
+  );
+
+  const initiateDeletion = useCallback(
+    (id: string) => {
+      const req = requests.find((r) => r.id === id);
+      if (!req) return;
+      setConfirmModal({
+        title: 'Initiate Immediate Deletion',
+        message: `This will skip remaining retention periods and immediately begin deleting all data for ${req.businessName}. This action cannot be undone.`,
+        confirmLabel: 'Delete All Data',
+        danger: true,
+        onConfirm: () => {
+          setRequests((prev) =>
+            prev.map((r) => {
+              if (r.id !== id) return r;
+              return {
+                ...r,
+                status: 'deleting' as OffboardingStatus,
+                activityLog: [
+                  ...r.activityLog,
+                  {
+                    timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+                    action: 'Immediate deletion initiated — retention period skipped',
+                    user: 'Current User',
+                  },
+                ],
+              };
+            }),
+          );
+          showToast(`Deletion initiated for ${req.businessName}`, 'danger');
+          setConfirmModal(null);
+        },
+      });
+    },
+    [requests, showToast],
+  );
+
+  const markComplete = useCallback(
+    (id: string) => {
+      const req = requests.find((r) => r.id === id);
+      if (!req) return;
+      setRequests((prev) =>
+        prev.map((r) => {
+          if (r.id !== id) return r;
+          return {
+            ...r,
+            status: 'completed' as OffboardingStatus,
+            checklist: { clientProfile: true, applications: true, documents: true, consent: true, financial: true, communications: true },
+            activityLog: [
+              ...r.activityLog,
+              {
+                timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+                action: 'Offboarding marked as complete',
+                user: 'Current User',
+              },
+            ],
+          };
+        }),
+      );
+      showToast(`${req.businessName} offboarding completed`, 'success');
+    },
+    [requests, showToast],
   );
 
   const toggleChecklist = useCallback(
@@ -278,6 +545,21 @@ export default function PlatformOffboardingPage() {
 
   return (
     <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6 lg:p-10">
+      {/* Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Confirmation Modal */}
+      {confirmModal && (
+        <ConfirmationModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmLabel={confirmModal.confirmLabel}
+          danger={confirmModal.danger}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -455,44 +737,19 @@ export default function PlatformOffboardingPage() {
         {/* Detail Panel */}
         <div className="lg:col-span-1">
           {selected ? (
-            <div className="bg-[#0f1b2e] border border-gray-700/50 rounded-xl p-5 space-y-5">
-              <div>
-                <h3 className="text-base font-bold text-white">{selected.businessName}</h3>
-                <p className="text-xs text-gray-400 mt-1">{selected.id}</p>
+            <div className="bg-[#0f1b2e] border border-gray-700/50 rounded-xl p-5 space-y-5 max-h-[calc(100vh-12rem)] overflow-y-auto">
+              {/* Header: Business name + status badge */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white">{selected.businessName}</h3>
+                  <p className="text-xs text-gray-400 mt-1">{selected.id}</p>
+                </div>
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap ${STATUS_COLORS[selected.status]}`}>
+                  {STATUS_LABELS[selected.status]}
+                </span>
               </div>
 
-              {/* Status Workflow */}
-              <div>
-                <p className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">Status Workflow</p>
-                <StatusWorkflow status={selected.status} />
-                <div className="flex gap-2 mt-2">
-                  {STATUS_STEPS.map((step, idx) => (
-                    <span key={step} className="text-[10px] text-gray-500 flex-1 text-center">
-                      {STATUS_LABELS[step]}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* 30-Day Retention Hold Indicator */}
-              {selected.status === 'retention_hold' && (
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-yellow-400">30-Day Retention Hold Active</p>
-                  <p className="text-xs text-yellow-400/70 mt-1">
-                    {daysUntil(selected.deletionDate) > 0
-                      ? `${daysUntil(selected.deletionDate)} days remaining until scheduled deletion`
-                      : 'Retention period expired -- ready to proceed'}
-                  </p>
-                  <div className="mt-2 h-1.5 bg-yellow-500/20 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-yellow-500 rounded-full transition-all"
-                      style={{ width: `${Math.max(0, Math.min(100, ((30 - daysUntil(selected.deletionDate)) / 30) * 100))}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Reason & Dates */}
+              {/* Reason, requested date */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-gray-500">Reason</p>
@@ -501,10 +758,96 @@ export default function PlatformOffboardingPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Deletion Date</p>
-                  <p className="text-sm text-gray-200">{selected.deletionDate}</p>
+                  <p className="text-xs text-gray-500">Requested</p>
+                  <p className="text-sm text-gray-200">{selected.requestedDate}</p>
                 </div>
               </div>
+
+              {/* Status Workflow */}
+              <div>
+                <p className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">Status Workflow</p>
+                <StatusWorkflow status={selected.status} />
+                <div className="flex gap-2 mt-2">
+                  {STATUS_STEPS.map((step) => (
+                    <span key={step} className="text-[10px] text-gray-500 flex-1 text-center">
+                      {STATUS_LABELS[step]}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Retention Period */}
+              <div>
+                <p className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">Retention Period</p>
+                {selected.status === 'completed' ? (
+                  <p className="text-xs text-gray-500">Retention period completed.</p>
+                ) : (
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-yellow-400">
+                        {selected.status === 'retention_hold' ? '30-Day Retention Hold Active' : 'Scheduled Deletion'}
+                      </p>
+                      <span className="text-xs font-mono text-yellow-300">
+                        {daysUntil(selected.deletionDate) > 0 ? `${daysUntil(selected.deletionDate)}d` : '0d'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-yellow-400/70 mt-1">
+                      {daysUntil(selected.deletionDate) > 0
+                        ? `${daysUntil(selected.deletionDate)} days remaining until ${selected.deletionDate}`
+                        : 'Retention period expired -- ready to proceed'}
+                    </p>
+                    <div className="mt-2 h-1.5 bg-yellow-500/20 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-yellow-500 rounded-full transition-all"
+                        style={{ width: `${Math.max(0, Math.min(100, ((30 - daysUntil(selected.deletionDate)) / 30) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Data to be Deleted: Checklist */}
+              <div>
+                <p className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">
+                  Data to be Deleted
+                </p>
+                <div className="bg-[#111c33] rounded-lg p-3 space-y-1">
+                  {(Object.keys(CHECKLIST_LABELS) as (keyof DeletionChecklist)[]).map((key) => (
+                    <ChecklistItem
+                      key={key}
+                      label={CHECKLIST_LABELS[key]}
+                      checked={selected.checklist[key]}
+                      onChange={() => toggleChecklist(selected.id, key)}
+                      disabled={selected.status === 'completed' || selected.status === 'requested'}
+                    />
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-500 mt-2">
+                  Checklist items can only be marked during Retention Hold or Deleting phases.
+                </p>
+              </div>
+
+              {/* Data to be Retained */}
+              {selected.retainedItems.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">
+                    Data to be Retained
+                  </p>
+                  <div className="bg-[#111c33] rounded-lg p-3 space-y-2">
+                    {selected.retainedItems.map((item, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-300">{item.label}</p>
+                          <p className="text-[10px] text-gray-500">
+                            {item.reason === 'legal_hold' ? 'Legal Hold' : 'Regulatory Requirement'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Notes */}
               {selected.notes && (
@@ -514,41 +857,60 @@ export default function PlatformOffboardingPage() {
                 </div>
               )}
 
-              {/* Data Deletion Checklist */}
-              <div>
-                <p className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">
-                  Data Deletion Checklist
-                </p>
-                <div className="bg-[#111c33] rounded-lg p-3 space-y-1">
-                  <ChecklistItem
-                    label="Documents & Files"
-                    checked={selected.checklist.documents}
-                    onChange={() => toggleChecklist(selected.id, 'documents')}
-                    disabled={selected.status === 'completed' || selected.status === 'requested'}
-                  />
-                  <ChecklistItem
-                    label="Ledger Events"
-                    checked={selected.checklist.events}
-                    onChange={() => toggleChecklist(selected.id, 'events')}
-                    disabled={selected.status === 'completed' || selected.status === 'requested'}
-                  />
-                  <ChecklistItem
-                    label="Credit Data & Scores"
-                    checked={selected.checklist.creditData}
-                    onChange={() => toggleChecklist(selected.id, 'creditData')}
-                    disabled={selected.status === 'completed' || selected.status === 'requested'}
-                  />
-                  <ChecklistItem
-                    label="ACH Records"
-                    checked={selected.checklist.achRecords}
-                    onChange={() => toggleChecklist(selected.id, 'achRecords')}
-                    disabled={selected.status === 'completed' || selected.status === 'requested'}
-                  />
+              {/* Activity Log */}
+              {selected.activityLog.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">Activity Log</p>
+                  <div className="bg-[#111c33] rounded-lg p-3 space-y-3 max-h-40 overflow-y-auto">
+                    {selected.activityLog.map((evt, i) => (
+                      <div key={i} className="flex gap-3">
+                        <div className="flex flex-col items-center">
+                          <div className="w-2 h-2 rounded-full bg-gray-500 mt-1" />
+                          {i < selected.activityLog.length - 1 && <div className="w-px flex-1 bg-gray-700 mt-1" />}
+                        </div>
+                        <div className="flex-1 min-w-0 pb-1">
+                          <p className="text-xs text-gray-300">{evt.action}</p>
+                          <p className="text-[10px] text-gray-500 mt-0.5">
+                            {evt.timestamp} &middot; {evt.user}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-2">
-                  Checklist items can only be marked during Retention Hold or Deleting phases.
-                </p>
-              </div>
+              )}
+
+              {/* Action Buttons */}
+              {selected.status !== 'completed' && (
+                <div className="space-y-2 pt-2 border-t border-gray-700/50">
+                  <button
+                    onClick={() => advanceStatus(selected.id)}
+                    className="w-full px-4 py-2.5 bg-[#C9A84C] text-[#0A1628] font-semibold text-sm rounded-lg hover:bg-[#b8993f] transition"
+                  >
+                    Advance Stage
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => applyRetentionHold(selected.id)}
+                      className="px-3 py-2 text-xs font-medium rounded-lg border border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 transition"
+                    >
+                      Apply Retention Hold
+                    </button>
+                    <button
+                      onClick={() => initiateDeletion(selected.id)}
+                      className="px-3 py-2 text-xs font-medium rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition"
+                    >
+                      Initiate Deletion
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => markComplete(selected.id)}
+                    className="w-full px-4 py-2 text-xs font-medium rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition"
+                  >
+                    Mark Complete
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-[#0f1b2e] border border-gray-700/50 rounded-xl p-8 text-center">
