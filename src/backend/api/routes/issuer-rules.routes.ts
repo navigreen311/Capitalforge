@@ -162,9 +162,21 @@ issuerRulesRouter.get('/credit-unions', async (_req: Request, res: Response) => 
       orderBy: { name: 'asc' },
     });
 
+    // Enrich each CU with membership summary details
+    const enriched = creditUnions.map((cu) => ({
+      ...cu,
+      membership: {
+        isOpen: cu.openMembership,
+        criteria: cu.membershipCriteria ?? 'Contact credit union for details.',
+        joinFee: cu.joinFee ?? null,
+        joinUrl: `https://${cu.slug}.example.com/join`, // placeholder
+      },
+      productCount: cu.products.length,
+    }));
+
     return ok(res, {
-      creditUnions,
-      total: creditUnions.length,
+      creditUnions: enriched,
+      total: enriched.length,
     });
   } catch (err) {
     return serverError(res, err);
