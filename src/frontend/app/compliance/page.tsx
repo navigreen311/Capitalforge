@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { complianceApi } from '../../lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -94,6 +95,88 @@ function buildBreakdown(items: ComplianceItem[]): CheckTypeBreakdown[] {
 }
 
 // ---------------------------------------------------------------------------
+// Score Breakdown mock data (1C)
+// ---------------------------------------------------------------------------
+
+interface ScoreComponent {
+  name: CheckType;
+  score: number;
+  max: number;
+  reason: string;
+}
+
+const SCORE_BREAKDOWN: ScoreComponent[] = [
+  { name: 'UDAP',              score: 0,  max: 25, reason: 'Affiliated vendor on CFPB enforcement watch list; no mitigation plan filed.' },
+  { name: 'State Disclosures', score: 5,  max: 25, reason: '2 overdue state filings (NY, CA); 3 of 5 states compliant.' },
+  { name: 'KYB',               score: 4,  max: 20, reason: 'Beneficial ownership docs incomplete for 2 entities.' },
+  { name: 'Product-Reality',   score: 0,  max: 15, reason: 'Product terms mismatch with marketing materials across all products.' },
+  { name: 'AML',               score: 4,  max: 10, reason: '1 enhanced due-diligence review pending; sanctions screening clear.' },
+  { name: 'TCPA',              score: 1,  max: 5,  reason: 'Consent records verified for 1 of 2 outreach channels.' },
+];
+
+const TOP_PRIORITY = 'File the 2 overdue state disclosures (+10 points)';
+
+const QUICK_WINS: string[] = [
+  'Upload missing KYB beneficial-ownership docs for Horizon Retail Partners (+4 pts)',
+  'Complete TCPA consent audit for SMS channel (+2 pts)',
+  'Resolve AML enhanced due-diligence for Pinnacle Freight LLC (+3 pts)',
+];
+
+function computeBreakdownTotal(components: ScoreComponent[]): { earned: number; possible: number } {
+  return components.reduce(
+    (acc, c) => ({ earned: acc.earned + c.score, possible: acc.possible + c.max }),
+    { earned: 0, possible: 0 },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Export report generator (1E)
+// ---------------------------------------------------------------------------
+
+function generateTextReport(items: ComplianceItem[], score: number, breakdown: CheckTypeBreakdown[]): string {
+  const now = new Date().toISOString().slice(0, 10);
+  const openItems = items.filter((i) => !i.passed).sort((a, b) => a.priority - b.priority);
+  const lines: string[] = [
+    '=== CapitalForge Compliance Report ===',
+    `Generated: ${now}`,
+    '',
+    `Overall Compliance Score: ${score} / 100`,
+    '',
+    '--- Score Breakdown ---',
+    ...SCORE_BREAKDOWN.map((c) => `  ${c.name}: ${c.score}/${c.max} — ${c.reason}`),
+    '',
+    '--- Check Type Summary ---',
+    ...breakdown.map((b) => `  ${b.type}: ${b.total} total, ${b.passed} passed, ${b.failed} failed${b.criticalCount > 0 ? ` (${b.criticalCount} critical)` : ''}`),
+    '',
+    `--- Open Compliance Items (${openItems.length}) ---`,
+    ...openItems.map((item, i) =>
+      `  ${i + 1}. [${item.riskLevel.toUpperCase()}] ${item.checkType} — ${item.businessName}\n     ${item.findings} (checked ${formatDate(item.checkedAt)})`
+    ),
+    '',
+    '--- Top Priority ---',
+    `  ${TOP_PRIORITY}`,
+    '',
+    '--- Quick Wins ---',
+    ...QUICK_WINS.map((w, i) => `  ${i + 1}. ${w}`),
+    '',
+    '=== End of Report ===',
+  ];
+  return lines.join('\n');
+}
+
+function downloadTextFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
@@ -141,6 +224,74 @@ function Toast({ message, onDismiss }: { message: string; onDismiss: () => void 
   );
 }
 
+function ScoreBreakdownPanel() {
+  const [expanded, setExpanded] = useState(false);
+  const { earned, possible } = computeBreakdownTotal(SCORE_BREAKDOWN);
+
+  return (
+    <div className="mt-4 w-full">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between text-xs font-semibold text-[#C9A84C] hover:text-[#dbb85c] transition-colors py-1"
+      >
+        <span>Score Breakdown ({earned}/{possible})</span>
+        <svg
+          className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-4">
+          {/* Per-component bars */}
+          <div className="space-y-2.5">
+            {SCORE_BREAKDOWN.map((c) => {
+              const pct = c.max > 0 ? (c.score / c.max) * 100 : 0;
+              const barColor = pct >= 60 ? 'bg-green-500' : pct >= 30 ? 'bg-yellow-500' : 'bg-red-500';
+              return (
+                <div key={c.name}>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-xs font-semibold text-gray-200">{c.name}</span>
+                    <span className="text-xs text-gray-400">{c.score}/{c.max}</span>
+                  </div>
+                  <div className="w-full bg-gray-800 rounded-full h-2 mb-0.5">
+                    <div
+                      className={`${barColor} h-2 rounded-full transition-all duration-500`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-500 leading-tight">{c.reason}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Top Priority callout */}
+          <div className="rounded-lg border border-[#C9A84C]/40 bg-[#C9A84C]/10 p-3">
+            <p className="text-xs font-bold text-[#C9A84C] uppercase tracking-wide mb-1">Top Priority</p>
+            <p className="text-sm text-gray-100">{TOP_PRIORITY}</p>
+          </div>
+
+          {/* Quick Wins */}
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Quick Wins</p>
+            <ul className="space-y-1.5">
+              {QUICK_WINS.map((w, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-gray-300">
+                  <span className="text-green-400 mt-0.5 shrink-0">&#x2714;</span>
+                  <span>{w}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -150,6 +301,10 @@ export default function ComplianceCenterPage() {
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const activeFilter = (searchParams.get('filter') as CheckType | null) || null;
 
   // Fetch from API on mount
   useEffect(() => {
@@ -168,7 +323,19 @@ export default function ComplianceCenterPage() {
 
   const score = computeScore(items);
   const breakdown = buildBreakdown(items);
-  const openItems = items.filter((i) => !i.passed).sort((a, b) => a.priority - b.priority);
+  const allOpenItems = items.filter((i) => !i.passed).sort((a, b) => a.priority - b.priority);
+  const openItems = activeFilter
+    ? allOpenItems.filter((i) => i.checkType === activeFilter)
+    : allOpenItems;
+
+  // 1D — Set/clear check type URL filter
+  const handleFilterClick = useCallback((type: CheckType) => {
+    if (activeFilter === type) {
+      router.push('/compliance', { scroll: false });
+    } else {
+      router.push(`/compliance?filter=${encodeURIComponent(type)}`, { scroll: false });
+    }
+  }, [activeFilter, router]);
 
   // Risk tier distribution
   const riskTiers: { level: RiskLevel; count: number }[] = [
@@ -195,8 +362,11 @@ export default function ComplianceCenterPage() {
   }, [running, items]);
 
   const handleExport = useCallback(() => {
-    setToast('Compliance report exported to PDF');
-  }, []);
+    const report = generateTextReport(items, score, breakdown);
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadTextFile(report, `compliance-report-${dateStamp}.txt`);
+    setToast('Compliance report downloaded');
+  }, [items, score, breakdown]);
 
   return (
     <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6">
@@ -237,10 +407,11 @@ export default function ComplianceCenterPage() {
 
       {/* Top row: Score + Risk Tiers */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        {/* Overall Score */}
-        <div className="rounded-xl border border-gray-800 bg-[#0f1d32] p-6 flex flex-col items-center justify-center">
+        {/* Overall Score + Breakdown (1C) */}
+        <div className="rounded-xl border border-gray-800 bg-[#0f1d32] p-6 flex flex-col items-center">
           <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-3">Overall Compliance Score</p>
           <ScoreRing score={score} />
+          <ScoreBreakdownPanel />
         </div>
 
         {/* Risk Tier Distribution */}
@@ -290,32 +461,57 @@ export default function ComplianceCenterPage() {
       <div className="rounded-xl border border-gray-800 bg-[#0f1d32] p-6 mb-6">
         <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-4">Breakdown by Check Type</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {breakdown.map((b) => (
-            <div key={b.type} className="rounded-lg border border-gray-700 bg-[#0A1628] p-4 text-center">
-              <p className="text-xs text-gray-400 font-semibold mb-2">{b.type}</p>
-              <p className="text-2xl font-black text-gray-100">{b.total}</p>
-              <div className="flex items-center justify-center gap-2 mt-2 text-xs">
-                <span className="text-green-400">{b.passed} pass</span>
-                <span className="text-gray-600">|</span>
-                <span className={b.failed > 0 ? 'text-red-400' : 'text-gray-500'}>{b.failed} fail</span>
-              </div>
-              {b.criticalCount > 0 && (
-                <span className="inline-block mt-2 text-xs font-bold px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 border border-red-700">
-                  {b.criticalCount} critical
-                </span>
-              )}
-            </div>
-          ))}
+          {breakdown.map((b) => {
+            const isActive = activeFilter === b.type;
+            return (
+              <button
+                key={b.type}
+                onClick={() => handleFilterClick(b.type)}
+                className={`rounded-lg border p-4 text-center transition-colors cursor-pointer ${
+                  isActive
+                    ? 'border-[#C9A84C] bg-[#C9A84C]/10 ring-1 ring-[#C9A84C]/40'
+                    : 'border-gray-700 bg-[#0A1628] hover:border-[#C9A84C]/40'
+                }`}
+              >
+                <p className={`text-xs font-semibold mb-2 ${isActive ? 'text-[#C9A84C]' : 'text-gray-400'}`}>{b.type}</p>
+                <p className="text-2xl font-black text-gray-100">{b.total}</p>
+                <div className="flex items-center justify-center gap-2 mt-2 text-xs">
+                  <span className="text-green-400">{b.passed} pass</span>
+                  <span className="text-gray-600">|</span>
+                  <span className={b.failed > 0 ? 'text-red-400' : 'text-gray-500'}>{b.failed} fail</span>
+                </div>
+                {b.criticalCount > 0 && (
+                  <span className="inline-block mt-2 text-xs font-bold px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 border border-red-700">
+                    {b.criticalCount} critical
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Open Compliance Items */}
       <div className="rounded-xl border border-gray-800 bg-[#0f1d32] p-6">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold">
-            Open Compliance Items
-            <span className="ml-2 text-gray-500 normal-case">Sorted by priority</span>
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold">
+              Open Compliance Items
+              <span className="ml-2 text-gray-500 normal-case">Sorted by priority</span>
+            </p>
+            {activeFilter && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#C9A84C]/15 text-[#C9A84C] border border-[#C9A84C]/30">
+                {activeFilter}
+                <button
+                  onClick={() => router.push('/compliance', { scroll: false })}
+                  className="hover:text-white transition-colors leading-none"
+                  aria-label="Clear filter"
+                >
+                  &times;
+                </button>
+              </span>
+            )}
+          </div>
           <span className="text-xs text-gray-500">{openItems.length} items</span>
         </div>
 
