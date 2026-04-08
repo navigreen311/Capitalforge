@@ -201,6 +201,22 @@ const ISSUERS_DATA = [
     approvalRate: 73.7, avgCreditLimit: 20000,
     doNotApply: false, doNotApplyReason: null,
   },
+  {
+    id: 'iss_012', name: 'BECU', logo: '🏦',
+    velocityRules: 'No strict velocity rules; member-friendly approval process',
+    approvalCriteria: 'WA state residency/employment required; min 640 FICO',
+    totalApps: 29, approved: 22, declined: 5, pending: 2,
+    approvalRate: 75.9, avgCreditLimit: 15000,
+    doNotApply: false, doNotApplyReason: null,
+  },
+  {
+    id: 'iss_013', name: 'Lake Michigan Credit Union', logo: '🏦',
+    velocityRules: 'No strict velocity rules; open membership via $5 ALS donation',
+    approvalCriteria: 'Open to anyone ($5 ALS donation); min 640 FICO',
+    totalApps: 21, approved: 16, declined: 3, pending: 2,
+    approvalRate: 76.2, avgCreditLimit: 12000,
+    doNotApply: false, doNotApplyReason: null,
+  },
 ];
 
 router.get('/issuers', (_req: Request, res: Response) => {
