@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -74,10 +75,16 @@ function StatCard({ label, value, sub, gold }: { label: string; value: string; s
 
 // ── Pipeline Column ──────────────────────────────────────────
 
-function PipelineColumn({ stage, total }: { stage: PipelineStage; total: number }) {
+function PipelineColumn({ stage, total, onClick }: { stage: PipelineStage; total: number; onClick?: () => void }) {
   const pct = total > 0 ? ((stage.count / total) * 100).toFixed(1) : '0';
   return (
-    <div className="flex-1 min-w-[160px] rounded-xl border border-gray-700/60 bg-gray-900/60 p-4 flex flex-col items-center gap-3">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick?.(); }}
+      className="flex-1 min-w-[160px] rounded-xl border border-gray-700/60 bg-gray-900/60 p-4 flex flex-col items-center gap-3 cursor-pointer transition-colors hover:border-[#C9A84C]/50 hover:bg-gray-800/60"
+    >
       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
       <p className="text-sm font-medium text-gray-300">{stage.label}</p>
       <p className="text-3xl font-bold text-white">{stage.count}</p>
@@ -92,6 +99,7 @@ function PipelineColumn({ stage, total }: { stage: PipelineStage; total: number 
 // ── Main Page ────────────────────────────────────────────────
 
 export default function PlatformCrmPage() {
+  const router = useRouter();
   const [pipeline, setPipeline] = useState<PipelineData | null>(null);
   const [revenue, setRevenue] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -175,7 +183,12 @@ export default function PlatformCrmPage() {
         <h2 className="text-lg font-semibold text-white mb-4">Business Pipeline</h2>
         <div className="flex gap-4 overflow-x-auto pb-2">
           {pipeline?.stages.map((s) => (
-            <PipelineColumn key={s.key} stage={s} total={pipeline.totalBusinesses} />
+            <PipelineColumn
+              key={s.key}
+              stage={s}
+              total={pipeline.totalBusinesses}
+              onClick={() => router.push(`/clients?status=${s.key}`)}
+            />
           ))}
         </div>
         {pipeline && (
