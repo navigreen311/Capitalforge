@@ -290,6 +290,22 @@ apiRouter.use('/platform', platformRouter);
 import { platformExtendedRouter } from './platform-extended.routes.js';
 apiRouter.use('/', platformExtendedRouter);
 
+// ── Platform Reports (generate, export, schedules) ──
+import { platformReportsRouter } from './platform-reports.routes.js';
+apiRouter.use('/platform/reports', platformReportsRouter);
+
+// ── Platform Portfolio (benchmarks) ──
+import { platformPortfolioRouter } from './platform-portfolio.routes.js';
+apiRouter.use('/platform/portfolio', platformPortfolioRouter);
+
+// ── Platform Offboarding (advance stage, audit-log) ──
+import { platformOffboardingRouter } from './platform-offboarding.routes.js';
+apiRouter.use('/platform/offboarding', platformOffboardingRouter);
+
+// ── Platform Data Lineage (events, export) ──
+import { platformDataLineageRouter } from './platform-data-lineage.routes.js';
+apiRouter.use('/platform/data-lineage', platformDataLineageRouter);
+
 // ── Issuer Rules Engine ──────────────────────────────────────────
 import { issuerRulesRouter } from './issuer-rules.routes.js';
 apiRouter.use('/', issuerRulesRouter);
