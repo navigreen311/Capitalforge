@@ -67,12 +67,15 @@ export function RewardsActionModal({ isOpen, onClose, type, card }: RewardsActio
     return () => { document.body.style.overflow = prev; };
   }, [isOpen]);
 
-  // Auto-dismiss toast
+  // Auto-dismiss toast and close modal
   useEffect(() => {
     if (!toastMessage) return;
-    const timer = setTimeout(() => setToastMessage(null), 3500);
+    const timer = setTimeout(() => {
+      setToastMessage(null);
+      onClose();
+    }, 3500);
     return () => clearTimeout(timer);
-  }, [toastMessage]);
+  }, [toastMessage, onClose]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -85,8 +88,14 @@ export function RewardsActionModal({ isOpen, onClose, type, card }: RewardsActio
     setShowPhone(true);
   }, []);
 
-  const handleLogCancellation = useCallback(() => {
-    setToastMessage(`Cancellation logged for ${card.name}`);
+  const handleConfirmCancel = useCallback(() => {
+    setToastMessage(
+      `${card.name} cancellation logged — advise client to call ${card.issuer}`,
+    );
+  }, [card.name, card.issuer]);
+
+  const handleProductChange = useCallback(() => {
+    setToastMessage(`Product change request noted for ${card.name}`);
   }, [card.name]);
 
   if (!isOpen) return null;
@@ -152,17 +161,17 @@ export function RewardsActionModal({ isOpen, onClose, type, card }: RewardsActio
               <>
                 <button
                   type="button"
-                  className="flex-1 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 transition-colors"
-                  onClick={handleCallIssuer}
+                  className="flex-1 rounded-lg bg-brand-navy/80 border border-gray-600 px-4 py-2.5 text-sm font-medium text-gray-200 hover:bg-brand-navy hover:border-brand-gold/40 transition-colors"
+                  onClick={handleProductChange}
                 >
-                  Call {card.issuer} to Cancel
+                  Request Product Change First
                 </button>
                 <button
                   type="button"
-                  className="flex-1 rounded-lg bg-gray-700 px-4 py-2.5 text-sm font-medium text-gray-200 hover:bg-gray-600 transition-colors"
-                  onClick={handleLogCancellation}
+                  className="flex-1 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
+                  onClick={handleConfirmCancel}
                 >
-                  Log Card Cancellation
+                  Confirm Cancel
                 </button>
               </>
             ) : (
@@ -202,13 +211,47 @@ export function RewardsActionModal({ isOpen, onClose, type, card }: RewardsActio
 function CancelBody({ card }: { card: RewardsActionCard }) {
   return (
     <>
+      {/* Financial summary grid */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg bg-gray-800 border border-gray-700 p-3 text-center">
+          <p className="text-xs text-gray-400 mb-1">Annual Fee</p>
+          <p className="text-sm font-bold text-red-400">
+            {formatCurrency(card.annualFee)}
+          </p>
+        </div>
+        <div className="rounded-lg bg-gray-800 border border-gray-700 p-3 text-center">
+          <p className="text-xs text-gray-400 mb-1">Rewards Earned</p>
+          <p className="text-sm font-bold text-emerald-400">
+            {formatCurrency(card.rewardsEarned)}
+          </p>
+        </div>
+        <div className="rounded-lg bg-gray-800 border border-gray-700 p-3 text-center">
+          <p className="text-xs text-gray-400 mb-1">Net Benefit</p>
+          <p
+            className={`text-sm font-bold ${
+              card.netBenefit >= 0 ? 'text-emerald-400' : 'text-red-400'
+            }`}
+          >
+            {card.netBenefit >= 0 ? '+' : ''}
+            {formatCurrency(card.netBenefit)}
+          </p>
+        </div>
+      </div>
+
       <p className="text-sm text-gray-300 leading-relaxed">
         Your <span className="font-semibold text-white">{card.name}</span> has a
-        negative net benefit of{' '}
-        <span className="font-semibold text-red-400">{formatCurrency(card.netBenefit)}</span>.
-        The {formatCurrency(card.annualFee)} annual fee exceeds the{' '}
-        {formatCurrency(card.rewardsEarned)} in rewards earned, making this card
-        a net loss.
+        net benefit of{' '}
+        <span
+          className={`font-semibold ${
+            card.netBenefit >= 0 ? 'text-emerald-400' : 'text-red-400'
+          }`}
+        >
+          {formatCurrency(card.netBenefit)}
+        </span>
+        . The {formatCurrency(card.annualFee)} annual fee
+        {card.netBenefit < 0
+          ? ` exceeds the ${formatCurrency(card.rewardsEarned)} in rewards earned, making this card a net loss.`
+          : ` is offset by ${formatCurrency(card.rewardsEarned)} in rewards earned.`}
       </p>
 
       {card.balance != null && card.balance > 0 && (
@@ -236,6 +279,28 @@ function CancelBody({ card }: { card: RewardsActionCard }) {
           </p>
         </div>
       )}
+
+      {/* Before cancelling, consider... */}
+      <div className="rounded-lg bg-brand-navy/40 border border-brand-gold/20 px-4 py-3 space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-brand-gold">
+          Before cancelling, consider:
+        </p>
+        <ul className="text-sm text-gray-300 space-y-1.5 list-disc list-inside">
+          <li>
+            <span className="font-medium text-white">Product change</span> —
+            downgrade to a no-annual-fee version to preserve credit history and
+            any earned points.
+          </li>
+          <li>
+            Call {card.issuer} retention and ask for a fee waiver or statement
+            credit before closing.
+          </li>
+          <li>
+            Cancelling reduces total available credit, which may impact
+            utilisation ratio.
+          </li>
+        </ul>
+      </div>
     </>
   );
 }
