@@ -590,6 +590,60 @@ router.patch('/workflows/:id', (req: Request, res: Response) => {
   return ok(res, wf);
 });
 
+router.patch('/workflows/:id/toggle', (req: Request, res: Response) => {
+  const wfId = req.params.id;
+  logger.info(`[platform] PATCH /workflows/${wfId}/toggle`);
+  const wf = WORKFLOWS_DATA.find(w => w.id === wfId);
+  if (!wf) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Workflow not found' },
+      statusCode: 404,
+    });
+  }
+  const previousStatus = wf.status;
+  wf.status = wf.status === 'active' ? 'paused' : 'active';
+  return ok(res, { ...wf, previousStatus });
+});
+
+// ── Workflow Execution History (per workflow) ────────────────
+
+router.get('/workflows/:id/history', (req: Request, res: Response) => {
+  const wfId = req.params.id;
+  logger.info(`[platform] GET /workflows/${wfId}/history`);
+  const wf = WORKFLOWS_DATA.find(w => w.id === wfId);
+  if (!wf) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Workflow not found' },
+      statusCode: 404,
+    });
+  }
+  const executions = [
+    { id: `exec_${wfId}_001`, workflowId: wfId, triggeredAt: '2026-04-06T14:30:00Z', status: 'success' as const, durationMs: 245, result: 'Action completed' },
+    { id: `exec_${wfId}_002`, workflowId: wfId, triggeredAt: '2026-04-05T09:15:00Z', status: 'success' as const, durationMs: 312, result: 'Action completed' },
+    { id: `exec_${wfId}_003`, workflowId: wfId, triggeredAt: '2026-04-04T11:00:00Z', status: 'failure' as const, durationMs: 1024, result: 'Target entity not found' },
+    { id: `exec_${wfId}_004`, workflowId: wfId, triggeredAt: '2026-04-03T16:45:00Z', status: 'success' as const, durationMs: 189, result: 'Action completed' },
+    { id: `exec_${wfId}_005`, workflowId: wfId, triggeredAt: '2026-04-02T08:30:00Z', status: 'success' as const, durationMs: 278, result: 'Action completed' },
+  ];
+  return ok(res, { workflowId: wfId, workflowName: wf.name, executions });
+});
+
+// ── Workflow Execution Log (global recent executions) ────────
+
+router.get('/workflows/execution-log', (_req: Request, res: Response) => {
+  logger.info('[platform] GET /workflows/execution-log');
+  const recentExecutions = [
+    { id: 'exec_global_001', workflowId: 'pwf_001', workflowName: 'APR Expiry Alert', triggeredAt: '2026-04-06T14:30:00Z', status: 'success' as const, durationMs: 245 },
+    { id: 'exec_global_002', workflowId: 'pwf_002', workflowName: 'Restack Ready Flag', triggeredAt: '2026-04-06T12:00:00Z', status: 'success' as const, durationMs: 312 },
+    { id: 'exec_global_003', workflowId: 'pwf_003', workflowName: 'Decline Recovery', triggeredAt: '2026-04-05T09:15:00Z', status: 'failure' as const, durationMs: 1024 },
+    { id: 'exec_global_004', workflowId: 'pwf_001', workflowName: 'APR Expiry Alert', triggeredAt: '2026-04-05T08:00:00Z', status: 'success' as const, durationMs: 189 },
+    { id: 'exec_global_005', workflowId: 'pwf_004', workflowName: 'Unsigned Acknowledgment Reminder', triggeredAt: '2026-04-04T16:45:00Z', status: 'skipped' as const, durationMs: 12 },
+    { id: 'exec_global_006', workflowId: 'pwf_002', workflowName: 'Restack Ready Flag', triggeredAt: '2026-04-04T11:00:00Z', status: 'success' as const, durationMs: 278 },
+  ];
+  return ok(res, { recentExecutions });
+});
+
 // ============================================================
 // Settings
 // ============================================================
