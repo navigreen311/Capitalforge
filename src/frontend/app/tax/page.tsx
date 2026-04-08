@@ -10,6 +10,9 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import GenerateDocumentModal from './GenerateDocumentModal';
+import type { TaxDocument } from './GenerateDocumentModal';
+import Irc163jCalculator from './Irc163jCalculator';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -846,6 +849,8 @@ export default function TaxPage() {
   const [selectedClient, setSelectedClient] = useState<PlaceholderClient | null>(CLIENTS[0]);
   const [selectedTaxCard, setSelectedTaxCard] = useState<Card163jSummary | null>(null);
   const [showCpaModal, setShowCpaModal] = useState(false);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [generatedDocuments, setGeneratedDocuments] = useState<TaxDocument[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const data = DATA_BY_YEAR[year];
@@ -855,6 +860,12 @@ export default function TaxPage() {
 
   const showToast = useCallback((msg: string) => setToastMessage(msg), []);
   const clearToast = useCallback(() => setToastMessage(null), []);
+
+  const handleDocumentGenerated = useCallback((doc: TaxDocument) => {
+    setGeneratedDocuments((prev) => [doc, ...prev]);
+    setShowGenerateModal(false);
+    showToast('Document generated successfully');
+  }, [showToast]);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
@@ -868,6 +879,14 @@ export default function TaxPage() {
           card={selectedTaxCard}
           year={year}
           onClose={() => setSelectedTaxCard(null)}
+        />
+      )}
+
+      {/* Generate Document Modal */}
+      {showGenerateModal && (
+        <GenerateDocumentModal
+          onClose={() => setShowGenerateModal(false)}
+          onGenerate={handleDocumentGenerated}
         />
       )}
 
@@ -916,6 +935,17 @@ export default function TaxPage() {
           </div>
 
           <ExportButtons year={year} data={data} onToast={showToast} />
+
+          {/* Generate Document button */}
+          <button
+            onClick={() => setShowGenerateModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-[#C9A84C] text-gray-950 hover:bg-[#d4b65e] transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Generate Document
+          </button>
 
           {/* Send to CPA button */}
           <button
@@ -1097,6 +1127,56 @@ export default function TaxPage() {
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      {/* Generated Documents table */}
+      {generatedDocuments.length > 0 && (
+        <div className="rounded-xl border border-gray-800 overflow-hidden mb-6">
+          <div className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-gray-300 uppercase tracking-wide">
+              Generated Documents
+            </h2>
+            <span className="text-[10px] text-gray-600">
+              {generatedDocuments.length} document{generatedDocuments.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-950 border-b border-gray-800">
+                <th className="text-left px-4 py-2.5 text-gray-500 text-xs font-semibold uppercase tracking-wide">Document Type</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 text-xs font-semibold uppercase tracking-wide">Tax Year</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 text-xs font-semibold uppercase tracking-wide">Status</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">Generated At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {generatedDocuments.map((doc, i) => (
+                <tr
+                  key={doc.id}
+                  className={`border-b border-gray-800 last:border-0 ${i % 2 === 0 ? 'bg-gray-950' : 'bg-gray-900'}`}
+                >
+                  <td className="px-4 py-3">
+                    <p className="text-gray-200 font-semibold text-xs">{doc.type}</p>
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">FY {doc.taxYear}</td>
+                  <td className="px-4 py-3">
+                    <span className="text-[10px] font-bold bg-emerald-900 text-emerald-300 border border-emerald-700 px-1.5 py-0.5 rounded-full">
+                      {doc.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs hidden sm:table-cell">
+                    {new Date(doc.generatedAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* IRC §163(j) Calculator */}
+      <div className="mb-6">
+        <Irc163jCalculator year={year} onGenerateDocument={handleDocumentGenerated} />
       </div>
 
       {/* Substantiation score gauge */}
