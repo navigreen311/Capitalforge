@@ -121,6 +121,14 @@ const USERS_INIT: UserRow[] = [
 
 const ALL_SCOPES = ['read', 'write', 'webhooks', 'admin', 'billing'] as const;
 
+const US_STATES = [
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
+  'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+  'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+  'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY',
+] as const;
+
 // ── Status badge styles ───────────────────────────────────────
 
 const STATUS_BADGE: Record<Integration['status'], string> = {
@@ -458,7 +466,47 @@ function SettingsPageInner() {
   const [profilePhone, setProfilePhone] = useState('+1 (555) 234-5678');
   const [profileTimezone, setProfileTimezone] = useState('America/New_York');
 
-  const saveProfile = () => toast.show('Profile saved successfully');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const saveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      // Mock POST — replace with real API call
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      toast.show('Profile saved');
+    } catch {
+      toast.show('Failed to save profile');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  // ── Firm regulatory state ──────────────────────────────────
+  const [firmEin, setFirmEin] = useState('');
+  const [firmLicenseNumber, setFirmLicenseNumber] = useState('');
+  const [firmStatesOfOperation, setFirmStatesOfOperation] = useState<string[]>([]);
+  const [firmWebsite, setFirmWebsite] = useState('');
+  const [statesDropdownOpen, setStatesDropdownOpen] = useState(false);
+
+  const toggleState = (st: string) => {
+    setFirmStatesOfOperation((prev) =>
+      prev.includes(st) ? prev.filter((s) => s !== st) : [...prev, st]
+    );
+  };
+
+  // ── Firm save state ────────────────────────────────────────
+  const [firmSaving, setFirmSaving] = useState(false);
+  const saveFirm = async () => {
+    setFirmSaving(true);
+    try {
+      // Mock POST — replace with real API call
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      toast.show('Firm settings saved');
+    } catch {
+      toast.show('Failed to save firm settings');
+    } finally {
+      setFirmSaving(false);
+    }
+  };
 
   // ── Security state ─────────────────────────────────────────
   const [currentPassword, setCurrentPassword] = useState('');
@@ -683,7 +731,15 @@ function SettingsPageInner() {
             </div>
           </div>
           <div className="flex justify-end">
-            <button onClick={saveProfile} className={goldBtn}>Save Profile</button>
+            <button onClick={saveProfile} disabled={profileSaving} className={`${goldBtn} flex items-center gap-2 ${profileSaving ? 'opacity-70 cursor-not-allowed' : ''}`}>
+              {profileSaving && (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {profileSaving ? 'Saving...' : 'Save Profile'}
+            </button>
           </div>
         </section>
       )}
@@ -719,8 +775,106 @@ function SettingsPageInner() {
               />
             </div>
           </div>
+
+          {/* Regulatory & Compliance */}
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+            <h3 className="text-sm font-semibold text-gray-200">Regulatory &amp; Compliance</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>EIN</label>
+                <input
+                  value={firmEin}
+                  onChange={(e) => setFirmEin(e.target.value)}
+                  placeholder="XX-XXXXXXX"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Firm License Number</label>
+                <input
+                  value={firmLicenseNumber}
+                  onChange={(e) => setFirmLicenseNumber(e.target.value)}
+                  placeholder="Enter license number"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Website URL</label>
+                <input
+                  value={firmWebsite}
+                  onChange={(e) => setFirmWebsite(e.target.value)}
+                  placeholder="https://example.com"
+                  type="url"
+                  className={inputCls}
+                />
+              </div>
+              <div className="relative">
+                <label className={labelCls}>States of Operation</label>
+                <button
+                  type="button"
+                  onClick={() => setStatesDropdownOpen((o) => !o)}
+                  className={`${inputCls} text-left flex items-center justify-between`}
+                >
+                  <span className={firmStatesOfOperation.length ? 'text-gray-100' : 'text-gray-500'}>
+                    {firmStatesOfOperation.length
+                      ? `${firmStatesOfOperation.length} state${firmStatesOfOperation.length > 1 ? 's' : ''} selected`
+                      : 'Select states'}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {statesDropdownOpen && (
+                  <div className="absolute z-30 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-gray-700 bg-gray-800 shadow-xl">
+                    <div className="sticky top-0 bg-gray-800 border-b border-gray-700 px-3 py-2 flex items-center justify-between">
+                      <span className="text-[11px] text-gray-400">{firmStatesOfOperation.length} selected</span>
+                      <button
+                        type="button"
+                        onClick={() => setFirmStatesOfOperation(firmStatesOfOperation.length === US_STATES.length ? [] : [...US_STATES])}
+                        className="text-[11px] text-[#C9A84C] hover:underline"
+                      >
+                        {firmStatesOfOperation.length === US_STATES.length ? 'Clear all' : 'Select all'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-0.5 p-2">
+                      {US_STATES.map((st) => (
+                        <label key={st} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={firmStatesOfOperation.includes(st)}
+                            onChange={() => toggleState(st)}
+                            className="accent-[#C9A84C] h-3.5 w-3.5"
+                          />
+                          <span className="text-xs text-gray-300">{st}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            {firmStatesOfOperation.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {firmStatesOfOperation.map((st) => (
+                  <span key={st} className="inline-flex items-center gap-1 text-[11px] bg-gray-800 border border-gray-700 text-gray-300 px-2 py-0.5 rounded-full">
+                    {st}
+                    <button type="button" onClick={() => toggleState(st)} className="text-gray-500 hover:text-gray-300">&times;</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end">
-            <button onClick={() => toast.show('Firm settings saved')} className={goldBtn}>Save Firm Settings</button>
+            <button onClick={saveFirm} disabled={firmSaving} className={`${goldBtn} flex items-center gap-2 ${firmSaving ? 'opacity-70 cursor-not-allowed' : ''}`}>
+              {firmSaving && (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {firmSaving ? 'Saving...' : 'Save Firm Settings'}
+            </button>
           </div>
         </section>
       )}
