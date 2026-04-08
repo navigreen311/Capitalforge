@@ -8,10 +8,11 @@
 // fees/cost-of-capital section, Start New Round button.
 // ============================================================
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { fundingRoundsApi } from '../../lib/api-client';
 import AprCountdown from '../../components/modules/apr-countdown';
+import { useToast } from '../../components/global/ToastProvider';
 import type { RoundStatus } from '../../../shared/types';
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,7 @@ interface FundingApplication {
   annualFee?: number;
   cashAdvanceFee?: number;
   status?: string;
+  lastFour?: string;
 }
 
 interface FundingRound {
@@ -68,8 +70,8 @@ const PLACEHOLDER_ROUNDS: FundingRound[] = [
     totalFees: 2450,
     effectiveApr: 4.2,
     applications: [
-      { id: 'app_004', cardProduct: 'Ink Business Preferred', issuer: 'Chase', approvedLimit: 45000, aprExpiresAt: '2026-05-20T00:00:00Z', regularApr: 20.99, balance: 38000, annualFee: 95, status: 'approved' },
-      { id: 'app_008', cardProduct: 'Business Altitude Connect', issuer: 'US Bank', approvedLimit: 60000, aprExpiresAt: '2026-06-30T00:00:00Z', regularApr: 21.49, balance: 55000, annualFee: 400, status: 'approved' },
+      { id: 'app_004', cardProduct: 'Ink Business Preferred', issuer: 'Chase', approvedLimit: 45000, aprExpiresAt: '2026-05-20T00:00:00Z', regularApr: 20.99, balance: 38000, annualFee: 95, status: 'approved', lastFour: '4821' },
+      { id: 'app_008', cardProduct: 'Business Altitude Connect', issuer: 'US Bank', approvedLimit: 60000, aprExpiresAt: '2026-06-30T00:00:00Z', regularApr: 21.49, balance: 55000, annualFee: 400, status: 'approved', lastFour: '7390' },
     ],
   },
   {
@@ -86,7 +88,7 @@ const PLACEHOLDER_ROUNDS: FundingRound[] = [
     totalFees: 595,
     effectiveApr: 3.8,
     applications: [
-      { id: 'app_009', cardProduct: 'Business Gold', issuer: 'Amex', approvedLimit: 60000, aprExpiresAt: '2026-04-10T00:00:00Z', regularApr: 18.49, balance: 52000, annualFee: 295, status: 'approved' },
+      { id: 'app_009', cardProduct: 'Business Gold', issuer: 'Amex', approvedLimit: 60000, aprExpiresAt: '2026-04-10T00:00:00Z', regularApr: 18.49, balance: 52000, annualFee: 295, status: 'approved', lastFour: '1055' },
     ],
   },
   {
@@ -103,8 +105,8 @@ const PLACEHOLDER_ROUNDS: FundingRound[] = [
     totalFees: 1090,
     effectiveApr: 2.1,
     applications: [
-      { id: 'app_010', cardProduct: 'Ink Business Cash', issuer: 'Chase', approvedLimit: 50000, aprExpiresAt: '2025-12-31T00:00:00Z', regularApr: 19.99, balance: 0, annualFee: 0, status: 'approved' },
-      { id: 'app_011', cardProduct: 'Spark Cash Plus', issuer: 'Capital One', approvedLimit: 70000, aprExpiresAt: '2026-01-15T00:00:00Z', regularApr: 22.49, balance: 0, annualFee: 150, status: 'approved' },
+      { id: 'app_010', cardProduct: 'Ink Business Cash', issuer: 'Chase', approvedLimit: 50000, aprExpiresAt: '2025-12-31T00:00:00Z', regularApr: 19.99, balance: 0, annualFee: 0, status: 'approved', lastFour: '6214' },
+      { id: 'app_011', cardProduct: 'Spark Cash Plus', issuer: 'Capital One', approvedLimit: 70000, aprExpiresAt: '2026-01-15T00:00:00Z', regularApr: 22.49, balance: 0, annualFee: 150, status: 'approved', lastFour: '8837' },
     ],
   },
   {
@@ -191,7 +193,32 @@ function CompletionBar({ obtained, target }: { obtained: number; target: number 
 }
 
 function AprExpiryAlerts({ apps }: { apps: FundingApplication[] }) {
+  const toast = useToast();
   const urgent = apps.filter((a) => daysUntil(a.aprExpiresAt) < 60);
+
+  const handleAprAction = useCallback(
+    (context: { cardProduct: string; issuer: string; daysRemaining: number; balance?: number }) => {
+      const balanceStr = context.balance != null
+        ? ` (balance: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(context.balance)})`
+        : '';
+      const message = `Outreach initiated for ${context.cardProduct}${balanceStr} — ${context.daysRemaining}d remaining`;
+
+      // Show toast notification
+      toast.info(message);
+
+      // Publish event to console as placeholder for VoiceForge integration
+      console.log('[VoiceForge] APR expiry outreach event:', {
+        action: 'apr_expiry_outreach',
+        cardProduct: context.cardProduct,
+        issuer: context.issuer,
+        daysRemaining: context.daysRemaining,
+        balance: context.balance,
+        timestamp: new Date().toISOString(),
+      });
+    },
+    [toast],
+  );
+
   if (!urgent.length) return null;
 
   return (
@@ -205,6 +232,8 @@ function AprExpiryAlerts({ apps }: { apps: FundingApplication[] }) {
           expiresAt={a.aprExpiresAt}
           regularApr={a.regularApr}
           balance={a.balance}
+          lastFour={a.lastFour}
+          onAction={handleAprAction}
           compact
           className="w-full"
         />
