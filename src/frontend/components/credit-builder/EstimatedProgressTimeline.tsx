@@ -1,8 +1,12 @@
+'use client';
+
 // ============================================================
 // EstimatedProgressTimeline — Estimated time to next tier unlock
 // Shows projected timelines for Tier 1, 2, and 3 criteria
 // with Paydex trajectory and estimated unlock dates
 // ============================================================
+
+import { useState } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -196,8 +200,137 @@ function tierBadgeClass(tier: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Coaching data
+// ---------------------------------------------------------------------------
+
+interface CoachingItem {
+  id: string;
+  title: string;
+  description: string;
+  actionLabel?: string;
+  actionUrl?: string;
+}
+
+const COACHING_BY_TIER: Record<number, CoachingItem[]> = {
+  1: [
+    {
+      id: 'c1-1',
+      title: 'Apply for 2 more Net-30 vendors',
+      description: 'You need 5 reporting tradelines to unlock Tier 1. Browse the vendor table above and apply to at least 2 new Net-30 accounts this week.',
+      actionLabel: 'View Vendors',
+    },
+    {
+      id: 'c1-2',
+      title: 'Pay all outstanding invoices early',
+      description: 'Early payments push your Paydex score higher faster. Review open invoices and pay at least 10 days before due date for maximum impact.',
+      actionLabel: 'View Tradelines',
+    },
+    {
+      id: 'c1-3',
+      title: 'Verify your D&B file is accurate',
+      description: 'Log into D&B and confirm your business name, address, SIC code, and employee count are correct. Errors can delay your Paydex scoring.',
+      actionLabel: 'Check D&B Profile',
+      actionUrl: 'https://www.dnb.com/duns-number/lookup.html',
+    },
+  ],
+  2: [
+    {
+      id: 'c2-1',
+      title: 'Apply for Tier 2 vendors',
+      description: 'With your Paydex approaching 80, you can now apply to Tier 2 vendors like Home Depot Pro and Staples Business for higher credit limits.',
+      actionLabel: 'View Tier 2 Vendors',
+    },
+    {
+      id: 'c2-2',
+      title: 'Pull your Experian Business report',
+      description: 'Your Experian Intelliscore needs to reach 60+. Pull a free report to check for errors and verify all tradelines are reporting correctly.',
+      actionLabel: 'Check Experian',
+      actionUrl: 'https://www.experian.com/small-business/business-credit-report.jsp',
+    },
+    {
+      id: 'c2-3',
+      title: 'Ensure consistent bank deposits',
+      description: 'Maintain regular business bank deposits of $5,000+/month. Lenders and credit algorithms factor in cash flow stability when scoring.',
+    },
+  ],
+  3: [
+    {
+      id: 'c3-1',
+      title: 'Schedule credit review at SBSS 160',
+      description: 'When your SBSS hits 160, schedule a review with your lender to discuss SBA Preferred Lender Program eligibility and expedited processing.',
+      actionLabel: 'Set Reminder',
+    },
+    {
+      id: 'c3-2',
+      title: 'Prepare financial statements',
+      description: 'Tier 3 credit products require formal financials. Prepare your P&L statement, balance sheet, and 2-year tax returns for upcoming applications.',
+    },
+    {
+      id: 'c3-3',
+      title: 'Apply for Costco Business Credit',
+      description: 'With Paydex 80+ and 5+ tradelines, you qualify for Costco Business Credit (up to $50K limit). This is a strong Tier 3 tradeline that reports to Experian.',
+      actionLabel: 'Apply at Costco',
+      actionUrl: 'https://www.costco.com/business.html',
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function CoachingCards({ tier }: { tier: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const items = COACHING_BY_TIER[tier] ?? [];
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs font-semibold text-yellow-500 hover:text-yellow-400 transition-colors"
+      >
+        <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9654;</span>
+        Coach this week
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-lg border border-yellow-900/40 bg-yellow-900/10 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-yellow-300">{item.title}</p>
+                  <p className="text-xs text-gray-400 mt-1 leading-relaxed">{item.description}</p>
+                </div>
+                {item.actionLabel && (
+                  item.actionUrl ? (
+                    <a
+                      href={item.actionUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-shrink-0 text-xs font-medium text-yellow-500 hover:text-yellow-400 hover:underline whitespace-nowrap"
+                    >
+                      {item.actionLabel} &#x2197;
+                    </a>
+                  ) : (
+                    <span className="flex-shrink-0 text-xs font-medium text-yellow-500/60 whitespace-nowrap">
+                      {item.actionLabel}
+                    </span>
+                  )
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function TierRow({ estimate }: { estimate: TierEstimate }) {
   const allMet = estimate.criteria.every((c) => c.met);
@@ -250,6 +383,9 @@ function TierRow({ estimate }: { estimate: TierEstimate }) {
           </div>
         ))}
       </div>
+
+      {/* Coaching Cards */}
+      <CoachingCards tier={estimate.tier} />
     </div>
   );
 }
