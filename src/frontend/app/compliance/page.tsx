@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { complianceApi } from '../../lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -178,20 +179,106 @@ export default function ComplianceCenterPage() {
     { level: 'low',      count: items.filter((i) => i.riskLevel === 'low').length },
   ];
 
+  const router = useRouter();
+  const [runProgress, setRunProgress] = useState(0);
+
+  // Mark an item as resolved
+  const handleMarkResolved = useCallback((itemId: string, businessName: string) => {
+    setItems((prev) =>
+      prev.map((i) => (i.id === itemId ? { ...i, passed: true, findings: 'Manually marked as resolved.' } : i))
+    );
+    setToast(`"${businessName}" marked as resolved`);
+  }, []);
+
+  // Get context-appropriate action buttons for a compliance item
+  function getItemActions(item: ComplianceItem): { label: string; onClick: () => void; variant?: 'primary' | 'default' }[] {
+    const actions: { label: string; onClick: () => void; variant?: 'primary' | 'default' }[] = [];
+
+    switch (item.checkType) {
+      case 'UDAP':
+        actions.push({ label: 'View Client', onClick: () => setToast(`Opening client profile for ${item.businessName}...`) });
+        actions.push({ label: 'Remove Vendor', onClick: () => setToast(`Vendor removal initiated for ${item.businessName}`) });
+        break;
+      case 'State Disclosures':
+        actions.push({ label: 'File Now', onClick: () => router.push('/compliance/disclosures'), variant: 'primary' });
+        actions.push({ label: 'Assign to Advisor', onClick: () => setToast(`Advisor assignment initiated for ${item.businessName}`) });
+        break;
+      case 'KYB':
+        actions.push({ label: 'View Client', onClick: () => setToast(`Opening client profile for ${item.businessName}...`) });
+        actions.push({ label: 'Request Documents', onClick: () => setToast(`Document request sent to ${item.businessName}`) });
+        break;
+      case 'Product-Reality':
+        actions.push({ label: 'Send Acknowledgment', onClick: () => setToast(`Acknowledgment sent for ${item.businessName}`) });
+        break;
+      case 'AML':
+        actions.push({ label: 'Review Transaction', onClick: () => router.push('/spend-governance'), variant: 'primary' });
+        break;
+      default:
+        break;
+    }
+
+    return actions;
+  }
+
   const handleRunAll = useCallback(async () => {
     if (running) return;
     setRunning(true);
+    setRunProgress(0);
+
+    // Animate progress over ~2s
+    const progressInterval = setInterval(() => {
+      setRunProgress((prev) => {
+        if (prev >= 95) { clearInterval(progressInterval); return 95; }
+        return prev + Math.random() * 18 + 5;
+      });
+    }, 250);
+
     try {
       // Try real API
       await fetch('/api/compliance/run-all', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     } catch { /* ignore */ }
-    // Simulate completion
+
+    // Simulate completion after 2 seconds total
     setTimeout(() => {
-      setRunning(false);
-      const passed = items.filter((i) => i.passed).length;
-      const failed = items.length - passed;
-      setToast(`Compliance run complete: ${passed} passed, ${failed} failed`);
-    }, 1500);
+      clearInterval(progressInterval);
+      setRunProgress(100);
+
+      // Snapshot previous open count
+      const prevOpen = items.filter((i) => !i.passed).length;
+
+      // Simulate: randomly resolve 1-2 items, add 0-1 new issues
+      const updated = items.map((item) => {
+        if (!item.passed && Math.random() < 0.3) {
+          return { ...item, passed: true, findings: 'Resolved during compliance run.' };
+        }
+        return item;
+      });
+
+      const newIssueCount = Math.random() < 0.5 ? 1 : 0;
+      if (newIssueCount > 0) {
+        updated.push({
+          id: `cc_new_${Date.now()}`,
+          checkType: 'AML',
+          businessName: 'Vanguard Logistics Inc.',
+          riskLevel: 'medium',
+          passed: false,
+          findings: 'New SAR threshold flag detected during automated scan.',
+          checkedAt: new Date().toISOString(),
+          priority: 3,
+        });
+      }
+
+      setItems(updated);
+
+      const newOpen = updated.filter((i) => !i.passed).length;
+      const resolved = Math.max(0, prevOpen - newOpen + newIssueCount);
+      setToast(`Compliance check complete — ${newIssueCount} new issue${newIssueCount !== 1 ? 's' : ''} found, ${resolved} resolved`);
+
+      setTimeout(() => {
+        setRunning(false);
+        setRunProgress(0);
+      }, 300);
+    }, 2000);
   }, [running, items]);
 
   const handleExport = useCallback(() => {
@@ -234,6 +321,22 @@ export default function ComplianceCenterPage() {
           </button>
         </div>
       </div>
+
+      {/* Progress bar during Run All Checks */}
+      {running && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-[#C9A84C] font-semibold">Running compliance checks...</span>
+            <span className="text-xs text-gray-400">{Math.min(100, Math.round(runProgress))}%</span>
+          </div>
+          <div className="w-full bg-gray-800 rounded-full h-2">
+            <div
+              className="bg-[#C9A84C] h-2 rounded-full transition-all duration-300"
+              style={{ width: `${Math.min(100, runProgress)}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Top row: Score + Risk Tiers */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -330,30 +433,58 @@ export default function ComplianceCenterPage() {
           <p className="text-gray-500 text-sm text-center py-8">No open compliance items. All checks passed.</p>
         ) : (
           <div className="space-y-3">
-            {openItems.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-xl border border-gray-700 bg-[#0A1628] p-4 flex items-start justify-between gap-4"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${RISK_CONFIG[item.riskLevel].badge}`}>
-                      {RISK_CONFIG[item.riskLevel].label}
-                    </span>
-                    <span className="text-xs bg-gray-800 text-gray-400 border border-gray-700 px-1.5 py-0.5 rounded">
-                      {item.checkType}
-                    </span>
-                    <span className="text-xs font-semibold text-red-400">FAIL</span>
+            {openItems.map((item) => {
+              const actions = getItemActions(item);
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-gray-700 bg-[#0A1628] p-4"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${RISK_CONFIG[item.riskLevel].badge}`}>
+                          {RISK_CONFIG[item.riskLevel].label}
+                        </span>
+                        <span className="text-xs bg-gray-800 text-gray-400 border border-gray-700 px-1.5 py-0.5 rounded">
+                          {item.checkType}
+                        </span>
+                        <span className="text-xs font-semibold text-red-400">FAIL</span>
+                      </div>
+                      <p className="font-semibold text-gray-100 text-sm">{item.businessName}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{item.findings}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <p className="text-xs text-gray-500 whitespace-nowrap">{formatDate(item.checkedAt)}</p>
+                      <span className="text-xs text-gray-600">P{item.priority}</span>
+                    </div>
                   </div>
-                  <p className="font-semibold text-gray-100 text-sm">{item.businessName}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{item.findings}</p>
+
+                  {/* Action CTAs */}
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-800">
+                    {actions.map((action) => (
+                      <button
+                        key={action.label}
+                        onClick={action.onClick}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+                          action.variant === 'primary'
+                            ? 'bg-[#C9A84C] text-[#0A1628] hover:bg-[#b8973f]'
+                            : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-gray-500 hover:text-white'
+                        }`}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => handleMarkResolved(item.id, item.businessName)}
+                      className="ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-900/40 text-green-400 border border-green-800 hover:bg-green-900/70 hover:text-green-300 transition-colors"
+                    >
+                      Mark Resolved &#10003;
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-col items-end gap-1">
-                  <p className="text-xs text-gray-500 whitespace-nowrap">{formatDate(item.checkedAt)}</p>
-                  <span className="text-xs text-gray-600">P{item.priority}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
