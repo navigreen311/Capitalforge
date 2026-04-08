@@ -111,6 +111,10 @@ apiRouter.use('/optimizer', optimizerV2Router);
 import { documentRouter } from './document.routes.js';
 apiRouter.use('/', documentRouter);
 
+// -- Document Generation (letters, statements, cover letters) --
+import { documentGenRouter } from './document-gen.routes.js';
+apiRouter.use('/', documentGenRouter);
+
 // -- Compliance & Risk Center --
 import { complianceRouter } from './compliance.routes.js';
 apiRouter.use('/', complianceRouter);
