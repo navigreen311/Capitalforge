@@ -7,6 +7,8 @@
 // ============================================================
 
 import { useState, useCallback } from 'react';
+import RiskScorePopover from '@/components/contracts/RiskScorePopover';
+import UploadContractModal, { type UploadContractData } from '@/components/contracts/UploadContractModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,12 +121,6 @@ function statusBadge(s: ContractStatus): string {
   }
 }
 
-function riskColor(score: number): string {
-  if (score >= 75) return 'text-red-400';
-  if (score >= 50) return 'text-amber-400';
-  return 'text-green-400';
-}
-
 function expiryCountdownColor(days: number): string {
   if (days < 0) return 'text-red-400';
   if (days <= 30) return 'text-amber-400';
@@ -140,26 +136,25 @@ export default function ContractsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [uploadForm, setUploadForm] = useState({ businessName: '', contractType: '', fileName: '' });
-
-  const handleUpload = useCallback(() => {
-    if (!uploadForm.fileName.trim()) return;
+  const handleUpload = useCallback((data: UploadContractData) => {
     const newContract: Contract = {
       id: `ctr_${Date.now()}`,
-      businessName: uploadForm.businessName || 'Unknown Business',
-      contractType: uploadForm.contractType || 'Other',
-      fileName: uploadForm.fileName,
-      startDate: new Date().toISOString().split('T')[0],
-      expiryDate: new Date(Date.now() + 365 * 86400000).toISOString().split('T')[0],
-      status: 'Draft',
+      businessName: data.client || 'Unknown Business',
+      contractType: data.contractType || 'Other',
+      fileName: data.file?.name || 'unknown.pdf',
+      startDate: data.effectiveDate || new Date().toISOString().split('T')[0],
+      expiryDate: data.expiryDate || new Date(Date.now() + 365 * 86400000).toISOString().split('T')[0],
+      status: 'Under Review',
       keyClauses: [],
       riskScore: 0,
     };
     setContracts((prev) => [newContract, ...prev]);
     setShowUploadModal(false);
-    setUploadForm({ businessName: '', contractType: '', fileName: '' });
-    setToast('Contract uploaded for analysis');
-  }, [uploadForm]);
+    setToast(data.runAiAnalysis
+      ? 'Contract uploaded — AI risk analysis running'
+      : 'Contract uploaded successfully');
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   // Summary
   const expiring = contracts.filter((c) => c.status === 'Expiring Soon').length;
@@ -215,11 +210,14 @@ export default function ContractsPage() {
                 </div>
 
                 <div className="flex items-center gap-6 flex-shrink-0">
-                  {/* Risk Score */}
-                  <div className="text-center">
-                    <p className="text-xs text-gray-500 mb-0.5">Risk</p>
-                    <p className={`text-lg font-black ${riskColor(c.riskScore)}`}>{c.riskScore}</p>
-                  </div>
+                  {/* Risk Score Popover */}
+                  <RiskScorePopover
+                    score={c.riskScore}
+                    onAiReview={() => {
+                      setToast('AI review initiated');
+                      setTimeout(() => setToast(null), 3000);
+                    }}
+                  />
 
                   {/* Expiry Countdown */}
                   <div className="text-center min-w-[90px]">
@@ -274,59 +272,11 @@ export default function ContractsPage() {
       </div>
 
       {/* Upload Modal */}
-      {showUploadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#0f1d32] border border-gray-700 rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">Upload Contract</h3>
-              <button onClick={() => setShowUploadModal(false)} className="text-gray-400 hover:text-white text-xl">&times;</button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Business Name</label>
-                <input
-                  type="text"
-                  value={uploadForm.businessName}
-                  onChange={(e) => setUploadForm((f) => ({ ...f, businessName: e.target.value }))}
-                  className="w-full rounded-lg bg-[#0A1628] border border-gray-700 text-gray-200 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"
-                  placeholder="Enter business name"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Contract Type</label>
-                <select
-                  value={uploadForm.contractType}
-                  onChange={(e) => setUploadForm((f) => ({ ...f, contractType: e.target.value }))}
-                  className="w-full rounded-lg bg-[#0A1628] border border-gray-700 text-gray-200 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"
-                >
-                  <option value="">Select type...</option>
-                  {['MCA Agreement', 'Revenue Share', 'Line of Credit', 'Term Loan', 'Advisor Agreement', 'Other'].map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">File Name</label>
-                <input
-                  type="text"
-                  value={uploadForm.fileName}
-                  onChange={(e) => setUploadForm((f) => ({ ...f, fileName: e.target.value }))}
-                  className="w-full rounded-lg bg-[#0A1628] border border-gray-700 text-gray-200 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"
-                  placeholder="contract.pdf"
-                />
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 mt-5">
-              <button onClick={() => setShowUploadModal(false)} className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm font-semibold text-gray-300 transition-colors">
-                Cancel
-              </button>
-              <button onClick={handleUpload} className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8973f] text-sm font-semibold text-[#0A1628] transition-colors">
-                Upload
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UploadContractModal
+        open={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        onSubmit={handleUpload}
+      />
 
       {/* Toast */}
       {toast && (
