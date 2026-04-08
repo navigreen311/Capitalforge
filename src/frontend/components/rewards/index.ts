@@ -9,3 +9,5 @@ export { RewardsClientSelector } from './RewardsClientSelector';
 export type { RewardsClient, RewardsClientSelectorProps } from './RewardsClientSelector';
 export { PointsValuationColumn, POINT_VALUES } from './PointsValuationColumn';
 export type { PointsValuationColumnProps } from './PointsValuationColumn';
+export { PointsBalancePanel, POINTS_BALANCE_PLACEHOLDER } from './PointsBalancePanel';
+export type { PointsBalanceCard, PointsBalancePanelProps } from './PointsBalancePanel';
