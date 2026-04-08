@@ -227,6 +227,51 @@ const EXPANDED_TRANSACTIONS: Record<string, { merchant: string; date: string; am
   ],
 };
 
+// Placeholder payments per statement
+const EXPANDED_PAYMENTS: Record<string, { date: string; description: string; amount: number; method: string }[]> = {
+  stmt_001: [
+    { date: '2026-02-28', description: 'AutoPay - Full Balance', amount: 22_100.00, method: 'ACH' },
+  ],
+  stmt_002: [
+    { date: '2026-02-25', description: 'Online Payment', amount: 15_000.00, method: 'ACH' },
+    { date: '2026-03-10', description: 'Partial Payment', amount: 10_000.00, method: 'Wire' },
+  ],
+  stmt_003: [],
+  stmt_004: [
+    { date: '2026-02-15', description: 'AutoPay - Minimum Due', amount: 126.00, method: 'ACH' },
+  ],
+  stmt_005: [],
+};
+
+// Placeholder fees per statement (flagged = amber/red highlight)
+const EXPANDED_FEES: Record<string, { date: string; description: string; amount: number; flagged: boolean; flagReason?: string }[]> = {
+  stmt_001: [
+    { date: '2026-03-14', description: 'Annual Fee', amount: 95.00, flagged: false },
+  ],
+  stmt_002: [
+    { date: '2026-03-10', description: 'Annual Fee', amount: 695.00, flagged: true, flagReason: 'Duplicate charge detected' },
+    { date: '2026-03-10', description: 'Annual Fee (duplicate)', amount: 695.00, flagged: true, flagReason: 'Duplicate — contact issuer for reversal' },
+    { date: '2026-03-15', description: 'Late Payment Fee', amount: 39.00, flagged: true, flagReason: 'Payment was received on time — possible error' },
+  ],
+  stmt_003: [
+    { date: '2026-03-25', description: 'Annual Fee', amount: 150.00, flagged: false },
+  ],
+  stmt_004: [],
+  stmt_005: [
+    { date: '2026-03-01', description: 'Annual Fee', amount: 99.00, flagged: false },
+    { date: '2026-03-08', description: 'Foreign Transaction Fee', amount: 34.50, flagged: true, flagReason: 'Unexpected — card has no-FTF benefit' },
+  ],
+};
+
+// Reconciliation diff data per statement
+const RECON_DIFFS: Record<string, { statementBalance: number; ledgerBalance: number; difference: number; status: 'matched' | 'variance' | 'unreconciled'; notes: string } | null> = {
+  stmt_001: { statementBalance: 48_320.00, ledgerBalance: 48_320.00, difference: 0, status: 'matched', notes: 'Balances match exactly. No action required.' },
+  stmt_002: { statementBalance: 72_140.00, ledgerBalance: 72_480.00, difference: -340.00, status: 'variance', notes: 'Ledger shows $340.00 higher than statement. Likely caused by duplicate annual fee posted to ledger but reversed on statement. Investigate fee entries.' },
+  stmt_003: null,
+  stmt_004: { statementBalance: 9_640.00, ledgerBalance: 9_640.00, difference: 0, status: 'matched', notes: 'Balances match. Fully reconciled.' },
+  stmt_005: null,
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -295,21 +340,30 @@ function IssuerBadge({ issuer }: { issuer: string }) {
 
 function ExpandedDetail({ stmt, onReconcile }: { stmt: Statement; onReconcile: (id: string) => void }) {
   const txns = EXPANDED_TRANSACTIONS[stmt.id] ?? [];
+  const payments = EXPANDED_PAYMENTS[stmt.id] ?? [];
+  const fees = EXPANDED_FEES[stmt.id] ?? [];
+  const reconDiff = RECON_DIFFS[stmt.id] ?? null;
 
-  if (stmt.transactions.length === 0 && txns.length === 0) {
+  if (stmt.transactions.length === 0 && txns.length === 0 && stmt.status !== 'importing') {
     return (
       <div className="px-4 pb-4 pt-2">
-        <p className="text-sm text-gray-500 italic">
-          {stmt.status === 'importing' ? 'Import in progress...' : 'No transaction detail available.'}
-        </p>
+        <p className="text-sm text-gray-500 italic">No transaction detail available.</p>
+      </div>
+    );
+  }
+
+  if (stmt.status === 'importing') {
+    return (
+      <div className="px-4 pb-4 pt-2">
+        <p className="text-sm text-gray-500 italic">Import in progress...</p>
       </div>
     );
   }
 
   return (
-    <div className="px-4 pb-4 pt-2 border-t border-gray-800">
+    <div className="px-4 pb-4 pt-2 border-t border-gray-800 space-y-4">
       {/* Summary strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: 'Opening Balance', value: fmtCurrency(stmt.openingBalance), color: 'text-gray-300' },
           { label: 'Total Charges',   value: fmtCurrency(stmt.totalCharges),   color: 'text-red-400' },
@@ -323,48 +377,195 @@ function ExpandedDetail({ stmt, onReconcile }: { stmt: Statement; onReconcile: (
         ))}
       </div>
 
-      {/* Transactions sub-table */}
-      <div className="rounded-lg border border-gray-800 overflow-hidden mb-3">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="bg-gray-900 border-b border-gray-800">
-              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Merchant</th>
-              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Date</th>
-              <th className="text-right px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Amount</th>
-              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Category</th>
-              <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Match Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {txns.map((tx, i) => {
-              const mCfg = MATCH_STATUS_CONFIG[tx.matchStatus];
-              return (
-                <tr
-                  key={i}
-                  className={`border-b border-gray-800 last:border-0 ${i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-950'}`}
-                >
-                  <td className="px-3 py-2 text-gray-200 font-medium">{tx.merchant}</td>
-                  <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{fmtDate(tx.date)}</td>
-                  <td className="px-3 py-2 text-right font-semibold text-gray-200 whitespace-nowrap">
-                    {fmtCurrency(tx.amount)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${CATEGORY_DOT[tx.category] ?? 'bg-gray-500'}`} />
-                      <span className="text-gray-400">{tx.category}</span>
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${mCfg.cls}`}>
-                      {mCfg.label}
-                    </span>
-                  </td>
+      {/* ── Transactions table ── */}
+      {txns.length > 0 && (
+        <div>
+          <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Transactions</h4>
+          <div className="rounded-lg border border-gray-800 overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-900 border-b border-gray-800">
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Date</th>
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Description</th>
+                  <th className="text-right px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Amount</th>
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Category</th>
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Match</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {txns.map((tx, i) => {
+                  const mCfg = MATCH_STATUS_CONFIG[tx.matchStatus];
+                  return (
+                    <tr
+                      key={i}
+                      className={`border-b border-gray-800 last:border-0 ${i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-950'}`}
+                    >
+                      <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{fmtDate(tx.date)}</td>
+                      <td className="px-3 py-2 text-gray-200 font-medium">{tx.merchant}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-gray-200 whitespace-nowrap">
+                        {fmtCurrency(tx.amount)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${CATEGORY_DOT[tx.category] ?? 'bg-gray-500'}`} />
+                          <span className="text-gray-400">{tx.category}</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${mCfg.cls}`}>
+                          {mCfg.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Payments section ── */}
+      <div>
+        <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payments</h4>
+        {payments.length === 0 ? (
+          <p className="text-xs text-gray-600 italic">No payments recorded for this statement period.</p>
+        ) : (
+          <div className="rounded-lg border border-gray-800 overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-900 border-b border-gray-800">
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Date</th>
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Description</th>
+                  <th className="text-right px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Amount</th>
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Method</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p, i) => (
+                  <tr
+                    key={i}
+                    className={`border-b border-gray-800 last:border-0 ${i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-950'}`}
+                  >
+                    <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{fmtDate(p.date)}</td>
+                    <td className="px-3 py-2 text-gray-200 font-medium">{p.description}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-emerald-400 whitespace-nowrap">
+                      -{fmtCurrency(p.amount)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded border bg-gray-800 text-gray-300 border-gray-700">
+                        {p.method}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      {/* ── Fees section (flagged items in amber/red) ── */}
+      <div>
+        <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Fees</h4>
+        {fees.length === 0 ? (
+          <p className="text-xs text-gray-600 italic">No fees on this statement.</p>
+        ) : (
+          <div className="rounded-lg border border-gray-800 overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-900 border-b border-gray-800">
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Date</th>
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Description</th>
+                  <th className="text-right px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Amount</th>
+                  <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fees.map((fee, i) => (
+                  <tr
+                    key={i}
+                    className={`border-b border-gray-800 last:border-0 ${
+                      fee.flagged
+                        ? 'bg-amber-950/40 border-l-2 border-l-red-500'
+                        : i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-950'
+                    }`}
+                  >
+                    <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{fmtDate(fee.date)}</td>
+                    <td className="px-3 py-2">
+                      <span className={fee.flagged ? 'text-amber-200 font-semibold' : 'text-gray-200 font-medium'}>
+                        {fee.description}
+                      </span>
+                      {fee.flagged && fee.flagReason && (
+                        <p className="text-[10px] text-red-400 mt-0.5">{fee.flagReason}</p>
+                      )}
+                    </td>
+                    <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${fee.flagged ? 'text-red-400' : 'text-gray-200'}`}>
+                      {fmtCurrency(fee.amount)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {fee.flagged ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border bg-red-900 text-red-300 border-red-700">
+                          Flagged
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border bg-gray-800 text-gray-400 border-gray-700">
+                          Normal
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Reconciliation diff callout ── */}
+      {reconDiff && (
+        <div className={`rounded-xl border p-4 ${
+          reconDiff.status === 'matched'
+            ? 'border-emerald-800 bg-emerald-950/20'
+            : 'border-amber-700 bg-amber-950/20'
+        }`}>
+          <div className="flex items-center gap-2 mb-3">
+            {reconDiff.status === 'matched' ? (
+              <svg className="h-4 w-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4 text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+            <h4 className={`text-sm font-bold ${reconDiff.status === 'matched' ? 'text-emerald-300' : 'text-amber-300'}`}>
+              Reconciliation {reconDiff.status === 'matched' ? 'Matched' : 'Variance Detected'}
+            </h4>
+          </div>
+          <div className="grid grid-cols-3 gap-4 mb-3">
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Statement Balance</p>
+              <p className="text-sm font-bold text-gray-200 mt-0.5">{fmtCurrency(reconDiff.statementBalance)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Internal Ledger</p>
+              <p className="text-sm font-bold text-gray-200 mt-0.5">{fmtCurrency(reconDiff.ledgerBalance)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Difference</p>
+              <p className={`text-sm font-bold mt-0.5 ${
+                reconDiff.difference === 0 ? 'text-emerald-400' : 'text-red-400'
+              }`}>
+                {reconDiff.difference === 0 ? '$0.00' : fmtCurrency(reconDiff.difference)}
+              </p>
+            </div>
+          </div>
+          <p className={`text-xs ${reconDiff.status === 'matched' ? 'text-emerald-400/80' : 'text-amber-400/80'}`}>
+            {reconDiff.notes}
+          </p>
+        </div>
+      )}
 
       {/* Mark Reconciled button */}
       {stmt.status !== 'reconciled' && (
