@@ -29,6 +29,8 @@ export interface ApplicationCardApp {
   days_in_stage: number;
   business_purpose?: string;
   decline_reason?: string;
+  /** Assigned advisor full name — used for initials avatar */
+  advisor?: string;
 }
 
 export interface ApplicationCardProps {
@@ -78,6 +80,31 @@ function daysInStageClasses(days: number): string {
   return 'text-gray-500';
 }
 
+const CONSENT_DOT_COLOR: Record<string, string> = {
+  complete: 'bg-emerald-500',
+  pending:  'bg-amber-400',
+  blocked:  'bg-red-500',
+};
+
+function consentDotColor(status: string): string {
+  return CONSENT_DOT_COLOR[status] ?? 'bg-red-500';
+}
+
+function consentDotTitle(status: string): string {
+  if (status === 'complete') return 'Consent complete';
+  if (status === 'pending') return 'Consent pending';
+  return 'Consent missing';
+}
+
+function advisorInitials(name: string): string {
+  return name
+    .split(' ')
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function ApplicationCard({ app, onClick }: ApplicationCardProps) {
@@ -102,8 +129,13 @@ export function ApplicationCard({ app, onClick }: ApplicationCardProps) {
             <p className="text-sm font-bold text-gray-900 truncate leading-snug">
               {app.client_name}
             </p>
-            <p className="text-xs text-gray-500 truncate">
-              {app.card_product} &middot; {app.issuer}
+            <p className="text-xs text-gray-500 truncate inline-flex items-center gap-1">
+              {app.card_product} &middot;{' '}
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${consentDotColor(app.consent_status)}`}
+                title={consentDotTitle(app.consent_status)}
+              />
+              {app.issuer}
             </p>
           </div>
 
@@ -215,6 +247,18 @@ export function ApplicationCard({ app, onClick }: ApplicationCardProps) {
                 {app.decline_reason}
               </p>
             )}
+          </div>
+        )}
+
+        {/* ── Advisor initials avatar — bottom-right ────────── */}
+        {app.advisor && (
+          <div className="flex justify-end mt-1">
+            <span
+              className="w-6 h-6 rounded-full bg-brand-navy text-white text-2xs font-bold flex items-center justify-center shrink-0"
+              title={app.advisor}
+            >
+              {advisorInitials(app.advisor)}
+            </span>
           </div>
         )}
       </div>
