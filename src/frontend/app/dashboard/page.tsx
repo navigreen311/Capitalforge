@@ -19,6 +19,7 @@ import {
   RestackWidget,
   VoiceForgeActivity,
   PortfolioHealthWidget,
+  AskAIWidget,
 } from '@/components/dashboard';
 import { SetupChecklist } from '@/components/onboarding/SetupChecklist';
 
@@ -202,6 +203,9 @@ export default function DashboardPage() {
 
           {/* Portfolio Health Score */}
           <PortfolioHealthWidget />
+
+          {/* Ask AI widget */}
+          <AskAIWidget />
 
           {/* Compliance Health panel */}
           <SectionCard
