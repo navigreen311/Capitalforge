@@ -582,6 +582,130 @@ complianceRouter.patch(
 );
 
 // ─────────────────────────────────────────────────────────────────
+// GET /api/compliance/disclosure-templates
+// Returns all built-in disclosure templates, including the
+// credit union membership disclosure for credit_union issuers.
+// Optionally filter by ?issuerType=credit_union or ?category=cu_membership
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.get(
+  '/compliance/disclosure-templates',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const issuerType = (req.query.issuerType as string) || '';
+      const category = (req.query.category as string) || '';
+
+      // Static disclosure template registry — these are the built-in
+      // compliance checklist items that must be acknowledged/completed
+      // before an application can proceed.
+      const templates = [
+        {
+          id: 'product_reality_disclosure',
+          applicableTo: ['all'],
+          title: 'Product Reality Disclosure',
+          description: 'Client has acknowledged that they are receiving business credit cards, not a loan, and understands the nature of the product.',
+          required: true,
+          category: 'risk_acknowledgment',
+        },
+        {
+          id: 'fee_schedule_disclosure',
+          applicableTo: ['all'],
+          title: 'Fee Schedule Disclosure',
+          description: 'Client has received and acknowledged the complete fee schedule including program fees, annual card fees, and total estimated cost.',
+          required: true,
+          category: 'fee_schedule',
+        },
+        {
+          id: 'credit_stacking_disclosure',
+          applicableTo: ['all'],
+          title: 'Credit Stacking Program Disclosure',
+          description: 'Client has been informed of the risks and mechanics of the multi-card stacking program including credit impact, approval uncertainty, and interest rate risk.',
+          required: true,
+          category: 'credit_stacking',
+        },
+        {
+          id: 'personal_guarantee_disclosure',
+          applicableTo: ['all'],
+          title: 'Personal Guarantee Disclosure',
+          description: 'Client understands that business credit cards may require a personal guarantee and that they may be personally liable for balances.',
+          required: true,
+          category: 'personal_guarantee',
+        },
+        {
+          id: 'cu_membership_disclosure',
+          applicableTo: ['credit_union'],
+          title: 'Credit Union Membership Disclosure',
+          description: 'Client has been informed that membership in the credit union is required before applying for this card, and that the membership is a separate account/relationship from the business credit card.',
+          required: true,
+          category: 'cu_membership',
+          templateText: `CREDIT UNION MEMBERSHIP DISCLOSURE
+
+Date: [DISCLOSURE DATE]
+Client Business: [CLIENT BUSINESS NAME]
+Credit Union: [CREDIT UNION NAME]
+Card Product: [CARD NAME]
+
+MEMBERSHIP REQUIREMENT NOTICE
+
+This disclosure is provided to inform you that the business credit card product you are applying for — [CARD NAME] — is issued by [CREDIT UNION NAME], a federally or state-chartered credit union.
+
+MEMBERSHIP IS REQUIRED: Credit unions are member-owned financial cooperatives. Before your application for [CARD NAME] can be processed, you must establish membership with [CREDIT UNION NAME]. Membership is a SEPARATE account and relationship from the business credit card.
+
+MEMBERSHIP ELIGIBILITY: [MEMBERSHIP REQUIREMENT]
+
+MEMBERSHIP FEE: $[FEE AMOUNT]
+
+IMPORTANT DISCLOSURES:
+1. Membership in [CREDIT UNION NAME] is a prerequisite for any credit product.
+2. The membership account is separate from and in addition to the business credit card account.
+3. Membership fees and minimum balance requirements are set by [CREDIT UNION NAME] and are not controlled by or refundable through the advisory service.
+4. Approval for membership does not guarantee approval for the credit card product.
+5. If your credit card application is declined, your membership remains active and any fees/deposits are subject to the credit union's own policies.
+6. Credit union deposits are insured by the NCUA up to $250,000 per depositor, per institution.`,
+        },
+        {
+          id: 'state_specific_disclosure',
+          applicableTo: ['all'],
+          title: 'State-Specific Disclosure',
+          description: 'Applicable state-mandated commercial financing disclosures have been provided to the client (e.g., CA SB 1235, NY S5470).',
+          required: true,
+          category: 'state_specific',
+        },
+      ];
+
+      let filtered = templates;
+
+      // Filter by issuer type — show only templates applicable to that type (or 'all')
+      if (issuerType) {
+        filtered = filtered.filter(
+          (t) => t.applicableTo.includes(issuerType) || t.applicableTo.includes('all'),
+        );
+      }
+
+      // Filter by category
+      if (category) {
+        filtered = filtered.filter((t) => t.category === category);
+      }
+
+      logger.info('Disclosure templates listed', {
+        requestId: req.requestId,
+        tenantId,
+        issuerType: issuerType || 'all',
+        category: category || 'all',
+        count: filtered.length,
+      });
+
+      const body: ApiResponse<typeof filtered> = { success: true, data: filtered };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
 // GET /api/compliance/disclosures
 // List disclosure requirements with deadline tracking.
 // ─────────────────────────────────────────────────────────────────

@@ -1,8 +1,9 @@
 // ============================================================
 // CapitalForge — Application Pre-Submission Gate Checks
 //
-// ALL five gates MUST pass before an application can transition
-// from pending_consent → submitted.
+// ALL five core gates MUST pass before an application can transition
+// from pending_consent → submitted. A sixth gate is conditionally
+// enforced when the application involves a credit union issuer.
 //
 // Gates (in enforcement order):
 //  1. Product Reality Acknowledged
@@ -10,6 +11,7 @@
 //  3. Suitability Check Passed (no no-go triggered)
 //  4. KYB / KYC Verified for the business and all beneficial owners
 //  5. Maker-Checker Approval (approver ≠ creator)
+//  6. Credit Union Membership Disclosure (conditional — credit_union issuers only)
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
@@ -48,29 +50,42 @@ export class ApplicationGateChecker {
   }
 
   /**
-   * Run all five pre-submission gates for a given application.
+   * Run all pre-submission gates for a given application.
+   * The five core gates always run. Gate #6 (CU membership disclosure)
+   * is conditionally enforced when the application's issuer type is
+   * 'credit_union'.
    *
    * @param applicationId - The CardApplication being evaluated
    * @param businessId    - The owning Business
    * @param tenantId      - Multi-tenant guard (used in every query)
    * @param makerChecker  - Maker/checker user IDs for gate #5
+   * @param issuerType    - Optional issuer type; when 'credit_union', gate #6 is enforced
    */
   async checkAll(
     applicationId: string,
     businessId: string,
     tenantId: string,
     makerChecker: MakerCheckerContext,
+    issuerType?: string,
   ): Promise<GateSummary> {
     const log = logger.child({ applicationId, businessId, tenantId });
     log.info('Running pre-submission gate checks');
 
-    const results = await Promise.all([
+    const coreGates = await Promise.all([
       this.checkProductRealityAcknowledged(businessId),
       this.checkConsentCaptured(applicationId, businessId),
       this.checkSuitabilityPassed(businessId),
       this.checkKybKycVerified(businessId, tenantId),
       this.checkMakerChecker(makerChecker),
     ]);
+
+    const results: GateCheckResult[] = [...coreGates];
+
+    // Gate #6: Credit Union Membership Disclosure (conditional)
+    if (issuerType === 'credit_union') {
+      const cuGate = await this.checkCuMembershipDisclosure(applicationId, businessId);
+      results.push(cuGate);
+    }
 
     const failedGates = results.filter((r) => !r.passed).map((r) => r.gate);
     const allPassed = failedGates.length === 0;
@@ -342,5 +357,50 @@ export class ApplicationGateChecker {
     }
 
     return { passed: true, gate: GATE };
+  }
+
+  // ── Gate 6: Credit Union Membership Disclosure ────────────────
+
+  /**
+   * When an application involves a credit_union issuer, the client must
+   * have signed a 'cu_membership_disclosure' acknowledgment confirming
+   * they understand that credit union membership is a separate
+   * prerequisite from the credit card application.
+   */
+  async checkCuMembershipDisclosure(
+    applicationId: string,
+    businessId: string,
+  ): Promise<GateCheckResult> {
+    const GATE = 'cu_membership_disclosure';
+    try {
+      // Look for a signed CU membership disclosure acknowledgment
+      const ack = await this.prisma.productAcknowledgment.findFirst({
+        where: {
+          businessId,
+          acknowledgmentType: 'cu_membership_disclosure',
+        },
+        select: { id: true, signedAt: true },
+      });
+
+      if (!ack) {
+        return {
+          passed: false,
+          gate: GATE,
+          reason:
+            'Credit union membership disclosure has not been signed. The client must ' +
+            'acknowledge that membership in the credit union is required before applying ' +
+            'for this card, and that membership is a separate account/relationship from ' +
+            'the business credit card.',
+        };
+      }
+
+      return { passed: true, gate: GATE };
+    } catch (err) {
+      return {
+        passed: false,
+        gate: GATE,
+        reason: `Gate check error: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
   }
 }

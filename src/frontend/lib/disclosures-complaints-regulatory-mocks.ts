@@ -95,6 +95,21 @@ const MOCK_DISCLOSURE_TEMPLATES = {
         { version: 'v1.0', date: daysFromNow(-300), author: 'Sarah Chen', status: 'archived' as const },
       ],
     },
+    {
+      id: 'tmpl_006',
+      name: 'Credit Union Membership Disclosure',
+      state: 'Federal',
+      category: 'CU Membership',
+      version: 'v1.0',
+      status: 'approved' as const,
+      last_modified: daysFromNow(-5),
+      content:
+        'This disclosure informs the client that the business credit card they are applying for is issued by a credit union and that membership in the credit union is required before the application can be processed. Membership is a separate account/relationship from the business credit card. The disclosure covers membership eligibility requirements, associated fees, NCUA deposit insurance, and the fact that membership approval does not guarantee credit card approval.',
+      versions: [
+        { version: 'v1.0', date: daysFromNow(-5), author: 'Sarah Chen', status: 'approved' as const },
+      ],
+      applicableTo: ['credit_union'],
+    },
   ],
   last_updated: new Date().toISOString(),
 };
