@@ -22,4 +22,5 @@ export { PortfolioHealthWidget } from './PortfolioHealthWidget';
 export { DashboardErrorState } from './DashboardErrorState';
 export { NavBadgeProvider, useNavBadges } from './NavBadgeProvider';
 export { DashboardBadge } from './DashboardBadge';
+export { AskAIWidget } from './AskAIWidget';
 export { publishEvent } from './DashboardEventBus';

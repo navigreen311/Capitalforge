@@ -188,6 +188,22 @@ export function AskCapitalForge() {
     [isStreaming, messages],
   );
 
+  // ── Listen for external "open with message" events ────────
+
+  useEffect(() => {
+    function handleAskAI(e: Event) {
+      const detail = (e as CustomEvent<{ message?: string }>).detail;
+      setIsOpen(true);
+      if (detail?.message) {
+        // Small delay so panel is visible before sending
+        setTimeout(() => sendMessage(detail.message!), 200);
+      }
+    }
+
+    document.addEventListener('capitalforge:ask-ai', handleAskAI);
+    return () => document.removeEventListener('capitalforge:ask-ai', handleAskAI);
+  }, [sendMessage]);
+
   // ── Handle form submit ─────────────────────────────────────
 
   function handleSubmit(e: React.FormEvent) {
