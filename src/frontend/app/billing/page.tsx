@@ -17,7 +17,7 @@ import UsageMeter from '../../components/modules/usage-meter';
 // ---------------------------------------------------------------------------
 
 type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'refunded' | 'overdue';
-type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed';
+type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed' | 'rejected';
 type DealStructure = 'revenue_share' | 'flat_fee' | 'term_loan' | 'line_of_credit' | 'mca';
 
 interface Invoice {
@@ -194,6 +194,7 @@ const COMMISSION_STATUS_CONFIG: Record<CommissionStatus, { label: string; badgeC
   approved: { label: 'Approved', badgeClass: 'bg-blue-900 text-blue-300 border-blue-700' },
   paid:     { label: 'Paid',     badgeClass: 'bg-green-900 text-green-300 border-green-700' },
   disputed: { label: 'Disputed', badgeClass: 'bg-red-900 text-red-300 border-red-700' },
+  rejected: { label: 'Rejected', badgeClass: 'bg-gray-800 text-gray-400 border-gray-600' },
 };
 
 const ROLE_CONFIG: Record<string, string> = {
@@ -676,6 +677,78 @@ function AddSeatsModal({ onClose, onUpgradePlan }: AddSeatsModalProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Dispute Evidence Modal (inline) — 3C Commission Dispute Resolution
+// ---------------------------------------------------------------------------
+
+interface DisputeEvidenceModalProps {
+  commission: Commission;
+  onClose: () => void;
+}
+
+function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Dispute Evidence</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-3 mb-5">
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Partner</span>
+            <span className="text-sm font-semibold text-gray-100">{commission.partner}</span>
+          </div>
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Deal</span>
+            <span className="text-sm text-gray-300">{commission.deal}</span>
+          </div>
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Disputed Amount</span>
+            <span className="text-sm font-bold text-red-400">{formatCurrency(commission.commissionAmount)}</span>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-gray-800 border border-gray-700 p-4 mb-5">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Evidence Summary</h3>
+          <div className="space-y-2 text-sm text-gray-300">
+            <p>
+              <span className="font-semibold text-gray-200">Dispute filed:</span>{' '}
+              Mar 28, 2026 by {commission.partner}
+            </p>
+            <p>
+              <span className="font-semibold text-gray-200">Reason:</span>{' '}
+              Commission rate discrepancy — partner claims agreed rate was {(commission.commissionRate + 0.5).toFixed(1)}%
+              (vs. recorded {commission.commissionRate.toFixed(1)}%).
+            </p>
+            <p>
+              <span className="font-semibold text-gray-200">Supporting documents:</span>{' '}
+              Original partner agreement (signed), email thread from Jan 15 2026 referencing revised rate schedule.
+            </p>
+            <p>
+              <span className="font-semibold text-gray-200">Internal notes:</span>{' '}
+              Rate was updated in CRM on Feb 1, 2026 but commission engine used the prior rate for this deal.
+              Likely a sync delay between partner portal and billing system.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Stripe Portal Helper
 // ---------------------------------------------------------------------------
 
@@ -705,6 +778,7 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>(PLACEHOLDER_INVOICES);
   const [commissions, setCommissions] = useState<Commission[]>(PLACEHOLDER_COMMISSIONS);
   const [selectedCommission, setSelectedCommission] = useState<Commission | null>(null);
+  const [evidenceCommission, setEvidenceCommission] = useState<Commission | null>(null);
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
 
   // Next invoice number
@@ -813,6 +887,21 @@ export default function BillingPage() {
     showToast(`Commission ${action.toLowerCase()}d successfully.`);
   }, []);
 
+  // -- Dispute resolution actions (optimistic) --
+  const handleApproveDisputed = useCallback((id: string) => {
+    setCommissions((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: 'approved' as CommissionStatus } : c)),
+    );
+    showToast('Commission approved — dispute resolved in favor of partner.');
+  }, []);
+
+  const handleRejectDispute = useCallback((id: string) => {
+    setCommissions((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: 'rejected' as CommissionStatus } : c)),
+    );
+    showToast('Dispute rejected — commission will not be paid.');
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
       {/* Toast animation styles */}
@@ -834,6 +923,12 @@ export default function BillingPage() {
         <AddSeatsModal
           onClose={() => setShowSeatModal(false)}
           onUpgradePlan={() => setShowUpgradeModal(true)}
+        />
+      )}
+      {evidenceCommission && (
+        <DisputeEvidenceModal
+          commission={evidenceCommission}
+          onClose={() => setEvidenceCommission(null)}
         />
       )}
       {selectedCommission && (
@@ -1099,7 +1194,7 @@ export default function BillingPage() {
 
           {/* Status filter */}
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {(['all', 'pending', 'approved', 'paid', 'disputed'] as const).map((s) => (
+            {(['all', 'pending', 'approved', 'paid', 'disputed', 'rejected'] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setCommissionFilter(s)}
@@ -1119,7 +1214,7 @@ export default function BillingPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-800">
-                    {['Partner / Advisor', 'Role', 'Deal', 'Deal Amount', 'Rate', 'Commission', 'Due Date', 'Status'].map((h) => (
+                    {['Partner / Advisor', 'Role', 'Deal', 'Deal Amount', 'Rate', 'Commission', 'Due Date', 'Status', 'Actions'].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
@@ -1166,6 +1261,33 @@ export default function BillingPage() {
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${COMMISSION_STATUS_CONFIG[c.status].badgeClass}`}>
                           {COMMISSION_STATUS_CONFIG[c.status].label}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.status === 'disputed' && (
+                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => setEvidenceCommission(c)}
+                              className="text-xs text-gray-500 hover:text-blue-400 transition-colors whitespace-nowrap"
+                              title="View dispute evidence"
+                            >
+                              View Evidence
+                            </button>
+                            <button
+                              onClick={() => handleApproveDisputed(c.id)}
+                              className="text-xs text-gray-500 hover:text-green-400 transition-colors whitespace-nowrap"
+                              title="Approve commission"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleRejectDispute(c.id)}
+                              className="text-xs text-gray-500 hover:text-red-400 transition-colors whitespace-nowrap"
+                              title="Reject dispute"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
