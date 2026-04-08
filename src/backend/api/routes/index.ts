@@ -410,3 +410,18 @@ apiRouter.use('/simulator', simulatorRouter);
 // ── Sandbox (profiles, practice, regression, simulate-round) ──
 import { sandboxRouter } from './simulator.routes.js';
 apiRouter.use('/sandbox', sandboxRouter);
+
+// ── Hardship (case management, stage advancement, resolution, stats) ──
+// POST  /api/hardship                   — create new case
+// PATCH /api/hardship/:id/stage         — advance stage
+// PATCH /api/hardship/:id/resolve       — mark resolved or written off
+// GET   /api/hardship/stats             — case counts by status and flag
+// PUT   /api/hardship/:id               — update case
+// POST  /api/hardship/:id/payment-plan  — attach payment plan
+// POST  /api/hardship/:id/settlement    — attach settlement offer
+// POST  /api/businesses/:id/hardship    — open hardship case (business-level)
+// GET   /api/businesses/:id/hardship    — list cases (business-level)
+// GET   /api/businesses/:id/restack/*   — re-stack readiness & triggers
+import { hardshipRouter } from './hardship.routes.js';
+apiRouter.use('/hardship', hardshipRouter);
+apiRouter.use('/', hardshipRouter);
