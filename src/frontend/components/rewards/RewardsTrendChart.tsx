@@ -1,12 +1,21 @@
 'use client';
 
 // ============================================================
-// RewardsTrendChart — compact bar chart showing monthly rewards
-// earned over 6 months, using inline SVG with brand-gold bars.
-// Designed for dark theme, fits below KPI cards.
+// RewardsTrendChart — recharts BarChart showing monthly rewards
+// earned over 6 months with proper XAxis/YAxis labels.
+// Dark theme with brand-gold bars.
 // ============================================================
 
-import React, { useState } from 'react';
+import React from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from 'recharts';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -16,15 +25,15 @@ export interface RewardsTrendChartProps {
   yoyDelta?: string;
 }
 
-// ─── Placeholder data ────────────────────────────────────────────────────────
+// ─── Placeholder data (Oct–Mar, $980–$1,840) ────────────────────────────────
 
 export const REWARDS_TREND_PLACEHOLDER: RewardsTrendChartProps['data'] = [
-  { month: 'Oct', rewards: 1150 },
-  { month: 'Nov', rewards: 1280 },
-  { month: 'Dec', rewards: 1890 },
-  { month: 'Jan', rewards: 1320 },
-  { month: 'Feb', rewards: 1540 },
-  { month: 'Mar', rewards: 1620 },
+  { month: 'Oct', rewards: 980 },
+  { month: 'Nov', rewards: 1220 },
+  { month: 'Dec', rewards: 1840 },
+  { month: 'Jan', rewards: 1100 },
+  { month: 'Feb', rewards: 1450 },
+  { month: 'Mar', rewards: 1680 },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -37,24 +46,36 @@ function formatDollars(n: number): string {
   });
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Custom tooltip ─────────────────────────────────────────────────────────
 
-const CHART_HEIGHT = 120;
-const BAR_WIDTH = 32;
-const BAR_GAP = 16;
-const TOP_PADDING = 24; // space for value label above tallest bar
-const BOTTOM_PADDING = 20; // space for month labels
-const GRADIENT_ID = 'rewards-gold-gradient';
+interface TooltipPayloadItem {
+  value: number;
+  payload: { month: string; rewards: number };
+}
+
+function CustomTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+  label?: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const item = payload[0];
+  return (
+    <div className="rounded-lg bg-gray-800 border border-gray-600 px-3 py-2 shadow-lg">
+      <p className="text-xs text-gray-400">{item.payload.month}</p>
+      <p className="text-sm font-semibold text-brand-gold">
+        {formatDollars(item.value)}
+      </p>
+    </div>
+  );
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function RewardsTrendChart({ data, yoyDelta }: RewardsTrendChartProps) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-
-  const maxReward = Math.max(...data.map((d) => d.rewards), 1);
-  const chartWidth = data.length * (BAR_WIDTH + BAR_GAP) - BAR_GAP + BAR_GAP * 2;
-  const drawableHeight = CHART_HEIGHT - TOP_PADDING - BOTTOM_PADDING;
-
   return (
     <div className="bg-brand-navy rounded-xl border border-brand-navy-700 p-5">
       {/* Header row */}
@@ -67,83 +88,44 @@ export function RewardsTrendChart({ data, yoyDelta }: RewardsTrendChartProps) {
         )}
       </div>
 
-      {/* SVG bar chart */}
-      <svg
-        viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`}
-        className="w-full"
-        role="img"
-        aria-label={`Bar chart showing monthly rewards: ${data
-          .map((d) => `${d.month} ${formatDollars(d.rewards)}`)
-          .join(', ')}`}
-      >
-        <defs>
-          <linearGradient id={GRADIENT_ID} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#E5C87C" />
-            <stop offset="100%" stopColor="#C9A84C" />
-          </linearGradient>
-        </defs>
-
-        {data.map((item, i) => {
-          const barHeight = (item.rewards / maxReward) * drawableHeight;
-          const x = BAR_GAP + i * (BAR_WIDTH + BAR_GAP);
-          const y = TOP_PADDING + drawableHeight - barHeight;
-          const isHovered = hoveredIndex === i;
-
-          return (
-            <g
-              key={item.month}
-              onMouseEnter={() => setHoveredIndex(i)}
-              onMouseLeave={() => setHoveredIndex(null)}
-              className="cursor-pointer"
-            >
-              {/* Invisible hit area for easier hover */}
-              <rect
-                x={x - 4}
-                y={0}
-                width={BAR_WIDTH + 8}
-                height={CHART_HEIGHT}
-                fill="transparent"
+      {/* Recharts bar chart */}
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart
+          data={data}
+          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+        >
+          <XAxis
+            dataKey="month"
+            axisLine={false}
+            tickLine={false}
+            tick={{ fill: '#94A3B8', fontSize: 12 }}
+          />
+          <YAxis
+            axisLine={false}
+            tickLine={false}
+            tick={{ fill: '#94A3B8', fontSize: 11 }}
+            tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
+            width={48}
+          />
+          <Tooltip
+            content={<CustomTooltip />}
+            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+          />
+          <Bar
+            dataKey="rewards"
+            radius={[4, 4, 0, 0]}
+            maxBarSize={40}
+          >
+            {data.map((entry) => (
+              <Cell
+                key={entry.month}
+                fill="#C9A84C"
+                fillOpacity={0.85}
               />
-
-              {/* Bar */}
-              <rect
-                x={x}
-                y={y}
-                width={BAR_WIDTH}
-                height={barHeight}
-                rx={4}
-                fill={`url(#${GRADIENT_ID})`}
-                opacity={isHovered ? 1 : 0.8}
-                className="transition-opacity duration-150"
-              />
-
-              {/* Value label — shown on hover or always for hovered bar */}
-              {isHovered && (
-                <text
-                  x={x + BAR_WIDTH / 2}
-                  y={y - 6}
-                  textAnchor="middle"
-                  className="text-[10px] font-semibold"
-                  fill="#E5C87C"
-                >
-                  {formatDollars(item.rewards)}
-                </text>
-              )}
-
-              {/* Month label */}
-              <text
-                x={x + BAR_WIDTH / 2}
-                y={CHART_HEIGHT - 4}
-                textAnchor="middle"
-                className="text-[10px]"
-                fill={isHovered ? '#E5C87C' : '#94A3B8'}
-              >
-                {item.month}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
