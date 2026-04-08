@@ -4,24 +4,38 @@
 // Consolidates platform-level endpoints:
 //
 //  CRM Pipeline & Revenue
-//   GET  /api/platform/crm/pipeline     — business counts by status
-//   GET  /api/platform/crm/revenue      — revenue stats (MRR, ARR, etc.)
+//   GET  /api/platform/crm/pipeline          — business counts by status
+//   GET  /api/platform/crm/revenue           — revenue stats (MRR, ARR, etc.)
+//   GET  /api/platform/crm/mrr-trend         — 6 months MRR with new_business & churn
+//
+//  Billing
+//   POST /api/platform/billing/send-overdue-reminders — mock send, return sent_count
+//
+//  Admin (Tenants)
+//   PATCH /api/platform/tenants/:id/feature-flags — update feature flag
+//   POST  /api/platform/tenants/:id/impersonate   — mock impersonation token
+//   POST  /api/platform/tenants/:id/suspend       — suspend tenant
 //
 //  Issuers
-//   GET  /api/platform/issuers          — issuer directory data
+//   GET  /api/platform/issuers               — issuer directory data
+//   GET  /api/platform/issuers/:id/detail    — velocity rules, approval criteria, decline patterns
 //
 //  Referrals
-//   GET  /api/platform/referrals        — referral list
-//   POST /api/platform/referrals        — create referral
+//   GET  /api/platform/referrals             — referral list
+//   POST /api/platform/referrals             — create referral
+//   POST /api/platform/referrals/:id/follow-up — log follow-up
 //
 //  Workflows
-//   GET  /api/platform/workflows        — list workflows
-//   POST /api/platform/workflows        — create workflow
-//   PATCH /api/platform/workflows/:id   — toggle active/paused
+//   GET  /api/platform/workflows             — list workflows
+//   POST /api/platform/workflows             — create workflow
+//   PATCH /api/platform/workflows/:id        — update status
+//   PATCH /api/platform/workflows/:id/toggle — toggle active/paused
+//   GET  /api/platform/workflows/:id/history — per-workflow execution history
+//   GET  /api/platform/workflows/execution-log — global recent executions
 //
 //  Settings
-//   GET  /api/platform/settings         — get user/tenant settings
-//   PATCH /api/platform/settings        — update settings
+//   GET  /api/platform/settings              — get user/tenant settings
+//   PATCH /api/platform/settings             — update settings
 //
 // All routes require a valid JWT (req.tenant set by auth middleware).
 // ============================================================
@@ -106,6 +120,86 @@ const REVENUE_DATA = {
 router.get('/crm/revenue', (_req: Request, res: Response) => {
   logger.info('[platform] GET /crm/revenue');
   return ok(res, REVENUE_DATA);
+});
+
+// ============================================================
+// CRM MRR Trend
+// ============================================================
+
+const MRR_TREND_DATA = [
+  { month: '2025-11', mrr: 62400, new_business: 8200, churn: 3100 },
+  { month: '2025-12', mrr: 67500, new_business: 9400, churn: 4300 },
+  { month: '2026-01', mrr: 71200, new_business: 7800, churn: 4100 },
+  { month: '2026-02', mrr: 74800, new_business: 8600, churn: 5000 },
+  { month: '2026-03', mrr: 76500, new_business: 6200, churn: 4500 },
+  { month: '2026-04', mrr: 78200, new_business: 5400, churn: 3700 },
+];
+
+router.get('/crm/mrr-trend', (_req: Request, res: Response) => {
+  logger.info('[platform] GET /crm/mrr-trend');
+  return ok(res, { months: MRR_TREND_DATA });
+});
+
+// ============================================================
+// Billing — Send Overdue Reminders
+// ============================================================
+
+router.post('/billing/send-overdue-reminders', (_req: Request, res: Response) => {
+  logger.info('[platform] POST /billing/send-overdue-reminders');
+  const sent_count = Math.floor(Math.random() * 8) + 3;
+  return ok(res, { sent_count, message: `Sent ${sent_count} overdue payment reminders.` });
+});
+
+// ============================================================
+// Admin — Tenant Feature Flags, Impersonate, Suspend
+// ============================================================
+
+const FeatureFlagSchema = z.object({
+  flag: z.string().min(1),
+  enabled: z.boolean(),
+});
+
+router.patch('/tenants/:id/feature-flags', (req: Request, res: Response) => {
+  const tenantId = req.params.id;
+  logger.info(`[platform] PATCH /tenants/${tenantId}/feature-flags`);
+  const parsed = FeatureFlagSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed.error);
+  const { flag, enabled } = parsed.data;
+  return ok(res, {
+    tenantId,
+    flag,
+    enabled,
+    updatedAt: new Date().toISOString(),
+  });
+});
+
+router.post('/tenants/:id/impersonate', (req: Request, res: Response) => {
+  const tenantId = req.params.id;
+  logger.info(`[platform] POST /tenants/${tenantId}/impersonate`);
+  const impersonation_token = `imp_${tenantId}_${Date.now().toString(36)}`;
+  return ok(res, {
+    impersonation_token,
+    tenantId,
+    expiresIn: 3600,
+    message: 'Impersonation session started. Token valid for 1 hour.',
+  });
+});
+
+const SuspendSchema = z.object({
+  reason: z.string().min(1).optional(),
+});
+
+router.post('/tenants/:id/suspend', (req: Request, res: Response) => {
+  const tenantId = req.params.id;
+  logger.info(`[platform] POST /tenants/${tenantId}/suspend`);
+  const parsed = SuspendSchema.safeParse(req.body || {});
+  if (!parsed.success) return validationError(res, parsed.error);
+  return ok(res, {
+    tenantId,
+    status: 'suspended',
+    reason: parsed.data.reason ?? 'No reason provided',
+    suspendedAt: new Date().toISOString(),
+  });
 });
 
 // ============================================================
@@ -295,6 +389,32 @@ router.get('/issuers', (_req: Request, res: Response) => {
   return ok(res, ISSUERS_DATA);
 });
 
+router.get('/issuers/:id/detail', (req: Request, res: Response) => {
+  const issuerId = req.params.id;
+  logger.info(`[platform] GET /issuers/${issuerId}/detail`);
+  const issuer = ISSUERS_DATA.find(i => i.id === issuerId);
+  if (!issuer) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Issuer not found' },
+      statusCode: 404,
+    });
+  }
+  const declinePatterns = [
+    { reason: 'Too many recent inquiries', percentage: 34.2, count: Math.round(issuer.declined * 0.342) },
+    { reason: 'Insufficient credit history', percentage: 22.8, count: Math.round(issuer.declined * 0.228) },
+    { reason: 'High utilization ratio', percentage: 18.5, count: Math.round(issuer.declined * 0.185) },
+    { reason: 'Too many new accounts', percentage: 14.1, count: Math.round(issuer.declined * 0.141) },
+    { reason: 'Other / undisclosed', percentage: 10.4, count: Math.round(issuer.declined * 0.104) },
+  ];
+  return ok(res, {
+    ...issuer,
+    velocityRules: issuer.velocityRules,
+    approvalCriteria: issuer.approvalCriteria,
+    declinePatterns,
+  });
+});
+
 // ============================================================
 // Referrals
 // ============================================================
@@ -362,6 +482,44 @@ router.post('/referrals', (req: Request, res: Response) => {
   };
   REFERRALS_DATA.push(newRef);
   return res.status(201).json({ success: true, data: newRef } as ApiResponse<PlatformReferral>);
+});
+
+// ============================================================
+// Referral Follow-Up
+// ============================================================
+
+const FollowUpSchema = z.object({
+  method: z.enum(['email', 'phone', 'sms', 'in_person']),
+  notes: z.string().min(1),
+});
+
+router.post('/referrals/:id/follow-up', (req: Request, res: Response) => {
+  const referralId = req.params.id;
+  logger.info(`[platform] POST /referrals/${referralId}/follow-up`);
+  const referral = REFERRALS_DATA.find(r => r.id === referralId);
+  if (!referral) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Referral not found' },
+      statusCode: 404,
+    });
+  }
+  const parsed = FollowUpSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed.error);
+  const { method, notes } = parsed.data;
+  return res.status(201).json({
+    success: true,
+    data: {
+      referralId,
+      followUp: {
+        id: `fu_${Date.now().toString(36)}`,
+        method,
+        notes,
+        loggedAt: new Date().toISOString(),
+        loggedBy: 'current_user',
+      },
+    },
+  });
 });
 
 // ============================================================
@@ -444,6 +602,60 @@ router.patch('/workflows/:id', (req: Request, res: Response) => {
     wf.status = req.body.status;
   }
   return ok(res, wf);
+});
+
+router.patch('/workflows/:id/toggle', (req: Request, res: Response) => {
+  const wfId = req.params.id;
+  logger.info(`[platform] PATCH /workflows/${wfId}/toggle`);
+  const wf = WORKFLOWS_DATA.find(w => w.id === wfId);
+  if (!wf) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Workflow not found' },
+      statusCode: 404,
+    });
+  }
+  const previousStatus = wf.status;
+  wf.status = wf.status === 'active' ? 'paused' : 'active';
+  return ok(res, { ...wf, previousStatus });
+});
+
+// ── Workflow Execution History (per workflow) ────────────────
+
+router.get('/workflows/:id/history', (req: Request, res: Response) => {
+  const wfId = req.params.id;
+  logger.info(`[platform] GET /workflows/${wfId}/history`);
+  const wf = WORKFLOWS_DATA.find(w => w.id === wfId);
+  if (!wf) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Workflow not found' },
+      statusCode: 404,
+    });
+  }
+  const executions = [
+    { id: `exec_${wfId}_001`, workflowId: wfId, triggeredAt: '2026-04-06T14:30:00Z', status: 'success' as const, durationMs: 245, result: 'Action completed' },
+    { id: `exec_${wfId}_002`, workflowId: wfId, triggeredAt: '2026-04-05T09:15:00Z', status: 'success' as const, durationMs: 312, result: 'Action completed' },
+    { id: `exec_${wfId}_003`, workflowId: wfId, triggeredAt: '2026-04-04T11:00:00Z', status: 'failure' as const, durationMs: 1024, result: 'Target entity not found' },
+    { id: `exec_${wfId}_004`, workflowId: wfId, triggeredAt: '2026-04-03T16:45:00Z', status: 'success' as const, durationMs: 189, result: 'Action completed' },
+    { id: `exec_${wfId}_005`, workflowId: wfId, triggeredAt: '2026-04-02T08:30:00Z', status: 'success' as const, durationMs: 278, result: 'Action completed' },
+  ];
+  return ok(res, { workflowId: wfId, workflowName: wf.name, executions });
+});
+
+// ── Workflow Execution Log (global recent executions) ────────
+
+router.get('/workflows/execution-log', (_req: Request, res: Response) => {
+  logger.info('[platform] GET /workflows/execution-log');
+  const recentExecutions = [
+    { id: 'exec_global_001', workflowId: 'pwf_001', workflowName: 'APR Expiry Alert', triggeredAt: '2026-04-06T14:30:00Z', status: 'success' as const, durationMs: 245 },
+    { id: 'exec_global_002', workflowId: 'pwf_002', workflowName: 'Restack Ready Flag', triggeredAt: '2026-04-06T12:00:00Z', status: 'success' as const, durationMs: 312 },
+    { id: 'exec_global_003', workflowId: 'pwf_003', workflowName: 'Decline Recovery', triggeredAt: '2026-04-05T09:15:00Z', status: 'failure' as const, durationMs: 1024 },
+    { id: 'exec_global_004', workflowId: 'pwf_001', workflowName: 'APR Expiry Alert', triggeredAt: '2026-04-05T08:00:00Z', status: 'success' as const, durationMs: 189 },
+    { id: 'exec_global_005', workflowId: 'pwf_004', workflowName: 'Unsigned Acknowledgment Reminder', triggeredAt: '2026-04-04T16:45:00Z', status: 'skipped' as const, durationMs: 12 },
+    { id: 'exec_global_006', workflowId: 'pwf_002', workflowName: 'Restack Ready Flag', triggeredAt: '2026-04-04T11:00:00Z', status: 'success' as const, durationMs: 278 },
+  ];
+  return ok(res, { recentExecutions });
 });
 
 // ============================================================
