@@ -390,3 +390,11 @@ apiRouter.use('/', statementsRouter);
 // (also mounts /api/businesses/:id/invoices, /api/invoices/:id, /api/tenants/:tenantId/plan|usage)
 import { billingRouter } from './billing.routes.js';
 apiRouter.use('/', billingRouter);
+
+// ── Tax Documents (mock document list, download, summary, generate) ──
+// GET  /api/tax/documents?clientId=X&year=Y
+// GET  /api/tax/documents/:id/download
+// GET  /api/tax/documents/:id/summary
+// POST /api/tax/documents/generate
+import { taxRouter } from './tax.routes.js';
+apiRouter.use('/tax', taxRouter);
