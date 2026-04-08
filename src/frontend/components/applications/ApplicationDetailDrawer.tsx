@@ -394,16 +394,34 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">Acknowledgment</span>
-                    <span>
+                    <span className="flex items-center gap-2">
                       {complianceIcon(app.acknowledgment_status)}{' '}
                       <span className="font-medium text-gray-900">{complianceLabel(app.acknowledgment_status)}</span>
+                      {app.acknowledgment_status === 'missing' && (
+                        <a
+                          href={`/compliance/acknowledgment?app_id=${app.id}&client_id=${app.client_id}`}
+                          className="text-xs font-medium hover:underline"
+                          style={{ color: '#C9A84C' }}
+                        >
+                          Send Acknowledgment &rarr;
+                        </a>
+                      )}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">Pre-submission Checklist</span>
-                    <span>
+                    <span className="flex items-center gap-2">
                       {complianceIcon(app.pre_submission_checklist)}{' '}
                       <span className="font-medium text-gray-900">{complianceLabel(app.pre_submission_checklist)}</span>
+                      {(app.pre_submission_checklist === 'missing' || app.pre_submission_checklist === 'pending') && (
+                        <a
+                          href={`/compliance/checklist?app_id=${app.id}&client_id=${app.client_id}`}
+                          className="text-xs font-medium hover:underline"
+                          style={{ color: '#C9A84C' }}
+                        >
+                          Complete Checklist &rarr;
+                        </a>
+                      )}
                     </span>
                   </div>
                 </div>
