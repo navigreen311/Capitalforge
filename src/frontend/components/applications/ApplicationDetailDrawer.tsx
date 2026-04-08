@@ -10,7 +10,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { DashboardBadge, type DashboardBadgeStatus } from '@/components/dashboard/DashboardBadge';
-import { GenerateDocumentModal, type GenerateDocumentModalProps } from './GenerateDocumentModal';
+import { GenerateDocumentModal } from './GenerateDocumentModal';
 import { DeclineRecoveryPanel } from './DeclineRecoveryPanel';
 import type { DocumentType } from '@/lib/claude-document-service';
 
