@@ -73,7 +73,7 @@ function useToast() {
 function Modal({ title, onClose, children, width }: { title: string; onClose: () => void; children: React.ReactNode; width?: string }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className={`bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6 ${width ?? 'w-full max-w-md'}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`bg-[#0f1b2e] border border-gray-700/50 rounded-2xl shadow-2xl p-6 ${width ?? 'w-full max-w-md'}`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-base font-semibold text-white">{title}</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-lg">&times;</button>
@@ -125,7 +125,7 @@ const ALL_SCOPES = ['read', 'write', 'webhooks', 'admin', 'billing'] as const;
 
 const STATUS_BADGE: Record<Integration['status'], string> = {
   connected:    'bg-emerald-900 text-emerald-300 border border-emerald-700',
-  disconnected: 'bg-gray-800 text-gray-400 border border-gray-700',
+  disconnected: 'bg-[#111c33] text-gray-400 border border-gray-700/50',
   error:        'bg-red-900 text-red-300 border border-red-700',
 };
 
@@ -161,7 +161,7 @@ function Tab({ id, label, active, onClick }: { id: TabId; label: string; active:
       className={`px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${
         active
           ? 'bg-[#0A1628] text-[#C9A84C]'
-          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+          : 'text-gray-400 hover:text-gray-200 hover:bg-[#111c33]'
       }`}
     >
       {label}
@@ -193,7 +193,7 @@ function IntegrationCard({
   }
 
   return (
-    <div className="flex items-start gap-4 p-4 rounded-xl border border-gray-700 bg-gray-900 hover:bg-gray-800/60 transition-colors">
+    <div className="flex items-start gap-4 p-4 rounded-xl border border-gray-700/50 bg-[#0f1b2e] hover:bg-[#111c33]/60 transition-colors">
       <div className="w-10 h-10 rounded-lg bg-[#0A1628] border border-[#C9A84C]/30 flex items-center justify-center text-xs font-bold text-[#C9A84C] flex-shrink-0">
         {integration.icon}
       </div>
@@ -346,7 +346,7 @@ function BillingTab({
       )}
 
       {/* Current Plan */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-200">Current Plan</h3>
           <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-900 text-emerald-300 border border-emerald-700">
@@ -399,12 +399,12 @@ function BillingTab({
       </div>
 
       {/* Invoice History */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-4">
         <h3 className="text-sm font-semibold text-gray-200">Invoice History</h3>
-        <div className="overflow-hidden rounded-lg border border-gray-800">
+        <div className="overflow-hidden rounded-lg border border-gray-700/50">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-gray-800 bg-gray-900/80">
+              <tr className="border-b border-gray-700/50 bg-[#0f1b2e]/80">
                 <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
                 <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
                 <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-right">Amount</th>
@@ -625,13 +625,13 @@ function SettingsPageInner() {
   };
 
   // ── Shared styles ──────────────────────────────────────────
-  const inputCls = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-[#C9A84C]';
+  const inputCls = 'w-full bg-[#111c33] border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-[#C9A84C]';
   const labelCls = 'text-xs text-gray-400 mb-1.5 block font-medium';
   const goldBtn = 'px-4 py-2 bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] rounded-lg text-sm font-semibold transition-colors';
-  const grayBtn = 'px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-lg text-sm transition-colors';
+  const grayBtn = 'px-4 py-2 bg-[#111c33] hover:bg-[#1a2a42] text-gray-400 rounded-lg text-sm transition-colors';
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
+    <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6">
       {/* Toast */}
       {toast.msg && <Toast message={toast.msg} onClose={toast.clear} />}
 
@@ -642,7 +642,7 @@ function SettingsPageInner() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit flex-wrap">
+      <div className="flex gap-1 mb-6 bg-[#0f1b2e] border border-gray-700/50 rounded-xl p-1 w-fit flex-wrap">
         <Tab id="profile"       label="Profile"        active={activeTab === 'profile'}       onClick={setActiveTab} />
         <Tab id="firm"          label="Firm"            active={activeTab === 'firm'}          onClick={setActiveTab} />
         <Tab id="billing"       label="Billing"         active={activeTab === 'billing'}       onClick={setActiveTab} />
@@ -657,7 +657,7 @@ function SettingsPageInner() {
       {/* ── Profile Tab ───────────────────────────────────── */}
       {activeTab === 'profile' && (
         <section className="max-w-2xl space-y-6">
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Personal Information</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -691,7 +691,7 @@ function SettingsPageInner() {
       {/* ── Firm Tab ────────────────────────────────────────── */}
       {activeTab === 'firm' && (
         <section className="max-w-2xl space-y-6">
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Firm Details</h3>
             <div>
               <label className={labelCls}>Firm Name</label>
@@ -733,13 +733,13 @@ function SettingsPageInner() {
       {/* ── Notifications Tab ───────────────────────────────── */}
       {activeTab === 'notifications' && (
         <section className="max-w-3xl space-y-6">
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-4">
             <h3 className="text-sm font-semibold text-gray-200">Notification Preferences</h3>
             <p className="text-xs text-gray-500">Toggle notifications for each event type by channel.</p>
-            <div className="overflow-hidden rounded-lg border border-gray-800">
+            <div className="overflow-hidden rounded-lg border border-gray-700/50">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="border-b border-gray-800 bg-gray-900/80">
+                  <tr className="border-b border-gray-700/50 bg-[#0f1b2e]/80">
                     <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Event</th>
                     <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-center">Email</th>
                     <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-center">SMS</th>
@@ -748,7 +748,7 @@ function SettingsPageInner() {
                 </thead>
                 <tbody>
                   {NOTIFICATION_EVENTS.map((evt) => (
-                    <tr key={evt.id} className="border-b border-gray-800">
+                    <tr key={evt.id} className="border-b border-gray-700/50">
                       <td className="py-2.5 px-4 text-sm text-gray-300">{evt.label}</td>
                       {(['email', 'sms', 'slack'] as NotifChannel[]).map((ch) => (
                         <td key={ch} className="py-2.5 px-4 text-center">
@@ -780,7 +780,7 @@ function SettingsPageInner() {
       {activeTab === 'security' && (
         <section className="max-w-2xl space-y-6">
           {/* Change Password */}
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Change Password</h3>
             <div>
               <label className={labelCls}>Current Password</label>
@@ -802,7 +802,7 @@ function SettingsPageInner() {
           </div>
 
           {/* Two-Factor Authentication */}
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-gray-200">Two-Factor Authentication</h3>
@@ -815,7 +815,7 @@ function SettingsPageInner() {
                 <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${twoFactorEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
             </div>
-            <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-4 text-xs text-gray-400">
+            <div className="rounded-lg border border-gray-700/50 bg-gray-800/50 p-4 text-xs text-gray-400">
               {twoFactorEnabled ? (
                 <p className="text-emerald-400">Two-factor authentication is enabled. You will be prompted for a verification code on each login.</p>
               ) : (
@@ -825,7 +825,7 @@ function SettingsPageInner() {
           </div>
 
           {/* Session info */}
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-3">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-3">
             <h3 className="text-sm font-semibold text-gray-200">Session Information</h3>
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div>
@@ -920,7 +920,7 @@ function SettingsPageInner() {
                 <span className="text-amber-300 text-xs font-bold uppercase">Your new API key (shown once)</span>
               </div>
               <div className="flex items-center gap-3">
-                <code className="flex-1 text-sm font-mono bg-gray-900 text-gray-100 px-3 py-2 rounded-lg border border-gray-700 select-all break-all">{revealedKey}</code>
+                <code className="flex-1 text-sm font-mono bg-[#111c33] text-gray-100 px-3 py-2 rounded-lg border border-gray-700/50 select-all break-all">{revealedKey}</code>
                 <button
                   onClick={() => { navigator.clipboard.writeText(revealedKey); toast.show('Copied to clipboard'); }}
                   className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-medium border border-gray-700"
@@ -993,10 +993,10 @@ function SettingsPageInner() {
             </Modal>
           )}
 
-          <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
             <table className="w-full text-left">
               <thead>
-                <tr className="border-b border-gray-800 bg-gray-900/80">
+                <tr className="border-b border-gray-700/50 bg-[#0f1b2e]/80">
                   {['Name', 'Key Prefix', 'Scopes', 'Created', 'Last Used', 'Status', ''].map((h) => (
                     <th key={h} className="py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       {h}
@@ -1006,7 +1006,7 @@ function SettingsPageInner() {
               </thead>
               <tbody>
                 {apiKeys.map((k) => (
-                  <tr key={k.id} className="border-b border-gray-800">
+                  <tr key={k.id} className="border-b border-gray-700/50">
                     <td className="py-3 px-4 text-sm text-gray-100">{k.name}</td>
                     <td className="py-3 px-4">
                       <code className="text-xs font-mono bg-gray-800 text-gray-300 px-2 py-0.5 rounded">{k.prefix}...</code>
@@ -1056,7 +1056,7 @@ function SettingsPageInner() {
       {activeTab === 'tenant' && (
         <section className="max-w-3xl space-y-6">
           {/* Firm Branding */}
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Firm Branding</h3>
             <div>
               <label className={labelCls}>Firm Name</label>
@@ -1114,7 +1114,7 @@ function SettingsPageInner() {
           </div>
 
           {/* Business Settings */}
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Business Settings</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -1149,7 +1149,7 @@ function SettingsPageInner() {
           </div>
 
           {/* Email Settings */}
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-5">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Email Settings</h3>
             <div>
               <label className={labelCls}>From Name</label>
@@ -1166,12 +1166,12 @@ function SettingsPageInner() {
           </div>
 
           {/* Notification Preferences */}
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-4">
             <h3 className="text-sm font-semibold text-gray-200">Notification Preferences</h3>
-            <div className="overflow-hidden rounded-lg border border-gray-800">
+            <div className="overflow-hidden rounded-lg border border-gray-700/50">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="border-b border-gray-800 bg-gray-900/80">
+                  <tr className="border-b border-gray-700/50 bg-[#0f1b2e]/80">
                     <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Event</th>
                     <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-center">Email</th>
                     <th className="py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase text-center">SMS</th>
@@ -1180,7 +1180,7 @@ function SettingsPageInner() {
                 </thead>
                 <tbody>
                   {NOTIFICATION_EVENTS.map((evt) => (
-                    <tr key={evt.id} className="border-b border-gray-800">
+                    <tr key={evt.id} className="border-b border-gray-700/50">
                       <td className="py-2.5 px-4 text-sm text-gray-300">{evt.label}</td>
                       {(['email', 'sms', 'slack'] as NotifChannel[]).map((ch) => (
                         <td key={ch} className="py-2.5 px-4 text-center">
@@ -1317,10 +1317,10 @@ function SettingsPageInner() {
               + Invite User
             </button>
           </div>
-          <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+          <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
             <table className="w-full text-left">
               <thead>
-                <tr className="border-b border-gray-800">
+                <tr className="border-b border-gray-700/50">
                   {['Name', 'Email', 'Role', 'Status', 'MFA', 'Last Login', ''].map((h) => (
                     <th key={h} className="py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       {h}
@@ -1330,7 +1330,7 @@ function SettingsPageInner() {
               </thead>
               <tbody>
                 {users.map((user) => (
-                  <tr key={user.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                  <tr key={user.id} className="border-b border-gray-700/50 hover:bg-gray-800/50">
                     <td className="py-3 px-4 text-sm font-medium text-gray-100">{user.name}</td>
                     <td className="py-3 px-4 text-sm text-gray-400">{user.email}</td>
                     <td className="py-3 px-4">
