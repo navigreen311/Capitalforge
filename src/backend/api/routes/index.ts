@@ -362,3 +362,10 @@ apiRouter.use('/', spendGovernanceRouter);
 import { rewardsRouter } from './rewards.routes.js';
 apiRouter.use('/rewards', rewardsRouter);
 apiRouter.use('/', rewardsRouter);
+
+// ── Card Benefits (client-level benefits summary, mark-used, export) ──
+// GET  /api/card-benefits/:clientId
+// POST /api/card-benefits/:cardId/benefits/:benefitId/mark-used
+// POST /api/card-benefits/:clientId/export
+import { cardBenefitsApiRouter } from './card-benefits.routes.js';
+apiRouter.use('/card-benefits', cardBenefitsApiRouter);
