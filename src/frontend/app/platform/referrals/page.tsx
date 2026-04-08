@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -56,6 +57,38 @@ function statusBadge(status: Referral['status']) {
   );
 }
 
+// ── Tier helpers ────────────────────────────────────────────
+
+function getTier(conversions: number): { name: string; rate: string; color: string } {
+  if (conversions >= 16) return { name: 'Gold', rate: '20%', color: '#C9A84C' };
+  if (conversions >= 6) return { name: 'Silver', rate: '15%', color: '#9E9E9E' };
+  return { name: 'Bronze', rate: '10%', color: '#CD7F32' };
+}
+
+function getTierProgress(conversions: number): string | null {
+  if (conversions >= 16) return null; // Already Gold
+  if (conversions >= 6) return `${16 - conversions} more for Gold`;
+  return `${6 - conversions} more for Silver`;
+}
+
+function TierBadge({ conversions }: { conversions: number }) {
+  const tier = getTier(conversions);
+  const progress = getTierProgress(conversions);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className="px-2 py-0.5 rounded-full text-xs font-bold"
+        style={{ backgroundColor: `${tier.color}20`, color: tier.color, border: `1px solid ${tier.color}40` }}
+      >
+        {tier.name} {tier.rate}
+      </span>
+      {progress && (
+        <span className="text-[10px] text-gray-500">{progress}</span>
+      )}
+    </span>
+  );
+}
+
 // ── Fallback mock data ──────────────────────────────────────
 
 const FALLBACK_REFERRALS: Referral[] = [
@@ -92,6 +125,7 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
 // ── Main Page ────────────────────────────────────────────────
 
 export default function PlatformReferralsPage() {
+  const router = useRouter();
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [commissionTiers, setCommissionTiers] = useState<CommissionTier[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -164,6 +198,14 @@ export default function PlatformReferralsPage() {
 
   // Unique referral links by advisor
   const advisorLinks = Array.from(new Map(referrals.map(r => [r.advisorName, r.referralLink])).entries());
+
+  // Compute conversions per advisor from referrals data
+  const advisorConversions = referrals.reduce<Record<string, number>>((acc, r) => {
+    if (r.status === 'converted') {
+      acc[r.advisorName] = (acc[r.advisorName] || 0) + 1;
+    }
+    return acc;
+  }, {});
 
   if (loading) {
     return (
@@ -238,7 +280,10 @@ export default function PlatformReferralsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {advisorLinks.map(([name, link]) => (
             <div key={name} className="rounded-xl border border-gray-700/60 bg-gray-900/60 p-4 flex flex-col gap-2">
-              <p className="text-sm font-medium text-gray-200">{name}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-gray-200">{name}</p>
+                <TierBadge conversions={advisorConversions[name] || 0} />
+              </div>
               <div className="flex items-center gap-2">
                 <code className="text-xs text-[#C9A84C] bg-gray-800 px-2 py-1 rounded flex-1 truncate">{link}</code>
                 <button
@@ -266,6 +311,7 @@ export default function PlatformReferralsPage() {
                 <th className="text-center px-4 py-3">Status</th>
                 <th className="text-left px-4 py-3">Conversion</th>
                 <th className="text-right px-4 py-3">Commission</th>
+                <th className="text-right px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -278,6 +324,26 @@ export default function PlatformReferralsPage() {
                   <td className="px-4 py-3 text-gray-400">{r.conversionDate ?? '—'}</td>
                   <td className="px-4 py-3 text-right text-[#C9A84C] font-semibold">
                     {r.commission > 0 ? money(r.commission) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {r.status === 'pending' ? (
+                      <span className="inline-flex gap-2">
+                        <button
+                          onClick={() => router.push('/platform/clients/new')}
+                          className="px-2.5 py-1 text-xs font-semibold rounded bg-[#C9A84C]/20 text-[#C9A84C] border border-[#C9A84C]/40 hover:bg-[#C9A84C]/30 transition"
+                        >
+                          Convert to Client &rarr;
+                        </button>
+                        <button
+                          onClick={() => { setToast('Follow-up logged'); setTimeout(() => setToast(null), 3000); }}
+                          className="px-2.5 py-1 text-xs font-semibold rounded bg-gray-800 text-gray-300 border border-gray-700 hover:border-gray-500 hover:text-white transition"
+                        >
+                          Log Follow-Up
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="text-gray-600">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -337,7 +403,12 @@ export default function PlatformReferralsPage() {
                         {i + 1}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-200 font-medium">{e.advisorName}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-gray-200 font-medium">{e.advisorName}</span>
+                        <TierBadge conversions={e.conversions} />
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-right text-white">{e.totalReferrals}</td>
                     <td className="px-4 py-3 text-right text-emerald-400">{e.conversions}</td>
                     <td className="px-4 py-3 text-right text-[#C9A84C] font-semibold">{money(e.totalCommission)}</td>
