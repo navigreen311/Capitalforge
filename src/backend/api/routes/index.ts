@@ -369,3 +369,14 @@ apiRouter.use('/', rewardsRouter);
 // POST /api/card-benefits/:clientId/export
 import { cardBenefitsApiRouter } from './card-benefits.routes.js';
 apiRouter.use('/card-benefits', cardBenefitsApiRouter);
+
+// ── Statements (reconciliation + client-level statement management) ──
+// GET    /api/statements?client_id=X
+// GET    /api/statements/:id/line-items
+// POST   /api/statements/anomalies/:id/dismiss
+// POST   /api/statements/anomalies/:id/steps/:step
+// POST   /api/statements/disputes
+// (also mounts /api/businesses/:id/statements/* reconciliation routes)
+import { statementsRouter } from './statements.routes.js';
+apiRouter.use('/statements', statementsRouter);
+apiRouter.use('/', statementsRouter);
