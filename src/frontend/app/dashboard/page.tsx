@@ -22,7 +22,10 @@ import {
   VoiceForgeActivity,
   PortfolioHealthWidget,
 } from '@/components/dashboard';
+import type { RestackStartRoundPayload } from '@/components/dashboard';
 import { SetupChecklist } from '@/components/onboarding/SetupChecklist';
+import { NewApplicationModal } from '@/components/applications';
+import type { NewAppDefaults } from '@/components/applications';
 
 // ─── Activity feed mock data (retained — no replacement component) ───────────
 
@@ -156,6 +159,17 @@ export default function DashboardPage() {
   const [markAllLabel, setMarkAllLabel] = useState('Mark all read');
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const toast = useToast();
+  const [showNewApp, setShowNewApp] = useState(false);
+  const [newAppDefaults, setNewAppDefaults] = useState<NewAppDefaults | undefined>(undefined);
+
+  function handleStartRound(payload: RestackStartRoundPayload) {
+    setNewAppDefaults({
+      client_id: payload.client_id,
+      client_name: payload.client_name,
+      round: payload.round,
+    });
+    setShowNewApp(true);
+  }
 
   function handleMarkAllRead() {
     setReadIds(new Set(ACTIVITY_ITEMS.map((item) => item.id)));
@@ -175,13 +189,17 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold text-gray-900">Operations Dashboard</h1>
           <p className="text-sm text-gray-400 mt-0.5">{today}</p>
         </div>
-        <a
-          href="/applications/new"
+        <button
+          type="button"
+          onClick={() => {
+            setNewAppDefaults(undefined);
+            setShowNewApp(true);
+          }}
           className="btn-accent btn flex-shrink-0"
         >
           <span aria-hidden="true">+</span>
           New Application
-        </a>
+        </button>
       </div>
 
       {/* ── Full-width: StatsBar (5 KPI cards with sparklines) ── */}
@@ -236,7 +254,7 @@ export default function DashboardPage() {
           </SectionCard>
 
           <PortfolioRiskHeatmap />
-          <RestackWidget />
+          <RestackWidget onStartRound={handleStartRound} />
           <RestackOpportunities />
           <VoiceForgeActivity />
 
@@ -283,6 +301,13 @@ export default function DashboardPage() {
           </SectionCard>
         </div>
       </div>
+
+      {/* New Application Modal */}
+      <NewApplicationModal
+        isOpen={showNewApp}
+        onClose={() => setShowNewApp(false)}
+        defaults={newAppDefaults}
+      />
     </div>
   );
 }

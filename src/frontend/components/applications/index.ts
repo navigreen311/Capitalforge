@@ -36,3 +36,6 @@ export { default as WizardStep3SelectCard } from './wizard/WizardStep3SelectCard
 export { default as WizardStep4BusinessPurpose } from './wizard/WizardStep4BusinessPurpose';
 export { default as WizardStep5ReviewConfirm } from './wizard/WizardStep5ReviewConfirm';
 export { default as NewApplicationWizardModal } from './wizard/NewApplicationWizardModal';
+
+export { NewApplicationModal } from './NewApplicationModal';
+export type { NewAppDefaults } from './NewApplicationModal';
