@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { SectionCard } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeStatus } from '@/components/ui/badge';
@@ -216,12 +217,12 @@ export default function DashboardPage() {
                 <ComplianceRow label="Pending reviews"     status="pending"    count={6}  />
                 <ComplianceRow label="Overdue items"       status="declined"   count={2}  />
               </div>
-              <a
+              <Link
                 href="/compliance"
                 className="btn-outline btn btn-sm w-full justify-center"
               >
                 Open Compliance Center
-              </a>
+              </Link>
             </div>
             {/* State disclosure deadlines — embedded below compliance overview */}
             <div className="mt-4 border-t border-surface-border pt-4">
