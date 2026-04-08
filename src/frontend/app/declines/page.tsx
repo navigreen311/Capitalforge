@@ -10,8 +10,11 @@
 //   4. Adverse action notice parser upload
 // ============================================================
 
-import { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { getReconGuidance } from '@/lib/issuer-recon-guidance';
+import type { IssuerReconGuidance } from '@/lib/issuer-recon-guidance';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -209,17 +212,17 @@ function computeRecoveryStats(records: DeclineRecord[]) {
   const won = resolved.filter(r => r.recoveryStage === 'won').length;
   const winRate = resolved.length > 0 ? Math.round((won / resolved.length) * 100) : 0;
 
-  // Avg days from decline to resolution
-  const resolvedWithDates = resolved.filter(r => r.resolvedAt);
+  // Avg days from declined_at to won_at for won records only
+  const wonWithDates = records.filter(r => r.recoveryStage === 'won' && r.resolvedAt);
   let avgDays = 0;
-  if (resolvedWithDates.length > 0) {
-    const total = resolvedWithDates.reduce((sum, r) => {
+  if (wonWithDates.length > 0) {
+    const total = wonWithDates.reduce((sum, r) => {
       const days = Math.ceil(
         (new Date(r.resolvedAt!).getTime() - new Date(r.declinedDate).getTime()) / (1000 * 60 * 60 * 24)
       );
       return sum + days;
     }, 0);
-    avgDays = Math.round(total / resolvedWithDates.length);
+    avgDays = Math.round(total / wonWithDates.length);
   }
 
   return { winRate, won, lost: resolved.length - won, avgDays, totalResolved: resolved.length };
@@ -559,6 +562,159 @@ function AdverseActionParser() {
 }
 
 // ---------------------------------------------------------------------------
+// Decline Analytics Chart (Feature 5C)
+// ---------------------------------------------------------------------------
+
+interface AnalyticsDataPoint {
+  reason: string;
+  count: number;
+  winRate: number;
+}
+
+const ANALYTICS_MOCK_DATA: AnalyticsDataPoint[] = [
+  { reason: 'Too Many Inquiries', count: 2, winRate: 35 },
+  { reason: 'Velocity Rule',      count: 2, winRate: 20 },
+  { reason: 'Thin File',          count: 1, winRate: 10 },
+  { reason: 'Income Verify',      count: 1, winRate: 40 },
+  { reason: 'Derogatory',         count: 1, winRate: 5 },
+];
+
+function getWinRateColor(winRate: number): string {
+  if (winRate >= 30) return '#22c55e'; // green
+  if (winRate >= 15) return '#f59e0b'; // amber
+  return '#ef4444';                     // red
+}
+
+function DeclineAnalyticsChart() {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/40">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-900/60 transition-colors rounded-xl"
+      >
+        <div>
+          <h2 className="text-base font-semibold text-gray-200">Decline Analytics</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Decline reasons by count, colored by historical win rate
+          </p>
+        </div>
+        <span className="text-gray-500 text-sm font-medium px-3 py-1 rounded-lg border border-gray-700 bg-gray-800">
+          {expanded ? 'Hide Analytics' : 'View Analytics'}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="px-5 pb-5">
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={ANALYTICS_MOCK_DATA} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+                <XAxis
+                  dataKey="reason"
+                  tick={{ fill: '#9ca3af', fontSize: 11 }}
+                  axisLine={{ stroke: '#374151' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fill: '#9ca3af', fontSize: 11 }}
+                  axisLine={{ stroke: '#374151' }}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#111827',
+                    border: '1px solid #374151',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                  }}
+                  labelStyle={{ color: '#f3f4f6', fontWeight: 600 }}
+                  formatter={(value: number, _name: string, props: { payload: AnalyticsDataPoint }) => [
+                    `${value} decline${value !== 1 ? 's' : ''} (${props.payload.winRate}% win rate)`,
+                    'Count',
+                  ]}
+                />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {ANALYTICS_MOCK_DATA.map((entry, index) => (
+                    <Cell key={index} fill={getWinRateColor(entry.winRate)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: '#22c55e' }} />
+              High win rate (30%+)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: '#f59e0b' }} />
+              Medium (15-29%)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: '#ef4444' }} />
+              Low (&lt;15%)
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Issuer Recon Guidance Panel (Feature 5B)
+// ---------------------------------------------------------------------------
+
+function IssuerGuidancePanel({ guidance }: { guidance: IssuerReconGuidance }) {
+  return (
+    <tr>
+      <td colSpan={10} className="px-4 py-0">
+        <div className="rounded-lg border border-[#C9A84C]/30 bg-[#0A1628] px-5 py-4 mb-2 mt-1">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-[#C9A84C]">
+              {guidance.issuer} Reconsideration Guidance
+            </h3>
+            <span className="text-xs text-gray-500">
+              Historical success: <span className="font-bold text-green-400">{guidance.historicalSuccessRate}%</span>
+              {' | '}Avg reversal: <span className="font-bold text-blue-400">{guidance.avgReversalDays}d</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+            <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-3 py-2">
+              <p className="text-xs text-gray-500 mb-0.5">Phone</p>
+              <p className="text-sm font-semibold text-white">{guidance.phone}</p>
+            </div>
+            <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-3 py-2">
+              <p className="text-xs text-gray-500 mb-0.5">Department</p>
+              <p className="text-sm font-semibold text-white">{guidance.department}</p>
+            </div>
+            <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-3 py-2">
+              <p className="text-xs text-gray-500 mb-0.5">Best Time to Call</p>
+              <p className="text-sm font-semibold text-white">{guidance.bestTimeToCall}</p>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold text-gray-400 mb-2">Talking Points</p>
+            <ul className="space-y-1.5">
+              {guidance.talkingPoints.map((point, i) => (
+                <li key={i} className="flex gap-2 text-xs text-gray-300">
+                  <span className="text-[#C9A84C] font-bold flex-shrink-0">{i + 1}.</span>
+                  {point}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -570,6 +726,7 @@ export default function DeclinesPage() {
   const [reasonFilter, setReasonFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -659,6 +816,9 @@ export default function DeclinesPage() {
       {/* ── Recovery Tracker ─────────────────────────────────────── */}
       <RecoveryTracker records={declineRecords} onAdvance={handleAdvanceStage} />
 
+      {/* ── Section 5C: Decline Analytics Chart ──────────────────── */}
+      <DeclineAnalyticsChart />
+
       {/* ── Section 1: Declines Table ─────────────────────────────── */}
       <section>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -714,52 +874,60 @@ export default function DeclinesPage() {
               {filteredDeclines.map((d) => {
                 const reason = REASON_LABELS[d.reasonCategory];
                 const recon = RECON_STATUS_LABELS[d.reconStatus];
+                const isExpanded = expandedRowId === d.id;
+                const guidance = getReconGuidance(d.issuer);
                 return (
-                  <tr key={d.id} className="hover:bg-gray-900/60 transition-colors">
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{d.appId}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-semibold text-gray-100 text-xs">{d.businessName}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-semibold text-white text-xs">{d.issuer}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{d.cardProduct}</p>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-400">{d.declinedDate}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        title={d.reasonDetail}
-                        className={`text-xs font-semibold px-2 py-0.5 rounded border cursor-help ${reason.cls}`}
-                      >
-                        {reason.label}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${recon.cls}`}>
-                        {recon.label}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${RECOVERY_STAGE_COLORS[d.recoveryStage]}`}>
-                        {RECOVERY_STAGE_LABELS[d.recoveryStage]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <CooldownTimer endsDate={d.cooldownEndsDate} />
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs text-gray-300 font-semibold">
-                      {formatCurrency(d.requestedLimit)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => setSelectedRecord(d)}
-                        className="text-xs px-2 py-1 rounded bg-yellow-900 hover:bg-yellow-800 text-yellow-300 border border-yellow-700 transition-colors whitespace-nowrap"
-                      >
-                        Write Letter
-                      </button>
-                    </td>
-                  </tr>
+                  <React.Fragment key={d.id}>
+                    <tr
+                      onClick={() => setExpandedRowId(isExpanded ? null : d.id)}
+                      className={`hover:bg-gray-900/60 transition-colors cursor-pointer ${isExpanded ? 'bg-gray-900/40' : ''}`}
+                    >
+                      <td className="px-4 py-3">
+                        <span className="font-mono text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{d.appId}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-gray-100 text-xs">{d.businessName}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-white text-xs">{d.issuer}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{d.cardProduct}</p>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-400">{d.declinedDate}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          title={d.reasonDetail}
+                          className={`text-xs font-semibold px-2 py-0.5 rounded border cursor-help ${reason.cls}`}
+                        >
+                          {reason.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${recon.cls}`}>
+                          {recon.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${RECOVERY_STAGE_COLORS[d.recoveryStage]}`}>
+                          {RECOVERY_STAGE_LABELS[d.recoveryStage]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <CooldownTimer endsDate={d.cooldownEndsDate} />
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-gray-300 font-semibold">
+                        {formatCurrency(d.requestedLimit)}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedRecord(d); }}
+                          className="text-xs px-2 py-1 rounded bg-yellow-900 hover:bg-yellow-800 text-yellow-300 border border-yellow-700 transition-colors whitespace-nowrap"
+                        >
+                          Write Letter
+                        </button>
+                      </td>
+                    </tr>
+                    {isExpanded && guidance && <IssuerGuidancePanel guidance={guidance} />}
+                  </React.Fragment>
                 );
               })}
               {filteredDeclines.length === 0 && (
