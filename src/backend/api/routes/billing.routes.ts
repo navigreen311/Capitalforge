@@ -9,6 +9,13 @@
 // GET  /api/tenants/:tenantId/plan           — get active plan + entitlements
 // GET  /api/tenants/:tenantId/usage          — get current period usage snapshot
 // POST /api/tenants/:tenantId/usage/record   — record a usage event
+//
+// Extended billing management:
+// GET  /api/billing/invoices/:id/pdf         — mock invoice PDF text
+// POST /api/billing/invoices/:id/void        — void an invoice
+// POST /api/billing/invoices/:id/unpay       — revert invoice to unpaid
+// POST /api/billing/commissions/:id/resolve  — resolve a commission dispute
+// GET  /api/billing/revenue-trend            — mock 6-month revenue trend
 // ============================================================
 
 import { Router } from 'express';
@@ -444,5 +451,268 @@ billingRouter.post(
       };
       res.status(500).json(body);
     }
+  },
+);
+
+// ============================================================
+// Extended Billing Management (Mock Endpoints)
+// ============================================================
+
+// In-memory state for voids, unpays, and commission resolutions
+const voidedInvoices: Record<string, { voidedAt: string; reason: string }> = {};
+const unpaidInvoices: Record<string, { revertedAt: string }> = {};
+const resolvedCommissions: Record<string, { resolvedAt: string; resolution: string; amount: number }> = {};
+
+// ── GET /api/billing/invoices/:id/pdf ────────────────────────
+//
+// Returns a mock invoice as text (simulating PDF content).
+
+billingRouter.get(
+  '/billing/invoices/:id/pdf',
+  async (req: Request, res: Response): Promise<void> => {
+    const invoiceId = String(req.params['id'] ?? '');
+
+    if (!invoiceId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'Invoice ID is required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    logger.debug('GET invoice PDF', { invoiceId });
+
+    const invoiceText = [
+      'INVOICE',
+      '='.repeat(50),
+      `Invoice #: ${invoiceId}`,
+      `Date: ${new Date().toISOString().split('T')[0]}`,
+      `Due Date: ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}`,
+      '',
+      'Bill To:',
+      '  CapitalForge Client',
+      '  123 Business Ave, Suite 400',
+      '  New York, NY 10001',
+      '',
+      'Items:',
+      '  Card Stacking Advisory Fee          $2,500.00',
+      '  Credit Optimization Service          $1,200.00',
+      '  Portfolio Monitoring (Monthly)          $499.00',
+      '  Compliance Review                       $350.00',
+      '  ─────────────────────────────────────────────',
+      '  Subtotal                             $4,549.00',
+      '  Tax (0%)                                 $0.00',
+      '  ─────────────────────────────────────────────',
+      '  TOTAL DUE                            $4,549.00',
+      '',
+      'Payment Terms: Net 30',
+      'Payment Methods: ACH, Wire, Check',
+      '',
+      'Thank you for your business.',
+    ].join('\n');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        invoiceId,
+        format: 'text',
+        content: invoiceText,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  },
+);
+
+// ── POST /api/billing/invoices/:id/void ──────────────────────
+//
+// Void an invoice (mark as cancelled/void).
+
+billingRouter.post(
+  '/billing/invoices/:id/void',
+  async (req: Request, res: Response): Promise<void> => {
+    const invoiceId = String(req.params['id'] ?? '');
+    const { reason } = req.body as Record<string, unknown>;
+
+    if (!invoiceId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'Invoice ID is required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    if (voidedInvoices[invoiceId]) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'ALREADY_VOIDED', message: `Invoice ${invoiceId} is already voided.` },
+      };
+      res.status(422).json(body);
+      return;
+    }
+
+    const entry = {
+      voidedAt: new Date().toISOString(),
+      reason: typeof reason === 'string' ? reason : 'No reason provided',
+    };
+    voidedInvoices[invoiceId] = entry;
+
+    logger.info('Invoice voided', { invoiceId, reason: entry.reason });
+
+    const body: ApiResponse = {
+      success: true,
+      data: {
+        invoiceId,
+        status: 'voided',
+        ...entry,
+      },
+    };
+    res.status(200).json(body);
+  },
+);
+
+// ── POST /api/billing/invoices/:id/unpay ─────────────────────
+//
+// Revert a paid invoice back to unpaid status.
+
+billingRouter.post(
+  '/billing/invoices/:id/unpay',
+  async (req: Request, res: Response): Promise<void> => {
+    const invoiceId = String(req.params['id'] ?? '');
+
+    if (!invoiceId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'Invoice ID is required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    if (voidedInvoices[invoiceId]) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_STATE', message: `Invoice ${invoiceId} is voided and cannot be unpaid.` },
+      };
+      res.status(422).json(body);
+      return;
+    }
+
+    const entry = { revertedAt: new Date().toISOString() };
+    unpaidInvoices[invoiceId] = entry;
+
+    logger.info('Invoice reverted to unpaid', { invoiceId });
+
+    const body: ApiResponse = {
+      success: true,
+      data: {
+        invoiceId,
+        status: 'unpaid',
+        ...entry,
+      },
+    };
+    res.status(200).json(body);
+  },
+);
+
+// ── POST /api/billing/commissions/:id/resolve ────────────────
+//
+// Resolve a commission dispute.
+
+billingRouter.post(
+  '/billing/commissions/:id/resolve',
+  async (req: Request, res: Response): Promise<void> => {
+    const commissionId = String(req.params['id'] ?? '');
+    const { resolution, amount } = req.body as Record<string, unknown>;
+
+    if (!commissionId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'Commission ID is required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    if (!resolution || typeof resolution !== 'string') {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'resolution is required and must be a string.' },
+      };
+      res.status(422).json(body);
+      return;
+    }
+
+    const entry = {
+      resolvedAt: new Date().toISOString(),
+      resolution,
+      amount: typeof amount === 'number' ? amount : 0,
+    };
+    resolvedCommissions[commissionId] = entry;
+
+    logger.info('Commission dispute resolved', { commissionId, resolution });
+
+    const body: ApiResponse = {
+      success: true,
+      data: {
+        commissionId,
+        status: 'resolved',
+        ...entry,
+      },
+    };
+    res.status(200).json(body);
+  },
+);
+
+// ── GET /api/billing/revenue-trend ───────────────────────────
+//
+// Returns mock 6-month revenue trend data.
+
+billingRouter.get(
+  '/billing/revenue-trend',
+  async (_req: Request, res: Response): Promise<void> => {
+    const now = new Date();
+    const months: Array<{
+      month: string;
+      revenue: number;
+      invoiceCount: number;
+      collectionRate: number;
+    }> = [];
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthLabel = d.toISOString().slice(0, 7); // YYYY-MM
+      const baseRevenue = 45000 + Math.floor(Math.random() * 15000);
+      months.push({
+        month: monthLabel,
+        revenue: baseRevenue,
+        invoiceCount: 15 + Math.floor(Math.random() * 10),
+        collectionRate: 0.92 + Math.random() * 0.07,
+      });
+    }
+
+    // Ensure upward trend by sorting revenue ascending
+    const revenues = months.map((m) => m.revenue).sort((a, b) => a - b);
+    months.forEach((m, i) => { m.revenue = revenues[i]!; });
+
+    const totalRevenue = months.reduce((s, m) => s + m.revenue, 0);
+    const avgMonthly = Math.round(totalRevenue / months.length);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        period: `${months[0]!.month} to ${months[months.length - 1]!.month}`,
+        months,
+        summary: {
+          totalRevenue,
+          averageMonthly: avgMonthly,
+          growthRate: +(((months[months.length - 1]!.revenue - months[0]!.revenue) / months[0]!.revenue) * 100).toFixed(1),
+          totalInvoices: months.reduce((s, m) => s + m.invoiceCount, 0),
+          avgCollectionRate: +(months.reduce((s, m) => s + m.collectionRate, 0) / months.length).toFixed(3),
+        },
+        generatedAt: new Date().toISOString(),
+      },
+    });
   },
 );

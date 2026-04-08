@@ -7,6 +7,13 @@
 // GET    /api/businesses/:id/statements/anomalies   — anomaly report
 // POST   /api/businesses/:id/statements/:statementId/reconcile — mark reconciled
 // POST   /api/statements/parse-email               — email parser stub
+//
+// Client-level statement & anomaly management:
+// GET    /api/statements?client_id=X                — mock statement list
+// GET    /api/statements/:id/line-items             — mock transactions, payments, fees, recon diff
+// POST   /api/statements/anomalies/:id/dismiss      — dismiss anomaly
+// POST   /api/statements/anomalies/:id/steps/:step  — complete investigation step
+// POST   /api/statements/disputes                   — log dispute
 // ============================================================
 
 import { Router, Request, Response, NextFunction } from 'express';
@@ -321,5 +328,259 @@ statementsRouter.post(
     } catch (err) {
       handleError(res, err, 'POST /statements/parse-email');
     }
+  },
+);
+
+// ============================================================
+// Client-Level Statement & Anomaly Management (Mock Endpoints)
+// ============================================================
+
+// In-memory state for anomaly dismissals, investigation steps, and disputes
+const dismissedAnomalies: Record<string, { dismissedAt: string; reason: string }> = {};
+const completedSteps: Record<string, { completedAt: string; notes: string }> = {};
+const disputes: Array<{
+  id: string;
+  statementId: string;
+  clientId: string;
+  reason: string;
+  amount: number;
+  createdAt: string;
+}> = [];
+
+// ── GET /api/statements?client_id=X ─────────────────────────
+//
+// Returns a mock list of statements for a client.
+
+statementsRouter.get(
+  '/',
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const clientId = typeof req.query['client_id'] === 'string' ? req.query['client_id'] : '';
+
+    if (!clientId) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'client_id query parameter is required.' },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    logger.debug('GET statements list', { clientId });
+
+    const statements = [
+      {
+        id: 'stmt-001',
+        cardId: 'card-amex-plat',
+        cardName: 'Amex Business Platinum',
+        issuer: 'American Express',
+        statementDate: '2026-03-15',
+        closingBalance: 12450.32,
+        minimumPayment: 622.52,
+        dueDate: '2026-04-10',
+        status: 'reviewed',
+        anomalyCount: 1,
+      },
+      {
+        id: 'stmt-002',
+        cardId: 'card-chase-sapphire',
+        cardName: 'Chase Sapphire Reserve',
+        issuer: 'Chase',
+        statementDate: '2026-03-18',
+        closingBalance: 8320.15,
+        minimumPayment: 416.01,
+        dueDate: '2026-04-13',
+        status: 'pending_review',
+        anomalyCount: 2,
+      },
+      {
+        id: 'stmt-003',
+        cardId: 'card-amex-gold',
+        cardName: 'Amex Business Gold',
+        issuer: 'American Express',
+        statementDate: '2026-03-20',
+        closingBalance: 5670.88,
+        minimumPayment: 283.54,
+        dueDate: '2026-04-15',
+        status: 'reconciled',
+        anomalyCount: 0,
+      },
+    ];
+
+    res.status(200).json({
+      success: true,
+      data: { clientId, statements },
+      meta: { total: statements.length },
+    } satisfies ApiResponse);
+  },
+);
+
+// ── GET /api/statements/:id/line-items ───────────────────────
+//
+// Returns mock transactions, payments, fees, and reconciliation
+// differences for a specific statement.
+
+statementsRouter.get(
+  '/:id/line-items',
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const statementId = String(req.params['id']);
+
+    logger.debug('GET statement line-items', { statementId });
+
+    const data = {
+      statementId,
+      transactions: [
+        { id: 'txn-001', date: '2026-03-02', description: 'Office Depot - Supplies', amount: 347.89, category: 'office_supplies', mcc: '5943' },
+        { id: 'txn-002', date: '2026-03-05', description: 'Delta Air Lines', amount: 1245.00, category: 'travel', mcc: '3058' },
+        { id: 'txn-003', date: '2026-03-08', description: 'AWS Cloud Services', amount: 2890.42, category: 'technology', mcc: '7372' },
+        { id: 'txn-004', date: '2026-03-12', description: 'Uber for Business', amount: 156.30, category: 'transportation', mcc: '4121' },
+        { id: 'txn-005', date: '2026-03-15', description: 'WeWork Membership', amount: 800.00, category: 'office_rent', mcc: '6513' },
+      ],
+      payments: [
+        { id: 'pmt-001', date: '2026-03-01', amount: -5000.00, method: 'ACH', reference: 'ACH-20260301-001' },
+      ],
+      fees: [
+        { id: 'fee-001', type: 'annual_fee', description: 'Annual Card Fee', amount: 695.00, date: '2026-03-01' },
+        { id: 'fee-002', type: 'interest', description: 'Interest Charge', amount: 89.12, date: '2026-03-15', apr: 21.49 },
+      ],
+      reconDiff: {
+        expectedBalance: 12450.32,
+        calculatedBalance: 12438.73,
+        difference: 11.59,
+        status: 'mismatch' as const,
+        possibleCauses: [
+          'Pending transaction not yet posted',
+          'Rounding differences across multi-currency transactions',
+        ],
+      },
+    };
+
+    res.status(200).json({
+      success: true,
+      data,
+    } satisfies ApiResponse);
+  },
+);
+
+// ── POST /api/statements/anomalies/:id/dismiss ──────────────
+//
+// Dismiss a statement anomaly.
+
+statementsRouter.post(
+  '/anomalies/:id/dismiss',
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const anomalyId = String(req.params['id']);
+    const { reason } = req.body as Record<string, unknown>;
+
+    if (!reason || typeof reason !== 'string') {
+      res.status(422).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'reason is required and must be a string.' },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    const entry = {
+      dismissedAt: new Date().toISOString(),
+      reason,
+    };
+    dismissedAnomalies[anomalyId] = entry;
+
+    logger.info('Anomaly dismissed', { anomalyId, reason });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        anomalyId,
+        status: 'dismissed',
+        ...entry,
+      },
+    } satisfies ApiResponse);
+  },
+);
+
+// ── POST /api/statements/anomalies/:id/steps/:step ─────────
+//
+// Complete an investigation step for an anomaly.
+
+statementsRouter.post(
+  '/anomalies/:id/steps/:step',
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const anomalyId = String(req.params['id']);
+    const step = String(req.params['step']);
+    const { notes } = req.body as Record<string, unknown>;
+
+    const key = `${anomalyId}:${step}`;
+    const entry = {
+      completedAt: new Date().toISOString(),
+      notes: typeof notes === 'string' ? notes : '',
+    };
+    completedSteps[key] = entry;
+
+    logger.info('Investigation step completed', { anomalyId, step });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        anomalyId,
+        step,
+        status: 'completed',
+        ...entry,
+      },
+    } satisfies ApiResponse);
+  },
+);
+
+// ── POST /api/statements/disputes ───────────────────────────
+//
+// Log a new dispute against a statement line item.
+
+statementsRouter.post(
+  '/disputes',
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    const { statementId, clientId, reason, amount } = req.body as Record<string, unknown>;
+
+    if (!statementId || typeof statementId !== 'string') {
+      res.status(422).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'statementId is required.' },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    if (!reason || typeof reason !== 'string') {
+      res.status(422).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'reason is required.' },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    if (amount === undefined || typeof amount !== 'number' || amount <= 0) {
+      res.status(422).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'amount must be a positive number.' },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    const dispute = {
+      id: `disp-${Date.now()}`,
+      statementId,
+      clientId: typeof clientId === 'string' ? clientId : 'unknown',
+      reason,
+      amount,
+      createdAt: new Date().toISOString(),
+    };
+    disputes.push(dispute);
+
+    logger.info('Statement dispute logged', { disputeId: dispute.id, statementId, amount });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        ...dispute,
+        status: 'open',
+        estimatedResolution: '5-10 business days',
+      },
+    } satisfies ApiResponse);
   },
 );
