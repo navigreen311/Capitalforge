@@ -81,6 +81,10 @@ apiRouter.use('/', fundingRoundRouter);
 import { fundingRoundDetailRouter } from './funding-round-detail.routes.js';
 apiRouter.use('/funding-rounds/:roundId', fundingRoundDetailRouter);
 
+// -- Funding Round Actions (export-dossier, status update) --
+import { fundingRoundActionsRouter } from './funding-round-actions.routes.js';
+apiRouter.use('/', fundingRoundActionsRouter);
+
 // -- Consent (per-business consent management) --
 import consentRouter from './consent.routes.js';
 apiRouter.use('/businesses/:id/consent', consentRouter);
