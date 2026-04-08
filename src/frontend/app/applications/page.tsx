@@ -41,6 +41,8 @@ interface ApplicationCard {
   consentStatus: 'complete' | 'pending' | 'missing';
   /** Assigned advisor full name */
   advisor: string;
+  /** Issuer type: bank or credit union */
+  issuer_type?: 'bank' | 'credit_union';
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +97,20 @@ const PLACEHOLDER_APPS: ApplicationCard[] = [
     issuer: 'US Bank', cardProduct: 'Business Altitude Connect', status: 'approved',
     requestedLimit: 60000, approvedLimit: 60000, createdAt: '2026-03-15T12:00:00Z', updatedAt: '2026-03-22T14:00:00Z',
     roundNumber: 1, daysInStatus: 0, consentStatus: 'complete', advisor: 'Sarah Chen',
+  },
+  {
+    id: 'APP-0083', businessId: 'biz_008', businessName: 'Greenfield Logistics',
+    issuer: 'Alliant', cardProduct: 'Alliant Visa Business', status: 'submitted',
+    requestedLimit: 15000, createdAt: '2026-03-29T09:00:00Z', updatedAt: '2026-03-31T10:00:00Z',
+    roundNumber: 2, daysInStatus: 3, consentStatus: 'complete', advisor: 'Sarah Chen',
+    issuer_type: 'credit_union',
+  },
+  {
+    id: 'APP-0082', businessId: 'biz_009', businessName: 'Coastal Wellness Group',
+    issuer: 'PenFed', cardProduct: 'PenFed Platinum Business', status: 'approved',
+    requestedLimit: 25000, approvedLimit: 25000, createdAt: '2026-03-20T08:00:00Z', updatedAt: '2026-03-27T14:00:00Z',
+    roundNumber: 3, daysInStatus: 0, consentStatus: 'complete', advisor: 'Marcus Reid',
+    issuer_type: 'credit_union',
   },
 ];
 
@@ -198,8 +214,18 @@ function AppCard({
       {/* Issuer + consent dot + status */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${consent.color}`} title={consent.title} />
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+              card.issuer_type === 'credit_union' ? 'bg-[#1D9E75]' : consent.color
+            }`}
+            title={card.issuer_type === 'credit_union' ? 'Credit Union' : consent.title}
+          />
           {card.issuer}
+          {card.issuer_type === 'credit_union' && (
+            <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 ml-1">
+              CU
+            </span>
+          )}
         </span>
         <span className={`text-2xs font-bold px-2 py-0.5 rounded-full border ${STATUS_CHIP[card.status] ?? STATUS_CHIP.draft}`}>
           {card.status.replace('_', ' ')}
