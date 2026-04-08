@@ -388,6 +388,115 @@ documentRouter.put(
   },
 );
 
+// ── POST /api/documents/upload ────────────────────────────────
+//
+// Mock document upload. Accepts JSON with filename and documentType,
+// returns a mock upload result with id, filename, and status.
+// This is a simplified endpoint for the Document Vault UI.
+
+documentRouter.post(
+  '/documents/upload',
+  requireAuth,
+  requirePermissions(PERMISSIONS.DOCUMENT_WRITE),
+  async (req: Request, res: Response): Promise<void> => {
+    const ctx = req.tenantContext!;
+
+    const { filename, documentType, businessId, description } = req.body as {
+      filename?: string;
+      documentType?: string;
+      businessId?: string;
+      description?: string;
+    };
+
+    if (!filename || typeof filename !== 'string' || filename.trim() === '') {
+      badRequest(res, 'filename is required and must be a non-empty string');
+      return;
+    }
+    if (!documentType || typeof documentType !== 'string' || documentType.trim() === '') {
+      badRequest(res, 'documentType is required');
+      return;
+    }
+
+    const reqLog = logger.child({
+      requestId: req.requestId,
+      tenantId: ctx.tenantId,
+      route: 'POST /documents/upload',
+    });
+
+    try {
+      const doc = await getPrisma().document.create({
+        data: {
+          tenantId: ctx.tenantId,
+          businessId: businessId ?? null,
+          documentType,
+          title: filename.trim(),
+          storageKey: `uploads/${Date.now()}_${filename.trim()}`,
+          metadata: description ? { description } : undefined,
+          uploadedBy: ctx.userId ?? 'system',
+        },
+      });
+
+      reqLog.info('[upload] Document uploaded via /documents/upload', { documentId: doc.id });
+
+      const data = { id: doc.id, filename: doc.title, status: 'uploaded' as const };
+      const body: ApiResponse<typeof data> = { success: true, data };
+      res.status(201).json(body);
+    } catch (err) {
+      serverError(res, 'Document upload failed', err);
+    }
+  },
+);
+
+// ── PATCH /api/documents/:id/legal-hold ──────────────────────
+//
+// Toggle legal hold on a document via PATCH.
+// Body: { legalHold: boolean }
+
+documentRouter.patch(
+  '/documents/:id/legal-hold',
+  requireAuth,
+  requirePermissions(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response): Promise<void> => {
+    const documentId = req.params['id'];
+    const ctx = req.tenantContext!;
+
+    const { legalHold } = req.body as { legalHold?: unknown };
+
+    if (typeof legalHold !== 'boolean') {
+      badRequest(res, 'legalHold must be a boolean');
+      return;
+    }
+
+    const reqLog = logger.child({
+      requestId: req.requestId,
+      tenantId: ctx.tenantId,
+      documentId,
+      legalHold,
+      route: 'PATCH /documents/:id/legal-hold',
+    });
+
+    reqLog.info('[legal-hold] Legal hold toggle via PATCH');
+
+    try {
+      const updated = await getVaultService().setLegalHold(
+        documentId,
+        ctx.tenantId,
+        legalHold,
+        ctx.userId,
+      );
+
+      const body: ApiResponse<DocumentRecord> = { success: true, data: updated };
+      res.status(200).json(body);
+    } catch (err) {
+      if (err instanceof DocumentNotFoundError) {
+        notFound(res, `Document not found: ${documentId}`);
+        return;
+      }
+      serverError(res, 'Failed to update legal hold', err);
+    }
+  },
+);
+
 // ── DELETE /api/documents/:id ─────────────────────────────────
 //
 // Hard-delete a document from the vault.
