@@ -9,3 +9,7 @@ export { RewardsClientSelector } from './RewardsClientSelector';
 export type { RewardsClient, RewardsClientSelectorProps } from './RewardsClientSelector';
 export { PointsValuationColumn, POINT_VALUES } from './PointsValuationColumn';
 export type { PointsValuationColumnProps } from './PointsValuationColumn';
+export { PointsBalancePanel, POINTS_BALANCE_PLACEHOLDER } from './PointsBalancePanel';
+export type { PointsBalanceCard, PointsBalancePanelProps } from './PointsBalancePanel';
+export { FeeWaiverModal, ISSUER_RETENTION_SCRIPTS } from './FeeWaiverModal';
+export type { FeeWaiverModalProps, RetentionScript } from './FeeWaiverModal';

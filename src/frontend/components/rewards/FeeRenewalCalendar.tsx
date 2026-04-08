@@ -20,6 +20,8 @@ export interface FeeRenewalCard {
 
 export interface FeeRenewalCalendarProps {
   cards: FeeRenewalCard[];
+  /** Called when user clicks "Consider fee waiver" on a review-recommended card. */
+  onFeeWaiver?: (card: FeeRenewalCard) => void;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -101,7 +103,13 @@ const PLACEHOLDER_CARDS: FeeRenewalCard[] = [
 
 // ─── Row sub-component ──────────────────────────────────────────────────────
 
-function RenewalRow({ item }: { item: FeeRenewalCard }) {
+function RenewalRow({
+  item,
+  onFeeWaiver,
+}: {
+  item: FeeRenewalCard;
+  onFeeWaiver?: (card: FeeRenewalCard) => void;
+}) {
   const config = RECOMMENDATION_CONFIG[item.recommendation];
   const actionLabel = config.label(item.renewalDate);
 
@@ -136,14 +144,30 @@ function RenewalRow({ item }: { item: FeeRenewalCard }) {
         </p>
       </div>
 
-      {/* Action label */}
+      {/* Action label / button */}
       <div className="flex-shrink-0 w-44 text-right">
-        <span
-          className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-md
-                      ${config.textClass} ${config.bgClass}`}
-        >
-          {actionLabel}
-        </span>
+        {item.recommendation === 'review' && onFeeWaiver ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onFeeWaiver(item);
+            }}
+            className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-md
+                        cursor-pointer hover:ring-1 hover:ring-amber-400/50
+                        transition-all duration-150
+                        ${config.textClass} ${config.bgClass}`}
+          >
+            {actionLabel}
+          </button>
+        ) : (
+          <span
+            className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-md
+                        ${config.textClass} ${config.bgClass}`}
+          >
+            {actionLabel}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -151,7 +175,7 @@ function RenewalRow({ item }: { item: FeeRenewalCard }) {
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-export function FeeRenewalCalendar({ cards = PLACEHOLDER_CARDS }: FeeRenewalCalendarProps) {
+export function FeeRenewalCalendar({ cards = PLACEHOLDER_CARDS, onFeeWaiver }: FeeRenewalCalendarProps) {
   const sorted = sortByRenewalDate(cards);
   const totalFees = sorted.reduce((sum, c) => sum + c.annualFee, 0);
 
@@ -191,7 +215,7 @@ export function FeeRenewalCalendar({ cards = PLACEHOLDER_CARDS }: FeeRenewalCale
         {/* ── Card rows ────────────────────────────────────────── */}
         <div className="px-2 pb-4 space-y-1">
           {sorted.map((item) => (
-            <RenewalRow key={`${item.issuer}-${item.card}-${item.renewalDate}`} item={item} />
+            <RenewalRow key={`${item.issuer}-${item.card}-${item.renewalDate}`} item={item} onFeeWaiver={onFeeWaiver} />
           ))}
         </div>
       </div>
