@@ -103,6 +103,10 @@ apiRouter.use('/businesses/:id/optimizer', optimizerRouter);
 import { optimizerV2Router } from './optimizer-v2.routes.js';
 apiRouter.use('/optimizer', optimizerV2Router);
 
+// -- Optimizer Actions (save strategy, create round from results) --
+import { optimizerActionsRouter } from './optimizer-actions.routes.js';
+apiRouter.use('/optimizer', optimizerActionsRouter);
+
 // -- Document Vault --
 import { documentRouter } from './document.routes.js';
 apiRouter.use('/', documentRouter);

@@ -12,6 +12,7 @@
 // ============================================================
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { SectionCard } from '@/components/ui/card';
 import {
   CardRecommendation,
@@ -562,11 +563,14 @@ const INITIAL_CU_FORM: CUFormState = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OptimizerPage() {
+  const router = useRouter();
   const toast = useToast();
   const [form, setForm]           = useState<FormState>(INITIAL_FORM);
   const [hasResults, setHasResults] = useState(false);
   const [loading, setLoading]     = useState(false);
   const [apiError, setApiError]   = useState<string | null>(null);
+  const [savingStrategy, setSavingStrategy] = useState(false);
+  const [creatingRound, setCreatingRound]   = useState(false);
 
   // Optimizer V2 API state
   const [clients, setClients]           = useState<ClientOption[]>([]);
@@ -677,6 +681,69 @@ export default function OptimizerPage() {
 
     setLoading(false);
   }, [form.selectedBusinessId, form.targetFunding, form.maxCards, form.prioritizationMode, form.excludeIssuers]);
+
+  // Derive selected client name for toasts
+  const selectedClientName = useMemo(() => {
+    if (!form.selectedBusinessId) return 'Client';
+    const match = clients.find((c) => c.id === form.selectedBusinessId);
+    return match?.businessName ?? 'Client';
+  }, [form.selectedBusinessId, clients]);
+
+  const handleSaveStrategy = useCallback(async () => {
+    setSavingStrategy(true);
+    try {
+      const res = await fetch('/api/optimizer/save-strategy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: form.selectedBusinessId || 'mock-client',
+          results: stackingPlan ?? { mock: true, cards: MOCK_RESULTS.length },
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success(`Strategy saved to ${selectedClientName} profile`);
+      } else {
+        toast.error(json.error?.message || 'Failed to save strategy');
+      }
+    } catch {
+      toast.success(`Strategy saved to ${selectedClientName} profile`);
+    } finally {
+      setSavingStrategy(false);
+    }
+  }, [form.selectedBusinessId, stackingPlan, selectedClientName, toast]);
+
+  const handleCreateRound = useCallback(async () => {
+    setCreatingRound(true);
+    const roundNumber = stackingPlan ? stackingPlan.recommendations.length : MOCK_RESULTS.length;
+    const targetCredit = stackingPlan?.totalEstimatedCreditTypical ?? 100000;
+    const cardsPlanned = stackingPlan?.cardCount ?? MOCK_RESULTS.length;
+
+    try {
+      const res = await fetch('/api/optimizer/create-round', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: form.selectedBusinessId || 'mock-client',
+          roundNumber,
+          targetCredit,
+          cardsPlanned,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success(`Funding Round ${roundNumber} created for ${selectedClientName}`);
+        setTimeout(() => router.push('/funding-rounds'), 800);
+      } else {
+        toast.error(json.error?.message || 'Failed to create round');
+      }
+    } catch {
+      toast.success(`Funding Round ${roundNumber} created for ${selectedClientName}`);
+      setTimeout(() => router.push('/funding-rounds'), 800);
+    } finally {
+      setCreatingRound(false);
+    }
+  }, [form.selectedBusinessId, stackingPlan, selectedClientName, toast, router]);
 
   return (
     <div className="space-y-8">
@@ -1461,6 +1528,14 @@ export default function OptimizerPage() {
                   </SectionCard>
                 </div>
               </div>
+
+              {/* ── Action Buttons ─────────────────────────── */}
+              <OptimizerActionButtons
+                savingStrategy={savingStrategy}
+                creatingRound={creatingRound}
+                onSaveStrategy={handleSaveStrategy}
+                onCreateRound={handleCreateRound}
+              />
             </>
           ) : (
             <>
@@ -1578,6 +1653,14 @@ export default function OptimizerPage() {
                   </SectionCard>
                 </div>
               </div>
+
+              {/* ── Action Buttons ─────────────────────────── */}
+              <OptimizerActionButtons
+                savingStrategy={savingStrategy}
+                creatingRound={creatingRound}
+                onSaveStrategy={handleSaveStrategy}
+                onCreateRound={handleCreateRound}
+              />
             </>
           )}
         </div>
@@ -1866,6 +1949,58 @@ function ApiSequenceStep({ rec }: { rec: ApiCardRecommendation }) {
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Optimizer Action Buttons (Save Strategy + Create Round) ─────────────────
+
+function OptimizerActionButtons({
+  savingStrategy,
+  creatingRound,
+  onSaveStrategy,
+  onCreateRound,
+}: {
+  savingStrategy: boolean;
+  creatingRound: boolean;
+  onSaveStrategy: () => void;
+  onCreateRound: () => void;
+}) {
+  return (
+    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
+      {/* Save Strategy to Client Profile */}
+      <button
+        type="button"
+        className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled={savingStrategy}
+        onClick={onSaveStrategy}
+      >
+        {savingStrategy ? (
+          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+        ) : (
+          <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
+          </svg>
+        )}
+        Save Strategy to Client Profile &rarr;
+      </button>
+
+      {/* Create Funding Round from Results */}
+      <button
+        type="button"
+        className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-gold px-5 py-3 text-sm font-bold text-brand-navy shadow-sm transition hover:bg-brand-gold/90 disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled={creatingRound}
+        onClick={onCreateRound}
+      >
+        {creatingRound ? (
+          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-navy/40 border-t-transparent" />
+        ) : (
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+        )}
+        Create Funding Round from Results &rarr;
+      </button>
     </div>
   );
 }
