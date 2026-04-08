@@ -18,6 +18,8 @@ import UsageMeter from '../../components/modules/usage-meter';
 
 type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'refunded' | 'overdue' | 'voided';
 type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed';
+type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'refunded' | 'overdue';
+type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed' | 'rejected';
 type DealStructure = 'revenue_share' | 'flat_fee' | 'term_loan' | 'line_of_credit' | 'mca';
 
 interface Invoice {
@@ -195,6 +197,7 @@ const COMMISSION_STATUS_CONFIG: Record<CommissionStatus, { label: string; badgeC
   approved: { label: 'Approved', badgeClass: 'bg-blue-900 text-blue-300 border-blue-700' },
   paid:     { label: 'Paid',     badgeClass: 'bg-green-900 text-green-300 border-green-700' },
   disputed: { label: 'Disputed', badgeClass: 'bg-red-900 text-red-300 border-red-700' },
+  rejected: { label: 'Rejected', badgeClass: 'bg-gray-800 text-gray-400 border-gray-600' },
 };
 
 const ROLE_CONFIG: Record<string, string> = {
@@ -598,6 +601,172 @@ function PlanDetailsModal({ onClose }: PlanDetailsModalProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Add User Seats Modal (inline) — 3B Unblock Now
+// ---------------------------------------------------------------------------
+
+interface AddSeatsModalProps {
+  onClose: () => void;
+  onUpgradePlan: () => void;
+}
+
+function AddSeatsModal({ onClose, onUpgradePlan }: AddSeatsModalProps) {
+  const [adding, setAdding] = useState(false);
+
+  function handleAddSeats() {
+    setAdding(true);
+    setTimeout(() => {
+      setAdding(false);
+      showToast('5 seats added — your new limit is 17 seats ($245/mo added).');
+      onClose();
+    }, 800);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Add User Seats</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <div className="rounded-lg bg-red-950 border border-red-800 px-4 py-3 mb-5">
+          <p className="text-sm text-red-300 font-semibold">
+            You have reached the 12-seat limit.
+          </p>
+          <p className="text-xs text-red-400 mt-1">
+            Add seats at <span className="font-bold text-red-200">$49/seat/month</span>.
+          </p>
+        </div>
+
+        <div className="space-y-3 mb-6">
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Current Seats</span>
+            <span className="text-sm font-semibold text-gray-100">12 / 12</span>
+          </div>
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Add</span>
+            <span className="text-sm font-semibold text-[#C9A84C]">+5 seats</span>
+          </div>
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Additional Cost</span>
+            <span className="text-sm font-semibold text-gray-100">$245/mo</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500 uppercase">New Limit</span>
+            <span className="text-sm font-bold text-green-400">17 seats</span>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={handleAddSeats}
+            disabled={adding}
+            className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
+          >
+            {adding ? 'Adding...' : 'Add 5 Seats'}
+          </button>
+          <button
+            onClick={() => { onClose(); onUpgradePlan(); }}
+            className="flex-1 px-4 py-2 rounded-lg border border-[#C9A84C]/40 text-[#C9A84C] hover:bg-[#C9A84C]/10 text-sm font-semibold transition-colors"
+          >
+            Upgrade Plan
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dispute Evidence Modal (inline) — 3C Commission Dispute Resolution
+// ---------------------------------------------------------------------------
+
+interface DisputeEvidenceModalProps {
+  commission: Commission;
+  onClose: () => void;
+}
+
+function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Dispute Evidence</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-3 mb-5">
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Partner</span>
+            <span className="text-sm font-semibold text-gray-100">{commission.partner}</span>
+          </div>
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Deal</span>
+            <span className="text-sm text-gray-300">{commission.deal}</span>
+          </div>
+          <div className="flex justify-between border-b border-gray-800 pb-2">
+            <span className="text-xs text-gray-500 uppercase">Disputed Amount</span>
+            <span className="text-sm font-bold text-red-400">{formatCurrency(commission.commissionAmount)}</span>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-gray-800 border border-gray-700 p-4 mb-5">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Evidence Summary</h3>
+          <div className="space-y-2 text-sm text-gray-300">
+            <p>
+              <span className="font-semibold text-gray-200">Dispute filed:</span>{' '}
+              Mar 28, 2026 by {commission.partner}
+            </p>
+            <p>
+              <span className="font-semibold text-gray-200">Reason:</span>{' '}
+              Commission rate discrepancy — partner claims agreed rate was {(commission.commissionRate + 0.5).toFixed(1)}%
+              (vs. recorded {commission.commissionRate.toFixed(1)}%).
+            </p>
+            <p>
+              <span className="font-semibold text-gray-200">Supporting documents:</span>{' '}
+              Original partner agreement (signed), email thread from Jan 15 2026 referencing revised rate schedule.
+            </p>
+            <p>
+              <span className="font-semibold text-gray-200">Internal notes:</span>{' '}
+              Rate was updated in CRM on Feb 1, 2026 but commission engine used the prior rate for this deal.
+              Likely a sync delay between partner portal and billing system.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stripe Portal Helper
+// ---------------------------------------------------------------------------
+
+const STRIPE_CONFIGURED = false; // Toggle to true when Stripe is set up
+
+function openStripePortal() {
+  if (!STRIPE_CONFIGURED) {
+    showToast('Stripe not configured — contact support.');
+    return;
+  }
+  showToast('Opening Stripe billing portal...');
+  // In production: window.location.href = stripePortalUrl;
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -606,11 +775,13 @@ export default function BillingPage() {
   const [showModal, setShowModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showSeatModal, setShowSeatModal] = useState(false);
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceStatus | 'all'>('all');
   const [commissionFilter, setCommissionFilter] = useState<CommissionStatus | 'all'>('all');
   const [invoices, setInvoices] = useState<Invoice[]>(PLACEHOLDER_INVOICES);
   const [commissions, setCommissions] = useState<Commission[]>(PLACEHOLDER_COMMISSIONS);
   const [selectedCommission, setSelectedCommission] = useState<Commission | null>(null);
+  const [evidenceCommission, setEvidenceCommission] = useState<Commission | null>(null);
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
   const [payConfirmId, setPayConfirmId] = useState<string | null>(null);
   const [unpayConfirmId, setUnpayConfirmId] = useState<string | null>(null);
@@ -741,6 +912,21 @@ export default function BillingPage() {
     showToast(`Commission ${action.toLowerCase()}d successfully.`);
   }, []);
 
+  // -- Dispute resolution actions (optimistic) --
+  const handleApproveDisputed = useCallback((id: string) => {
+    setCommissions((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: 'approved' as CommissionStatus } : c)),
+    );
+    showToast('Commission approved — dispute resolved in favor of partner.');
+  }, []);
+
+  const handleRejectDispute = useCallback((id: string) => {
+    setCommissions((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: 'rejected' as CommissionStatus } : c)),
+    );
+    showToast('Dispute rejected — commission will not be paid.');
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
       {/* Toast animation styles */}
@@ -758,6 +944,18 @@ export default function BillingPage() {
       )}
       {showUpgradeModal && <UpgradePlanModal onClose={() => setShowUpgradeModal(false)} />}
       {showPlanModal && <PlanDetailsModal onClose={() => setShowPlanModal(false)} />}
+      {showSeatModal && (
+        <AddSeatsModal
+          onClose={() => setShowSeatModal(false)}
+          onUpgradePlan={() => setShowUpgradeModal(true)}
+        />
+      )}
+      {evidenceCommission && (
+        <DisputeEvidenceModal
+          commission={evidenceCommission}
+          onClose={() => setEvidenceCommission(null)}
+        />
+      )}
       {selectedCommission && (
         <CommissionDetailModal
           commission={selectedCommission}
@@ -1150,7 +1348,7 @@ export default function BillingPage() {
 
           {/* Status filter */}
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {(['all', 'pending', 'approved', 'paid', 'disputed'] as const).map((s) => (
+            {(['all', 'pending', 'approved', 'paid', 'disputed', 'rejected'] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setCommissionFilter(s)}
@@ -1170,7 +1368,7 @@ export default function BillingPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-800">
-                    {['Partner / Advisor', 'Role', 'Deal', 'Deal Amount', 'Rate', 'Commission', 'Due Date', 'Status'].map((h) => (
+                    {['Partner / Advisor', 'Role', 'Deal', 'Deal Amount', 'Rate', 'Commission', 'Due Date', 'Status', 'Actions'].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
@@ -1218,6 +1416,33 @@ export default function BillingPage() {
                           {COMMISSION_STATUS_CONFIG[c.status].label}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        {c.status === 'disputed' && (
+                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => setEvidenceCommission(c)}
+                              className="text-xs text-gray-500 hover:text-blue-400 transition-colors whitespace-nowrap"
+                              title="View dispute evidence"
+                            >
+                              View Evidence
+                            </button>
+                            <button
+                              onClick={() => handleApproveDisputed(c.id)}
+                              className="text-xs text-gray-500 hover:text-green-400 transition-colors whitespace-nowrap"
+                              title="Approve commission"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleRejectDispute(c.id)}
+                              className="text-xs text-gray-500 hover:text-red-400 transition-colors whitespace-nowrap"
+                              title="Reject dispute"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1246,17 +1471,29 @@ export default function BillingPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {USAGE_METRICS.map((m) => (
-              <UsageMeter
-                key={m.metricLabel}
-                planName={m.planName}
-                metricLabel={m.metricLabel}
-                current={m.current}
-                limit={m.limit}
-                unit={m.unit}
-                onUpgrade={() => setShowUpgradeModal(true)}
-              />
-            ))}
+            {USAGE_METRICS.map((m) => {
+              const isBlocked = m.current >= m.limit;
+              const isSeatMetric = m.metricLabel === 'Active Users';
+              return (
+                <UsageMeter
+                  key={m.metricLabel}
+                  planName={m.planName}
+                  metricLabel={m.metricLabel}
+                  current={m.current}
+                  limit={m.limit}
+                  unit={m.unit}
+                  onUpgrade={() => {
+                    if (isBlocked && isSeatMetric) {
+                      setShowSeatModal(true);
+                    } else if (isBlocked) {
+                      openStripePortal();
+                    } else {
+                      openStripePortal();
+                    }
+                  }}
+                />
+              );
+            })}
           </div>
 
           {/* Plan details */}
@@ -1293,13 +1530,13 @@ export default function BillingPage() {
           {/* Upgrade CTA */}
           <div className="mt-4 flex gap-3">
             <button
-              onClick={() => setShowUpgradeModal(true)}
+              onClick={openStripePortal}
               className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-sm font-semibold transition-colors"
             >
               Upgrade Plan
             </button>
             <button
-              onClick={() => setShowUpgradeModal(true)}
+              onClick={() => setShowSeatModal(true)}
               className="px-4 py-2 rounded-lg border border-[#C9A84C]/40 text-[#C9A84C] hover:bg-[#C9A84C]/10 text-sm font-semibold transition-colors"
             >
               Unblock Now
