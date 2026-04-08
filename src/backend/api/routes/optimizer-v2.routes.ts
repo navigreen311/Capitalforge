@@ -8,11 +8,17 @@
 //             excludeIssuers?, includeCreditUnions? }
 //     Returns: StackingPlan
 //
+//   GET /api/optimizer/card-products
+//     Return all card products (bank + CU) from the database.
+//     Query params: ?type=business_credit&issuer=chase&active=true
+//     Returns: { bankProducts, creditUnionProducts, total }
+//
 // All routes require a valid JWT.
 // ============================================================
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { PrismaClient } from '@prisma/client';
 import {
   runStackingOptimizer,
   type StackingOptimizerInput,
@@ -22,6 +28,13 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 
 export const optimizerV2Router = Router();
+
+// Lazy singleton — avoids instantiating Prisma in tests that don't need it
+let prisma: PrismaClient | null = null;
+function getPrisma(): PrismaClient {
+  if (!prisma) prisma = new PrismaClient();
+  return prisma;
+}
 
 // ── Validation schema ────────────────────────────────────────
 
@@ -94,6 +107,97 @@ optimizerV2Router.post(
       }
 
       logger.error('[OptimizerV2] Error running optimizer', { err });
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message },
+      } satisfies ApiResponse);
+    }
+  },
+);
+
+// ── GET /api/optimizer/card-products ─────────────────────────
+//
+// Return all card products (bank + CU) for the frontend product catalog.
+// Optional query filters: ?type=business_credit&issuer=chase&active=true
+
+optimizerV2Router.get(
+  '/card-products',
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const db = getPrisma();
+      const { type, issuer, active } = req.query;
+
+      // Default: only active products
+      const isActive = active !== 'false';
+
+      // ── Bank card products (from CardProduct table) ──
+      const bankWhere: Record<string, unknown> = {};
+      if (isActive) bankWhere.isActive = true;
+      if (type && typeof type === 'string') bankWhere.cardType = type;
+      if (issuer && typeof issuer === 'string') bankWhere.issuerId = issuer;
+
+      const bankProducts = await db.cardProduct.findMany({
+        where: bankWhere,
+        orderBy: [{ issuerId: 'asc' }, { name: 'asc' }],
+      });
+
+      // ── Credit union products (from CreditUnionProduct table) ──
+      const cuProductWhere: Record<string, unknown> = {};
+      if (isActive) cuProductWhere.isActive = true;
+      if (type && typeof type === 'string') cuProductWhere.productType = type;
+
+      const creditUnionProducts = await db.creditUnionProduct.findMany({
+        where: cuProductWhere,
+        include: {
+          creditUnion: {
+            select: { id: true, name: true, slug: true },
+          },
+        },
+        orderBy: [{ productType: 'asc' }, { productName: 'asc' }],
+      });
+
+      // Normalize CU products to a consistent shape for the frontend
+      const normalizedCuProducts = creditUnionProducts.map((p) => ({
+        id: p.id,
+        source: 'credit_union' as const,
+        issuer: p.creditUnion.name,
+        issuerSlug: p.creditUnion.slug,
+        name: p.productName,
+        productType: p.productType,
+        maxLimit: p.maxLimit,
+        aprIntro: p.aprIntro,
+        aprIntroMonths: p.aprIntroMonths,
+        aprPostPromo: p.aprPostPromo,
+        annualFee: p.annualFee,
+        scoreMinimum: p.scoreMinimum,
+        businessAgeMinimum: p.businessAgeMinimum,
+        revenueMinimum: p.revenueMinimum,
+        rewardsType: p.rewardsType,
+        rewardsRate: p.rewardsRate,
+        personalGuarantee: p.personalGuarantee,
+        hardPull: p.hardPull,
+        notes: p.notes,
+        isActive: p.isActive,
+      }));
+
+      // Tag bank products with source
+      const normalizedBankProducts = bankProducts.map((p) => ({
+        ...p,
+        source: 'bank' as const,
+      }));
+
+      res.status(200).json({
+        success: true,
+        data: {
+          bankProducts: normalizedBankProducts,
+          creditUnionProducts: normalizedCuProducts,
+          total: normalizedBankProducts.length + normalizedCuProducts.length,
+        },
+      } satisfies ApiResponse);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'An unexpected error occurred.';
+      logger.error('[OptimizerV2] Error fetching card products', { err });
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message },
