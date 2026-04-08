@@ -2,13 +2,17 @@
 // CapitalForge — Hardship & Re-Stack Routes
 //
 // Endpoints:
-//   POST /api/businesses/:id/hardship              — open hardship case
-//   GET  /api/businesses/:id/hardship              — list cases
-//   PUT  /api/hardship/:id                         — update case
-//   POST /api/hardship/:id/payment-plan            — attach payment plan
-//   POST /api/hardship/:id/settlement              — attach settlement offer
-//   GET  /api/businesses/:id/restack/readiness     — score readiness
-//   POST /api/businesses/:id/restack/trigger       — fire outreach trigger
+//   POST  /api/businesses/:id/hardship              — open hardship case
+//   GET   /api/businesses/:id/hardship              — list cases
+//   PUT   /api/hardship/:id                         — update case
+//   POST  /api/hardship/:id/payment-plan            — attach payment plan
+//   POST  /api/hardship/:id/settlement              — attach settlement offer
+//   GET   /api/businesses/:id/restack/readiness     — score readiness
+//   POST  /api/businesses/:id/restack/trigger       — fire outreach trigger
+//   POST  /api/hardship                             — create new case (direct)
+//   PATCH /api/hardship/:id/stage                   — advance case stage
+//   PATCH /api/hardship/:id/resolve                 — mark resolved / written off
+//   GET   /api/hardship/stats                       — case counts by status/flag
 //
 // All routes require a valid JWT (req.tenant set by auth middleware).
 // ============================================================
@@ -373,6 +377,196 @@ hardshipRouter.post(
       } satisfies ApiResponse);
     } catch (err) {
       handleUnexpectedError(err, res, 'POST /businesses/:id/restack/trigger');
+    }
+  },
+);
+
+// ── POST /api/hardship — create a new hardship case (direct) ─
+
+const CreateHardshipSchema = z.object({
+  businessId:         z.string().min(1),
+  clientId:           z.string().min(1),
+  reason:             z.enum(['job_loss', 'medical', 'disaster', 'divorce', 'business_decline', 'other']),
+  description:        z.string().max(2000).default(''),
+  missedPaymentCount: z.number().int().nonnegative().default(0),
+  totalBalance:       z.number().nonnegative().default(0),
+  monthlyRevenue:     z.number().nonnegative().default(0),
+  requestedRelief:    z.enum(['payment_plan', 'settlement', 'deferral', 'rate_reduction']).optional(),
+});
+
+hardshipRouter.post(
+  '/',
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const parsed = CreateHardshipSchema.safeParse(req.body);
+    if (!parsed.success) { handleZodError(parsed.error, res); return; }
+
+    const data = parsed.data;
+    const tenant = req.tenant!;
+
+    try {
+      const caseId = `hardship-${data.businessId}-${Date.now()}`;
+      const now = new Date().toISOString();
+
+      const newCase = {
+        id:               caseId,
+        businessId:       data.businessId,
+        clientId:         data.clientId,
+        tenantId:         tenant.tenantId,
+        reason:           data.reason,
+        description:      data.description,
+        stage:            'intake' as const,
+        status:           'open' as const,
+        missedPaymentCount: data.missedPaymentCount,
+        totalBalance:     data.totalBalance,
+        monthlyRevenue:   data.monthlyRevenue,
+        requestedRelief:  data.requestedRelief ?? null,
+        flagged:          data.missedPaymentCount >= 3,
+        createdAt:        now,
+        updatedAt:        now,
+      };
+
+      logger.info('Hardship case created', { caseId, businessId: data.businessId, reason: data.reason });
+
+      res.status(201).json({
+        success: true,
+        data:    newCase,
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleUnexpectedError(err, res, 'POST /hardship');
+    }
+  },
+);
+
+// ── PATCH /api/hardship/:id/stage — advance case stage ───────
+
+const AdvanceStageSchema = z.object({
+  stage: z.enum(['intake', 'review', 'negotiation', 'resolution', 'monitoring', 'closed']),
+  notes: z.string().max(2000).default(''),
+});
+
+hardshipRouter.patch(
+  '/:id/stage',
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const caseId = req.params['id'] as string;
+
+    const parsed = AdvanceStageSchema.safeParse(req.body);
+    if (!parsed.success) { handleZodError(parsed.error, res); return; }
+
+    try {
+      const { stage, notes } = parsed.data;
+      const now = new Date().toISOString();
+
+      const updated = {
+        id:        caseId,
+        stage,
+        notes,
+        updatedAt: now,
+        updatedBy: req.tenant!.userId,
+      };
+
+      logger.info('Hardship case stage advanced', { caseId, stage });
+
+      res.status(200).json({
+        success: true,
+        data:    updated,
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleUnexpectedError(err, res, 'PATCH /hardship/:id/stage');
+    }
+  },
+);
+
+// ── PATCH /api/hardship/:id/resolve — mark resolved or written off
+
+const ResolveSchema = z.object({
+  resolution: z.enum(['resolved', 'written_off', 'settled', 'referred_counselor']),
+  notes:      z.string().max(2000).default(''),
+  writeOffAmount: z.number().nonnegative().optional(),
+});
+
+hardshipRouter.patch(
+  '/:id/resolve',
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const caseId = req.params['id'] as string;
+
+    const parsed = ResolveSchema.safeParse(req.body);
+    if (!parsed.success) { handleZodError(parsed.error, res); return; }
+
+    try {
+      const { resolution, notes, writeOffAmount } = parsed.data;
+      const now = new Date().toISOString();
+
+      const resolved = {
+        id:             caseId,
+        stage:          'closed' as const,
+        status:         resolution,
+        notes,
+        writeOffAmount: writeOffAmount ?? null,
+        resolvedAt:     now,
+        resolvedBy:     req.tenant!.userId,
+      };
+
+      logger.info('Hardship case resolved', { caseId, resolution });
+
+      res.status(200).json({
+        success: true,
+        data:    resolved,
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleUnexpectedError(err, res, 'PATCH /hardship/:id/resolve');
+    }
+  },
+);
+
+// ── GET /api/hardship/stats — case counts by status and flag ─
+
+hardshipRouter.get(
+  '/stats',
+  requireAuth,
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      // Mock aggregate statistics
+      const stats = {
+        byStatus: {
+          open:            12,
+          payment_plan:     8,
+          settlement:       3,
+          closed:          47,
+          referred:         5,
+          written_off:      2,
+        },
+        byStage: {
+          intake:           4,
+          review:           5,
+          negotiation:      3,
+          resolution:       6,
+          monitoring:       2,
+          closed:          47,
+        },
+        byReason: {
+          job_loss:         8,
+          medical:          5,
+          disaster:         2,
+          divorce:          3,
+          business_decline: 15,
+          other:           44,
+        },
+        flagged:           9,
+        totalActive:      28,
+        totalResolved:    49,
+        avgResolutionDays: 23.4,
+        generatedAt:       new Date().toISOString(),
+      };
+
+      res.status(200).json({
+        success: true,
+        data:    stats,
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleUnexpectedError(err, res, 'GET /hardship/stats');
     }
   },
 );
