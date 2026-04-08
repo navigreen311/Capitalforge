@@ -23,6 +23,7 @@ import {
   BalanceTransferPanel,
   MethodComparisonPanel,
   InterestShockAlertActions,
+  EscalationModal,
 } from '@/components/repayment';
 import type { RepaymentClient, RepaymentCardDetailPlan } from '@/components/repayment';
 
@@ -248,6 +249,16 @@ export default function RepaymentPage() {
   // Calendar month navigation state
   const [calendarMonth] = useState<Date>(new Date());
 
+  // 5C: Export & Email modals
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showLetterModal, setShowLetterModal] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [letterText, setLetterText] = useState<string | null>(null);
+  const [generatingLetter, setGeneratingLetter] = useState(false);
+
+  // 5D: Escalation modal for behind-status cards
+  const [escalatePlan, setEscalatePlan] = useState<RepaymentPlan | null>(null);
+
   useEffect(() => {
     // Future: fetch from API
   }, []);
@@ -260,6 +271,71 @@ export default function RepaymentPage() {
   const extraPayment   = totalMonthly - totalMinimums;
   const avgApr         = plans.reduce((s, p) => s + p.apr, 0) / plans.length;
   const atRiskCount    = plans.filter(p => p.status === 'at_risk').length;
+
+  // 5C: Export PDF handler
+  function handleExportPdf() {
+    const lines = [
+      'REPAYMENT COMMAND CENTER — SUMMARY REPORT',
+      `Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+      `Strategy: ${strategy === 'avalanche' ? 'Avalanche (highest APR first)' : 'Snowball (lowest balance first)'}`,
+      '',
+      `Total Balance: ${formatCurrency(totalBalance)}`,
+      `Monthly Payment: ${formatCurrency(totalMonthly)} (${formatCurrency(extraPayment)} above minimums)`,
+      `Avg APR: ${avgApr.toFixed(2)}%`,
+      '',
+      'ACTIVE REPAYMENT PLANS:',
+      '─'.repeat(60),
+      ...sorted.map((p, i) =>
+        `${i + 1}. ${p.cardName} (${p.issuer})\n   Balance: ${formatCurrency(p.balance)} | APR: ${p.apr}% | Monthly: ${formatCurrency(p.allocatedPayment)} | ETA: ${p.payoffMonths}mo | Status: ${p.status}`
+      ),
+      '',
+      '─'.repeat(60),
+      `Avalanche total interest: ${formatCurrency(AVALANCHE_STATS.totalInterest)} over ${AVALANCHE_STATS.months} months`,
+      `Snowball total interest: ${formatCurrency(SNOWBALL_STATS.totalInterest)} over ${SNOWBALL_STATS.months} months`,
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `repayment-summary-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // 5C: Email preview text
+  const emailPreview = `Repayment Summary for ${selectedClient?.name ?? 'Client'}\n\nTotal balance: ${formatCurrency(totalBalance)}\nMonthly payment: ${formatCurrency(totalMonthly)}\nStrategy: ${strategy === 'avalanche' ? 'Avalanche' : 'Snowball'}\n\n${sorted.map((p, i) => `${i + 1}. ${p.cardName} — ${formatCurrency(p.balance)} at ${p.apr}%`).join('\n')}`;
+
+  // 5C: Send email handler
+  function handleSendEmail() {
+    setEmailSent(true);
+    setTimeout(() => {
+      setShowEmailModal(false);
+      setEmailSent(false);
+    }, 2000);
+  }
+
+  // 5C: Generate letter handler
+  function handleGenerateLetter() {
+    setShowLetterModal(true);
+    setGeneratingLetter(true);
+    setLetterText(null);
+    setTimeout(() => {
+      setLetterText(
+        `Dear ${selectedClient?.name ?? 'Valued Client'},\n\n` +
+        `Based on our analysis of your current credit portfolio, we recommend the following repayment guidance:\n\n` +
+        `Your total outstanding balance of ${formatCurrency(totalBalance)} across ${plans.length} cards can be optimally managed using the ${strategy} method.\n\n` +
+        `Key Recommendations:\n` +
+        `• Maintain your monthly allocation of ${formatCurrency(totalMonthly)}, which is ${formatCurrency(extraPayment)} above required minimums\n` +
+        `• Focus extra payments on ${sorted[0]?.cardName ?? 'your highest-priority card'} (${strategy === 'avalanche' ? `highest APR at ${sorted[0]?.apr}%` : `lowest balance at ${formatCurrency(sorted[0]?.balance ?? 0)}`})\n` +
+        `• Expected payoff timeline: ${AVALANCHE_STATS.months}–${SNOWBALL_STATS.months} months\n` +
+        `• Projected interest savings vs minimum payments: ${formatCurrency(strategy === 'avalanche' ? AVALANCHE_STATS.savesVsMinimum : SNOWBALL_STATS.savesVsMinimum)}\n\n` +
+        `${plans.filter(p => p.status === 'behind').length > 0 ? `Action Required: ${plans.filter(p => p.status === 'behind').length} card(s) are currently behind schedule. Please contact us to discuss hardship options.\n\n` : ''}` +
+        `We are committed to helping you achieve financial freedom. Please don't hesitate to reach out with questions.\n\n` +
+        `Best regards,\nCapitalForge Advisory Team`
+      );
+      setGeneratingLetter(false);
+    }, 1500);
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-6">
@@ -291,6 +367,35 @@ export default function RepaymentPage() {
             </span>
           </button>
         )}
+      </div>
+
+      {/* 5C: Action buttons — Export, Email, Generate Letter */}
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={handleExportPdf}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-700 bg-gray-900 text-sm font-semibold text-gray-200 hover:bg-gray-800 hover:border-gray-600 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Export PDF
+        </button>
+        <button
+          onClick={() => setShowEmailModal(true)}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-700 bg-gray-900 text-sm font-semibold text-gray-200 hover:bg-gray-800 hover:border-gray-600 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          Email to Client
+        </button>
+        <button
+          onClick={handleGenerateLetter}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#C9A84C]/40 bg-[#C9A84C]/10 text-sm font-semibold text-[#C9A84C] hover:bg-[#C9A84C]/20 transition-colors"
+        >
+          <span className="text-base">&#10022;</span>
+          Generate Letter
+        </button>
       </div>
 
       {/* Summary stats */}
@@ -539,11 +644,24 @@ export default function RepaymentPage() {
                       </span>
                     </td>
 
-                    {/* Status badge */}
+                    {/* Status badge — 5D: "behind" gets escalate button */}
                     <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${s.bg} ${s.border} ${s.text}`}>
-                        {s.label}
-                      </span>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${s.bg} ${s.border} ${s.text}`}>
+                          {s.label}
+                        </span>
+                        {plan.status === 'behind' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEscalatePlan(plan);
+                            }}
+                            className="text-[10px] font-semibold text-yellow-400 hover:text-yellow-300 transition-colors underline decoration-dotted"
+                          >
+                            Escalate &rarr;
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -572,8 +690,25 @@ export default function RepaymentPage() {
         snowball={SNOWBALL_STATS}
       />
 
-      {/* Payment calendar */}
-      <PaymentCalendar payments={PLACEHOLDER_PAYMENTS} />
+      {/* Payment calendar — 5E: day-click with Mark Paid + Past Due CTA */}
+      <PaymentCalendar
+        payments={PLACEHOLDER_PAYMENTS}
+        onMarkPaid={(paymentId) => {
+          // Mock: show toast-like feedback (in production, update via API)
+          const el = document.createElement('div');
+          el.className = 'fixed bottom-4 right-4 z-50 bg-green-900 border border-green-700 text-green-200 px-4 py-2 rounded-lg text-sm font-semibold shadow-lg transition-opacity';
+          el.textContent = `Payment marked as paid`;
+          document.body.appendChild(el);
+          setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2000);
+        }}
+        onContactClient={(paymentId) => {
+          const el = document.createElement('div');
+          el.className = 'fixed bottom-4 right-4 z-50 bg-yellow-900 border border-yellow-700 text-yellow-200 px-4 py-2 rounded-lg text-sm font-semibold shadow-lg transition-opacity';
+          el.textContent = `Contact request sent for overdue payment`;
+          document.body.appendChild(el);
+          setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2000);
+        }}
+      />
 
       {/* Card detail drawer (slide-over) */}
       <RepaymentCardDetailDrawer
@@ -593,6 +728,97 @@ export default function RepaymentPage() {
           onClose={() => setTransferPlan(null)}
         />
       )}
+
+      {/* 5C: Email to Client modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowEmailModal(false)} />
+          <div className="relative z-10 w-full max-w-lg mx-4 rounded-xl border border-gray-700 bg-[#0A1628] shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+              <h3 className="text-base font-semibold text-white">Email to Client</h3>
+              <button onClick={() => setShowEmailModal(false)} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">&times;</button>
+            </div>
+            <div className="p-5">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Preview</p>
+              <pre className="text-xs text-gray-300 whitespace-pre-wrap font-sans leading-relaxed bg-gray-900/50 border border-gray-800 rounded-lg p-3 max-h-60 overflow-y-auto">{emailPreview}</pre>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={handleSendEmail}
+                  disabled={emailSent}
+                  className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${emailSent ? 'bg-green-800 text-green-200' : 'bg-[#C9A84C] text-[#0A1628] hover:bg-[#b8993f]'}`}
+                >
+                  {emailSent ? 'Email Sent!' : 'Send Email'}
+                </button>
+                <button
+                  onClick={() => setShowEmailModal(false)}
+                  className="px-4 py-2 text-sm font-semibold rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5C: Generate Letter modal */}
+      {showLetterModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowLetterModal(false)} />
+          <div className="relative z-10 w-full max-w-lg mx-4 rounded-xl border border-[#C9A84C]/30 bg-[#0A1628] shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                <span className="text-[#C9A84C]">&#10022;</span>
+                <h3 className="text-base font-semibold text-white">AI-Generated Repayment Letter</h3>
+              </div>
+              <button onClick={() => setShowLetterModal(false)} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">&times;</button>
+            </div>
+            <div className="p-5">
+              {generatingLetter ? (
+                <div className="flex items-center gap-3 py-8 justify-center">
+                  <div className="w-5 h-5 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm text-[#C9A84C] font-semibold">Generating guidance letter...</span>
+                </div>
+              ) : letterText ? (
+                <>
+                  <pre className="text-xs text-gray-300 whitespace-pre-wrap font-sans leading-relaxed bg-[#C9A84C]/5 border border-[#C9A84C]/20 rounded-lg p-4 max-h-80 overflow-y-auto">{letterText}</pre>
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={() => {
+                        const blob = new Blob([letterText], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `repayment-letter-${new Date().toISOString().slice(0, 10)}.txt`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      className="px-4 py-2 text-sm font-semibold rounded-lg bg-[#C9A84C] text-[#0A1628] hover:bg-[#b8993f] transition-colors"
+                    >
+                      Download Letter
+                    </button>
+                    <button
+                      onClick={() => setShowLetterModal(false)}
+                      className="px-4 py-2 text-sm font-semibold rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5D: Escalation modal */}
+      <EscalationModal
+        isOpen={escalatePlan !== null}
+        cardName={escalatePlan?.cardName ?? ''}
+        issuer={escalatePlan?.issuer ?? ''}
+        balance={escalatePlan?.balance ?? 0}
+        onClose={() => setEscalatePlan(null)}
+      />
 
     </div>
   );
