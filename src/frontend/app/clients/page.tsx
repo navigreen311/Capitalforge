@@ -31,10 +31,71 @@ interface ClientRow {
   state: string;
   aprAlert: AprAlert | null;
   consentStatus: 'complete' | 'pending' | 'blocked';
+  hardshipFlag: boolean;
+  reStackReady: boolean;
 }
 
 type SortColumn = 'businessName' | 'status' | 'advisorName' | 'fundingReadinessScore' | 'lastActivityAt';
 type SortDirection = 'asc' | 'desc';
+
+// ---------------------------------------------------------------------------
+// Quick filter tab definitions
+// ---------------------------------------------------------------------------
+
+type QuickFilter = 'all' | 'apr_expiring' | 'pending_consent' | 'restack_ready' | 'hardship' | 'low_readiness';
+
+interface QuickFilterTab {
+  key: QuickFilter;
+  label: string;
+  colorDot: string;        // Tailwind bg class for the count badge / dot
+  colorActive: string;     // Tailwind border-bottom / highlight color
+  predicate: (c: ClientRow) => boolean;
+}
+
+const QUICK_FILTERS: QuickFilterTab[] = [
+  {
+    key: 'all',
+    label: 'All',
+    colorDot: 'bg-gray-500',
+    colorActive: 'border-blue-500 text-blue-400',
+    predicate: () => true,
+  },
+  {
+    key: 'apr_expiring',
+    label: 'APR Expiring',
+    colorDot: 'bg-red-500',
+    colorActive: 'border-red-500 text-red-400',
+    predicate: (c) => c.aprAlert !== null,
+  },
+  {
+    key: 'pending_consent',
+    label: 'Pending Consent',
+    colorDot: 'bg-amber-500',
+    colorActive: 'border-amber-500 text-amber-400',
+    predicate: (c) => c.consentStatus === 'pending',
+  },
+  {
+    key: 'restack_ready',
+    label: 'Re-Stack Ready',
+    colorDot: 'bg-green-500',
+    colorActive: 'border-green-500 text-green-400',
+    predicate: (c) => c.reStackReady,
+  },
+  {
+    key: 'hardship',
+    label: 'Hardship',
+    colorDot: 'bg-orange-400',
+    colorActive: 'border-orange-400 text-orange-400',
+    predicate: (c) => c.hardshipFlag,
+  },
+  {
+    key: 'low_readiness',
+    label: 'Low Readiness',
+    colorDot: 'bg-gray-400',
+    colorActive: 'border-gray-400 text-gray-300',
+    predicate: (c) => c.fundingReadinessScore < 55,
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Placeholder data (shown when API is unavailable)
@@ -52,6 +113,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'TX',
     aprAlert: { days: 12, tier: 'critical' },
     consentStatus: 'complete',
+    hardshipFlag: false,
+    reStackReady: true,
   },
   {
     id: 'biz_002',
@@ -64,6 +127,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'CA',
     aprAlert: null,
     consentStatus: 'pending',
+    hardshipFlag: false,
+    reStackReady: false,
   },
   {
     id: 'biz_003',
@@ -76,6 +141,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'NC',
     aprAlert: { days: 45, tier: 'warning' },
     consentStatus: 'complete',
+    hardshipFlag: true,
+    reStackReady: false,
   },
   {
     id: 'biz_004',
@@ -88,6 +155,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'NY',
     aprAlert: null,
     consentStatus: 'complete',
+    hardshipFlag: false,
+    reStackReady: true,
   },
   {
     id: 'biz_005',
@@ -100,6 +169,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'FL',
     aprAlert: { days: 8, tier: 'critical' },
     consentStatus: 'blocked',
+    hardshipFlag: true,
+    reStackReady: false,
   },
   {
     id: 'biz_006',
@@ -112,6 +183,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'OH',
     aprAlert: null,
     consentStatus: 'complete',
+    hardshipFlag: false,
+    reStackReady: false,
   },
   {
     id: 'biz_007',
@@ -124,6 +197,8 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'IL',
     aprAlert: null,
     consentStatus: 'pending',
+    hardshipFlag: false,
+    reStackReady: true,
   },
   {
     id: 'biz_008',
@@ -136,6 +211,36 @@ const PLACEHOLDER_CLIENTS: ClientRow[] = [
     state: 'WA',
     aprAlert: null,
     consentStatus: 'complete',
+    hardshipFlag: false,
+    reStackReady: false,
+  },
+  {
+    id: 'biz_009',
+    businessName: 'Ironclad Construction',
+    status: 'active',
+    advisorName: 'James Okafor',
+    fundingReadinessScore: 38,
+    lastActivityAt: '2026-03-22T09:30:00Z',
+    entityType: 'llc',
+    state: 'GA',
+    aprAlert: { days: 5, tier: 'critical' },
+    consentStatus: 'pending',
+    hardshipFlag: true,
+    reStackReady: false,
+  },
+  {
+    id: 'biz_010',
+    businessName: 'Verdant Farms Co.',
+    status: 'active',
+    advisorName: 'Sarah Chen',
+    fundingReadinessScore: 48,
+    lastActivityAt: '2026-03-21T11:00:00Z',
+    entityType: 'partnership',
+    state: 'IA',
+    aprAlert: null,
+    consentStatus: 'complete',
+    hardshipFlag: false,
+    reStackReady: true,
   },
 ];
 
@@ -192,7 +297,8 @@ const ADVISORS_LIST = ['Sarah Chen', 'Marcus Williams', 'James Okafor'];
 function downloadCsv(rows: ClientRow[], filename: string) {
   const headers = [
     'Business Name', 'Status', 'Advisor', 'Entity Type', 'State',
-    'Readiness Score', 'Last Activity', 'APR Days', 'APR Tier', 'Consent Status',
+    'Readiness Score', 'Last Activity', 'APR Days', 'APR Tier',
+    'Consent Status', 'Hardship', 'Re-Stack Ready',
   ];
   const csvRows = [
     headers.join(','),
@@ -208,6 +314,8 @@ function downloadCsv(rows: ClientRow[], filename: string) {
         r.aprAlert?.days ?? '',
         r.aprAlert?.tier ?? '',
         r.consentStatus,
+        r.hardshipFlag ? 'Yes' : 'No',
+        r.reStackReady ? 'Yes' : 'No',
       ].join(','),
     ),
   ];
@@ -271,6 +379,9 @@ export default function ClientsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
+  // Quick filter tab state
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -300,8 +411,8 @@ export default function ClientsPage() {
     load();
   }, [load]);
 
-  // Client-side filter on placeholder data
-  const filtered = useMemo(() => {
+  // Counts for quick filter tabs (computed before quick filter is applied)
+  const baseFiltered = useMemo(() => {
     return clients.filter((c) => {
       const matchSearch =
         !search ||
@@ -312,6 +423,20 @@ export default function ClientsPage() {
       return matchSearch && matchStatus && matchAdvisor;
     });
   }, [clients, search, statusFilter, advisorFilter]);
+
+  const quickFilterCounts = useMemo(() => {
+    const counts: Record<QuickFilter, number> = {} as Record<QuickFilter, number>;
+    for (const tab of QUICK_FILTERS) {
+      counts[tab.key] = baseFiltered.filter(tab.predicate).length;
+    }
+    return counts;
+  }, [baseFiltered]);
+
+  // Client-side filter on placeholder data (with quick filter applied)
+  const filtered = useMemo(() => {
+    const activeTab = QUICK_FILTERS.find((t) => t.key === quickFilter) ?? QUICK_FILTERS[0];
+    return baseFiltered.filter(activeTab.predicate);
+  }, [baseFiltered, quickFilter]);
 
   // Sorted data
   const sorted = useMemo(() => {
@@ -352,12 +477,12 @@ export default function ClientsPage() {
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, advisorFilter, pageSize]);
+  }, [search, statusFilter, advisorFilter, quickFilter, pageSize]);
 
   // Reset selection when data changes
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [search, statusFilter, advisorFilter, sortColumn, sortDirection, page, pageSize]);
+  }, [search, statusFilter, advisorFilter, quickFilter, sortColumn, sortDirection, page, pageSize]);
 
   const advisors = Array.from(new Set(clients.map((c) => c.advisorName))).sort();
 
@@ -481,11 +606,42 @@ export default function ClientsPage() {
         )}
       </div>
 
+      {/* Quick filter tabs */}
+      <div className="flex items-center gap-1 mb-4 border-b border-gray-800 overflow-x-auto">
+        {QUICK_FILTERS.map((tab) => {
+          const isActive = quickFilter === tab.key;
+          const count = quickFilterCounts[tab.key];
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setQuickFilter(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                isActive
+                  ? tab.colorActive
+                  : 'border-transparent text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {tab.key !== 'all' && (
+                <span className={`inline-block w-2 h-2 rounded-full ${tab.colorDot}`} />
+              )}
+              {tab.label}
+              <span
+                className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  isActive ? 'bg-gray-800 text-gray-200' : 'bg-gray-900 text-gray-500'
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 mb-4 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3">
+        <div className="sticky top-0 z-20 flex items-center gap-3 mb-4 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 shadow-lg">
           <span className="text-sm font-medium text-gray-200">
-            {selectedIds.size} selected
+            {selectedIds.size} client{selectedIds.size !== 1 ? 's' : ''} selected
           </span>
           <span className="text-gray-700">|</span>
           <button
@@ -517,9 +673,9 @@ export default function ClientsPage() {
           </div>
           <button
             onClick={() => { setSelectedIds(new Set()); setShowAssignDropdown(false); }}
-            className="px-3 py-1.5 rounded-md text-sm text-gray-400 hover:text-gray-200 transition-colors"
+            className="ml-auto px-3 py-1.5 rounded-md text-sm text-gray-400 hover:text-gray-200 transition-colors flex items-center gap-1"
           >
-            Cancel
+            <span aria-hidden="true">&times;</span> Clear
           </button>
         </div>
       )}
