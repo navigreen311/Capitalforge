@@ -380,3 +380,13 @@ apiRouter.use('/card-benefits', cardBenefitsApiRouter);
 import { statementsRouter } from './statements.routes.js';
 apiRouter.use('/statements', statementsRouter);
 apiRouter.use('/', statementsRouter);
+
+// ── Billing & Entitlements (invoices, plans, usage, extended billing mgmt) ──
+// GET  /api/billing/invoices/:id/pdf
+// POST /api/billing/invoices/:id/void
+// POST /api/billing/invoices/:id/unpay
+// POST /api/billing/commissions/:id/resolve
+// GET  /api/billing/revenue-trend
+// (also mounts /api/businesses/:id/invoices, /api/invoices/:id, /api/tenants/:tenantId/plan|usage)
+import { billingRouter } from './billing.routes.js';
+apiRouter.use('/', billingRouter);
