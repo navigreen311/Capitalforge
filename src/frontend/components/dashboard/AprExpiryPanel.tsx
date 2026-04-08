@@ -42,6 +42,8 @@ const COLORS = {
   red: '#DC2626',
   amber: '#F59E0B',
   amberLight: '#FEF3C7',
+  gold: '#C9A84C',
+  goldLight: '#FDF6E3',
   green: '#10B981',
   greenLight: '#D1FAE5',
   greenDark: '#065F46',
@@ -55,29 +57,45 @@ const COLORS = {
   gray900: '#111827',
 } as const;
 
-const tierConfig: Record<AlertTier, { label: string; bg: string; text: string; badge: string; badgeText: string }> = {
+const tierConfig: Record<AlertTier, {
+  label: string;
+  bg: string;
+  headerBg: string;
+  text: string;
+  badge: string;
+  badgeText: string;
+  borderLeft: string;
+}> = {
   critical: {
     label: 'Critical',
     bg: '#FEF2F2',
+    headerBg: '#FEE2E2',
     text: COLORS.red,
     badge: COLORS.coral,
     badgeText: COLORS.white,
+    borderLeft: COLORS.red,
   },
   warning: {
     label: 'Warning',
     bg: COLORS.amberLight,
+    headerBg: '#FDE68A',
     text: '#92400E',
     badge: COLORS.amber,
     badgeText: COLORS.white,
+    borderLeft: COLORS.amber,
   },
   upcoming: {
     label: 'Upcoming',
-    bg: '#EFF6FF',
-    text: '#1E40AF',
-    badge: '#3B82F6',
+    bg: COLORS.goldLight,
+    headerBg: '#F5E6B8',
+    text: '#78621D',
+    badge: COLORS.gold,
     badgeText: COLORS.white,
+    borderLeft: COLORS.gold,
   },
 };
+
+const TIERS: AlertTier[] = ['critical', 'warning', 'upcoming'];
 
 // ── Loading Skeleton ─────────────────────────────────────────
 
@@ -122,14 +140,52 @@ function LoadingSkeleton() {
   );
 }
 
+// ── Chevron Icon ─────────────────────────────────────────────
+
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      style={{
+        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+        transition: 'transform 0.2s ease',
+        flexShrink: 0,
+      }}
+    >
+      <path
+        d="M4 6L8 10L12 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────
 
 export function AprExpiryPanel() {
   const { data, isLoading, error, refetch } = useAuthFetch<AprExpiryData>('/api/v1/dashboard/apr-expiry-alerts');
-  const [activeTab, setActiveTab] = useState<AlertTier>('critical');
+  const [collapsedTiers, setCollapsedTiers] = useState<Set<AlertTier>>(new Set());
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [initiateCallState, setInitiateCallState] = useState<{ clientId: string; clientName: string } | null>(null);
   const [callInitiatedMap, setCallInitiatedMap] = useState<Record<string, string>>({});
+
+  const toggleTier = useCallback((tier: AlertTier) => {
+    setCollapsedTiers((prev) => {
+      const next = new Set(prev);
+      if (next.has(tier)) {
+        next.delete(tier);
+      } else {
+        next.add(tier);
+      }
+      return next;
+    });
+  }, []);
 
   // Dismiss handler — logs apr_expiry.acknowledged event
   const handleDismiss = useCallback(async (alert: AprExpiryAlert) => {
@@ -191,12 +247,17 @@ export function AprExpiryPanel() {
     );
   }
 
-  // Filter alerts for active tab, excluding dismissed
-  const visibleAlerts = data.alerts.filter(
-    (a) => a.tier === activeTab && !dismissedIds.has(a.card_id),
-  );
-
-  const tabs: AlertTier[] = ['critical', 'warning', 'upcoming'];
+  // Group alerts by tier, excluding dismissed
+  const alertsByTier: Record<AlertTier, AprExpiryAlert[]> = {
+    critical: [],
+    warning: [],
+    upcoming: [],
+  };
+  for (const alert of data.alerts) {
+    if (!dismissedIds.has(alert.card_id)) {
+      alertsByTier[alert.tier].push(alert);
+    }
+  }
 
   return (
     <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${COLORS.gray200}` }}>
@@ -214,29 +275,24 @@ export function AprExpiryPanel() {
           APR Expiry Alerts
         </span>
 
-        {/* Tab badges */}
+        {/* Summary badges */}
         <div style={{ display: 'flex', gap: 8 }}>
-          {tabs.map((tier) => {
+          {TIERS.map((tier) => {
             const config = tierConfig[tier];
             const count = data.counts[tier];
-            const isActive = activeTab === tier;
             return (
-              <button
+              <span
                 key={tier}
-                onClick={() => setActiveTab(tier)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
                   padding: '4px 12px',
                   borderRadius: 16,
-                  border: isActive ? `2px solid ${COLORS.white}` : '2px solid transparent',
                   background: config.badge,
                   color: config.badgeText,
                   fontSize: 13,
                   fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'border-color 0.15s',
                 }}
               >
                 {config.label}
@@ -250,137 +306,192 @@ export function AprExpiryPanel() {
                 >
                   {count}
                 </span>
-              </button>
+              </span>
             );
           })}
         </div>
       </div>
 
-      {/* Alert rows */}
+      {/* Tier sections — all rendered, each with header + rows */}
       <div style={{ background: COLORS.white }}>
-        {visibleAlerts.length === 0 ? (
-          <div
-            style={{
-              padding: '24px 20px',
-              textAlign: 'center',
-              color: COLORS.gray500,
-              fontSize: 14,
-            }}
-          >
-            No {tierConfig[activeTab].label.toLowerCase()} alerts
-          </div>
-        ) : (
-          visibleAlerts.map((alert) => {
-            const config = tierConfig[alert.tier];
-            return (
-              <div
-                key={alert.card_id}
+        {TIERS.map((tier) => {
+          const config = tierConfig[tier];
+          const alerts = alertsByTier[tier];
+          const isCollapsed = collapsedTiers.has(tier);
+
+          return (
+            <div key={tier}>
+              {/* Tier section header — clickable to collapse/expand */}
+              <button
+                onClick={() => toggleTier(tier)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '12px 20px',
-                  borderBottom: `1px solid ${COLORS.gray100}`,
-                  background: config.bg,
-                  gap: 16,
+                  width: '100%',
+                  padding: '10px 20px',
+                  background: config.headerBg,
+                  borderLeft: `4px solid ${config.borderLeft}`,
+                  border: 'none',
+                  borderBottom: `1px solid ${config.borderLeft}40`,
+                  cursor: 'pointer',
+                  color: config.text,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
                 }}
               >
-                {/* Client info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {config.label}
+                  <span
                     style={{
+                      background: config.badge,
+                      color: config.badgeText,
+                      borderRadius: 10,
+                      padding: '1px 8px',
+                      fontSize: 12,
                       fontWeight: 600,
-                      fontSize: 14,
-                      color: COLORS.gray900,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      letterSpacing: 0,
+                      textTransform: 'none',
                     }}
                   >
-                    {alert.client_name}
-                  </div>
-                  <div style={{ fontSize: 13, color: COLORS.gray500, marginTop: 2 }}>
-                    {alert.issuer} &middot; ****{alert.card_last_four}
-                    {alert.credit_limit != null && (
-                      <> &middot; ${alert.credit_limit.toLocaleString()}</>
-                    )}
-                  </div>
-                </div>
+                    {alerts.length}
+                  </span>
+                </span>
+                <ChevronIcon expanded={!isCollapsed} />
+              </button>
 
-                {/* Expiry date */}
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontSize: 13, color: COLORS.gray500 }}>
-                    {new Date(alert.expiry_date).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </div>
-                  <div
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 14,
-                      color: config.text,
-                    }}
-                  >
-                    {alert.days_remaining}d remaining
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                  {callInitiatedMap[alert.client_id] ? (
-                    <span
+              {/* Alert rows — hidden when collapsed */}
+              {!isCollapsed && (
+                <div>
+                  {alerts.length === 0 ? (
+                    <div
                       style={{
-                        padding: '6px 14px',
-                        borderRadius: 6,
-                        background: '#065F46',
-                        color: COLORS.white,
-                        fontSize: 12,
-                        fontWeight: 500,
-                        whiteSpace: 'nowrap',
+                        padding: '16px 20px',
+                        textAlign: 'center',
+                        color: COLORS.gray500,
+                        fontSize: 14,
+                        background: config.bg,
                       }}
                     >
-                      Call initiated {callInitiatedMap[alert.client_id]}
-                    </span>
+                      No {config.label.toLowerCase()} alerts
+                    </div>
                   ) : (
-                    <button
-                      onClick={() => setInitiateCallState({ clientId: alert.client_id, clientName: alert.client_name })}
-                      style={{
-                        padding: '6px 14px',
-                        borderRadius: 6,
-                        background: COLORS.navy,
-                        color: COLORS.white,
-                        fontSize: 13,
-                        fontWeight: 500,
-                        border: 'none',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      Contact Client
-                    </button>
+                    alerts.map((alert) => (
+                      <div
+                        key={alert.card_id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '12px 20px',
+                          borderBottom: `1px solid ${COLORS.gray100}`,
+                          background: config.bg,
+                          borderLeft: `4px solid ${config.borderLeft}`,
+                          gap: 16,
+                        }}
+                      >
+                        {/* Client info */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              fontSize: 14,
+                              color: COLORS.gray900,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {alert.client_name}
+                          </div>
+                          <div style={{ fontSize: 13, color: COLORS.gray500, marginTop: 2 }}>
+                            {alert.issuer} &middot; ****{alert.card_last_four}
+                            {alert.credit_limit != null && (
+                              <> &middot; ${(alert.credit_limit / 1000).toFixed(0)}K</>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Expiry date */}
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontSize: 13, color: COLORS.gray500 }}>
+                            {new Date(alert.expiry_date).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </div>
+                          <div
+                            style={{
+                              fontWeight: 700,
+                              fontSize: 14,
+                              color: config.text,
+                            }}
+                          >
+                            {alert.days_remaining}d remaining
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                          {callInitiatedMap[alert.client_id] ? (
+                            <span
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: 6,
+                                background: '#065F46',
+                                color: COLORS.white,
+                                fontSize: 12,
+                                fontWeight: 500,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Call initiated {callInitiatedMap[alert.client_id]}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setInitiateCallState({ clientId: alert.client_id, clientName: alert.client_name })}
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: 6,
+                                background: COLORS.navy,
+                                color: COLORS.white,
+                                fontSize: 13,
+                                fontWeight: 500,
+                                border: 'none',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Contact Client
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDismiss(alert)}
+                            title="Dismiss alert"
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              border: `1px solid ${COLORS.gray200}`,
+                              background: COLORS.white,
+                              color: COLORS.gray400,
+                              fontSize: 13,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            &#x2715;
+                          </button>
+                        </div>
+                      </div>
+                    ))
                   )}
-                  <button
-                    onClick={() => handleDismiss(alert)}
-                    title="Dismiss alert"
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: 6,
-                      border: `1px solid ${COLORS.gray200}`,
-                      background: COLORS.white,
-                      color: COLORS.gray400,
-                      fontSize: 13,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    &#x2715;
-                  </button>
                 </div>
-              </div>
-            );
-          })
-        )}
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Footer */}
