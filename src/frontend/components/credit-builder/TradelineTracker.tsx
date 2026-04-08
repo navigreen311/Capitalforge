@@ -8,7 +8,7 @@
 // "Add Tradeline" modal for manual entry.
 // ============================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { useToast } from '@/components/global/ToastProvider';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
@@ -18,6 +18,9 @@ import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState'
 export interface TradelineTrackerProps {
   clientId: string | null;
   clientName: string | null;
+  prefillVendor?: string | null;
+  showAddModal?: boolean;
+  onCloseAddModal?: () => void;
 }
 
 type TradelineStatus = 'Applied' | 'Approved' | 'Reporting' | 'Late';
@@ -53,6 +56,21 @@ interface NewTradelineForm {
   paymentTerms: PaymentTerms;
   reportingBureaus: ReportingBureau[];
   notes: string;
+}
+
+type RowAction = 'edit' | 'log_payment' | 'dispute' | 'mark_inactive';
+
+interface DisputeForm {
+  bureauAffected: string;
+  expectedReportDate: string;
+  actualStatus: string;
+  notes: string;
+}
+
+interface LogPaymentForm {
+  amount: string;
+  date: string;
+  paymentMethod: string;
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -158,13 +176,20 @@ const PAYMENT_TERMS: PaymentTerms[] = ['Net-30', 'Net-60', 'Net-90'];
 function AddTradelineModal({
   onClose,
   onSave,
+  prefillVendor,
 }: {
   onClose: () => void;
   onSave: (form: NewTradelineForm) => void;
+  prefillVendor?: string | null;
 }) {
+  const initialVendor = prefillVendor && VENDOR_LIST.includes(prefillVendor as typeof VENDOR_LIST[number])
+    ? prefillVendor
+    : prefillVendor
+      ? 'Custom...'
+      : VENDOR_LIST[0];
   const [form, setForm] = useState<NewTradelineForm>({
-    vendor: VENDOR_LIST[0],
-    customVendor: '',
+    vendor: initialVendor,
+    customVendor: prefillVendor && !VENDOR_LIST.includes(prefillVendor as typeof VENDOR_LIST[number]) ? prefillVendor : '',
     appliedDate: new Date().toISOString().slice(0, 10),
     approvalStatus: 'Pending',
     creditLimit: '',
@@ -365,9 +390,197 @@ function AddTradelineModal({
   );
 }
 
+// ── Row Action Menu ────────────────────────────────────────────────────────
+
+function RowActionMenu({
+  tradelineId,
+  onAction,
+}: {
+  tradelineId: string;
+  onAction: (id: string, action: RowAction) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  const actions: { key: RowAction; label: string; icon: string }[] = [
+    { key: 'edit', label: 'Edit Details', icon: '\u270E' },
+    { key: 'log_payment', label: 'Log Payment', icon: '\uD83D\uDCB3' },
+    { key: 'dispute', label: 'Dispute Reporting Error', icon: '\u26A0' },
+    { key: 'mark_inactive', label: 'Mark Inactive', icon: '\u2716' },
+  ];
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        className="p-1.5 rounded-md hover:bg-gray-700 transition-colors text-gray-400 hover:text-white"
+        aria-label="Row actions"
+      >
+        <span className="text-lg leading-none">&#8942;</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-30 w-52 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1">
+          {actions.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setOpen(false); onAction(tradelineId, a.key); }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 transition-colors flex items-center gap-2 ${
+                a.key === 'mark_inactive' ? 'text-red-400 hover:text-red-300' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              <span className="w-5 text-center">{a.icon}</span>
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Dispute Modal ──────────────────────────────────────────────────────────
+
+function DisputeModal({
+  vendorName,
+  onClose,
+  onSubmit,
+}: {
+  vendorName: string;
+  onClose: () => void;
+  onSubmit: (form: DisputeForm) => void;
+}) {
+  const [form, setForm] = useState<DisputeForm>({
+    bureauAffected: 'D&B',
+    expectedReportDate: '',
+    actualStatus: '',
+    notes: '',
+  });
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="dialog" aria-modal="true" aria-label="Dispute reporting error">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-semibold text-white">Dispute: {vendorName}</h3>
+          <button onClick={onClose} className="p-1 rounded-md hover:bg-gray-800 transition-colors" aria-label="Close" type="button">
+            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Bureau Affected</label>
+            <select value={form.bureauAffected} onChange={(e) => setForm({ ...form, bureauAffected: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+              <option value="D&B">Dun & Bradstreet</option>
+              <option value="Experian Biz">Experian Business</option>
+              <option value="Equifax Biz">Equifax Business</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Expected Report Date</label>
+            <input type="date" value={form.expectedReportDate} onChange={(e) => setForm({ ...form, expectedReportDate: e.target.value })} required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Actual Status</label>
+            <select value={form.actualStatus} onChange={(e) => setForm({ ...form, actualStatus: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+              <option value="">Select status...</option>
+              <option value="not_reporting">Not Reporting</option>
+              <option value="incorrect_balance">Incorrect Balance</option>
+              <option value="wrong_payment_history">Wrong Payment History</option>
+              <option value="duplicate_entry">Duplicate Entry</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Notes</label>
+            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} placeholder="Describe the reporting error..." className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none" />
+          </div>
+          <button type="submit" className="w-full bg-amber-600 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-amber-500 transition-colors focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-gray-900 outline-none">
+            Submit Dispute
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Log Payment Modal ──────────────────────────────────────────────────────
+
+function LogPaymentModal({
+  vendorName,
+  onClose,
+  onSubmit,
+}: {
+  vendorName: string;
+  onClose: () => void;
+  onSubmit: (form: LogPaymentForm) => void;
+}) {
+  const [form, setForm] = useState<LogPaymentForm>({
+    amount: '',
+    date: new Date().toISOString().slice(0, 10),
+    paymentMethod: 'ach',
+  });
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="dialog" aria-modal="true" aria-label="Log payment">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-semibold text-white">Log Payment: {vendorName}</h3>
+          <button onClick={onClose} className="p-1 rounded-md hover:bg-gray-800 transition-colors" aria-label="Close" type="button">
+            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Payment Amount</label>
+            <input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="$0.00" min="0" step="0.01" required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Payment Date</label>
+            <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Payment Method</label>
+            <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+              <option value="ach">ACH Transfer</option>
+              <option value="check">Check</option>
+              <option value="credit_card">Credit Card</option>
+              <option value="wire">Wire Transfer</option>
+            </select>
+          </div>
+          <button type="submit" className="w-full bg-emerald-600 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-emerald-500 transition-colors focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-gray-900 outline-none">
+            Record Payment
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Export ──────────────────────────────────────────────────────────────
 
-export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps) {
+export function TradelineTracker({ clientId, clientName, prefillVendor, showAddModal: externalShowAdd, onCloseAddModal }: TradelineTrackerProps) {
   const apiPath = clientId ? `/api/v1/clients/${clientId}/tradelines` : null;
   const toast = useToast();
 
@@ -375,10 +588,38 @@ export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps
     apiPath ?? '/api/v1/clients/null/tradelines',
   );
 
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [internalShowAdd, setInternalShowAdd] = useState(false);
+  const showAddModal = externalShowAdd ?? internalShowAdd;
+  const setShowAddModal = useCallback((val: boolean) => {
+    setInternalShowAdd(val);
+    if (!val && onCloseAddModal) onCloseAddModal();
+  }, [onCloseAddModal]);
   const [localTradelines, setLocalTradelines] = useState<Tradeline[]>([]);
+  const [disputeTarget, setDisputeTarget] = useState<Tradeline | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<Tradeline | null>(null);
 
-  const handleCloseModal = useCallback(() => setShowAddModal(false), []);
+  const handleCloseModal = useCallback(() => setShowAddModal(false), [setShowAddModal]);
+
+  const handleRowAction = useCallback((tradelineId: string, action: RowAction) => {
+    const allTradelines = [...(data?.tradelines ?? PLACEHOLDER_DATA.tradelines), ...localTradelines];
+    const target = allTradelines.find(t => t.id === tradelineId);
+    if (!target) return;
+
+    switch (action) {
+      case 'edit':
+        // For now, open add modal prefilled (could be enhanced to true edit)
+        break;
+      case 'log_payment':
+        setPaymentTarget(target);
+        break;
+      case 'dispute':
+        setDisputeTarget(target);
+        break;
+      case 'mark_inactive':
+        setLocalTradelines(prev => prev.map(t => t.id === tradelineId ? { ...t, status: 'Applied' as TradelineStatus } : t));
+        break;
+    }
+  }, [data, localTradelines]);
 
   // Resolve the display data: API response or placeholder fallback
   const resolved = data ?? (clientId ? null : PLACEHOLDER_DATA);
@@ -463,12 +704,13 @@ export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps
                 <th className="pb-2 font-medium text-right">Balance</th>
                 <th className="pb-2 font-medium">Payments</th>
                 <th className="pb-2 font-medium">Status</th>
+                <th className="pb-2 font-medium text-center w-10">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {tradelines.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-gray-500 text-sm">
+                  <td colSpan={8} className="py-8 text-center text-gray-500 text-sm">
                     No tradelines yet. Click &quot;+ Add Tradeline&quot; to get started.
                   </td>
                 </tr>
@@ -509,6 +751,9 @@ export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps
                         {t.status}
                       </span>
                     </td>
+                    <td className="py-3 text-center">
+                      <RowActionMenu tradelineId={t.id} onAction={handleRowAction} />
+                    </td>
                   </tr>
                 ))
               )}
@@ -532,7 +777,34 @@ export function TradelineTracker({ clientId, clientName }: TradelineTrackerProps
 
         {/* ── Add Tradeline Modal ─────────────────────────────── */}
         {showAddModal && (
-          <AddTradelineModal onClose={handleCloseModal} onSave={handleSave} />
+          <AddTradelineModal onClose={handleCloseModal} onSave={handleSave} prefillVendor={prefillVendor} />
+        )}
+
+        {/* ── Dispute Modal ──────────────────────────────────── */}
+        {disputeTarget && (
+          <DisputeModal
+            vendorName={disputeTarget.vendor}
+            onClose={() => setDisputeTarget(null)}
+            onSubmit={() => { setDisputeTarget(null); }}
+          />
+        )}
+
+        {/* ── Log Payment Modal ──────────────────────────────── */}
+        {paymentTarget && (
+          <LogPaymentModal
+            vendorName={paymentTarget.vendor}
+            onClose={() => setPaymentTarget(null)}
+            onSubmit={(form) => {
+              // Update payments_made count for the tradeline
+              const amount = parseFloat(form.amount) || 0;
+              setLocalTradelines(prev => prev.map(t =>
+                t.id === paymentTarget.id
+                  ? { ...t, payments_made: t.payments_made + 1, payments_total: t.payments_total + 1, balance: Math.max(0, t.balance - amount) }
+                  : t
+              ));
+              setPaymentTarget(null);
+            }}
+          />
         )}
       </div>
     </section>

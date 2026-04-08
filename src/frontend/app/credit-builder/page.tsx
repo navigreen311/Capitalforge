@@ -7,7 +7,7 @@
 // tradeline tracker, sub-progress, timeline, graduation banner
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CreditBuilderClientSelector,
@@ -49,7 +49,41 @@ interface Net30Vendor {
   requires: string;
   approvalDifficulty: 'easy' | 'moderate' | 'hard';
   applicationUrl?: string;
+  reportingTimeline?: string;
+  tips?: string[];
+  setupGuide?: string[];
 }
+
+interface VendorDetailData {
+  applicationUrl: string;
+  setupGuide: string[];
+  reportingTimeline: string;
+  tips: string[];
+  bureausReported: string[];
+  typicalLimit: string;
+  difficulty: string;
+}
+
+const VENDOR_DETAIL_MAP: Record<string, VendorDetailData> = {
+  v_001: {
+    applicationUrl: 'https://www.uline.com/CustomerService/NewAccount',
+    setupGuide: [
+      'Create a Uline business account at uline.com using your EIN and business address.',
+      'Place your first order (minimum $50 recommended) and select Net-30 terms at checkout.',
+      'Pay the invoice within 30 days — paying early accelerates your Paydex score.',
+      'Repeat monthly orders for 3 months to establish a strong trade reference.',
+    ],
+    reportingTimeline: 'Uline reports to D&B within 30–60 days of your first paid invoice. Expect your Paydex to begin reflecting activity after 2 billing cycles.',
+    tips: [
+      'Order shipping supplies you actually need — boxes, tape, labels — to avoid waste.',
+      'Pay invoices 10+ days early to push your Paydex toward the maximum 80 score.',
+      'Keep your account in good standing — even one late payment resets your D&B history.',
+    ],
+    bureausReported: ['D&B'],
+    typicalLimit: '$500–$5,000',
+    difficulty: 'easy',
+  },
+};
 
 interface SbssMilestone {
   id: number;
@@ -173,7 +207,10 @@ export default function CreditBuilderPage() {
   const [bureauFilter, setBureauFilter] = useState<string>('all');
   const [vendorSearch, setVendorSearch] = useState('');
   const [selectedVendor, setSelectedVendor] = useState<Net30Vendor | null>(null);
+  const [expandedVendorId, setExpandedVendorId] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<MilestoneAlert[]>([]);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [prefillVendor, setPrefillVendor] = useState<string | null>(null);
 
   const completedCount = dunsSteps.filter((s) => s.completed).length;
   const overallProgress = Math.round((completedCount / dunsSteps.length) * 100);
@@ -323,24 +360,127 @@ export default function CreditBuilderPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
-              {filteredVendors.map((v) => (
-                <tr key={v.id} className="hover:bg-gray-900/60 transition-colors cursor-pointer" onClick={() => setSelectedVendor(v)}>
-                  <td className="px-4 py-3"><p className="font-semibold text-white">{v.vendorName}</p><p className="text-xs text-gray-500">Net-{v.netTerms}</p></td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">{v.category}</td>
-                  <td className="px-4 py-3"><div className="flex flex-wrap gap-1">{v.bureausReported.map((b) => (<span key={b} className="text-xs bg-blue-900/50 text-blue-300 border border-blue-800 px-1.5 py-0.5 rounded">{b}</span>))}</div></td>
-                  <td className="px-4 py-3 text-center"><span className={`text-xs font-bold px-2 py-0.5 rounded border ${tierBadge(v.tier)}`}>Tier {v.tier}</span></td>
-                  <td className="px-4 py-3 text-xs text-gray-300">{v.creditLimit}</td>
-                  <td className="px-4 py-3 text-xs text-gray-400">{v.requires}</td>
-                  <td className="px-4 py-3 text-center"><span className={`text-xs font-semibold px-2 py-0.5 rounded border capitalize ${difficultyBadge(v.approvalDifficulty)}`}>{v.approvalDifficulty}</span></td>
-                </tr>
-              ))}
+              {filteredVendors.map((v) => {
+                const isExpanded = expandedVendorId === v.id;
+                const detail = VENDOR_DETAIL_MAP[v.id];
+                return (
+                  <React.Fragment key={v.id}>
+                    <tr
+                      className={`hover:bg-gray-900/60 transition-colors cursor-pointer ${isExpanded ? 'bg-gray-900/60' : ''}`}
+                      onClick={() => setExpandedVendorId(isExpanded ? null : v.id)}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-gray-500 transition-transform text-xs ${isExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
+                          <div><p className="font-semibold text-white">{v.vendorName}</p><p className="text-xs text-gray-500">Net-{v.netTerms}</p></div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">{v.category}</td>
+                      <td className="px-4 py-3"><div className="flex flex-wrap gap-1">{v.bureausReported.map((b) => (<span key={b} className="text-xs bg-blue-900/50 text-blue-300 border border-blue-800 px-1.5 py-0.5 rounded">{b}</span>))}</div></td>
+                      <td className="px-4 py-3 text-center"><span className={`text-xs font-bold px-2 py-0.5 rounded border ${tierBadge(v.tier)}`}>Tier {v.tier}</span></td>
+                      <td className="px-4 py-3 text-xs text-gray-300">{v.creditLimit}</td>
+                      <td className="px-4 py-3 text-xs text-gray-400">{v.requires}</td>
+                      <td className="px-4 py-3 text-center"><span className={`text-xs font-semibold px-2 py-0.5 rounded border capitalize ${difficultyBadge(v.approvalDifficulty)}`}>{v.approvalDifficulty}</span></td>
+                    </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={7} className="px-0 py-0">
+                          <div className="bg-gray-900/80 border-t border-b border-gray-700 px-6 py-5">
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                              {/* Column 1: Details */}
+                              <div className="space-y-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Vendor Details</h4>
+                                <div className="space-y-2 text-sm">
+                                  <div className="flex justify-between"><span className="text-gray-500">Application URL</span>{v.applicationUrl ? <a href={v.applicationUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline truncate ml-2">{v.applicationUrl.replace('https://', '')}</a> : <span className="text-gray-600">N/A</span>}</div>
+                                  <div className="flex justify-between"><span className="text-gray-500">Bureaus</span><span className="text-gray-200">{v.bureausReported.join(', ')}</span></div>
+                                  <div className="flex justify-between"><span className="text-gray-500">Typical Limit</span><span className="text-gray-200">{detail?.typicalLimit ?? v.creditLimit}</span></div>
+                                  <div className="flex justify-between"><span className="text-gray-500">Difficulty</span><span className={`font-semibold capitalize ${v.approvalDifficulty === 'easy' ? 'text-green-400' : v.approvalDifficulty === 'moderate' ? 'text-yellow-400' : 'text-red-400'}`}>{v.approvalDifficulty}</span></div>
+                                </div>
+                                {detail?.reportingTimeline && (
+                                  <div className="mt-3">
+                                    <h5 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Reporting Timeline</h5>
+                                    <p className="text-xs text-gray-400 leading-relaxed">{detail.reportingTimeline}</p>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Column 2: Setup Guide */}
+                              <div className="space-y-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Setup Guide</h4>
+                                {detail?.setupGuide ? (
+                                  <ol className="space-y-2">
+                                    {detail.setupGuide.map((step, idx) => (
+                                      <li key={idx} className="flex gap-2 text-xs">
+                                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center">{idx + 1}</span>
+                                        <span className="text-gray-300 leading-relaxed">{step}</span>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                ) : (
+                                  <ol className="space-y-2 text-xs text-gray-400">
+                                    <li className="flex gap-2"><span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center">1</span>Visit {v.vendorName} website and create a business account.</li>
+                                    <li className="flex gap-2"><span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center">2</span>Submit business credit application with EIN and DUNS.</li>
+                                    <li className="flex gap-2"><span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center">3</span>Place first Net-{v.netTerms} order to activate tradeline.</li>
+                                    <li className="flex gap-2"><span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center">4</span>Pay invoice on time or early for positive reporting.</li>
+                                  </ol>
+                                )}
+                              </div>
+                              {/* Column 3: Tips + Action */}
+                              <div className="space-y-3">
+                                {detail?.tips && detail.tips.length > 0 && (
+                                  <>
+                                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tips</h4>
+                                    <ul className="space-y-1.5">
+                                      {detail.tips.map((tip, idx) => (
+                                        <li key={idx} className="flex gap-2 text-xs">
+                                          <span className="text-yellow-500 flex-shrink-0 mt-0.5">&#9679;</span>
+                                          <span className="text-gray-300 leading-relaxed">{tip}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                                <div className="pt-3 flex flex-col gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setPrefillVendor(v.vendorName); setShowAddModal(true); }}
+                                    className="w-full text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg px-4 py-2.5 transition-colors"
+                                  >
+                                    + Add to My Tradelines
+                                  </button>
+                                  {v.applicationUrl && (
+                                    <a
+                                      href={v.applicationUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-full text-center text-sm font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg px-4 py-2 transition-colors"
+                                    >
+                                      Apply Now &#x2197;
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
       {/* ── Tradeline Tracker ────────────────────────────────────── */}
-      <TradelineTracker clientId={selectedClient?.id ?? null} clientName={selectedClient?.legal_name ?? null} />
+      <TradelineTracker
+        clientId={selectedClient?.id ?? null}
+        clientName={selectedClient?.legal_name ?? null}
+        prefillVendor={prefillVendor}
+        showAddModal={showAddModal}
+        onCloseAddModal={() => { setShowAddModal(false); setPrefillVendor(null); }}
+      />
 
       {/* ── SBSS Milestones + Stacking Criteria side-by-side ───── */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
