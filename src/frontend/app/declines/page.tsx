@@ -232,9 +232,11 @@ function computeRecoveryStats(records: DeclineRecord[]) {
 function RecoveryTracker({
   records,
   onAdvance,
+  advancingId,
 }: {
   records: DeclineRecord[];
   onAdvance: (id: string, stage: RecoveryStage) => void;
+  advancingId: string | null;
 }) {
   const activeRecoveries = records.filter(r => r.recoveryStage !== 'won' && r.recoveryStage !== 'lost');
   const stats = computeRecoveryStats(records);
@@ -318,21 +320,25 @@ function RecoveryTracker({
                     {r.issuer} · {r.cardProduct} · {formatCurrency(r.requestedLimit)}
                   </p>
                   <div className="flex gap-1.5">
-                    {nextActions.map((action) => (
-                      <button
-                        key={action.stage}
-                        onClick={() => onAdvance(r.id, action.stage)}
-                        className={`text-xs px-2 py-1 rounded transition-colors ${
-                          action.stage === 'won'
-                            ? 'bg-green-900 hover:bg-green-800 text-green-300 border border-green-700'
-                            : action.stage === 'lost'
-                            ? 'bg-red-900 hover:bg-red-800 text-red-300 border border-red-700'
-                            : 'bg-[#C9A84C]/20 hover:bg-[#C9A84C]/30 text-[#C9A84C] border border-[#C9A84C]/40'
-                        }`}
-                      >
-                        {action.label}
-                      </button>
-                    ))}
+                    {nextActions.map((action) => {
+                      const isLoading = advancingId === r.id;
+                      return (
+                        <button
+                          key={action.stage}
+                          onClick={() => onAdvance(r.id, action.stage)}
+                          disabled={isLoading}
+                          className={`text-xs px-2 py-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                            action.stage === 'won'
+                              ? 'bg-green-900 hover:bg-green-800 text-green-300 border border-green-700'
+                              : action.stage === 'lost'
+                              ? 'bg-red-900 hover:bg-red-800 text-red-300 border border-red-700'
+                              : 'bg-[#C9A84C]/20 hover:bg-[#C9A84C]/30 text-[#C9A84C] border border-[#C9A84C]/40'
+                          }`}
+                        >
+                          {isLoading ? 'Updating...' : action.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -708,17 +714,24 @@ export default function DeclinesPage() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  const [advancingId, setAdvancingId] = useState<string | null>(null);
+
   const handleAdvanceStage = useCallback((id: string, stage: RecoveryStage) => {
-    setDeclineRecords(prev => prev.map(r => {
-      if (r.id !== id) return r;
-      const updated = { ...r, recoveryStage: stage };
-      if (stage === 'won' || stage === 'lost') {
-        updated.resolvedAt = new Date().toISOString().split('T')[0];
-        updated.reconStatus = stage === 'won' ? 'approved' : 'denied';
-      }
-      return updated;
-    }));
-    showToast(`Recovery stage updated to "${RECOVERY_STAGE_LABELS[stage]}"`);
+    // Simulate mock PATCH /api/declines/:id/stage
+    setAdvancingId(id);
+    setTimeout(() => {
+      setDeclineRecords(prev => prev.map(r => {
+        if (r.id !== id) return r;
+        const updated = { ...r, recoveryStage: stage };
+        if (stage === 'won' || stage === 'lost') {
+          updated.resolvedAt = new Date().toISOString().split('T')[0];
+          updated.reconStatus = stage === 'won' ? 'approved' : 'denied';
+        }
+        return updated;
+      }));
+      setAdvancingId(null);
+      showToast(`Stage updated to ${RECOVERY_STAGE_LABELS[stage]}`);
+    }, 350); // Brief delay to simulate network round-trip
   }, [showToast]);
 
   const handleLogDecline = () => {
@@ -789,7 +802,7 @@ export default function DeclinesPage() {
       </div>
 
       {/* ── Recovery Tracker ─────────────────────────────────────── */}
-      <RecoveryTracker records={declineRecords} onAdvance={handleAdvanceStage} />
+      <RecoveryTracker records={declineRecords} onAdvance={handleAdvanceStage} advancingId={advancingId} />
 
       {/* ── Section 1: Declines Table ─────────────────────────────── */}
       <section>
