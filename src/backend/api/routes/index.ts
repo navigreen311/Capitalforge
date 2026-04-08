@@ -81,6 +81,10 @@ apiRouter.use('/', fundingRoundRouter);
 import { fundingRoundDetailRouter } from './funding-round-detail.routes.js';
 apiRouter.use('/funding-rounds/:roundId', fundingRoundDetailRouter);
 
+// -- Funding Round Actions (export-dossier, status update) --
+import { fundingRoundActionsRouter } from './funding-round-actions.routes.js';
+apiRouter.use('/', fundingRoundActionsRouter);
+
 // -- Consent (per-business consent management) --
 import consentRouter from './consent.routes.js';
 apiRouter.use('/businesses/:id/consent', consentRouter);
@@ -110,6 +114,10 @@ apiRouter.use('/optimizer', optimizerActionsRouter);
 // -- Document Vault --
 import { documentRouter } from './document.routes.js';
 apiRouter.use('/', documentRouter);
+
+// -- Document Generation (letters, statements, cover letters) --
+import { documentGenRouter } from './document-gen.routes.js';
+apiRouter.use('/', documentGenRouter);
 
 // -- Compliance & Risk Center --
 import { complianceRouter } from './compliance.routes.js';
@@ -310,6 +318,10 @@ apiRouter.use('/readiness', readinessRouter);
 // ── Decline Recovery Workflow ────────────────────────────────────
 import { declineRecoveryRouter } from './decline-recovery.routes.js';
 apiRouter.use('/', declineRecoveryRouter);
+
+// ── Decline Actions (create, analytics, reminders) ──────────────
+import { declineActionsRouter } from './decline-actions.routes.js';
+apiRouter.use('/', declineActionsRouter);
 
 // ── Re-Stack Eligibility ─────────────────────────────────────────
 import { restackRouter } from './restack.routes.js';
