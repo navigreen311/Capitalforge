@@ -236,7 +236,10 @@ export default function PlatformIssuersPage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch('/api/platform/issuers');
+        const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) _h['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/platform/issuers', { headers: _h });
         const json = await res.json();
         if (json.success) setIssuers(json.data);
       } catch {

@@ -116,7 +116,10 @@ export default function PlatformWorkflowsPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const res = await fetch('/api/platform/workflows');
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) _h['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/platform/workflows', { headers: _h });
       const json = await res.json();
       if (json.success) setWorkflows(json.data);
     } catch {
@@ -149,7 +152,10 @@ export default function PlatformWorkflowsPage() {
   const handleCreate = async () => {
     if (!formName.trim() || !formTrigger.trim() || !formCondition.trim() || !formAction.trim()) return;
     try {
-      const res = await fetch('/api/platform/workflows', {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) _h['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/platform/workflows', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: formName, trigger: formTrigger, condition: formCondition, action: formAction }),

@@ -84,7 +84,10 @@ export default function PlatformReferralsPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const res = await fetch('/api/platform/referrals');
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) _h['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/platform/referrals', { headers: _h });
       const json = await res.json();
       if (json.success) {
         setReferrals(json.data.referrals);
@@ -109,7 +112,10 @@ export default function PlatformReferralsPage() {
   const handleCreateReferral = async () => {
     if (!formAdvisor.trim() || !formSource.trim()) return;
     try {
-      const res = await fetch('/api/platform/referrals', {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) _h['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/platform/referrals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ advisorId: 'adv_new', advisorName: formAdvisor, source: formSource }),

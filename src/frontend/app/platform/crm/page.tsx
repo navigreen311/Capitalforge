@@ -99,9 +99,12 @@ export default function PlatformCrmPage() {
   useEffect(() => {
     async function load() {
       try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
         const [pRes, rRes] = await Promise.all([
-          fetch('/api/platform/crm/pipeline'),
-          fetch('/api/platform/crm/revenue'),
+          fetch('/api/platform/crm/pipeline', { headers }),
+          fetch('/api/platform/crm/revenue', { headers }),
         ]);
         const pJson = await pRes.json();
         const rJson = await rRes.json();
