@@ -39,6 +39,10 @@ apiRouter.use('/v1/dashboard', dashboardV1Router);
 import { dashboardRouter } from './dashboard.routes.js';
 apiRouter.use('/dashboard', dashboardRouter);
 
+// -- Dashboard Committee Queue (mock endpoint) --
+import { committeeRouter } from './committee.routes.js';
+apiRouter.use('/dashboard/committee-queue', committeeRouter);
+
 // -- Clients list & create --
 import { clientsRouter } from './clients.routes.js';
 apiRouter.use('/clients', clientsRouter);
