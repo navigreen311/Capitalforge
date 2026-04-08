@@ -16,7 +16,7 @@ import UsageMeter from '../../components/modules/usage-meter';
 // Types
 // ---------------------------------------------------------------------------
 
-type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'refunded' | 'overdue';
+type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'refunded' | 'overdue' | 'voided';
 type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed';
 type DealStructure = 'revenue_share' | 'flat_fee' | 'term_loan' | 'line_of_credit' | 'mca';
 
@@ -187,6 +187,7 @@ const INVOICE_STATUS_CONFIG: Record<InvoiceStatus, { label: string; badgeClass: 
   paid:     { label: 'Paid',     badgeClass: 'bg-green-900 text-green-300 border-green-700' },
   refunded: { label: 'Refunded', badgeClass: 'bg-purple-900 text-purple-300 border-purple-700' },
   overdue:  { label: 'Overdue',  badgeClass: 'bg-red-900 text-red-300 border-red-700' },
+  voided:   { label: 'Voided',   badgeClass: 'bg-gray-900 text-gray-500 border-gray-600' },
 };
 
 const COMMISSION_STATUS_CONFIG: Record<CommissionStatus, { label: string; badgeClass: string }> = {
@@ -220,7 +221,7 @@ function formatDate(s: string): string {
 }
 
 function isOverdue(dueDate: string, status: InvoiceStatus): boolean {
-  return status !== 'paid' && status !== 'refunded' && new Date(dueDate) < new Date();
+  return status !== 'paid' && status !== 'refunded' && status !== 'voided' && new Date(dueDate) < new Date();
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +612,9 @@ export default function BillingPage() {
   const [commissions, setCommissions] = useState<Commission[]>(PLACEHOLDER_COMMISSIONS);
   const [selectedCommission, setSelectedCommission] = useState<Commission | null>(null);
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
+  const [payConfirmId, setPayConfirmId] = useState<string | null>(null);
+  const [unpayConfirmId, setUnpayConfirmId] = useState<string | null>(null);
+  const [reminderInvoice, setReminderInvoice] = useState<Invoice | null>(null);
 
   // Next invoice number
   const nextInvoiceNum = invoices.length + 1;
@@ -648,19 +652,37 @@ export default function BillingPage() {
   }, []);
 
   const handleMarkPaid = useCallback((id: string) => {
+    const target = invoices.find((inv) => inv.id === id);
     setInvoices((prev) =>
       prev.map((inv) =>
-        inv.id === id ? { ...inv, status: inv.status === 'paid' ? 'issued' : 'paid' as InvoiceStatus } : inv,
+        inv.id === id ? { ...inv, status: 'paid' as InvoiceStatus } : inv,
       ),
     );
-    showToast('Invoice status updated.');
-  }, []);
+    setPayConfirmId(null);
+    showToast(`Invoice ${target?.invoiceNumber ?? id} marked as paid (${formatCurrency(target?.amount ?? 0)})`);
+  }, [invoices]);
+
+  const handleUnpay = useCallback((id: string) => {
+    const target = invoices.find((inv) => inv.id === id);
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === id ? { ...inv, status: 'issued' as InvoiceStatus } : inv,
+      ),
+    );
+    setUnpayConfirmId(null);
+    showToast(`Invoice ${target?.invoiceNumber ?? id} reverted to issued`);
+  }, [invoices]);
 
   const handleVoidInvoice = useCallback((id: string) => {
-    setInvoices((prev) => prev.filter((inv) => inv.id !== id));
+    const target = invoices.find((inv) => inv.id === id);
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === id ? { ...inv, status: 'voided' as InvoiceStatus } : inv,
+      ),
+    );
     setVoidConfirmId(null);
-    showToast('Invoice voided and removed.');
-  }, []);
+    showToast(`Invoice ${target?.invoiceNumber ?? id} voided (${formatCurrency(target?.amount ?? 0)})`);
+  }, [invoices]);
 
   const handleViewPdf = useCallback((inv?: Invoice) => {
     const target = inv ?? filteredInvoices[0];
@@ -699,7 +721,8 @@ export default function BillingPage() {
   }, [filteredInvoices]);
 
   const handleSendReminder = useCallback((inv: Invoice) => {
-    showToast(`Reminder sent to ${inv.client} for ${inv.invoiceNumber}.`);
+    setReminderInvoice(null);
+    showToast(`Reminder sent to ${inv.client} for ${inv.invoiceNumber}`);
   }, []);
 
   // -- Commission actions --
@@ -744,28 +767,146 @@ export default function BillingPage() {
       )}
 
       {/* Void confirmation dialog */}
-      {voidConfirmId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
-            <h3 className="text-lg font-bold text-white mb-2">Void Invoice?</h3>
-            <p className="text-sm text-gray-400 mb-5">This action will permanently remove this invoice. Are you sure?</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setVoidConfirmId(null)}
-                className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleVoidInvoice(voidConfirmId)}
-                className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition-colors"
-              >
-                Void Invoice
-              </button>
+      {voidConfirmId && (() => {
+        const voidTarget = invoices.find((i) => i.id === voidConfirmId);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
+              <h3 className="text-lg font-bold text-white mb-2">Void Invoice?</h3>
+              <p className="text-sm text-gray-400 mb-5">
+                Void invoice <span className="font-mono text-[#C9A84C]">{voidTarget?.invoiceNumber}</span> for{' '}
+                <span className="font-semibold text-gray-200">{formatCurrency(voidTarget?.amount ?? 0)}</span>?
+                This cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setVoidConfirmId(null)}
+                  className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleVoidInvoice(voidConfirmId)}
+                  className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition-colors"
+                >
+                  Void Invoice
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* Pay confirmation dialog */}
+      {payConfirmId && (() => {
+        const payTarget = invoices.find((i) => i.id === payConfirmId);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
+              <h3 className="text-lg font-bold text-white mb-2">Confirm Payment</h3>
+              <p className="text-sm text-gray-400 mb-1">
+                Mark invoice <span className="font-mono text-[#C9A84C]">{payTarget?.invoiceNumber}</span> as paid?
+              </p>
+              <p className="text-2xl font-black text-green-400 mb-5">{formatCurrency(payTarget?.amount ?? 0)}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPayConfirmId(null)}
+                  className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleMarkPaid(payConfirmId)}
+                  className="flex-1 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors"
+                >
+                  Confirm Payment
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Unpay confirmation dialog */}
+      {unpayConfirmId && (() => {
+        const unpayTarget = invoices.find((i) => i.id === unpayConfirmId);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
+              <h3 className="text-lg font-bold text-white mb-2">Mark as Unpaid?</h3>
+              <p className="text-sm text-gray-400 mb-5">
+                Mark invoice <span className="font-mono text-[#C9A84C]">{unpayTarget?.invoiceNumber}</span> as unpaid?
+                This will revert the status to issued.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setUnpayConfirmId(null)}
+                  className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleUnpay(unpayConfirmId)}
+                  className="flex-1 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition-colors"
+                >
+                  Mark Unpaid
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Reminder modal */}
+      {reminderInvoice && (() => {
+        const daysOverdue = Math.max(0, Math.floor((Date.now() - new Date(reminderInvoice.dueDate).getTime()) / (1000 * 60 * 60 * 24)));
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-sm mx-4 p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-bold text-white">Send Payment Reminder</h3>
+                <button onClick={() => setReminderInvoice(null)} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
+                  ×
+                </button>
+              </div>
+              <div className="space-y-3 mb-5">
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500 uppercase">Client</span>
+                  <span className="text-sm font-semibold text-gray-100">{reminderInvoice.client}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500 uppercase">Invoice</span>
+                  <span className="text-sm font-mono text-[#C9A84C]">{reminderInvoice.invoiceNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500 uppercase">Amount Due</span>
+                  <span className="text-sm font-bold text-red-400">{formatCurrency(reminderInvoice.amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500 uppercase">Days Overdue</span>
+                  <span className={`text-sm font-bold ${daysOverdue > 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    {daysOverdue > 0 ? `${daysOverdue} days` : 'Not yet due'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setReminderInvoice(null)}
+                  className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleSendReminder(reminderInvoice)}
+                  className="flex-1 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition-colors"
+                >
+                  Send Reminder
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -851,7 +992,7 @@ export default function BillingPage() {
         <div>
           {/* Status filter */}
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {(['all', 'draft', 'issued', 'paid', 'overdue', 'refunded'] as const).map((s) => (
+            {(['all', 'draft', 'issued', 'paid', 'overdue', 'refunded', 'voided'] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setInvoiceFilter(s)}
@@ -893,10 +1034,12 @@ export default function BillingPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                   {filteredInvoices.map((inv) => {
-                    const effectivelyOverdue = isOverdue(inv.dueDate, inv.status) && inv.status !== 'paid' && inv.status !== 'refunded';
+                    const effectivelyOverdue = isOverdue(inv.dueDate, inv.status) && inv.status !== 'paid' && inv.status !== 'refunded' && inv.status !== 'voided';
                     const statusCfg = INVOICE_STATUS_CONFIG[effectivelyOverdue ? 'overdue' : inv.status];
                     const rowBg = effectivelyOverdue || inv.status === 'overdue'
                       ? 'bg-red-950/20 hover:bg-red-950/40'
+                      : inv.status === 'voided'
+                      ? 'bg-gray-950/50 hover:bg-gray-900/50 opacity-60'
                       : 'hover:bg-gray-800/50';
                     return (
                       <tr key={inv.id} className={`${rowBg} transition-colors`}>
@@ -939,23 +1082,32 @@ export default function BillingPage() {
                             </button>
                             {(effectivelyOverdue || inv.status === 'overdue') && (
                               <button
-                                onClick={() => handleSendReminder(inv)}
+                                onClick={() => setReminderInvoice(inv)}
                                 className="text-xs text-gray-500 hover:text-amber-400 transition-colors"
                                 title="Send Reminder"
                               >
                                 Remind
                               </button>
                             )}
-                            {inv.status !== 'refunded' && (
+                            {inv.status !== 'refunded' && inv.status !== 'voided' && inv.status !== 'paid' && (
                               <button
-                                onClick={() => handleMarkPaid(inv.id)}
+                                onClick={() => setPayConfirmId(inv.id)}
                                 className="text-xs text-gray-500 hover:text-green-400 transition-colors"
-                                title={inv.status === 'paid' ? 'Unmark Paid' : 'Mark Paid'}
+                                title="Mark Paid"
                               >
-                                {inv.status === 'paid' ? 'Unpay' : 'Pay'}
+                                Pay
                               </button>
                             )}
-                            {inv.status !== 'paid' && inv.status !== 'refunded' && (
+                            {inv.status === 'paid' && (
+                              <button
+                                onClick={() => setUnpayConfirmId(inv.id)}
+                                className="text-xs text-gray-500 hover:text-amber-400 transition-colors"
+                                title="Revert to Issued"
+                              >
+                                Unpay
+                              </button>
+                            )}
+                            {inv.status !== 'paid' && inv.status !== 'refunded' && inv.status !== 'voided' && (
                               <button
                                 onClick={() => setVoidConfirmId(inv.id)}
                                 className="text-xs text-gray-500 hover:text-red-400 transition-colors"
