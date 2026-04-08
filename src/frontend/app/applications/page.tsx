@@ -29,6 +29,14 @@ interface ApplicationCard {
   approvedLimit?: number;
   createdAt: string;
   updatedAt: string;
+  /** Funding round number (1, 2, 3 ...) */
+  roundNumber: number | null;
+  /** Days the application has been in current status */
+  daysInStatus: number;
+  /** Consent status: 'complete' | 'pending' | 'missing' */
+  consentStatus: 'complete' | 'pending' | 'missing';
+  /** Assigned advisor full name */
+  advisor: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,41 +48,49 @@ const PLACEHOLDER_APPS: ApplicationCard[] = [
     id: 'APP-0091', businessId: 'biz_001', businessName: 'Apex Ventures LLC',
     issuer: 'Chase', cardProduct: 'Ink Business Cash', status: 'draft',
     requestedLimit: 25000, createdAt: '2026-03-28T10:00:00Z', updatedAt: '2026-03-28T10:00:00Z',
+    roundNumber: 1, daysInStatus: 3, consentStatus: 'pending', advisor: 'Sarah Chen',
   },
   {
     id: 'APP-0090', businessId: 'biz_002', businessName: 'NovaTech Solutions Inc.',
     issuer: 'Amex', cardProduct: 'Business Gold', status: 'pending_consent',
     requestedLimit: 30000, createdAt: '2026-03-27T09:00:00Z', updatedAt: '2026-03-29T11:00:00Z',
+    roundNumber: 1, daysInStatus: 5, consentStatus: 'missing', advisor: 'Marcus Reid',
   },
   {
     id: 'APP-0089', businessId: 'biz_003', businessName: 'Blue Ridge Consulting',
     issuer: 'Capital One', cardProduct: 'Spark Cash Plus', status: 'submitted',
     requestedLimit: 20000, createdAt: '2026-03-26T14:00:00Z', updatedAt: '2026-03-30T08:00:00Z',
+    roundNumber: 2, daysInStatus: 7, consentStatus: 'complete', advisor: 'Olivia Torres',
   },
   {
     id: 'APP-0088', businessId: 'biz_004', businessName: 'Summit Capital Group',
     issuer: 'Chase', cardProduct: 'Ink Business Preferred', status: 'approved',
     requestedLimit: 50000, approvedLimit: 45000, createdAt: '2026-03-20T10:00:00Z', updatedAt: '2026-03-28T15:00:00Z',
+    roundNumber: 2, daysInStatus: 0, consentStatus: 'complete', advisor: 'Sarah Chen',
   },
   {
     id: 'APP-0087', businessId: 'biz_005', businessName: 'Horizon Retail Partners',
     issuer: 'Citi', cardProduct: 'Citi Business Platinum', status: 'declined',
     requestedLimit: 15000, createdAt: '2026-03-22T11:00:00Z', updatedAt: '2026-03-25T09:00:00Z',
+    roundNumber: 1, daysInStatus: 0, consentStatus: 'complete', advisor: 'James Park',
   },
   {
     id: 'APP-0086', businessId: 'biz_006', businessName: 'Crestline Medical LLC',
     issuer: 'Amex', cardProduct: 'Plum Card', status: 'draft',
     requestedLimit: 40000, createdAt: '2026-03-30T07:00:00Z', updatedAt: '2026-03-30T07:00:00Z',
+    roundNumber: 3, daysInStatus: 1, consentStatus: 'pending', advisor: 'Olivia Torres',
   },
   {
     id: 'APP-0085', businessId: 'biz_001', businessName: 'Apex Ventures LLC',
     issuer: 'Bank of America', cardProduct: 'Business Advantage Cash Rewards', status: 'submitted',
     requestedLimit: 18000, createdAt: '2026-03-29T08:00:00Z', updatedAt: '2026-03-30T10:00:00Z',
+    roundNumber: 1, daysInStatus: 4, consentStatus: 'complete', advisor: 'Marcus Reid',
   },
   {
     id: 'APP-0084', businessId: 'biz_007', businessName: 'Pinnacle Freight Corp',
     issuer: 'US Bank', cardProduct: 'Business Altitude Connect', status: 'approved',
     requestedLimit: 60000, approvedLimit: 60000, createdAt: '2026-03-15T12:00:00Z', updatedAt: '2026-03-22T14:00:00Z',
+    roundNumber: 1, daysInStatus: 0, consentStatus: 'complete', advisor: 'Sarah Chen',
   },
 ];
 
@@ -107,6 +123,32 @@ const STATUS_CHIP: Record<string, string> = {
   reconsideration: 'bg-orange-50 text-orange-700 border-orange-200',
 };
 
+const CONSENT_DOT: Record<string, { color: string; title: string }> = {
+  complete: { color: 'bg-emerald-500', title: 'Consent complete' },
+  pending:  { color: 'bg-amber-400',   title: 'Consent pending' },
+  missing:  { color: 'bg-red-500',     title: 'Consent missing' },
+};
+
+function advisorInitials(name: string): string {
+  return name
+    .split(' ')
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function daysLabel(days: number, status: string): string {
+  const label = status.replace(/_/g, ' ');
+  return `${days}d in ${label}`;
+}
+
+function daysInStatusClasses(days: number): string {
+  if (days > 14) return 'text-red-500 font-semibold';
+  if (days > 7)  return 'text-amber-500 font-semibold';
+  return 'text-gray-400';
+}
+
 function AppCard({
   card,
   onDragStart,
@@ -120,6 +162,8 @@ function AppCard({
   const mouseDown = useRef({ x: 0, y: 0 });
   const dragged = useRef(false);
 
+  const consent = CONSENT_DOT[card.consentStatus] ?? CONSENT_DOT.missing;
+
   return (
     <div
       draggable
@@ -130,8 +174,15 @@ function AppCard({
         const dy = Math.abs(e.clientY - mouseDown.current.y);
         if (dx < 5 && dy < 5 && !dragged.current) onClick();
       }}
-      className="rounded-xl border border-surface-border bg-white shadow-card hover:shadow-card-hover p-4 cursor-pointer transition-shadow group"
+      className="relative rounded-xl border border-surface-border bg-white shadow-card hover:shadow-card-hover p-4 cursor-pointer transition-shadow group"
     >
+      {/* Round badge — top-right pill */}
+      {card.roundNumber !== null && (
+        <span className="absolute -top-1.5 -right-1.5 text-2xs font-bold px-1.5 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-300 shadow-sm">
+          R{card.roundNumber}
+        </span>
+      )}
+
       {/* Business name */}
       <p className="text-xs text-gray-400 mb-0.5 truncate">{card.businessName}</p>
 
@@ -140,9 +191,10 @@ function AppCard({
         {card.cardProduct}
       </p>
 
-      {/* Issuer + status */}
+      {/* Issuer + consent dot + status */}
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded">
+        <span className="text-xs text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${consent.color}`} title={consent.title} />
           {card.issuer}
         </span>
         <span className={`text-2xs font-bold px-2 py-0.5 rounded-full border ${STATUS_CHIP[card.status] ?? STATUS_CHIP.draft}`}>
@@ -160,6 +212,19 @@ function AppCard({
           <span>Requested: {formatCurrency(card.requestedLimit)}</span>
         )}
       </div>
+
+      {/* Days in status + advisor initials */}
+      <div className="mt-1.5 flex items-center justify-between">
+        <span className={`text-2xs ${daysInStatusClasses(card.daysInStatus)}`}>
+          {daysLabel(card.daysInStatus, card.status)}
+        </span>
+        <span
+          className="w-6 h-6 rounded-full bg-brand-navy text-white text-2xs font-bold flex items-center justify-center shrink-0"
+          title={card.advisor}
+        >
+          {advisorInitials(card.advisor)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -168,10 +233,19 @@ function AppCard({
 // Page
 // ---------------------------------------------------------------------------
 
+type PipelineFilter =
+  | 'total'
+  | 'pipeline_value'
+  | 'approved_value'
+  | 'avg_time'
+  | 'approval_rate'
+  | null;
+
 export default function ApplicationsPage() {
   const [apps, setApps] = useState<ApplicationCard[]>(PLACEHOLDER_APPS);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [activeChip, setActiveChip] = useState<PipelineFilter>(null);
   const dragId = useRef<string | null>(null);
 
   // Drawer state
@@ -220,32 +294,76 @@ export default function ApplicationsPage() {
 
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
 
+  // ── Computed stats ──────────────────────────────────────────
+  const totalApproved = apps
+    .filter((a) => a.status === 'approved')
+    .reduce((s, a) => s + (a.approvedLimit ?? a.requestedLimit), 0);
+
+  const pipelineValue = apps.reduce(
+    (s, a) => s + (a.approvedLimit ?? a.requestedLimit),
+    0,
+  );
+
+  const decidedApps = apps.filter(
+    (a) => a.status === 'approved' || a.status === 'declined',
+  );
+  const approvalRate =
+    decidedApps.length > 0
+      ? ((apps.filter((a) => a.status === 'approved').length / decidedApps.length) * 100)
+      : 0;
+
+  const avgTime =
+    apps.length > 0
+      ? (apps.reduce((s, a) => s + a.daysInStatus, 0) / apps.length)
+      : 0;
+
+  // ── Chip-based filtering ──────────────────────────────────
+  function chipFilter(a: ApplicationCard): boolean {
+    if (!activeChip) return true;
+    switch (activeChip) {
+      case 'approved_value':
+        return a.status === 'approved';
+      case 'approval_rate':
+        return a.status === 'approved' || a.status === 'declined';
+      case 'avg_time':
+        return a.daysInStatus > 0;
+      case 'pipeline_value':
+      case 'total':
+      default:
+        return true;
+    }
+  }
+
   const filtered = apps.filter(
     (a) =>
-      !search ||
-      a.businessName.toLowerCase().includes(search.toLowerCase()) ||
-      a.cardProduct.toLowerCase().includes(search.toLowerCase()) ||
-      a.issuer.toLowerCase().includes(search.toLowerCase()),
+      chipFilter(a) &&
+      (!search ||
+        a.businessName.toLowerCase().includes(search.toLowerCase()) ||
+        a.cardProduct.toLowerCase().includes(search.toLowerCase()) ||
+        a.issuer.toLowerCase().includes(search.toLowerCase())),
   );
 
   const byStatus = (status: ApplicationStatus) =>
     filtered.filter((a) => a.status === status);
 
-  const totalApproved = apps
-    .filter((a) => a.status === 'approved')
-    .reduce((s, a) => s + (a.approvedLimit ?? a.requestedLimit), 0);
+  // ── Chip definitions ──────────────────────────────────────
+  const chipDefs: { key: PipelineFilter; label: string; value: string }[] = [
+    { key: 'total',          label: 'Total',          value: `${apps.length}` },
+    { key: 'pipeline_value', label: 'Pipeline Value', value: formatCurrency(pipelineValue) },
+    { key: 'approved_value', label: 'Approved',       value: formatCurrency(totalApproved) },
+    { key: 'avg_time',       label: 'Avg Time',       value: `${avgTime.toFixed(1)}d` },
+    { key: 'approval_rate',  label: 'Approval Rate',  value: `${approvalRate.toFixed(0)}%` },
+  ];
+
+  function handleChipClick(key: PipelineFilter) {
+    setActiveChip((prev) => (prev === key ? null : key));
+  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Application Pipeline</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {apps.length} total · {apps.filter((a) => a.status === 'approved').length} approved ·{' '}
-            <span className="text-emerald-600 font-semibold">{formatCurrency(totalApproved)}</span> funded
-          </p>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-900">Application Pipeline</h1>
         <div className="flex gap-2">
           <input
             type="text"
@@ -261,6 +379,37 @@ export default function ApplicationsPage() {
             + New Application
           </button>
         </div>
+      </div>
+
+      {/* Pipeline stats chips */}
+      <div className="flex flex-wrap gap-2">
+        {chipDefs.map((chip) => {
+          const isActive = activeChip === chip.key;
+          return (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => handleChipClick(chip.key)}
+              className={[
+                'inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-full border transition-all duration-150',
+                isActive
+                  ? 'bg-brand-gold/20 text-brand-gold border-brand-gold shadow-sm'
+                  : 'bg-white text-gray-600 border-surface-border hover:border-brand-gold/40 hover:shadow-card',
+              ].join(' ')}
+            >
+              {chip.label}: {chip.value}
+            </button>
+          );
+        })}
+        {activeChip && (
+          <button
+            type="button"
+            onClick={() => setActiveChip(null)}
+            className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5 transition-colors"
+          >
+            Clear filter
+          </button>
+        )}
       </div>
 
       {loading && (
