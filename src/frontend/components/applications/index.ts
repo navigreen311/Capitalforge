@@ -10,6 +10,12 @@ export type { ApplicationCardApp, ApplicationCardProps } from './ApplicationCard
 export { ApplicationDetailDrawer } from './ApplicationDetailDrawer';
 export type { ApplicationDetailDrawerProps } from './ApplicationDetailDrawer';
 
+export { GenerateDocumentModal } from './GenerateDocumentModal';
+export type { GenerateDocumentModalProps } from './GenerateDocumentModal';
+
+export { DeclineRecoveryPanel } from './DeclineRecoveryPanel';
+export type { DeclineRecoveryPanelProps } from './DeclineRecoveryPanel';
+
 export { ApplicationSummaryBar } from './ApplicationSummaryBar';
 export type { ApplicationSummary, ApplicationFilterType, } from './ApplicationSummaryBar';
 

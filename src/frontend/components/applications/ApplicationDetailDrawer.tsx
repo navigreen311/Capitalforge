@@ -10,6 +10,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { DashboardBadge, type DashboardBadgeStatus } from '@/components/dashboard/DashboardBadge';
+import { GenerateDocumentModal } from './GenerateDocumentModal';
+import { DeclineRecoveryPanel } from './DeclineRecoveryPanel';
+import type { DocumentType } from '@/lib/claude-document-service';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -51,6 +54,45 @@ interface ApplicationDetail {
 // ── Mock fallback data ──────────────────────────────────────────────────────
 
 function getMockDetail(appId: string): ApplicationDetail {
+  // Return declined mock when appId contains "decline" for testing
+  const isDeclined = appId.toLowerCase().includes('decline');
+
+  if (isDeclined) {
+    return {
+      id: appId,
+      card_product: 'Ink Business Preferred',
+      issuer: 'Chase',
+      client_name: 'Meridian Consulting Group LLC',
+      client_id: 'cli_4d7e1c',
+      round: 'R1',
+      status: 'declined',
+      requested_amount: 35000,
+      approved_amount: null,
+      applied_date: '2026-02-15',
+      decision_date: '2026-02-20',
+      business_purpose: 'Working capital and vendor payments for new contract',
+      apr_days_remaining: null,
+      apr_expiry_date: null,
+      balance_at_risk: null,
+      decline_reason: 'Too many recent inquiries; insufficient business credit history',
+      adverse_action_date: '2026-02-22',
+      consent_status: 'complete',
+      acknowledgment_status: 'complete',
+      pre_submission_checklist: 'complete',
+      documents: [
+        { id: 'doc_010', name: 'Business License.pdf', type: 'License' },
+        { id: 'doc_011', name: 'Adverse Action Notice.pdf', type: 'Compliance' },
+      ],
+      timeline: [
+        { date: '2026-02-22T10:00:00Z', title: 'Adverse Action Notice Received', actor: 'Chase' },
+        { date: '2026-02-20T16:00:00Z', title: 'Application Declined', actor: 'Chase Underwriting' },
+        { date: '2026-02-18T09:15:00Z', title: 'Credit Pull Completed', actor: 'System' },
+        { date: '2026-02-16T11:00:00Z', title: 'Application Submitted to Issuer', actor: 'System' },
+        { date: '2026-02-15T08:30:00Z', title: 'Application Created', actor: 'James Walker' },
+      ],
+    };
+  }
+
   return {
     id: appId,
     card_product: 'Business Platinum Card',
@@ -217,6 +259,23 @@ function DetailRow({ label, value, highlight }: { label: string; value: React.Re
 export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // AI Document Generation state
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  const [docModal, setDocModal] = useState<{
+    open: boolean;
+    type: DocumentType;
+    title: string;
+  }>({ open: false, type: 'business_purpose_statement', title: '' });
+
+  const openDocModal = useCallback((type: DocumentType, title: string) => {
+    setDocModal({ open: true, type, title });
+    setAiMenuOpen(false);
+  }, []);
+
+  const closeDocModal = useCallback(() => {
+    setDocModal((prev) => ({ ...prev, open: false }));
+  }, []);
 
   const { data, isLoading, error, refetch } = useAuthFetch<ApplicationDetail>(
     `/api/v1/applications/${appId}`,
@@ -507,6 +566,23 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                 </div>
               </div>
 
+              {/* ── Decline Recovery Panel ──────────────────────────── */}
+              {app.status === 'declined' && (
+                <DeclineRecoveryPanel
+                  issuer={app.issuer}
+                  declineReason={app.decline_reason}
+                  adverseActionDate={app.adverse_action_date}
+                  clientName={app.client_name}
+                  cardProduct={app.card_product}
+                  onGenerateReconsiderationLetter={() =>
+                    openDocModal('decline_reconsideration_letter', 'Decline Reconsideration Letter')
+                  }
+                  onFindAlternatives={() => {
+                    window.location.href = '/optimizer';
+                  }}
+                />
+              )}
+
               {/* ── Documents ─────────────────────────────────────── */}
               <div>
                 <SectionHeader title="Documents" />
@@ -526,12 +602,60 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                     </div>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  className="mt-2 w-full text-center text-sm font-medium text-brand-navy border border-brand-navy/30 hover:bg-brand-navy/5 rounded-lg px-4 py-2 transition-colors"
-                >
-                  Upload Document
-                </button>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    className="flex-1 text-center text-sm font-medium text-brand-navy border border-brand-navy/30 hover:bg-brand-navy/5 rounded-lg px-4 py-2 transition-colors"
+                  >
+                    Upload Document
+                  </button>
+
+                  {/* AI Generate dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setAiMenuOpen((v) => !v)}
+                      className="flex items-center gap-1.5 text-sm font-medium text-[#0A1628] bg-[#C9A84C] hover:bg-[#b8973f] rounded-lg px-3 py-2 transition-colors"
+                    >
+                      <span>&#10022;</span>
+                      Generate with AI
+                      <svg className={`w-3.5 h-3.5 transition-transform ${aiMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    {aiMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setAiMenuOpen(false)} />
+                        <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                          <button
+                            type="button"
+                            onClick={() => openDocModal('business_purpose_statement', 'Business Purpose Statement')}
+                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-navy transition-colors"
+                          >
+                            Business Purpose Statement
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDocModal('application_cover_letter', 'Application Cover Letter')}
+                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-navy transition-colors"
+                          >
+                            Application Cover Letter
+                          </button>
+                          {app.status === 'declined' && (
+                            <button
+                              type="button"
+                              onClick={() => openDocModal('decline_reconsideration_letter', 'Decline Reconsideration Letter')}
+                              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-navy transition-colors border-t border-gray-100"
+                            >
+                              Decline Reconsideration Letter
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* ── Activity Timeline ─────────────────────────────── */}
@@ -669,6 +793,30 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
           </div>
         )}
       </div>
+
+      {/* AI Document Generation Modal */}
+      {app && (
+        <GenerateDocumentModal
+          isOpen={docModal.open}
+          onClose={closeDocModal}
+          documentType={docModal.type}
+          documentTitle={docModal.title}
+          clientId={app.client_id}
+          context={{
+            client_name: app.client_name,
+            client_id: app.client_id,
+            card_name: app.card_product,
+            issuer: app.issuer,
+            requested_amount: app.requested_amount,
+            approved_amount: app.approved_amount,
+            business_purpose: app.business_purpose,
+            decline_reasons: app.decline_reason,
+            decline_date: app.adverse_action_date,
+            applied_date: app.applied_date,
+            round: app.round,
+          }}
+        />
+      )}
     </>
   );
 }
