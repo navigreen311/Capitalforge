@@ -23,6 +23,8 @@ import {
   BalanceTransferPanel,
   MethodComparisonPanel,
   InterestShockAlertActions,
+  PayoffProjectionChart,
+  BalanceTransferModal,
 } from '@/components/repayment';
 import type { RepaymentClient, RepaymentCardDetailPlan } from '@/components/repayment';
 
@@ -242,8 +244,11 @@ export default function RepaymentPage() {
   // Card detail drawer state
   const [selectedPlan, setSelectedPlan] = useState<RepaymentPlan | null>(null);
 
-  // Balance transfer panel state
+  // Balance transfer panel state (legacy panel)
   const [transferPlan, setTransferPlan] = useState<RepaymentPlan | null>(null);
+
+  // Balance transfer modal state (new recommender modal)
+  const [transferModalPlan, setTransferModalPlan] = useState<RepaymentPlan | null>(null);
 
   // Calendar month navigation state
   const [calendarMonth] = useState<Date>(new Date());
@@ -361,7 +366,7 @@ export default function RepaymentPage() {
                     const matchingPlan = plans.find(
                       (p) => p.cardName === card.cardName && p.issuer === card.issuer,
                     );
-                    if (matchingPlan) setTransferPlan(matchingPlan);
+                    if (matchingPlan) setTransferModalPlan(matchingPlan);
                   }}
                 />
               </div>
@@ -465,11 +470,11 @@ export default function RepaymentPage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setTransferPlan(plan);
+                                setTransferModalPlan(plan);
                               }}
                               className="text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 transition-colors underline"
                             >
-                              Explore Transfer &rarr;
+                              Explore Balance Transfer &rarr;
                             </button>
                           )}
                         </div>
@@ -572,6 +577,9 @@ export default function RepaymentPage() {
         snowball={SNOWBALL_STATS}
       />
 
+      {/* Payoff projection chart — visual balance decline over time */}
+      <PayoffProjectionChart initialStrategy={strategy} />
+
       {/* Payment calendar */}
       <PaymentCalendar payments={PLACEHOLDER_PAYMENTS} />
 
@@ -582,7 +590,7 @@ export default function RepaymentPage() {
         onClose={() => setSelectedPlan(null)}
       />
 
-      {/* Balance transfer panel (modal) */}
+      {/* Balance transfer panel (legacy modal) */}
       {transferPlan && (
         <BalanceTransferPanel
           card={transferPlan.cardName}
@@ -591,6 +599,23 @@ export default function RepaymentPage() {
           currentApr={transferPlan.apr}
           isOpen={transferPlan !== null}
           onClose={() => setTransferPlan(null)}
+        />
+      )}
+
+      {/* Balance transfer recommender modal (new) */}
+      {transferModalPlan && (
+        <BalanceTransferModal
+          card={transferModalPlan.cardName}
+          issuer={transferModalPlan.issuer}
+          balance={transferModalPlan.balance}
+          currentApr={transferModalPlan.apr}
+          isOpen={transferModalPlan !== null}
+          onClose={() => setTransferModalPlan(null)}
+          onApply={(cardId) => {
+            // Placeholder: would navigate to application flow
+            console.log(`Apply for transfer card: ${cardId}`);
+            setTransferModalPlan(null);
+          }}
         />
       )}
 
