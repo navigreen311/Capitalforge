@@ -10,9 +10,7 @@
 //   4. Adverse action notice parser upload
 // ============================================================
 
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { useState, useRef, useCallback, useMemo } from 'react';
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getReconGuidance } from '@/lib/issuer-recon-guidance';
 import type { IssuerReconGuidance } from '@/lib/issuer-recon-guidance';
@@ -378,6 +376,7 @@ function generateMockLetter(record: DeclineRecord): string {
     velocity: `We understand ${record.issuer}'s policy regarding new account velocity. The recent accounts were part of a deliberate business credit strategy and each serves a distinct operational purpose. ${record.businessName} maintains excellent payment history across all existing accounts with zero late payments.`,
     internal_policy: `We respectfully request that a senior analyst review this application with the additional documentation we are providing. ${record.businessName} has a strong financial profile with consistent revenue growth, no derogatory marks, and a clear business need for the ${record.cardProduct}.`,
     derogatory_marks: `The tax lien referenced in our credit file has been fully resolved and satisfied as of [RESOLUTION DATE]. We have attached the Certificate of Release from the relevant tax authority. This was an isolated event related to a prior accounting error that has since been corrected.`,
+    unknown: `We respectfully request reconsideration of the recent decision regarding our application for the ${record.cardProduct}. ${record.businessName} has a strong financial profile and we believe a second review of our application with the enclosed supplemental documentation will demonstrate our creditworthiness.`,
   };
 
   return `[DATE: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}]
@@ -1032,6 +1031,11 @@ function LogDeclineModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Decline Analytics Chart (Feature 5C)
 // ---------------------------------------------------------------------------
 
@@ -1100,7 +1104,7 @@ function DeclineAnalyticsChart() {
                     fontSize: '12px',
                   }}
                   labelStyle={{ color: '#f3f4f6', fontWeight: 600 }}
-                  formatter={(value: number, _name: string, props: { payload: AnalyticsDataPoint }) => [
+                  formatter={(value: any, _name: any, props: any) => [
                     `${value} decline${value !== 1 ? 's' : ''} (${props.payload.winRate}% win rate)`,
                     'Count',
                   ]}
