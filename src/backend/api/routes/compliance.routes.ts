@@ -10,6 +10,11 @@
 //   POST /api/businesses/:id/compliance/check
 //   GET  /api/compliance/state-laws/:state
 //   GET  /api/compliance/vendor-history/:vendorId
+//   POST /api/compliance/run-checks          — mock check run
+//   GET  /api/compliance/score-breakdown     — mock score breakdown
+//   POST /api/compliance/export-report       — mock compliance report
+//   POST /api/compliance/disclosures/:id/file       — mark disclosure as filed
+//   POST /api/compliance/disclosures/bulk-file      — file multiple disclosures
 // ============================================================
 
 import { Router, Request, Response, NextFunction } from 'express';
@@ -896,6 +901,227 @@ complianceRouter.patch(
       logger.info('Compliance complaint updated', { requestId: req.requestId, tenantId, complaintId: id, status: parsed.data.status });
 
       const body: ApiResponse<typeof updated> = { success: true, data: updated };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/compliance/run-checks
+// Run a mock compliance check sweep. Returns summary of new issues,
+// resolved issues, and total items checked.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.post(
+  '/compliance/run-checks',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+
+      // Mock check run — in production this would trigger real compliance engines
+      const newIssues = Math.floor(Math.random() * 5);
+      const resolved = Math.floor(Math.random() * 3);
+      const totalChecked = 25 + Math.floor(Math.random() * 20);
+
+      const responseData = {
+        new_issues: newIssues,
+        resolved,
+        total_checked: totalChecked,
+        run_at: new Date().toISOString(),
+        check_types: ['udap', 'state_law', 'vendor', 'kyb', 'kyc', 'aml'],
+        status: 'completed',
+      };
+
+      logger.info('Compliance checks run', { requestId: req.requestId, tenantId, ...responseData });
+
+      const body: ApiResponse<typeof responseData> = { success: true, data: responseData };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/compliance/score-breakdown
+// Returns mock score breakdown by check type with reasons.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.get(
+  '/compliance/score-breakdown',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+
+      const breakdown = [
+        {
+          checkType: 'udap',
+          label: 'UDAP / Deceptive Practices',
+          score: 92,
+          maxScore: 100,
+          status: 'pass',
+          reasons: ['All marketing materials reviewed', 'No deceptive practices found'],
+        },
+        {
+          checkType: 'state_law',
+          label: 'State Law Compliance',
+          score: 78,
+          maxScore: 100,
+          status: 'warning',
+          reasons: ['CA SB 1235 disclosure pending update', 'NY disclosure filed on time'],
+        },
+        {
+          checkType: 'vendor',
+          label: 'Vendor Due Diligence',
+          score: 85,
+          maxScore: 100,
+          status: 'pass',
+          reasons: ['All vendor contracts current', '2 vendors due for annual review'],
+        },
+        {
+          checkType: 'kyb',
+          label: 'KYB Verification',
+          score: 100,
+          maxScore: 100,
+          status: 'pass',
+          reasons: ['All businesses verified', 'No expired verifications'],
+        },
+        {
+          checkType: 'kyc',
+          label: 'KYC / Identity',
+          score: 95,
+          maxScore: 100,
+          status: 'pass',
+          reasons: ['1 pending re-verification', 'All others current'],
+        },
+        {
+          checkType: 'aml',
+          label: 'AML / Sanctions',
+          score: 88,
+          maxScore: 100,
+          status: 'warning',
+          reasons: ['Screening current', '1 pending enhanced due diligence review'],
+        },
+      ];
+
+      const overallScore = Math.round(
+        breakdown.reduce((sum, b) => sum + b.score, 0) / breakdown.length,
+      );
+
+      const responseData = {
+        overallScore,
+        breakdown,
+        generatedAt: new Date().toISOString(),
+      };
+
+      logger.info('Score breakdown retrieved', { requestId: req.requestId, tenantId, overallScore });
+
+      const body: ApiResponse<typeof responseData> = { success: true, data: responseData };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/compliance/export-report
+// Returns a mock compliance report as text/JSON payload.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.post(
+  '/compliance/export-report',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+
+      const reportText = [
+        '=== COMPLIANCE REPORT ===',
+        `Tenant: ${tenantId}`,
+        `Generated: ${new Date().toISOString()}`,
+        '',
+        '--- Summary ---',
+        'Overall Compliance Score: 89/100',
+        'Total Checks Run: 42',
+        'Passed: 38',
+        'Failed: 4',
+        'Critical Issues: 1',
+        '',
+        '--- Critical Issues ---',
+        '1. [STATE_LAW] CA SB 1235 disclosure update overdue - Due: 2026-03-31',
+        '',
+        '--- Warnings ---',
+        '1. [VENDOR] 2 vendor contracts approaching renewal deadline',
+        '2. [AML] 1 enhanced due diligence review pending',
+        '3. [STATE_LAW] NY commercial finance disclosure needs annual refresh',
+        '',
+        '--- Recommendations ---',
+        '1. Prioritize CA disclosure update to avoid regulatory penalty',
+        '2. Schedule vendor renewal meetings for next 30 days',
+        '3. Complete pending EDD review within 2 weeks',
+        '',
+        '=== END OF REPORT ===',
+      ].join('\n');
+
+      const responseData = {
+        reportText,
+        format: 'text',
+        generatedAt: new Date().toISOString(),
+        tenantId,
+      };
+
+      logger.info('Compliance report exported', { requestId: req.requestId, tenantId });
+
+      const body: ApiResponse<typeof responseData> = { success: true, data: responseData };
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/compliance/disclosures/bulk-file
+// File multiple disclosures at once. Accepts { ids: string[] }.
+// Must be registered BEFORE the :id/file route to avoid conflicts.
+// ─────────────────────────────────────────────────────────────────
+complianceRouter.post(
+  '/compliance/disclosures/bulk-file',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+
+      const schema = z.object({
+        ids: z.array(z.string().min(1)).min(1, 'At least one disclosure ID is required').max(50),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        throw badRequest('Invalid request body.', parsed.error.flatten());
+      }
+
+      const filedAt = new Date().toISOString();
+      const results = parsed.data.ids.map((id) => ({
+        id,
+        status: 'Filed',
+        filedAt,
+      }));
+
+      logger.info('Bulk disclosures filed', {
+        requestId: req.requestId,
+        tenantId,
+        count: results.length,
+        ids: parsed.data.ids,
+      });
+
+      const body: ApiResponse<typeof results> = { success: true, data: results };
       res.status(200).json(body);
     } catch (err) {
       next(err);
