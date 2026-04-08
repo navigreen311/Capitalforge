@@ -200,7 +200,7 @@ function ChecklistItem({
 
 export default function PlatformOffboardingPage() {
   const [requests, setRequests] = useState<OffboardingRequest[]>(INITIAL_REQUESTS);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(INITIAL_REQUESTS[0]?.id ?? null);
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState<OffboardingStatus | 'all'>('all');
 
