@@ -49,6 +49,8 @@ export interface EligibilityContext {
   previousProducts: string[];
   /** Evaluation date (defaults to now) */
   asOfDate?: string;
+  /** Two-letter US state code (e.g. 'WA', 'CA') for geographic restriction checks */
+  state?: string;
 }
 
 /** Result of evaluating a single rule. */
@@ -512,4 +514,288 @@ export class IssuerRulesEngine {
     const penalty = hardBlockCount * 25 + softWarningCount * 10;
     return Math.max(0, Math.min(100, 100 - penalty));
   }
+}
+
+// ============================================================
+// Credit Union — Types
+// ============================================================
+
+/** Known credit union slugs used for CU-specific logic. */
+export type CreditUnionSlug =
+  | 'navy_federal'
+  | 'penfed'
+  | 'alliant'
+  | 'first_tech'
+  | 'becu'
+  | 'lake_michigan';
+
+/** Bureau that a credit union primarily pulls for underwriting. */
+export type CreditBureau = 'TransUnion' | 'Equifax' | 'Experian';
+
+/** Result from evaluating CU-specific eligibility. */
+export interface CreditUnionEligibilityResult {
+  /** Credit union identifier (slug) */
+  creditUnionSlug: string;
+  /** Overall status: eligible, requires_verification, or ineligible */
+  status: 'eligible' | 'requires_verification' | 'ineligible';
+  /** Whether CU membership must be verified before applying */
+  membershipRequired: boolean;
+  /** Note about CU membership requirements */
+  membershipNote: string;
+  /** Hard blocks (e.g. state restriction) */
+  blocks: CreditUnionBlock[];
+  /** Advisory notes (velocity, strategy) */
+  notes: string[];
+  /** Which credit bureau this CU primarily pulls */
+  bureauPull: CreditBureau;
+  /** Minimum credit score for this CU (lower than major banks) */
+  minimumCreditScore: number;
+  /** Whether this application counts against bank velocity rules */
+  countsAgainstBankVelocity: boolean;
+}
+
+/** A blocking condition specific to credit union evaluation. */
+export interface CreditUnionBlock {
+  type: 'state_restriction' | 'credit_score' | 'other';
+  message: string;
+}
+
+// ============================================================
+// Credit Union — Configuration Data
+// ============================================================
+
+interface CreditUnionConfig {
+  slug: CreditUnionSlug;
+  name: string;
+  bureau: CreditBureau;
+  minimumScore: number;
+  stateRestriction: string | null;
+  membershipNote: string;
+}
+
+const CREDIT_UNION_CONFIGS: Record<CreditUnionSlug, CreditUnionConfig> = {
+  navy_federal: {
+    slug: 'navy_federal',
+    name: 'Navy Federal Credit Union',
+    bureau: 'Equifax',
+    minimumScore: 600,
+    stateRestriction: null,
+    membershipNote:
+      'Membership open to active-duty military, veterans, DoD civilians, and their families.',
+  },
+  penfed: {
+    slug: 'penfed',
+    name: 'PenFed Credit Union',
+    bureau: 'TransUnion',
+    minimumScore: 580,
+    stateRestriction: null,
+    membershipNote:
+      'Membership open to anyone — join via Voices for America\'s Troops ($17 one-time donation).',
+  },
+  alliant: {
+    slug: 'alliant',
+    name: 'Alliant Credit Union',
+    bureau: 'TransUnion',
+    minimumScore: 620,
+    stateRestriction: null,
+    membershipNote:
+      'Membership open to anyone — join via Foster Care to Success ($5 donation).',
+  },
+  first_tech: {
+    slug: 'first_tech',
+    name: 'First Tech Federal Credit Union',
+    bureau: 'TransUnion',
+    minimumScore: 600,
+    stateRestriction: null,
+    membershipNote:
+      'Membership open to anyone — join via Financial Fitness Association ($8/year).',
+  },
+  becu: {
+    slug: 'becu',
+    name: 'BECU',
+    bureau: 'Equifax',
+    minimumScore: 600,
+    stateRestriction: 'WA',
+    membershipNote:
+      'Membership requires living or working in Washington state.',
+  },
+  lake_michigan: {
+    slug: 'lake_michigan',
+    name: 'Lake Michigan Credit Union',
+    bureau: 'Equifax',
+    minimumScore: 620,
+    stateRestriction: null,
+    membershipNote:
+      'Membership open to anyone — join via ACA International membership ($5).',
+  },
+};
+
+// ============================================================
+// Credit Union — Eligibility Evaluation
+// ============================================================
+
+/**
+ * Evaluate credit union-specific eligibility rules.
+ *
+ * Unlike major bank issuers, credit unions:
+ * - Always require membership verification before applying
+ * - Have lower credit score minimums (580-650 vs 670-750+)
+ * - Do NOT count against bank velocity rules (Chase 5/24, Amex 2/90)
+ * - May have geographic restrictions (e.g. BECU = WA only)
+ *
+ * @param creditUnionSlug - The slug identifier for the credit union
+ * @param context - Standard eligibility context
+ * @returns CreditUnionEligibilityResult with status, blocks, and advisory notes
+ */
+export function evaluateCreditUnionEligibility(
+  creditUnionSlug: string,
+  context: EligibilityContext,
+): CreditUnionEligibilityResult {
+  const config = CREDIT_UNION_CONFIGS[creditUnionSlug as CreditUnionSlug];
+
+  // Fallback for unknown CU slugs — still return a valid result
+  if (!config) {
+    return {
+      creditUnionSlug,
+      status: 'requires_verification',
+      membershipRequired: true,
+      membershipNote:
+        'Membership is required. Check the credit union website for eligibility requirements.',
+      blocks: [],
+      notes: [
+        'Credit union applications do not count against Chase 5/24 or Amex velocity limits.',
+      ],
+      bureauPull: 'TransUnion',
+      minimumCreditScore: 620,
+      countsAgainstBankVelocity: false,
+    };
+  }
+
+  const blocks: CreditUnionBlock[] = [];
+  const notes: string[] = [];
+
+  // ── State restriction check ─────────────────────────────
+  if (config.stateRestriction) {
+    if (!context.state) {
+      blocks.push({
+        type: 'state_restriction',
+        message: `${config.name} requires residence in ${config.stateRestriction}. State not provided — please verify before applying.`,
+      });
+    } else if (
+      context.state.toUpperCase() !== config.stateRestriction.toUpperCase()
+    ) {
+      blocks.push({
+        type: 'state_restriction',
+        message: `${config.name} requires residence in ${config.stateRestriction}. Applicant is in ${context.state.toUpperCase()}.`,
+      });
+    }
+  }
+
+  // ── Credit score check (softer minimums) ────────────────
+  if (context.creditScore !== null && context.creditScore < config.minimumScore) {
+    blocks.push({
+      type: 'credit_score',
+      message: `Credit score ${context.creditScore} is below ${config.name}'s recommended minimum of ${config.minimumScore}. CUs are more flexible than banks, but approval is unlikely below this threshold.`,
+    });
+  }
+
+  // ── Velocity impact note ────────────────────────────────
+  notes.push(
+    'Credit union applications do NOT count against Chase 5/24 or Amex 2/90 velocity rules. Apply freely without impacting major bank eligibility.',
+  );
+
+  // ── Bureau pull info ────────────────────────────────────
+  notes.push(
+    `${config.name} primarily pulls ${config.bureau}. Plan your inquiry strategy accordingly.`,
+  );
+
+  // ── Determine overall status ────────────────────────────
+  const hasHardBlocks = blocks.some((b) => b.type === 'state_restriction');
+  const hasCreditBlock = blocks.some((b) => b.type === 'credit_score');
+
+  let status: CreditUnionEligibilityResult['status'];
+  if (hasHardBlocks) {
+    status = 'ineligible';
+  } else if (hasCreditBlock) {
+    // CUs are more flexible — credit score issues are soft blocks
+    status = 'requires_verification';
+  } else {
+    // Membership always needs verification
+    status = 'requires_verification';
+  }
+
+  return {
+    creditUnionSlug: config.slug,
+    status,
+    membershipRequired: true,
+    membershipNote: config.membershipNote,
+    blocks,
+    notes,
+    bureauPull: config.bureau,
+    minimumCreditScore: config.minimumScore,
+    countsAgainstBankVelocity: false,
+  };
+}
+
+// ============================================================
+// Credit Union — Bureau Pull Mapping (Convenience)
+// ============================================================
+
+/**
+ * Get the primary credit bureau a credit union pulls during underwriting.
+ *
+ * Mapping:
+ * - PenFed, Alliant, First Tech --> TransUnion
+ * - Navy Federal, BECU, Lake Michigan --> Equifax
+ *
+ * @param creditUnionSlug - The credit union slug
+ * @returns The bureau name, or 'TransUnion' as a safe default
+ */
+export function getCreditUnionBureauPull(
+  creditUnionSlug: string,
+): CreditBureau {
+  const config = CREDIT_UNION_CONFIGS[creditUnionSlug as CreditUnionSlug];
+  return config?.bureau ?? 'TransUnion';
+}
+
+// ============================================================
+// Credit Union — Strategy Note
+// ============================================================
+
+/**
+ * Returns a strategy note explaining how credit union cards fit
+ * into an overall credit card optimization strategy.
+ *
+ * Key points covered:
+ * - CU cards do not count against bank velocity limits
+ * - Lower ongoing APRs (10-18% vs 20-29% at major banks)
+ * - Membership is often open to anyone via partner organizations
+ * - Best to apply AFTER major bank cards in sequencing
+ * - Membership establishment takes 1-3 business days
+ */
+export function getCreditUnionStrategyNote(): string {
+  return [
+    '=== Credit Union Card Strategy ===',
+    '',
+    '1. VELOCITY ADVANTAGE: Credit union card applications do NOT count against',
+    '   major bank velocity rules such as Chase 5/24 or Amex 2/90. You can apply',
+    '   for CU cards without reducing your eligibility at Chase, Amex, Citi, or',
+    '   other major issuers.',
+    '',
+    '2. LOWER APRs: Credit unions typically offer ongoing APRs of 10-18%, compared',
+    '   to 20-29% at major banks. This makes CU cards ideal for balances that may',
+    '   carry month-to-month or for balance transfer strategies.',
+    '',
+    '3. MEMBERSHIP IS OFTEN OPEN: Most credit unions allow anyone to join through',
+    '   a partner organization or charitable donation ($5-$17 one-time). Navy Federal',
+    '   is the exception, requiring military affiliation.',
+    '',
+    '4. SEQUENCING — APPLY AFTER BANKS: Because CU apps do not affect bank velocity,',
+    '   always prioritize major bank applications first (Chase, Amex, Citi, Capital One,',
+    '   Barclays). Once those are secured, layer in credit union applications freely.',
+    '',
+    '5. MEMBERSHIP LEAD TIME: Plan ahead — membership establishment typically takes',
+    '   1-3 business days. Some CUs require membership to be active for 24-48 hours',
+    '   before you can apply for a credit card. Factor this into your application timeline.',
+  ].join('\n');
 }
