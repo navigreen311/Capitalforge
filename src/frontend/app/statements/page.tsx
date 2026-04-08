@@ -8,9 +8,10 @@
 // Per-statement expandable detail rows with normalized data.
 // ============================================================
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import AnomalyAlert from '../../components/modules/anomaly-alert';
 import type { Anomaly } from '../../components/modules/anomaly-alert';
+import DisputeLetterModal from '../../components/modules/dispute-letter-modal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -409,6 +410,15 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
 // Client Selector
 // ---------------------------------------------------------------------------
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
 function StatementsClientSelector({
   selectedClient,
   onClientSelect,
@@ -419,13 +429,25 @@ function StatementsClientSelector({
   onClear: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebounce(query, 250);
   const [isOpen, setIsOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const filtered = PLACEHOLDER_CLIENTS.filter((c) =>
-    c.legal_name.toLowerCase().includes(query.toLowerCase()),
+  const filtered = useMemo(
+    () =>
+      PLACEHOLDER_CLIENTS.filter((c) =>
+        c.legal_name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+        c.entity_type.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+        c.state.toLowerCase().includes(debouncedQuery.toLowerCase()),
+      ),
+    [debouncedQuery],
   );
+
+  useEffect(() => {
+    setHighlightIndex(-1);
+  }, [debouncedQuery]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -441,8 +463,17 @@ function StatementsClientSelector({
     if (e.key === 'Escape') {
       setIsOpen(false);
       inputRef.current?.blur();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIndex((prev) => Math.min(prev + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIndex((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && highlightIndex >= 0 && highlightIndex < filtered.length) {
+      e.preventDefault();
+      handleSelect(filtered[highlightIndex]);
     }
-  }, []);
+  }, [filtered, highlightIndex]);
 
   function handleSelect(client: StatementsClient) {
     onClientSelect(client);
@@ -455,6 +486,20 @@ function StatementsClientSelector({
     setQuery('');
   }
 
+  // Highlight matching text
+  function highlightMatch(text: string) {
+    if (!debouncedQuery) return text;
+    const idx = text.toLowerCase().indexOf(debouncedQuery.toLowerCase());
+    if (idx === -1) return text;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <span className="text-[#C9A84C] font-bold">{text.slice(idx, idx + debouncedQuery.length)}</span>
+        {text.slice(idx + debouncedQuery.length)}
+      </>
+    );
+  }
+
   return (
     <div ref={containerRef} className="relative">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
@@ -462,33 +507,68 @@ function StatementsClientSelector({
       </p>
 
       {!selectedClient && (
-        <div className="relative">
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
-            onFocus={() => setIsOpen(true)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search for a client..."
-            className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40 transition-colors"
-          />
+        <div className="relative max-w-md">
+          <div className="relative">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none"
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
+              onFocus={() => setIsOpen(true)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search clients by name, type, or state..."
+              className="w-full rounded-lg border border-gray-700 bg-gray-900 pl-9 pr-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/40 transition-colors"
+              role="combobox"
+              aria-expanded={isOpen}
+              aria-haspopup="listbox"
+              aria-autocomplete="list"
+            />
+            {query && (
+              <button
+                onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors text-sm"
+                aria-label="Clear search"
+              >
+                &#10005;
+              </button>
+            )}
+          </div>
           {isOpen && (
-            <ul className="absolute z-20 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+            <ul
+              className="absolute z-20 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl"
+              role="listbox"
+            >
               {filtered.length === 0 ? (
-                <li className="px-3 py-2 text-sm text-gray-500">No clients found</li>
+                <li className="px-3 py-4 text-center">
+                  <p className="text-sm text-gray-500">No clients found</p>
+                  <p className="text-xs text-gray-600 mt-1">Try a different search term</p>
+                </li>
               ) : (
-                filtered.map((client) => (
-                  <li key={client.id}>
+                filtered.map((client, i) => (
+                  <li key={client.id} role="option" aria-selected={i === highlightIndex}>
                     <button
                       type="button"
                       onClick={() => handleSelect(client)}
-                      className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-800 focus:bg-gray-800 outline-none transition-colors"
+                      onMouseEnter={() => setHighlightIndex(i)}
+                      className={`w-full text-left px-3 py-2.5 text-sm outline-none transition-colors flex items-center justify-between ${
+                        i === highlightIndex ? 'bg-gray-800' : 'hover:bg-gray-800'
+                      }`}
                     >
-                      <span className="font-medium text-gray-100">{client.legal_name}</span>
-                      <span className="ml-2 text-xs text-gray-500">
-                        {client.entity_type} &middot; {client.state}
-                      </span>
+                      <div>
+                        <span className="font-medium text-gray-100">{highlightMatch(client.legal_name)}</span>
+                        <span className="ml-2 text-xs text-gray-500">
+                          {client.entity_type} &middot; {client.state}
+                        </span>
+                      </div>
+                      <svg className="h-3.5 w-3.5 text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
                     </button>
                   </li>
                 ))
@@ -502,7 +582,10 @@ function StatementsClientSelector({
       )}
 
       {selectedClient && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-900 px-3 py-1.5">
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#C9A84C]/30 bg-[#C9A84C]/5 px-3 py-1.5">
+          <span className="h-5 w-5 rounded-full bg-[#C9A84C]/20 flex items-center justify-center text-[10px] text-[#C9A84C] font-bold">
+            {selectedClient.legal_name.charAt(0)}
+          </span>
           <span className="text-sm font-medium text-gray-100">{selectedClient.legal_name}</span>
           <span className="text-xs text-gray-400">
             {selectedClient.entity_type} &middot; {selectedClient.state}
