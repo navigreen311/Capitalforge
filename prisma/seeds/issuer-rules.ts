@@ -3,7 +3,7 @@
 //
 // Seeds:
 //   - 7 major issuers with their application rules
-//   - 4 credit unions with business card products
+//   - 6 credit unions with business card products
 //
 // Run via: npm run db:seed (called from prisma/seed.ts)
 // ============================================================
@@ -474,7 +474,41 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
     },
   });
 
-  console.log('    ✓ 4 credit unions created');
+  const becu = await prisma.creditUnion.upsert({
+    where: { slug: 'becu' },
+    update: {},
+    create: {
+      name: 'BECU (Boeing Employees Credit Union)',
+      slug: 'becu',
+      charterNumber: '4201',
+      membershipCriteria: 'Must live, work, or attend school in Washington state',
+      openMembership: false,
+      joinFee: 0,
+      assetMillions: 29000,
+      businessCardsOffered: true,
+      isActive: true,
+      notes: 'WA state only. Low APRs. No annual fees on any cards. Strong business lending.',
+    },
+  });
+
+  const lakeMichiganCU = await prisma.creditUnion.upsert({
+    where: { slug: 'lake-michigan-cu' },
+    update: {},
+    create: {
+      name: 'Lake Michigan Credit Union',
+      slug: 'lake-michigan-cu',
+      charterNumber: '7649',
+      membershipCriteria: 'Anyone can join via $5 ALS of Michigan donation',
+      openMembership: true,
+      joinFee: 5,
+      assetMillions: 12000,
+      businessCardsOffered: true,
+      isActive: true,
+      notes: 'Open membership via charity donation. Low rates. Michigan-based but open to all.',
+    },
+  });
+
+  console.log('    ✓ 6 credit unions created');
 
   // ============================================================
   // CREDIT UNION PRODUCTS
@@ -594,6 +628,44 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
       personalGuarantee: true,
       hardPull: true,
       notes: 'Tech-focused membership. Strong digital tools.',
+    },
+    // BECU
+    {
+      creditUnionId: becu.id,
+      productName: 'BECU Business Visa',
+      productType: 'business_credit_card',
+      maxLimit: 25000,
+      aprIntro: null,
+      aprIntroMonths: null,
+      aprPostPromo: 15.24,
+      annualFee: 0,
+      scoreMinimum: 640,
+      businessAgeMinimum: 6,
+      revenueMinimum: null,
+      rewardsType: 'cashback',
+      rewardsRate: 1.5,
+      personalGuarantee: true,
+      hardPull: true,
+      notes: 'WA state only. Low APR range 12.24-15.24%. No annual fee.',
+    },
+    // Lake Michigan CU
+    {
+      creditUnionId: lakeMichiganCU.id,
+      productName: 'Lake Michigan CU Business Visa',
+      productType: 'business_credit_card',
+      maxLimit: 25000,
+      aprIntro: null,
+      aprIntroMonths: null,
+      aprPostPromo: 15.99,
+      annualFee: 0,
+      scoreMinimum: 640,
+      businessAgeMinimum: 6,
+      revenueMinimum: null,
+      rewardsType: null,
+      rewardsRate: null,
+      personalGuarantee: true,
+      hardPull: true,
+      notes: 'Open membership via $5 ALS donation. No rewards. APR range 10.99-15.99%.',
     },
   ];
 
