@@ -364,24 +364,100 @@ const REC_CONFIG: Record<CardRec, { label: string; status: BadgeStatus }> = {
   cancel: { label: 'Cancel', status: 'declined' },
 };
 
-// ─── CSV export helper ──────────────────────────────────────────────────────
+// ─── Full text report export helper (3G) ────────────────────────────────────
 
-function exportCardSummaryCSV(data: CardSummary[]) {
-  const headers = ['Card Name', 'Issuer', 'Annual Fee', 'Rewards Earned', 'Net Benefit', 'Recommendation'];
-  const rows = data.map((c) => [
-    c.cardName,
-    c.issuer,
-    c.annualFee,
-    c.annualRewardsEarned,
-    c.netBenefit,
-    c.recommendation,
-  ]);
-  const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+function generateRewardsReport(
+  cardData: CardSummary[],
+  trendData: Array<{ month: string; rewards: number }>,
+  swaps: CardSwapOpportunity[],
+): string {
+  const now = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const divider = '='.repeat(60);
+  const subDivider = '-'.repeat(60);
+  const lines: string[] = [];
+
+  // Header
+  lines.push(divider);
+  lines.push('  CAPITALFORGE REWARDS OPTIMIZATION REPORT');
+  lines.push(`  Generated: ${now}`);
+  lines.push(divider);
+  lines.push('');
+
+  // 1. Total rewards summary
+  lines.push('1. REWARDS SUMMARY');
+  lines.push(subDivider);
+  lines.push(`   Total Rewards Earned (annual):  $${TOTAL_REWARDS.toLocaleString()}`);
+  lines.push(`   Total Annual Fees:              $${TOTAL_FEES.toLocaleString()}`);
+  lines.push(`   Net Benefit:                    $${TOTAL_NET.toLocaleString()}`);
+  lines.push(`   Monthly Card Spend:             $${TOTAL_MONTHLY.toLocaleString()}`);
+  lines.push(`   Active Cards:                   ${cardData.length}`);
+  lines.push('');
+
+  // 2. Monthly trend chart data
+  lines.push('2. MONTHLY REWARDS TREND');
+  lines.push(subDivider);
+  for (const m of trendData) {
+    const bar = '#'.repeat(Math.round(m.rewards / 50));
+    lines.push(`   ${m.month.padEnd(5)} $${m.rewards.toLocaleString().padStart(6)}  ${bar}`);
+  }
+  lines.push('');
+
+  // 3. Spend routing recommendations
+  lines.push('3. SPEND ROUTING RECOMMENDATIONS');
+  lines.push(subDivider);
+  for (const r of SPEND_ROUTES) {
+    lines.push(`   ${r.mccCategory} (MCC ${r.mccCode})`);
+    lines.push(`     Best Card:   ${r.bestCard} @ ${r.rewardRate} ${r.rewardType}`);
+    lines.push(`     Monthly Spend: ${r.monthlySpend}  |  Projected Annual: ${r.projectedAnnualReward}`);
+    if (r.currentCard !== r.bestCard) {
+      lines.push(`     * SWAP: Currently using ${r.currentCard} (${(r.currentRate * 100).toFixed(1)}%)`);
+    }
+    lines.push('');
+  }
+
+  // 4. Card analysis
+  lines.push('4. CARD ANALYSIS');
+  lines.push(subDivider);
+  const nameWidth = Math.max(...cardData.map((c) => c.cardName.length));
+  lines.push(`   ${'Card'.padEnd(nameWidth)}  ${'Fee'.padStart(7)}  ${'Rewards'.padStart(9)}  ${'Net'.padStart(8)}  Rec`);
+  lines.push(`   ${'-'.repeat(nameWidth)}  ${'-'.repeat(7)}  ${'-'.repeat(9)}  ${'-'.repeat(8)}  ------`);
+  for (const c of cardData) {
+    const fee = c.annualFee === 0 ? 'No fee' : `$${c.annualFee}`;
+    lines.push(
+      `   ${c.cardName.padEnd(nameWidth)}  ${fee.padStart(7)}  ${'$' + c.annualRewardsEarned.toLocaleString()}  ${(c.netBenefit >= 0 ? '+$' : '-$') + Math.abs(c.netBenefit).toLocaleString()}  ${c.recommendation.toUpperCase()}`
+    );
+  }
+  lines.push('');
+
+  // 5. Optimization opportunities
+  lines.push('5. OPTIMIZATION OPPORTUNITIES');
+  lines.push(subDivider);
+  if (swaps.length === 0) {
+    lines.push('   All categories are already using the optimal card.');
+  } else {
+    for (const s of swaps) {
+      lines.push(`   ${s.category}`);
+      lines.push(`     ${s.currentCard} (${(s.currentRate * 100).toFixed(1)}%) -> ${s.bestCard} (${(s.bestRate * 100).toFixed(1)}%)`);
+      lines.push(`     Annual gain: +$${s.annualGain.toLocaleString()}`);
+      lines.push('');
+    }
+    const totalGain = swaps.reduce((sum, s) => sum + s.annualGain, 0);
+    lines.push(`   TOTAL ANNUAL OPPORTUNITY: +$${totalGain.toLocaleString()}`);
+  }
+  lines.push('');
+  lines.push(divider);
+  lines.push('  End of Report');
+  lines.push(divider);
+
+  return lines.join('\n');
+}
+
+function downloadTextFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'card-summary-report.csv';
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -611,6 +687,9 @@ export default function RewardsPage() {
   // Reminder toast state
   const [reminderToast, setReminderToast] = useState<string | null>(null);
 
+  // Export loading state (3G)
+  const [exporting, setExporting] = useState(false);
+
   // Spend routing detail expand/collapse
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
 
@@ -685,6 +764,22 @@ export default function RewardsPage() {
     setTimeout(() => setReminderToast(null), 3000);
   }, []);
 
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    // Small delay to show loading state and allow UI to update
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    try {
+      const report = generateRewardsReport(
+        sortedCardSummaries,
+        REWARDS_TREND_PLACEHOLDER,
+        CARD_SWAPS,
+      );
+      downloadTextFile(report, 'rewards-optimization-report.txt');
+    } finally {
+      setExporting(false);
+    }
+  }, [sortedCardSummaries]);
+
   const routeColumns = useMemo(() => buildRouteColumns(handleSetReminder), [handleSetReminder]);
   const cardColumns = useMemo(() => buildCardColumns(openCancelModal, openReviewModal), [openCancelModal, openReviewModal]);
 
@@ -706,11 +801,21 @@ export default function RewardsPage() {
           </p>
         </div>
         <button
-          className="btn-accent btn flex-shrink-0"
-          onClick={() => exportCardSummaryCSV(sortedCardSummaries)}
+          className="btn-accent btn flex-shrink-0 disabled:opacity-60"
+          onClick={handleExport}
+          disabled={exporting}
         >
-          <span aria-hidden="true">&#8595;</span>
-          Export Report
+          {exporting ? (
+            <>
+              <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />
+              Generating...
+            </>
+          ) : (
+            <>
+              <span aria-hidden="true">&#8595;</span>
+              Export Report
+            </>
+          )}
         </button>
       </div>
 
