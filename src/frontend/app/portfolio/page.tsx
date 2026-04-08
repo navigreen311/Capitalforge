@@ -220,7 +220,7 @@ function TabBtn({
       className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
         active
           ? 'bg-[#0A1628] text-[#C9A84C]'
-          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+          : 'text-gray-400 hover:text-gray-200 hover:bg-[#111c33]'
       }`}
     >
       {label}
@@ -243,13 +243,13 @@ function ApprovalBenchmarks() {
       </div>
 
       {/* Issuer benchmarks */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-800">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-700/50">
           <h3 className="text-sm font-semibold text-gray-200">By Issuer</h3>
         </div>
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-900 text-xs text-gray-500 uppercase tracking-wide">
+            <tr className="bg-[#0f1b2e] text-xs text-gray-500 uppercase tracking-wide">
               <th className="text-left px-5 py-3 font-semibold">Issuer</th>
               <th className="text-right px-5 py-3 font-semibold">Our Rate</th>
               <th className="text-right px-5 py-3 font-semibold">Industry Avg</th>
@@ -259,7 +259,7 @@ function ApprovalBenchmarks() {
           </thead>
           <tbody className="divide-y divide-gray-800">
             {ISSUER_APPROVAL.map((row) => (
-              <tr key={row.issuer} className="bg-gray-950 hover:bg-gray-900 transition-colors">
+              <tr key={row.issuer} className="bg-[#111c33] hover:bg-[#0f1b2e] transition-colors">
                 <td className="px-5 py-3 font-medium text-gray-100">{row.issuer}</td>
                 <td className="px-5 py-3 text-right">
                   <span className={`font-bold tabular-nums ${rateColor(row.rate)}`}>{row.rate}%</span>
@@ -267,7 +267,7 @@ function ApprovalBenchmarks() {
                 <td className="px-5 py-3 text-right text-gray-400 tabular-nums">{row.industry}%</td>
                 <td className="px-5 py-3 text-right">{deltaLabel(row.delta)}</td>
                 <td className="px-5 py-3">
-                  <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden ml-auto">
+                  <div className="w-24 h-1.5 bg-[#111c33] rounded-full overflow-hidden ml-auto">
                     <div
                       className="h-full rounded-full"
                       style={{
@@ -285,13 +285,13 @@ function ApprovalBenchmarks() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Industry benchmarks */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-700/50">
             <h3 className="text-sm font-semibold text-gray-200">By Industry</h3>
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-900 text-xs text-gray-500 uppercase tracking-wide">
+              <tr className="bg-[#0f1b2e] text-xs text-gray-500 uppercase tracking-wide">
                 <th className="text-left px-5 py-3 font-semibold">Industry</th>
                 <th className="text-right px-5 py-3 font-semibold">Rate</th>
                 <th className="px-5 py-3" />
@@ -299,13 +299,13 @@ function ApprovalBenchmarks() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {INDUSTRY_APPROVAL.map((row) => (
-                <tr key={row.industry} className="bg-gray-950 hover:bg-gray-900 transition-colors">
+                <tr key={row.industry} className="bg-[#111c33] hover:bg-[#0f1b2e] transition-colors">
                   <td className="px-5 py-3 text-gray-300 text-xs">{row.industry}</td>
                   <td className="px-5 py-3 text-right">
                     <span className={`font-bold text-xs tabular-nums ${rateColor(row.rate)}`}>{row.rate}%</span>
                   </td>
                   <td className="px-5 py-3">
-                    <div className="w-20 h-1.5 bg-gray-800 rounded-full overflow-hidden ml-auto">
+                    <div className="w-20 h-1.5 bg-[#111c33] rounded-full overflow-hidden ml-auto">
                       <div className="h-full bg-[#C9A84C] rounded-full" style={{ width: `${row.rate}%` }} />
                     </div>
                   </td>
@@ -316,13 +316,13 @@ function ApprovalBenchmarks() {
         </div>
 
         {/* FICO band benchmarks */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-700/50">
             <h3 className="text-sm font-semibold text-gray-200">By FICO Band</h3>
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-900 text-xs text-gray-500 uppercase tracking-wide">
+              <tr className="bg-[#0f1b2e] text-xs text-gray-500 uppercase tracking-wide">
                 <th className="text-left px-5 py-3 font-semibold">FICO Band</th>
                 <th className="text-right px-5 py-3 font-semibold">Rate</th>
                 <th className="text-right px-5 py-3 font-semibold">Clients</th>
@@ -330,7 +330,7 @@ function ApprovalBenchmarks() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {FICO_APPROVAL.map((row) => (
-                <tr key={row.band} className="bg-gray-950 hover:bg-gray-900 transition-colors">
+                <tr key={row.band} className="bg-[#111c33] hover:bg-[#0f1b2e] transition-colors">
                   <td className="px-5 py-3 text-gray-300 text-xs font-mono">{row.band}</td>
                   <td className="px-5 py-3 text-right">
                     <span className={`font-bold text-xs tabular-nums ${rateColor(row.rate)}`}>{row.rate}%</span>
@@ -344,8 +344,8 @@ function ApprovalBenchmarks() {
       </div>
 
       {/* Approval Rate by Issuer Type */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-800">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-700/50">
           <h3 className="text-sm font-semibold text-gray-200">Approval Rate by Issuer Type</h3>
         </div>
         <div className="p-5 space-y-4">
@@ -355,7 +355,7 @@ function ApprovalBenchmarks() {
               <span className="text-gray-300">Credit Unions</span>
               <span className="font-bold text-emerald-400 tabular-nums">71%</span>
             </div>
-            <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
+            <div className="w-full h-3 bg-[#111c33] rounded-full overflow-hidden">
               <div className="h-full bg-emerald-500 rounded-full" style={{ width: '71%' }} />
             </div>
           </div>
@@ -365,12 +365,12 @@ function ApprovalBenchmarks() {
               <span className="text-gray-300">Major Banks</span>
               <span className="font-bold text-blue-400 tabular-nums">65%</span>
             </div>
-            <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
+            <div className="w-full h-3 bg-[#111c33] rounded-full overflow-hidden">
               <div className="h-full bg-blue-500 rounded-full" style={{ width: '65%' }} />
             </div>
           </div>
           {/* Combined */}
-          <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-800">
+          <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-700/50">
             <span className="text-gray-400">All Issuers (Combined)</span>
             <span className="font-bold text-gray-200 tabular-nums">67%</span>
           </div>
@@ -389,7 +389,7 @@ function PromoSurvival() {
   return (
     <div className="space-y-6">
       {/* Hero metric */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 text-center">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 text-center">
         <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">Promo Survival Rate</p>
         <p className="text-5xl font-extrabold text-[#C9A84C] tabular-nums">74%</p>
         <p className="text-xs text-gray-500 mt-1">of clients remain within promo APR at 12 months</p>
@@ -397,14 +397,14 @@ function PromoSurvival() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* At-risk panel */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-700/50">
             <h3 className="text-sm font-semibold text-gray-200">At-Risk Promos</h3>
             <p className="text-xs text-gray-500 mt-0.5">Clients nearing promo expiration</p>
           </div>
           <div className="divide-y divide-gray-800">
             {PROMO_AT_RISK.map((tier) => (
-              <div key={tier.tier} className="px-5 py-4 flex items-center justify-between bg-gray-950">
+              <div key={tier.tier} className="px-5 py-4 flex items-center justify-between bg-[#111c33]">
                 <div>
                   <p className="text-sm font-medium text-gray-100">{tier.tier}</p>
                   <p className="text-xs text-gray-500">{tier.count} clients</p>
@@ -419,8 +419,8 @@ function PromoSurvival() {
         </div>
 
         {/* Avg days to payoff by issuer — horizontal bars */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-700/50">
             <h3 className="text-sm font-semibold text-gray-200">Avg Days to Payoff by Issuer</h3>
           </div>
           <div className="p-5 space-y-3">
@@ -430,7 +430,7 @@ function PromoSurvival() {
                   <span className="text-gray-300">{row.issuer}</span>
                   <span className="text-gray-400 tabular-nums">{row.days} days</span>
                 </div>
-                <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                <div className="w-full h-2 bg-[#111c33] rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500 rounded-full transition-all"
                     style={{ width: `${Math.round((row.days / maxDays) * 100)}%` }}
@@ -443,13 +443,13 @@ function PromoSurvival() {
       </div>
 
       {/* Survival table */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-800">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-700/50">
           <h3 className="text-sm font-semibold text-gray-200">Survival Rates by Issuer</h3>
         </div>
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-900 text-xs text-gray-500 uppercase tracking-wide">
+            <tr className="bg-[#0f1b2e] text-xs text-gray-500 uppercase tracking-wide">
               <th className="text-left px-5 py-3 font-semibold">Issuer</th>
               <th className="text-right px-5 py-3 font-semibold">Avg Promo Term</th>
               <th className="text-right px-5 py-3 font-semibold">Survival @ 6mo</th>
@@ -459,7 +459,7 @@ function PromoSurvival() {
           </thead>
           <tbody className="divide-y divide-gray-800">
             {PROMO_SURVIVAL.map((row) => (
-              <tr key={row.issuer} className="bg-gray-950 hover:bg-gray-900 transition-colors">
+              <tr key={row.issuer} className="bg-[#111c33] hover:bg-[#0f1b2e] transition-colors">
                 <td className="px-5 py-3 font-medium text-gray-100">{row.issuer}</td>
                 <td className="px-5 py-3 text-right text-gray-400 tabular-nums">{row.avgTerm} mo</td>
                 <td className="px-5 py-3 text-right">
@@ -470,10 +470,10 @@ function PromoSurvival() {
                 </td>
                 <td className="px-5 py-3 hidden md:table-cell">
                   <div className="w-28 ml-auto space-y-1">
-                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div className="w-full h-1.5 bg-[#111c33] rounded-full overflow-hidden">
                       <div className="h-full bg-blue-500 rounded-full" style={{ width: `${row.m6}%` }} />
                     </div>
-                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div className="w-full h-1.5 bg-[#111c33] rounded-full overflow-hidden">
                       <div className="h-full bg-[#C9A84C] rounded-full" style={{ width: `${row.m12}%` }} />
                     </div>
                   </div>
@@ -482,7 +482,7 @@ function PromoSurvival() {
             ))}
           </tbody>
         </table>
-        <div className="px-5 py-3 border-t border-gray-800 flex gap-4 text-[10px] text-gray-500">
+        <div className="px-5 py-3 border-t border-gray-700/50 flex gap-4 text-[10px] text-gray-500">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-1.5 bg-blue-500 rounded-full inline-block" />
             6-month survival
@@ -526,7 +526,7 @@ function ComplaintRates() {
           { label: 'Total Complaints YTD', value: '21', color: 'text-yellow-400'  },
           { label: 'Complaint Rate',       value: '1.4%', color: 'text-gray-100'  },
         ].map((m) => (
-          <div key={m.label} className="rounded-xl border border-gray-800 bg-gray-900 p-4 text-center">
+          <div key={m.label} className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4 text-center">
             <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">{m.label}</p>
             <p className={`text-2xl font-extrabold tabular-nums ${m.color}`}>{m.value}</p>
           </div>
@@ -534,8 +534,8 @@ function ComplaintRates() {
       </div>
 
       {/* Complaint type breakdown */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-800">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-700/50">
           <h3 className="text-sm font-semibold text-gray-200">Complaint Type Breakdown</h3>
         </div>
         <div className="p-5 space-y-3">
@@ -545,7 +545,7 @@ function ComplaintRates() {
                 <span className="text-gray-300">{ct.type}</span>
                 <span className="text-gray-400 tabular-nums">{ct.count} ({ct.pct}%)</span>
               </div>
-              <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+              <div className="w-full h-2 bg-[#111c33] rounded-full overflow-hidden">
                 <div
                   className="h-full bg-[#C9A84C] rounded-full"
                   style={{ width: `${Math.round((ct.count / maxTypeCount) * 100)}%` }}
@@ -558,8 +558,8 @@ function ComplaintRates() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Resolution stats */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-700/50">
             <h3 className="text-sm font-semibold text-gray-200">Resolution Statistics</h3>
           </div>
           <div className="p-5 space-y-4">
@@ -568,15 +568,15 @@ function ComplaintRates() {
               <span className="text-lg font-bold text-gray-100 tabular-nums">4.2 days</span>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 text-center">
+              <div className="rounded-lg bg-[#111c33] border border-gray-700/50 p-3 text-center">
                 <p className="text-xs text-gray-500 mb-1">Open</p>
                 <p className="text-xl font-bold text-yellow-400 tabular-nums">3</p>
               </div>
-              <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 text-center">
+              <div className="rounded-lg bg-[#111c33] border border-gray-700/50 p-3 text-center">
                 <p className="text-xs text-gray-500 mb-1">Closed</p>
                 <p className="text-xl font-bold text-emerald-400 tabular-nums">12</p>
               </div>
-              <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 text-center">
+              <div className="rounded-lg bg-[#111c33] border border-gray-700/50 p-3 text-center">
                 <p className="text-xs text-gray-500 mb-1">Escalated</p>
                 <p className="text-xl font-bold text-red-400 tabular-nums">1</p>
               </div>
@@ -585,8 +585,8 @@ function ComplaintRates() {
         </div>
 
         {/* Regulatory escalation tracker */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-700/50">
             <h3 className="text-sm font-semibold text-gray-200">Regulatory Escalation Tracker</h3>
           </div>
           <div className="p-5 space-y-3">
@@ -611,8 +611,8 @@ function ComplaintRates() {
       </div>
 
       {/* 6-month trend */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-800">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-700/50">
           <h3 className="text-sm font-semibold text-gray-200">6-Month Complaint Trend</h3>
         </div>
         <div className="p-5">
@@ -620,7 +620,7 @@ function ComplaintRates() {
             {COMPLAINT_TREND.map((m) => (
               <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
                 <span className="text-[10px] text-gray-400 tabular-nums">{m.count}</span>
-                <div className="w-full bg-gray-800 rounded-t-md overflow-hidden" style={{ height: '100%' }}>
+                <div className="w-full bg-[#111c33] rounded-t-md overflow-hidden" style={{ height: '100%' }}>
                   <div
                     className="w-full bg-[#C9A84C] rounded-t-md mt-auto"
                     style={{
@@ -639,7 +639,7 @@ function ComplaintRates() {
       {/* By-dimension table */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <p className="text-sm text-gray-500">Complaint rate per 100 active clients by dimension.</p>
-        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1">
+        <div className="flex gap-1 bg-[#0f1b2e] border border-gray-700/50 rounded-lg p-1">
           {(['vendor', 'advisor', 'channel'] as ComplaintDimension[]).map((d) => (
             <button
               key={d}
@@ -654,10 +654,10 @@ function ComplaintRates() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-900 text-xs text-gray-500 uppercase tracking-wide">
+            <tr className="bg-[#0f1b2e] text-xs text-gray-500 uppercase tracking-wide">
               <th className="text-left px-5 py-3 font-semibold capitalize">{dim}</th>
               <th className="text-right px-5 py-3 font-semibold">Rate / 100</th>
               <th className="text-right px-5 py-3 font-semibold">Total</th>
@@ -666,14 +666,14 @@ function ComplaintRates() {
           </thead>
           <tbody className="divide-y divide-gray-800">
             {data.sort((a, b) => a.rate - b.rate).map((row) => (
-              <tr key={row.name} className="bg-gray-950 hover:bg-gray-900 transition-colors">
+              <tr key={row.name} className="bg-[#111c33] hover:bg-[#0f1b2e] transition-colors">
                 <td className="px-5 py-3 text-gray-100 font-medium">{row.name}</td>
                 <td className="px-5 py-3 text-right">
                   <span className={`font-bold tabular-nums ${complaintRateColor(row.rate)}`}>{row.rate}</span>
                 </td>
                 <td className="px-5 py-3 text-right text-gray-400 tabular-nums text-xs">{row.total}</td>
                 <td className="px-5 py-3">
-                  <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden ml-auto">
+                  <div className="w-24 h-1.5 bg-[#111c33] rounded-full overflow-hidden ml-auto">
                     <div
                       className="h-full rounded-full"
                       style={{
@@ -696,20 +696,20 @@ function CohortProfitability() {
   return (
     <div className="space-y-6">
       {/* Fee retention rate hero */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 text-center">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 text-center">
         <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">Fee Retention Rate</p>
         <p className="text-5xl font-extrabold text-[#C9A84C] tabular-nums">62%</p>
         <p className="text-xs text-gray-500 mt-1">of enrolled clients maintain fee-generating activity at 12 months</p>
       </div>
 
       {/* LTV by tier */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-800">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-700/50">
           <h3 className="text-sm font-semibold text-gray-200">LTV by Client Tier</h3>
         </div>
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-900 text-xs text-gray-500 uppercase tracking-wide">
+            <tr className="bg-[#0f1b2e] text-xs text-gray-500 uppercase tracking-wide">
               <th className="text-left px-5 py-3 font-semibold">Tier</th>
               <th className="text-right px-5 py-3 font-semibold">Est. Revenue</th>
               <th className="text-right px-5 py-3 font-semibold">Avg Engagement</th>
@@ -718,13 +718,13 @@ function CohortProfitability() {
           </thead>
           <tbody className="divide-y divide-gray-800">
             {LTV_TIERS.map((t) => (
-              <tr key={t.tier} className="bg-gray-950 hover:bg-gray-900 transition-colors">
+              <tr key={t.tier} className="bg-[#111c33] hover:bg-[#0f1b2e] transition-colors">
                 <td className="px-5 py-3 font-medium text-gray-100 font-mono text-xs">{t.tier}</td>
                 <td className="px-5 py-3 text-right text-emerald-400 font-semibold tabular-nums">{t.revenue}</td>
                 <td className="px-5 py-3 text-right text-gray-400 tabular-nums">{t.avgLength}</td>
                 <td className="px-5 py-3 text-right">
                   <span className={`font-bold tabular-nums ${rateColor(t.margin)}`}>{t.margin}%</span>
-                  <div className="w-16 h-1 bg-gray-800 rounded-full overflow-hidden ml-auto mt-1">
+                  <div className="w-16 h-1 bg-[#111c33] rounded-full overflow-hidden ml-auto mt-1">
                     <div className="h-full bg-[#C9A84C] rounded-full" style={{ width: `${t.margin}%` }} />
                   </div>
                 </td>
@@ -735,15 +735,15 @@ function CohortProfitability() {
       </div>
 
       {/* Cohort table with retention */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-800">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-700/50">
           <h3 className="text-sm font-semibold text-gray-200">Cohort Performance</h3>
           <p className="text-xs text-gray-500 mt-0.5">Revenue, margin, and retention by onboarding quarter</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-900 text-xs text-gray-500 uppercase tracking-wide">
+              <tr className="bg-[#0f1b2e] text-xs text-gray-500 uppercase tracking-wide">
                 <th className="text-left px-5 py-3 font-semibold">Cohort</th>
                 <th className="text-right px-5 py-3 font-semibold">Clients</th>
                 <th className="text-right px-5 py-3 font-semibold">Revenue</th>
@@ -756,14 +756,14 @@ function CohortProfitability() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {COHORT_PROFITABILITY.map((row) => (
-                <tr key={row.quarter} className="bg-gray-950 hover:bg-gray-900 transition-colors">
+                <tr key={row.quarter} className="bg-[#111c33] hover:bg-[#0f1b2e] transition-colors">
                   <td className="px-5 py-3 font-semibold text-gray-100">{row.quarter}</td>
                   <td className="px-5 py-3 text-right text-gray-300 tabular-nums">{row.clients}</td>
                   <td className="px-5 py-3 text-right text-gray-100 font-semibold tabular-nums">{row.revenue}</td>
                   <td className="px-5 py-3 text-right text-gray-400 tabular-nums">{row.cogs}</td>
                   <td className="px-5 py-3 text-right">
                     <span className={`font-bold tabular-nums ${rateColor(row.grossMargin)}`}>{row.grossMargin}%</span>
-                    <div className="w-16 h-1 bg-gray-800 rounded-full overflow-hidden ml-auto mt-1">
+                    <div className="w-16 h-1 bg-[#111c33] rounded-full overflow-hidden ml-auto mt-1">
                       <div className="h-full bg-[#C9A84C] rounded-full" style={{ width: `${row.grossMargin}%` }} />
                     </div>
                   </td>
@@ -812,7 +812,7 @@ function RiskHeatmap() {
         Darker red indicates higher risk concentration. Click any cell to drill down.
       </p>
 
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 overflow-x-auto">
+      <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr>
@@ -859,8 +859,8 @@ function RiskHeatmap() {
 
       {/* Drilldown panel */}
       {drilldown && (
-        <div className="rounded-xl border border-[#C9A84C]/40 bg-gray-900 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+        <div className="rounded-xl border border-[#C9A84C]/40 bg-[#0f1b2e] overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-700/50 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-gray-200">
                 Segment: {drilldown.band} FICO x {drilldown.issuer}
@@ -879,7 +879,7 @@ function RiskHeatmap() {
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-900 text-xs text-gray-500 uppercase tracking-wide">
+              <tr className="bg-[#0f1b2e] text-xs text-gray-500 uppercase tracking-wide">
                 <th className="text-left px-5 py-3 font-semibold">Client</th>
                 <th className="text-right px-5 py-3 font-semibold">FICO</th>
                 <th className="text-right px-5 py-3 font-semibold">Balance</th>
@@ -887,7 +887,7 @@ function RiskHeatmap() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {drilldownClients.map((c) => (
-                <tr key={c.name} className="bg-gray-950 hover:bg-gray-900 transition-colors">
+                <tr key={c.name} className="bg-[#111c33] hover:bg-[#0f1b2e] transition-colors">
                   <td className="px-5 py-3 text-gray-100 font-medium">{c.name}</td>
                   <td className="px-5 py-3 text-right text-gray-400 tabular-nums">{c.fico}</td>
                   <td className="px-5 py-3 text-right text-gray-300 font-semibold tabular-nums">{c.balance}</td>
@@ -895,7 +895,7 @@ function RiskHeatmap() {
               ))}
             </tbody>
           </table>
-          <div className="px-5 py-3 border-t border-gray-800">
+          <div className="px-5 py-3 border-t border-gray-700/50">
             <button
               onClick={() => showToast('Segment export started — CSV will be emailed shortly.')}
               className="px-4 py-2 rounded-lg bg-[#C9A84C] text-gray-950 text-xs font-semibold hover:bg-[#b8963f] transition-colors"
@@ -946,7 +946,7 @@ export default function PortfolioPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-6">
+    <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6 space-y-6">
 
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -961,7 +961,7 @@ export default function PortfolioPage() {
             <select
               value={dateRange}
               onChange={(e) => setDateRange(e.target.value as DateRange)}
-              className="px-3 py-2 rounded-lg border border-gray-700 bg-gray-900 text-gray-300 text-sm font-medium hover:bg-gray-800 transition-colors focus:outline-none focus:ring-1 focus:ring-[#C9A84C] appearance-none cursor-pointer pr-8"
+              className="px-3 py-2 rounded-lg border border-gray-700 bg-[#0f1b2e] text-gray-300 text-sm font-medium hover:bg-[#111c33] transition-colors focus:outline-none focus:ring-1 focus:ring-[#C9A84C] appearance-none cursor-pointer pr-8"
               style={{
                 backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M3 5l3 3 3-3'/%3E%3C/svg%3E")`,
                 backgroundRepeat: 'no-repeat',
@@ -976,7 +976,7 @@ export default function PortfolioPage() {
             </select>
             <span className="text-[10px] text-gray-600 whitespace-nowrap">Last updated: Mar 31, 2026</span>
           </div>
-          <button className="px-4 py-2 rounded-lg border border-gray-700 text-gray-300 text-sm font-medium hover:bg-gray-800 transition-colors">
+          <button className="px-4 py-2 rounded-lg border border-gray-700 text-gray-300 text-sm font-medium hover:bg-[#111c33] transition-colors">
             Export Report
           </button>
         </div>
@@ -984,22 +984,22 @@ export default function PortfolioPage() {
 
       {/* ── Portfolio KPIs ─────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Avg Readiness Score</p>
           <p className="text-2xl font-black text-[#C9A84C]">72<span className="text-sm font-semibold text-gray-500">/100</span></p>
           <p className="text-[10px] text-gray-500 mt-1">Platform avg: 68</p>
         </div>
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Approval Rate</p>
           <p className="text-2xl font-black text-emerald-400">67%</p>
           <p className="text-[10px] text-gray-500 mt-1">Platform avg: 62%</p>
         </div>
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Avg Funding / Client</p>
           <p className="text-2xl font-black text-blue-400">$148K</p>
           <p className="text-[10px] text-gray-500 mt-1">Platform avg: $125K</p>
         </div>
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Total Businesses</p>
           <p className="text-2xl font-black text-gray-100">247</p>
           <p className="text-[10px] text-gray-500 mt-1">+12 this month</p>
@@ -1009,7 +1009,7 @@ export default function PortfolioPage() {
       {/* ── Risk Distribution & Benchmark KPIs ─────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Risk Distribution Donut */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-5">
           <h3 className="text-sm font-semibold text-gray-200 mb-4">Risk Distribution</h3>
           <div className="flex items-center gap-6">
             {/* CSS Donut Chart */}
@@ -1044,7 +1044,7 @@ export default function PortfolioPage() {
         </div>
 
         {/* Benchmark Indicators */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-5">
           <h3 className="text-sm font-semibold text-gray-200 mb-4">Benchmark Indicators</h3>
           <div className="space-y-3">
             {[
@@ -1064,7 +1064,7 @@ export default function PortfolioPage() {
                       {yours}{unit} ({delta >= 0 ? '+' : ''}{delta}{unit} vs avg)
                     </span>
                   </div>
-                  <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden relative">
+                  <div className="w-full h-2 bg-[#111c33] rounded-full overflow-hidden relative">
                     <div className="h-full bg-[#C9A84C] rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
                     {/* Platform avg marker */}
                     <div
@@ -1083,23 +1083,23 @@ export default function PortfolioPage() {
 
       {/* ── Original KPI Cards ─────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Overall Approval</p>
           <p className="text-2xl font-black text-emerald-400">67%</p>
         </div>
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Active Issuers</p>
           <p className="text-2xl font-black text-gray-100">7</p>
         </div>
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Avg FICO</p>
           <p className="text-2xl font-black text-blue-400">714</p>
         </div>
         {/* CU vs Bank Mix */}
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">CU vs Bank Mix</p>
           <p className="text-2xl font-black text-teal-400">CU Mix: 22%</p>
-          <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden mt-2">
+          <div className="w-full h-2 bg-[#111c33] rounded-full overflow-hidden mt-2">
             <div className="h-full rounded-full flex">
               <div className="h-full bg-teal-500" style={{ width: '22%' }} />
               <div className="h-full bg-blue-500" style={{ width: '78%' }} />
@@ -1110,7 +1110,7 @@ export default function PortfolioPage() {
       </div>
 
       {/* ── Tabs ────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
+      <div className="flex flex-wrap gap-1 bg-[#0f1b2e] border border-gray-700/50 rounded-xl p-1 w-fit">
         {TABS.map(({ id, label }) => (
           <TabBtn key={id} id={id} label={label} active={tab === id} onClick={setTab} />
         ))}
