@@ -54,6 +54,45 @@ interface ApplicationDetail {
 // ── Mock fallback data ──────────────────────────────────────────────────────
 
 function getMockDetail(appId: string): ApplicationDetail {
+  // Return declined mock when appId contains "decline" for testing
+  const isDeclined = appId.toLowerCase().includes('decline');
+
+  if (isDeclined) {
+    return {
+      id: appId,
+      card_product: 'Ink Business Preferred',
+      issuer: 'Chase',
+      client_name: 'Meridian Consulting Group LLC',
+      client_id: 'cli_4d7e1c',
+      round: 'R1',
+      status: 'declined',
+      requested_amount: 35000,
+      approved_amount: null,
+      applied_date: '2026-02-15',
+      decision_date: '2026-02-20',
+      business_purpose: 'Working capital and vendor payments for new contract',
+      apr_days_remaining: null,
+      apr_expiry_date: null,
+      balance_at_risk: null,
+      decline_reason: 'Too many recent inquiries; insufficient business credit history',
+      adverse_action_date: '2026-02-22',
+      consent_status: 'complete',
+      acknowledgment_status: 'complete',
+      pre_submission_checklist: 'complete',
+      documents: [
+        { id: 'doc_010', name: 'Business License.pdf', type: 'License' },
+        { id: 'doc_011', name: 'Adverse Action Notice.pdf', type: 'Compliance' },
+      ],
+      timeline: [
+        { date: '2026-02-22T10:00:00Z', title: 'Adverse Action Notice Received', actor: 'Chase' },
+        { date: '2026-02-20T16:00:00Z', title: 'Application Declined', actor: 'Chase Underwriting' },
+        { date: '2026-02-18T09:15:00Z', title: 'Credit Pull Completed', actor: 'System' },
+        { date: '2026-02-16T11:00:00Z', title: 'Application Submitted to Issuer', actor: 'System' },
+        { date: '2026-02-15T08:30:00Z', title: 'Application Created', actor: 'James Walker' },
+      ],
+    };
+  }
+
   return {
     id: appId,
     card_product: 'Business Platinum Card',
