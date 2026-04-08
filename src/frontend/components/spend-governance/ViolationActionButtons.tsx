@@ -3,16 +3,23 @@
 // ============================================================
 // ViolationActionButtons — Action buttons for network rule
 // violation items (Acknowledge, Contact, Document Response).
+// Shows acknowledged-by info when a violation has been ack'd.
 // ============================================================
 
 import React from 'react';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+export interface AcknowledgedInfo {
+  by: string;
+  date: string;
+}
+
 export interface ViolationActionButtonsProps {
   violationId: string;
   network: string;
   acknowledged: boolean;
+  acknowledgedInfo?: AcknowledgedInfo | null;
   onAcknowledge: (id: string) => void;
   onDocumentResponse: (id: string) => void;
 }
@@ -23,6 +30,7 @@ export function ViolationActionButtons({
   violationId,
   network,
   acknowledged,
+  acknowledgedInfo,
   onAcknowledge,
   onDocumentResponse,
 }: ViolationActionButtonsProps) {
@@ -30,12 +38,24 @@ export function ViolationActionButtons({
     <div className="flex items-center gap-2 flex-wrap">
       {/* Acknowledge button / badge */}
       {acknowledged ? (
-        <span
-          className="inline-flex items-center gap-1.5 rounded-full bg-emerald-900/40
-            border border-emerald-700/50 px-3 py-1.5 text-xs font-medium text-emerald-400"
-        >
-          Acknowledged &#x2705;
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-emerald-900/40
+              border border-emerald-700/50 px-3 py-1.5 text-xs font-medium text-emerald-400"
+          >
+            Acknowledged &#x2705;
+          </span>
+          {acknowledgedInfo && (
+            <span className="text-xs text-gray-500">
+              by {acknowledgedInfo.by} on{' '}
+              {new Date(acknowledgedInfo.date).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          )}
+        </div>
       ) : (
         <button
           type="button"
@@ -52,7 +72,6 @@ export function ViolationActionButtons({
       <button
         type="button"
         onClick={() => {
-          // Placeholder: opens a contact flow for the given network
           window.open(`mailto:support@${network.toLowerCase().replace(/\s+/g, '')}.com`, '_blank');
         }}
         className="rounded-lg border border-blue-700/50 bg-blue-900/30 px-3 py-1.5 text-xs
