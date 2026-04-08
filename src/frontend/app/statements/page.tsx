@@ -726,11 +726,27 @@ function StatementsClientSelector({
 // Upload Modal
 // ---------------------------------------------------------------------------
 
-function UploadModal({ onClose }: { onClose: () => void }) {
+interface ParsedStatementResult {
+  issuer: string;
+  cardLast4: string;
+  statementDate: string;
+  closingBalance: number;
+  txnCount: number;
+}
+
+const MOCK_PARSED_RESULT: ParsedStatementResult = {
+  issuer: 'Wells Fargo',
+  cardLast4: '6218',
+  statementDate: '2026-04-01',
+  closingBalance: 15_780.00,
+  txnCount: 17,
+};
+
+function UploadModal({ onClose, onImport }: { onClose: () => void; onImport: (stmt: Statement) => void }) {
   const [mode, setMode] = useState<'upload' | 'manual'>('upload');
   const [dragOver, setDragOver] = useState(false);
   const [parsing, setParsing] = useState(false);
-  const [parsed, setParsed] = useState<{ issuer: string; card: string; date: string; balance: string; txnCount: number } | null>(null);
+  const [parsed, setParsed] = useState<ParsedStatementResult | null>(null);
 
   // Manual form state
   const [manualIssuer, setManualIssuer] = useState('');
@@ -741,6 +757,12 @@ function UploadModal({ onClose }: { onClose: () => void }) {
   function handleFileDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    const hasPdf = files.some((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    if (files.length > 0 && !hasPdf) {
+      // Only accept PDF
+      return;
+    }
     simulateParse();
   }
 
@@ -753,14 +775,29 @@ function UploadModal({ onClose }: { onClose: () => void }) {
     setParsed(null);
     setTimeout(() => {
       setParsing(false);
-      setParsed({
-        issuer: 'Chase',
-        card: 'Ink Business Preferred ···4821',
-        date: 'Mar 15, 2026',
-        balance: '$48,320.00',
-        txnCount: 23,
-      });
-    }, 1000);
+      setParsed(MOCK_PARSED_RESULT);
+    }, 2000);
+  }
+
+  function handleImport() {
+    if (!parsed) return;
+    const newStmt: Statement = {
+      id: `stmt_import_${Date.now()}`,
+      issuer: parsed.issuer,
+      cardName: 'Business Elite',
+      last4: parsed.cardLast4,
+      statementDate: parsed.statementDate,
+      closingBalance: parsed.closingBalance,
+      openingBalance: parsed.closingBalance * 0.6,
+      totalCharges: parsed.closingBalance * 0.5,
+      totalCredits: parsed.closingBalance * 0.1,
+      totalFees: 125.00,
+      status: 'pending',
+      importedAt: new Date().toISOString(),
+      transactions: [],
+    };
+    onImport(newStmt);
+    onClose();
   }
 
   return (
@@ -788,7 +825,7 @@ function UploadModal({ onClose }: { onClose: () => void }) {
                   : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-gray-200'
               }`}
             >
-              Upload File
+              Upload PDF
             </button>
             <button
               onClick={() => { setMode('manual'); setParsed(null); }}
@@ -806,7 +843,7 @@ function UploadModal({ onClose }: { onClose: () => void }) {
         <div className="px-5 pb-5">
           {mode === 'upload' && (
             <>
-              {/* Drop zone */}
+              {/* Drop zone — PDF only */}
               {!parsed && !parsing && (
                 <div
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -823,11 +860,11 @@ function UploadModal({ onClose }: { onClose: () => void }) {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
                   </svg>
                   <p className="text-sm text-gray-300 font-medium">
-                    Drop PDF, CSV, or image here
+                    Drop PDF statement here
                   </p>
                   <p className="text-xs text-gray-500 mt-1">or click to browse</p>
                   <p className="text-[10px] text-gray-600 mt-3">
-                    Supported: PDF, CSV, PNG, JPG
+                    Accepted format: PDF
                   </p>
                 </div>
               )}
@@ -836,8 +873,8 @@ function UploadModal({ onClose }: { onClose: () => void }) {
               {parsing && (
                 <div className="border border-gray-700 rounded-xl p-8 text-center bg-gray-800/30">
                   <div className="h-8 w-8 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-sm text-gray-300 font-medium">Parsing statement...</p>
-                  <p className="text-xs text-gray-500 mt-1">Extracting data from uploaded file</p>
+                  <p className="text-sm text-gray-300 font-medium">Parsing...</p>
+                  <p className="text-xs text-gray-500 mt-1">Extracting statement data from PDF</p>
                 </div>
               )}
 
@@ -854,10 +891,10 @@ function UploadModal({ onClose }: { onClose: () => void }) {
                     <div className="grid grid-cols-2 gap-3">
                       {[
                         { label: 'Issuer', value: parsed.issuer },
-                        { label: 'Card', value: parsed.card },
-                        { label: 'Statement Date', value: parsed.date },
-                        { label: 'Closing Balance', value: parsed.balance },
-                        { label: 'Transactions', value: `${parsed.txnCount} found` },
+                        { label: 'Card Last 4', value: `···${parsed.cardLast4}` },
+                        { label: 'Statement Date', value: fmtDate(parsed.statementDate) },
+                        { label: 'Closing Balance', value: fmtCurrency(parsed.closingBalance) },
+                        { label: 'Transaction Count', value: `${parsed.txnCount} found` },
                       ].map(({ label, value }) => (
                         <div key={label}>
                           <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">{label}</p>
@@ -868,16 +905,16 @@ function UploadModal({ onClose }: { onClose: () => void }) {
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={onClose}
+                      onClick={handleImport}
                       className="flex-1 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-sm font-bold transition-colors"
                     >
-                      Import
+                      Import Statement
                     </button>
                     <button
-                      onClick={() => setParsed(null)}
+                      onClick={onClose}
                       className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-bold transition-colors border border-gray-600"
                     >
-                      Discard
+                      Cancel
                     </button>
                   </div>
                 </div>
@@ -1439,7 +1476,15 @@ export default function StatementsPage() {
       </div>
 
       {/* Modals */}
-      {uploadModalOpen && <UploadModal onClose={() => setUploadModalOpen(false)} />}
+      {uploadModalOpen && (
+        <UploadModal
+          onClose={() => setUploadModalOpen(false)}
+          onImport={(newStmt) => {
+            setStatements((prev) => [...prev, newStmt]);
+            setToast(`Imported statement from ${newStmt.issuer} ···${newStmt.last4}`);
+          }}
+        />
+      )}
       {investigationModal && (
         <InvestigationModal
           anomaly={investigationModal}
