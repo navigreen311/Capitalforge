@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { SectionCard, StatCard } from '@/components/ui/card';
 
 // Next.js metadata cannot be exported from 'use client' files — kept as a
@@ -307,6 +307,128 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   );
 }
 
+// ─── Issuer phone directory ──────────────────────────────────────────────────
+
+const ISSUER_PHONE_DIRECTORY: Record<string, { phone: string; hours: string; tips: string[] }> = {
+  'Wells Fargo': {
+    phone: '1-800-869-3557',
+    hours: 'Mon-Fri 7am-11pm ET, Sat 8am-6pm ET',
+    tips: [
+      'Have your 16-digit card number ready before calling.',
+      'Ask to speak with the Retention department for cancellation.',
+      'Note the confirmation number they provide.',
+    ],
+  },
+  'Citibank': {
+    phone: '1-800-950-5114',
+    hours: '24/7',
+    tips: [
+      'Press 0 twice to reach a representative faster.',
+      'Request a retention offer before cancelling.',
+      'Ask if any annual-fee waiver is available.',
+    ],
+  },
+  'Chase': {
+    phone: '1-800-432-3117',
+    hours: 'Mon-Fri 8am-10pm ET, Sat-Sun 9am-6pm ET',
+    tips: [
+      'Say "cancel card" at the voice prompt to reach Retention.',
+      'Mention competitor offers to negotiate a retention bonus.',
+      'Confirm the annual fee refund policy if recently charged.',
+    ],
+  },
+};
+
+function getIssuerPhoneInfo(issuer: string) {
+  return ISSUER_PHONE_DIRECTORY[issuer] ?? {
+    phone: 'See back of card',
+    hours: 'Check issuer website for hours',
+    tips: ['Have your card number ready.'],
+  };
+}
+
+// ─── Call Issuer modal ──────────────────────────────────────────────────────
+
+function CallIssuerModal({
+  issuer,
+  onClose,
+}: {
+  issuer: string;
+  onClose: () => void;
+}) {
+  const info = getIssuerPhoneInfo(issuer);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-[60]" onClick={onClose} aria-hidden="true" />
+      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+          {/* Header */}
+          <div className="bg-brand-navy px-6 py-4 flex items-center justify-between">
+            <h3 className="text-white font-bold text-base">Call {issuer}</h3>
+            <button
+              onClick={onClose}
+              className="text-white/70 hover:text-white text-2xl leading-none"
+              aria-label="Close"
+            >
+              &times;
+            </button>
+          </div>
+
+          <div className="px-6 py-5 space-y-4">
+            {/* Phone number */}
+            <div className="text-center">
+              <a
+                href={`tel:${info.phone.replace(/[^+\d]/g, '')}`}
+                className="text-2xl font-bold text-brand-navy hover:text-brand-gold-600 transition-colors"
+              >
+                {info.phone}
+              </a>
+            </div>
+
+            {/* Hours */}
+            <div className="bg-gray-50 rounded-lg px-4 py-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Hours</p>
+              <p className="text-sm text-gray-700">{info.hours}</p>
+            </div>
+
+            {/* Tips */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tips</p>
+              <ul className="space-y-1.5">
+                {info.tips.map((tip, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                    <span className="text-brand-gold-600 font-bold mt-0.5 flex-shrink-0">&bull;</span>
+                    {tip}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="px-6 pb-5">
+            <button
+              onClick={onClose}
+              className="w-full bg-brand-navy hover:bg-brand-navy/90 text-white text-sm font-semibold
+                         py-2.5 rounded-lg transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Utilization bar ──────────────────────────────────────────────────────────
 
 function UtilizationBar({
@@ -360,10 +482,18 @@ function CardBenefitTile({
   card,
   onToggleBenefitStatus,
   onClick,
+  onCallIssuer,
+  onLogCancellation,
+  tileRef,
+  highlightClass,
 }: {
   card: CardBenefitProfile;
   onToggleBenefitStatus: (cardId: string, benefitId: string) => void;
   onClick: () => void;
+  onCallIssuer?: (issuer: string) => void;
+  onLogCancellation?: (cardId: string) => void;
+  tileRef?: React.Ref<HTMLDivElement>;
+  highlightClass?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const unusedBenefits  = card.benefits.filter((b) => b.status === 'unused');
@@ -374,8 +504,10 @@ function CardBenefitTile({
 
   return (
     <div
-      className="bg-white rounded-xl border border-surface-border shadow-card overflow-hidden
-                 flex flex-col cursor-pointer hover:shadow-md transition-shadow"
+      ref={tileRef}
+      data-card-id={card.id}
+      className={`bg-white rounded-xl border border-surface-border shadow-card overflow-hidden
+                 flex flex-col cursor-pointer hover:shadow-md transition-shadow ${highlightClass ?? ''}`}
       onClick={onClick}
       role="button"
       tabIndex={0}
@@ -407,13 +539,13 @@ function CardBenefitTile({
           <span>Cancel before {formatDate(card.renewalDate)}</span>
           <div className="flex items-center gap-2">
             <button
-              onClick={(e) => { e.stopPropagation(); window.alert(`Calling ${card.issuer}...`); }}
+              onClick={(e) => { e.stopPropagation(); onCallIssuer?.(card.issuer); }}
               className="bg-white/20 hover:bg-white/30 text-white text-[11px] font-semibold px-3 py-1 rounded"
             >
               Call {card.issuer}
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); window.alert('Cancellation logged.'); }}
+              onClick={(e) => { e.stopPropagation(); onLogCancellation?.(card.id); }}
               className="bg-white text-red-600 hover:bg-red-50 text-[11px] font-semibold px-3 py-1 rounded"
             >
               Log Cancellation
@@ -512,10 +644,14 @@ function CardDetailDrawer({
   card,
   onClose,
   onToggleBenefitStatus,
+  onCallIssuer,
+  onLogCancellation,
 }: {
   card: CardBenefitProfile;
   onClose: () => void;
   onToggleBenefitStatus: (cardId: string, benefitId: string) => void;
+  onCallIssuer: (issuer: string) => void;
+  onLogCancellation: (cardId: string) => void;
 }) {
   // Close on Escape
   useEffect(() => {
@@ -569,13 +705,13 @@ function CardDetailDrawer({
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => window.alert(`Calling ${card.issuer}...`)}
+                onClick={() => onCallIssuer(card.issuer)}
                 className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-2 rounded"
               >
                 Call {card.issuer}
               </button>
               <button
-                onClick={() => window.alert('Cancellation logged.')}
+                onClick={() => onLogCancellation(card.id)}
                 className="bg-white border border-red-300 text-red-600 hover:bg-red-50 text-xs font-semibold px-4 py-2 rounded"
               >
                 Log Cancellation
@@ -590,7 +726,7 @@ function CardDetailDrawer({
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => window.alert(`Calling ${card.issuer} to negotiate...`)}
+                onClick={() => onCallIssuer(card.issuer)}
                 className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded"
               >
                 Call {card.issuer}
@@ -760,6 +896,53 @@ export default function CardBenefitsPage() {
   // State: toast
   const [toast, setToast] = useState<string | null>(null);
 
+  // State: call-issuer modal
+  const [callIssuerModalIssuer, setCallIssuerModalIssuer] = useState<string | null>(null);
+
+  // State: highlighted card id (for chart-click scroll animation)
+  const [highlightedCardId, setHighlightedCardId] = useState<string | null>(null);
+
+  // Refs for card tiles (for scroll-to-card on chart click)
+  const cardTileRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Handle "Call Issuer" — open modal
+  const handleCallIssuer = useCallback((issuer: string) => {
+    setCallIssuerModalIssuer(issuer);
+  }, []);
+
+  // Handle "Log Cancellation" — POST mock, update card status, show toast
+  const handleLogCancellation = useCallback((cardId: string) => {
+    // Mock POST to backend
+    fetch('/api/v1/card-benefits/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cardId, cancelledAt: new Date().toISOString() }),
+    }).catch(() => { /* mock — ignore network errors */ });
+
+    // Update card renewal status to reflect cancelling
+    setCards((prev) =>
+      prev.map((card) => {
+        if (card.id !== cardId) return card;
+        return { ...card, renewal: 'cancel' as CardRenewalRec };
+      }),
+    );
+    const card = cards.find((c) => c.id === cardId);
+    setToast(`${card?.cardName ?? 'Card'} status updated to "Cancelling".`);
+    // Close drawer if open
+    setSelectedCardId(null);
+  }, [cards]);
+
+  // Handle chart bar click — scroll to card tile and pulse highlight
+  const handleChartBarClick = useCallback((cardId: string) => {
+    const el = cardTileRefs.current[cardId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedCardId(cardId);
+      // Remove highlight after animation
+      setTimeout(() => setHighlightedCardId(null), 1500);
+    }
+  }, []);
+
   // Toggle benefit used/unused
   const handleToggleBenefitStatus = useCallback((cardId: string, benefitId: string) => {
     setCards((prev) =>
@@ -829,12 +1012,22 @@ export default function CardBenefitsPage() {
       {/* ── Toast ──────────────────────────────────────────────── */}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
 
+      {/* ── Call Issuer Modal ──────────────────────────────────── */}
+      {callIssuerModalIssuer && (
+        <CallIssuerModal
+          issuer={callIssuerModalIssuer}
+          onClose={() => setCallIssuerModalIssuer(null)}
+        />
+      )}
+
       {/* ── Detail drawer ──────────────────────────────────────── */}
       {selectedCard && (
         <CardDetailDrawer
           card={selectedCard}
           onClose={() => setSelectedCardId(null)}
           onToggleBenefitStatus={handleToggleBenefitStatus}
+          onCallIssuer={handleCallIssuer}
+          onLogCancellation={handleLogCancellation}
         />
       )}
 
@@ -887,6 +1080,20 @@ export default function CardBenefitsPage() {
               </li>
             ))}
           </ul>
+          {/* 1C — Contact Clients CTA */}
+          <div className="mt-3 pt-3 border-t border-amber-200">
+            <button
+              onClick={() => {
+                // Count unique clients with expiring benefits (use unique card count as proxy)
+                const uniqueCards = new Set(expiringBenefits.map((e) => e.card.id));
+                setToast(`VoiceForge outreach initiated for ${uniqueCards.size} clients with expiring benefits.`);
+              }}
+              className="inline-flex items-center gap-1.5 bg-brand-gold-600 hover:bg-brand-gold-700
+                         text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+            >
+              Contact Clients &rarr;
+            </button>
+          </div>
         </div>
       )}
 
@@ -983,6 +1190,10 @@ export default function CardBenefitsPage() {
               card={card}
               onToggleBenefitStatus={handleToggleBenefitStatus}
               onClick={() => setSelectedCardId(card.id)}
+              onCallIssuer={handleCallIssuer}
+              onLogCancellation={handleLogCancellation}
+              tileRef={(el) => { cardTileRefs.current[card.id] = el; }}
+              highlightClass={highlightedCardId === card.id ? 'animate-highlight-pulse' : ''}
             />
           ))}
         </div>
@@ -1006,7 +1217,15 @@ export default function CardBenefitsPage() {
             const cfg        = RENEWAL_CONFIG[card.renewal];
 
             return (
-              <div key={card.id} className="flex items-center gap-4">
+              <div
+                key={card.id}
+                className="flex items-center gap-4 cursor-pointer hover:bg-gray-50 rounded-lg px-2 py-1 -mx-2 transition-colors"
+                onClick={() => handleChartBarClick(card.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleChartBarClick(card.id); }}
+                title={`Click to scroll to ${card.cardName}`}
+              >
                 {/* Card label */}
                 <div className="w-48 flex-shrink-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{card.cardName}</p>
