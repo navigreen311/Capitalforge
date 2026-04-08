@@ -527,7 +527,7 @@ export default function FinancialControlHardshipPage() {
                   <th className="text-center px-4 py-3 font-semibold">Flag</th>
                   <th className="text-center px-4 py-3 font-semibold">Status</th>
                   <th className="text-right px-4 py-3 font-semibold">Debt</th>
-                  <th className="text-center px-4 py-3 font-semibold">Resolution</th>
+                  <th className="text-center px-4 py-3 font-semibold">Stage</th>
                   <th className="text-right px-4 py-3 font-semibold">Updated</th>
                 </tr>
               </thead>
@@ -564,7 +564,28 @@ export default function FinancialControlHardshipPage() {
                         <p className="text-[10px] text-gray-500">{c.missedPayments} missed | {c.utilization}% util</p>
                       </td>
                       <td className="px-4 py-3">
-                        <ResolutionTracker status={c.status} />
+                        <div className="flex items-center gap-0.5">
+                          {STAGE_LABELS.map((label, si) => (
+                            <div key={label} className="flex items-center gap-0.5">
+                              <div
+                                className={`w-4 h-4 rounded-full text-[7px] font-bold flex items-center justify-center border ${
+                                  si < c.stageIndex
+                                    ? 'bg-green-600 text-white border-green-500'
+                                    : si === c.stageIndex
+                                    ? 'bg-[#C9A84C] text-[#0A1628] border-[#C9A84C]'
+                                    : 'bg-gray-900 text-gray-600 border-gray-800'
+                                }`}
+                                title={`${label}${si < c.stageIndex ? ' (done)' : si === c.stageIndex ? ' (current)' : ''}`}
+                              >
+                                {si < c.stageIndex ? '\u2713' : si + 1}
+                              </div>
+                              {si < STAGE_LABELS.length - 1 && (
+                                <div className={`w-2 h-px ${si < c.stageIndex ? 'bg-green-500' : 'bg-gray-800'}`} />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-[9px] text-gray-500 mt-0.5">{STAGE_LABELS[c.stageIndex]}</p>
                       </td>
                       <td className="px-4 py-3 text-right text-xs text-gray-400">
                         {formatDate(c.lastUpdated)}
