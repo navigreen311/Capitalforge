@@ -6,12 +6,20 @@
 // 30-day retention hold indicator, status workflow.
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 // ── Types ────────────────────────────────────────────────────
 
 type OffboardingStatus = 'requested' | 'retention_hold' | 'deleting' | 'completed';
 type OffboardingReason = 'graduated' | 'requested' | 'non-payment' | 'compliance';
+
+interface AuditEntry {
+  timestamp: string;
+  action: string;
+  recordCount?: number;
+  status: 'deleted' | 'retained';
+  retentionReason?: string;
+}
 
 interface DeletionChecklist {
   documents: boolean;
@@ -99,6 +107,26 @@ const INITIAL_REQUESTS: OffboardingRequest[] = [
     notes: 'Successfully funded. 30-day retention hold active.',
   },
 ];
+
+const MOCK_AUDIT_LOGS: Record<string, AuditEntry[]> = {
+  'off-002': [
+    { timestamp: '2026-03-31T09:00:00Z', action: 'Client profile archived', status: 'deleted' },
+    { timestamp: '2026-03-31T09:01:12Z', action: 'Documents deleted', recordCount: 23, status: 'deleted' },
+    { timestamp: '2026-03-31T09:01:45Z', action: 'Ledger events deleted', recordCount: 147, status: 'deleted' },
+    { timestamp: '2026-03-31T09:02:30Z', action: 'ACH records RETAINED', recordCount: 5, status: 'retained', retentionReason: 'Pending dispute resolution' },
+    { timestamp: '2026-03-31T09:03:00Z', action: 'Credit data RETAINED', recordCount: 3, status: 'retained', retentionReason: 'Regulatory 7-year hold' },
+  ],
+  'off-003': [
+    { timestamp: '2026-03-22T10:00:00Z', action: 'Client profile deleted', status: 'deleted' },
+    { timestamp: '2026-03-22T10:01:05Z', action: 'Documents deleted', recordCount: 15, status: 'deleted' },
+    { timestamp: '2026-03-22T10:01:30Z', action: 'Ledger events deleted', recordCount: 89, status: 'deleted' },
+    { timestamp: '2026-03-22T10:02:00Z', action: 'Credit data deleted', recordCount: 4, status: 'deleted' },
+    { timestamp: '2026-03-22T10:02:20Z', action: 'ACH records deleted', recordCount: 12, status: 'deleted' },
+    { timestamp: '2026-03-22T10:03:00Z', action: 'Applications deleted', recordCount: 8, status: 'deleted' },
+    { timestamp: '2026-03-22T10:03:30Z', action: 'Financial records RETAINED', recordCount: 6, status: 'retained', retentionReason: 'Legal hold - active litigation' },
+    { timestamp: '2026-03-22T10:04:00Z', action: 'Tax documents RETAINED', recordCount: 3, status: 'retained', retentionReason: 'IRS 7-year retention requirement' },
+  ],
+};
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -196,6 +224,159 @@ function ChecklistItem({
   );
 }
 
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3500);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-5 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in slide-in-from-bottom-4">
+      <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+      </svg>
+      <span className="text-sm font-medium">{message}</span>
+      <button onClick={onClose} className="ml-2 text-white/70 hover:text-white">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function AuditLog({ requestId, businessName }: { requestId: string; businessName: string }) {
+  const entries = MOCK_AUDIT_LOGS[requestId];
+  if (!entries || entries.length === 0) {
+    return (
+      <div className="bg-[#111c33] rounded-lg p-4 text-center">
+        <p className="text-xs text-gray-500">No audit log entries available for this request.</p>
+      </div>
+    );
+  }
+
+  const deletedCount = entries.filter((e) => e.status === 'deleted').length;
+  const retainedCount = entries.filter((e) => e.status === 'retained').length;
+  const totalDeletedRecords = entries
+    .filter((e) => e.status === 'deleted')
+    .reduce((sum, e) => sum + (e.recordCount ?? 0), 0);
+  const totalRetainedRecords = entries
+    .filter((e) => e.status === 'retained')
+    .reduce((sum, e) => sum + (e.recordCount ?? 0), 0);
+  const retentionReasons = [...new Set(entries.filter((e) => e.retentionReason).map((e) => e.retentionReason!))];
+
+  const handleDownloadCertificate = () => {
+    const lines = [
+      '========================================',
+      '   DATA DELETION CERTIFICATE',
+      '========================================',
+      '',
+      `Business:      ${businessName}`,
+      `Request ID:    ${requestId}`,
+      `Generated:     ${new Date().toISOString()}`,
+      '',
+      '--- DELETION SUMMARY ---',
+      `Total actions deleted:   ${deletedCount}`,
+      `Total records deleted:   ${totalDeletedRecords}`,
+      `Total actions retained:  ${retainedCount}`,
+      `Total records retained:  ${totalRetainedRecords}`,
+      '',
+      '--- AUDIT LOG ---',
+      ...entries.map(
+        (e) =>
+          `[${new Date(e.timestamp).toLocaleString()}] ${e.action}${e.recordCount ? ` (${e.recordCount} records)` : ''} — ${e.status.toUpperCase()}${e.retentionReason ? ` | Reason: ${e.retentionReason}` : ''}`,
+      ),
+      '',
+    ];
+
+    if (retentionReasons.length > 0) {
+      lines.push('--- RETENTION REASONS ---');
+      retentionReasons.forEach((r) => lines.push(`  - ${r}`));
+      lines.push('');
+    }
+
+    lines.push('========================================');
+    lines.push('This certificate was generated automatically.');
+    lines.push('Retain for compliance and audit purposes.');
+    lines.push('========================================');
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `deletion-certificate-${requestId}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Entries */}
+      <div className="bg-[#111c33] rounded-lg p-3 space-y-2 max-h-60 overflow-y-auto">
+        {entries.map((entry, idx) => (
+          <div key={idx} className="flex items-start gap-2 text-xs">
+            <span className="text-gray-500 whitespace-nowrap flex-shrink-0">
+              {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+            <span
+              className={`flex-shrink-0 w-1.5 h-1.5 rounded-full mt-1.5 ${
+                entry.status === 'deleted' ? 'bg-red-400' : 'bg-emerald-400'
+              }`}
+            />
+            <span className={entry.status === 'deleted' ? 'text-red-400' : 'text-emerald-400'}>
+              {entry.action}
+              {entry.recordCount != null && (
+                <span className="text-gray-500"> ({entry.recordCount} records)</span>
+              )}
+              {entry.retentionReason && (
+                <span className="text-gray-500 italic"> — {entry.retentionReason}</span>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-2.5 text-center">
+          <p className="text-lg font-bold text-red-400">{totalDeletedRecords}</p>
+          <p className="text-[10px] text-red-400/70 uppercase tracking-wide">Records Deleted</p>
+        </div>
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2.5 text-center">
+          <p className="text-lg font-bold text-emerald-400">{totalRetainedRecords}</p>
+          <p className="text-[10px] text-emerald-400/70 uppercase tracking-wide">Records Retained</p>
+        </div>
+      </div>
+
+      {/* Retention Reasons */}
+      {retentionReasons.length > 0 && (
+        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2.5">
+          <p className="text-[10px] text-yellow-400 font-medium uppercase tracking-wide mb-1">Retention Reasons</p>
+          {retentionReasons.map((reason, idx) => (
+            <p key={idx} className="text-xs text-yellow-400/80 flex items-center gap-1.5">
+              <span className="w-1 h-1 rounded-full bg-yellow-400 flex-shrink-0" />
+              {reason}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Download Button */}
+      <button
+        onClick={handleDownloadCertificate}
+        className="w-full px-4 py-2.5 bg-[#111c33] border border-gray-700/50 text-gray-300 text-xs font-medium rounded-lg hover:border-[#C9A84C] hover:text-[#C9A84C] transition flex items-center justify-center gap-2"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        Download Deletion Certificate
+      </button>
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────
 
 export default function PlatformOffboardingPage() {
@@ -203,6 +384,8 @@ export default function PlatformOffboardingPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState<OffboardingStatus | 'all'>('all');
+
+  const [toast, setToast] = useState<string | null>(null);
 
   // New request form state
   const [formBizId, setFormBizId] = useState('');
@@ -234,11 +417,14 @@ export default function PlatformOffboardingPage() {
     };
 
     setRequests((prev) => [newReq, ...prev]);
+    setSelectedId(newReq.id);
+    setStatusFilter('all');
     setShowForm(false);
     setFormBizId('');
     setFormReason('requested');
     setFormDate('');
     setFormNotes('');
+    setToast(`Offboarding request created for ${biz.name}`);
   }, [formBizId, formReason, formDate, formNotes, requests.length]);
 
   const advanceStatus = useCallback(
@@ -549,6 +735,16 @@ export default function PlatformOffboardingPage() {
                   Checklist items can only be marked during Retention Hold or Deleting phases.
                 </p>
               </div>
+
+              {/* Deletion Audit Log (4D) */}
+              {(selected.status === 'completed' || selected.status === 'deleting') && (
+                <div>
+                  <p className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">
+                    Deletion Audit Log
+                  </p>
+                  <AuditLog requestId={selected.id} businessName={selected.businessName} />
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-[#0f1b2e] border border-gray-700/50 rounded-xl p-8 text-center">
@@ -557,6 +753,9 @@ export default function PlatformOffboardingPage() {
           )}
         </div>
       </div>
+
+      {/* Toast Notification */}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }
