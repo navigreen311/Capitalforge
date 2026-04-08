@@ -112,12 +112,14 @@ declineActionsRouter.post(
             tenantId,
             businessId: data.client_id,
             applicationId: `app_decline_${Date.now()}`,
-            issuerName: data.issuer,
-            cardProductName: data.card_name,
-            declinedAt: data.declined_at ? new Date(data.declined_at) : new Date(),
-            declineReason: data.decline_reason,
-            requestedLimit: data.requested_limit ?? null,
-            notes: data.notes ?? null,
+            issuer: data.issuer,
+            declineReasons: {
+              primary: data.decline_reason,
+              card_name: data.card_name,
+              requested_limit: data.requested_limit ?? null,
+              declined_at: data.declined_at ?? new Date().toISOString(),
+            },
+            reconsiderationNotes: data.notes ?? null,
             recoveryStage: 'new',
           },
         });
@@ -172,11 +174,12 @@ declineActionsRouter.get(
       try {
         const all = await prisma.declineRecovery.findMany({ where: { tenantId } });
 
-        // Group by decline reason
+        // Group by decline reason (declineReasons is a JSON field)
         const reasonMap = new Map<string, { total: number; won: number; lost: number }>();
         for (const r of all) {
-          const reason = (r as Record<string, unknown>).declineReason as string ?? 'unknown';
-          const stage = (r as Record<string, unknown>).recoveryStage as string;
+          const reasons = r.declineReasons as Record<string, unknown> | null;
+          const reason = (reasons?.primary as string) ?? 'unknown';
+          const stage = r.recoveryStage;
           if (!reasonMap.has(reason)) {
             reasonMap.set(reason, { total: 0, won: 0, lost: 0 });
           }
@@ -199,8 +202,8 @@ declineActionsRouter.get(
         // Issuer breakdown
         const issuerMap = new Map<string, { total: number; won: number }>();
         for (const r of all) {
-          const issuer = (r as Record<string, unknown>).issuerName as string ?? 'unknown';
-          const stage = (r as Record<string, unknown>).recoveryStage as string;
+          const issuer = r.issuer ?? 'unknown';
+          const stage = r.recoveryStage;
           if (!issuerMap.has(issuer)) {
             issuerMap.set(issuer, { total: 0, won: 0 });
           }

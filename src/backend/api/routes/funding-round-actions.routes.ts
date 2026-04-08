@@ -85,7 +85,7 @@ fundingRoundActionsRouter.post(
       let round: Record<string, unknown> | null = null;
       try {
         round = await prisma.fundingRound.findFirst({
-          where: { id: roundId, tenantId },
+          where: { id: roundId },
         });
       } catch {
         // Table may not exist yet — proceed with mock
@@ -184,7 +184,7 @@ fundingRoundActionsRouter.put(
       let updated: Record<string, unknown> | null = null;
       try {
         const existing = await prisma.fundingRound.findFirst({
-          where: { id: roundId, tenantId },
+          where: { id: roundId },
         });
 
         if (!existing) {
