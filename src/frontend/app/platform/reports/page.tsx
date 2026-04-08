@@ -8,6 +8,8 @@
 // ============================================================
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import ScheduledReports from './ScheduledReports';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -939,6 +941,8 @@ export default function PlatformReportsPage() {
           <p className="text-gray-400">Generating your report...</p>
         </div>
       )}
+      {/* Scheduled Reports */}
+      <ScheduledReports />
 
       {/* Report Preview */}
       {report && (
