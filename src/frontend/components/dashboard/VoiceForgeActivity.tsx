@@ -9,6 +9,7 @@
 // ============================================================
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
@@ -126,12 +127,12 @@ export function VoiceForgeActivity() {
           error={{ type: 'not_configured', message: 'VoiceForge integration needs to be connected' }}
         />
         <div className="text-center mt-4">
-          <a
+          <Link
             href="/settings"
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
           >
             Connect VoiceForge
-          </a>
+          </Link>
         </div>
       </div>
     );
@@ -229,12 +230,12 @@ export function VoiceForgeActivity() {
                   {flagLabel(flag.flag_type)}
                 </span>
               </div>
-              <a
-                href="/platform/voiceforge"
+              <Link
+                href={`/platform/voiceforge?highlight_call=${flag.call_id}`}
                 className="flex-shrink-0 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
               >
                 Review Call
-              </a>
+              </Link>
             </div>
           ))}
         </div>
