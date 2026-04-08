@@ -15,9 +15,13 @@ import {
   SpendByCategoryChart,
   TransactionDetailModal,
   ViolationActionButtons,
+  DocumentResponseModal,
 } from '@/components/spend-governance';
 import type { SpendClient, DateRange } from '@/components/spend-governance';
+import type { ViolationDetail } from '@/components/spend-governance';
+import type { AcknowledgedInfo } from '@/components/spend-governance/ViolationActionButtons';
 import { PLACEHOLDER_SPEND_BY_CATEGORY } from '@/components/spend-governance/SpendByCategoryChart';
+import { useToast } from '@/components/global/ToastProvider';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -218,8 +222,14 @@ export default function SpendGovernancePage() {
   const [editingPurposeId, setEditingPurposeId] = useState<string | null>(null);
   const [editingPurposeValue, setEditingPurposeValue] = useState('');
 
-  // ViolationActionButtons — track acknowledged violations
-  const [acknowledgedViolations, setAcknowledgedViolations] = useState<Set<string>>(new Set());
+  // ViolationActionButtons — track acknowledged violations with metadata
+  const [acknowledgedViolations, setAcknowledgedViolations] = useState<Map<string, AcknowledgedInfo>>(new Map());
+
+  // Document Response modal state
+  const [docResponseViolation, setDocResponseViolation] = useState<ViolationDetail | null>(null);
+
+  // Toast
+  const toast = useToast();
 
   // Summary stats
   const totalTxns = transactions.length;
@@ -318,12 +328,32 @@ export default function SpendGovernancePage() {
 
   // Violation actions
   function handleAcknowledge(violationId: string) {
-    setAcknowledgedViolations((prev) => new Set(prev).add(violationId));
+    const info: AcknowledgedInfo = {
+      by: selectedClient?.legal_name ?? 'Advisor',
+      date: new Date().toISOString(),
+    };
+    setAcknowledgedViolations((prev) => {
+      const next = new Map(prev);
+      next.set(violationId, info);
+      return next;
+    });
+    toast.warning('Violation acknowledged — document your response within 48 hours');
   }
 
   function handleDocumentResponse(violationId: string) {
-    // Placeholder: in production this would open a document editor or form
-    alert(`Opening document response form for violation ${violationId}`);
+    const v = violations.find((viol) => viol.id === violationId);
+    if (!v) return;
+    // Find the matching transaction amount if available
+    const matchingTxn = transactions.find((t) => t.merchant === v.merchant);
+    setDocResponseViolation({
+      ...v,
+      amount: matchingTxn?.amount,
+    });
+  }
+
+  function handleSaveDocResponse(violationId: string, _response: string) {
+    toast.success(`Response for ${violationId} saved successfully`);
+    setDocResponseViolation(null);
   }
 
   // Build the modal transaction shape from page Transaction
@@ -406,44 +436,65 @@ export default function SpendGovernancePage() {
       </div>
 
       {/* Network Rule Violations Alert Panel */}
-      {violations.length > 0 && (
-        <div className="rounded-xl border border-red-800 bg-red-950 p-5 mb-6">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" />
-            <h2 className="text-sm font-bold text-red-300 uppercase tracking-wide">
-              Network Rule Violations — {violations.length} Active
-            </h2>
-          </div>
-          <div className="space-y-3">
-            {violations.map((v) => (
-              <div key={v.id} className={`rounded-lg border p-3 ${RISK_CONFIG[v.severity].bgClass} border-gray-700`}>
-                <div className="flex items-start justify-between gap-3 mb-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${RISK_CONFIG[v.severity].badgeClass}`}>
-                      {RISK_CONFIG[v.severity].label}
-                    </span>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${NETWORK_COLORS[v.network]}`}>
-                      {v.network}
-                    </span>
-                    <span className="text-xs text-gray-400 font-mono">{v.rule}</span>
+      {violations.length > 0 && (() => {
+        const activeCount = violations.filter((v) => !acknowledgedViolations.has(v.id)).length;
+        return (
+          <div className="rounded-xl border border-red-800 bg-red-950 p-5 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              {activeCount > 0 ? (
+                <span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" />
+              ) : (
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              )}
+              <h2 className="text-sm font-bold text-red-300 uppercase tracking-wide">
+                Network Rule Violations — {activeCount} Active
+              </h2>
+              {acknowledgedViolations.size > 0 && (
+                <span className="text-xs text-gray-500 ml-1">
+                  ({acknowledgedViolations.size} acknowledged)
+                </span>
+              )}
+            </div>
+            <div className="space-y-3">
+              {violations.map((v) => {
+                const isAcked = acknowledgedViolations.has(v.id);
+                return (
+                  <div
+                    key={v.id}
+                    className={`rounded-lg border p-3 ${RISK_CONFIG[v.severity].bgClass} border-gray-700 transition-opacity duration-300 ${
+                      isAcked ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${RISK_CONFIG[v.severity].badgeClass}`}>
+                          {RISK_CONFIG[v.severity].label}
+                        </span>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${NETWORK_COLORS[v.network]}`}>
+                          {v.network}
+                        </span>
+                        <span className="text-xs text-gray-400 font-mono">{v.rule}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 whitespace-nowrap">{formatDate(v.date)}</p>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-100 mb-0.5">{v.merchant}</p>
+                    <p className="text-xs text-gray-400 mb-3">{v.description}</p>
+                    {/* Violation Action Buttons */}
+                    <ViolationActionButtons
+                      violationId={v.id}
+                      network={v.network}
+                      acknowledged={isAcked}
+                      acknowledgedInfo={acknowledgedViolations.get(v.id) ?? null}
+                      onAcknowledge={handleAcknowledge}
+                      onDocumentResponse={handleDocumentResponse}
+                    />
                   </div>
-                  <p className="text-xs text-gray-500 whitespace-nowrap">{formatDate(v.date)}</p>
-                </div>
-                <p className="text-sm font-semibold text-gray-100 mb-0.5">{v.merchant}</p>
-                <p className="text-xs text-gray-400 mb-3">{v.description}</p>
-                {/* Violation Action Buttons */}
-                <ViolationActionButtons
-                  violationId={v.id}
-                  network={v.network}
-                  acknowledged={acknowledgedViolations.has(v.id)}
-                  onAcknowledge={handleAcknowledge}
-                  onDocumentResponse={handleDocumentResponse}
-                />
-              </div>
-            ))}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Transaction List */}
       <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
@@ -596,6 +647,14 @@ export default function SpendGovernancePage() {
         onClose={() => setSelectedTransaction(null)}
         onSavePurpose={handleSavePurpose}
         onMarkReviewed={handleMarkReviewed}
+      />
+
+      {/* Document Response Modal */}
+      <DocumentResponseModal
+        violation={docResponseViolation}
+        isOpen={docResponseViolation !== null}
+        onClose={() => setDocResponseViolation(null)}
+        onSave={handleSaveDocResponse}
       />
     </div>
   );
