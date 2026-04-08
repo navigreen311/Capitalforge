@@ -89,6 +89,136 @@ interface ApiStackingPlan {
   cardCount: number;
 }
 
+// ─── Credit Union bureau pull mapping & helpers ─────────────────────────────
+
+const CU_BUREAU_PULLS: Record<string, string> = {
+  'penfed':      'TransUnion',
+  'alliant':     'TransUnion',
+  'first-tech':  'TransUnion',
+  'navy-federal':'Equifax',
+  'becu':        'Equifax',
+  'dcu':         'Equifax',
+};
+
+/** Known CU issuer names (case-insensitive match) */
+const CU_ISSUER_NAMES = CREDIT_UNION_ISSUERS.map((cu) => cu.name.toLowerCase());
+
+function isCreditUnionIssuer(issuerName: string): boolean {
+  const lower = issuerName.toLowerCase();
+  return (
+    CU_ISSUER_NAMES.some((name) => lower.includes(name.split(' ')[0].toLowerCase())) ||
+    lower.includes('credit union') ||
+    lower === 'penfed' ||
+    lower === 'alliant' ||
+    lower === 'navy federal' ||
+    lower === 'dcu' ||
+    lower === 'first tech' ||
+    lower === 'becu'
+  );
+}
+
+function getCUBureauPull(issuerName: string): string | null {
+  const lower = issuerName.toLowerCase();
+  for (const [cuId, bureau] of Object.entries(CU_BUREAU_PULLS)) {
+    if (lower.includes(cuId.replace('-', ' ')) || lower.includes(cuId.replace('-', ''))) {
+      return bureau;
+    }
+  }
+  return null;
+}
+
+function getCUIdFromIssuer(issuerName: string): string | null {
+  const lower = issuerName.toLowerCase();
+  for (const cu of CREDIT_UNION_ISSUERS) {
+    const cuNameLower = cu.name.toLowerCase();
+    if (lower.includes(cuNameLower.split(' ')[0].toLowerCase()) || lower.includes(cu.id.replace('-', ' '))) {
+      return cu.id;
+    }
+  }
+  return null;
+}
+
+// ─── Credit Union Strategy Panel ────────────────────────────────────────────
+
+function CreditUnionStrategyPanel() {
+  return (
+    <div className="rounded-xl border border-teal-200 bg-teal-50/50 overflow-hidden">
+      <div className="px-5 py-4 border-b border-teal-200 bg-teal-50">
+        <h3 className="text-sm font-bold text-teal-800 flex items-center gap-2">
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-bold">
+            CU
+          </span>
+          Credit Union Strategy Note
+        </h3>
+      </div>
+      <div className="px-5 py-4 space-y-3">
+        <div className="space-y-2 text-xs text-teal-900 leading-relaxed">
+          <div className="flex items-start gap-2">
+            <span className="text-teal-600 font-bold mt-0.5 flex-shrink-0">1.</span>
+            <p>
+              <span className="font-semibold">No velocity impact on major banks:</span>{' '}
+              CU cards do not count against Chase 5/24 or Amex velocity limits. They use independent inquiry tracking and are invisible to bank velocity algorithms.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-teal-600 font-bold mt-0.5 flex-shrink-0">2.</span>
+            <p>
+              <span className="font-semibold">Lower ongoing APRs:</span>{' '}
+              CU business cards typically carry 10-18% APR vs. 20-29% at major banks — saving significant interest on carried balances.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-teal-600 font-bold mt-0.5 flex-shrink-0">3.</span>
+            <p>
+              <span className="font-semibold">Membership is accessible:</span>{' '}
+              Most CUs are open to anyone via a small donation ($5-$15). Military-affiliated CUs like Navy Federal require service connection.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-teal-600 font-bold mt-0.5 flex-shrink-0">4.</span>
+            <p>
+              <span className="font-semibold">Apply AFTER major bank cards:</span>{' '}
+              CUs process applications slower with independent inquiry tracking. Prioritize Chase, Amex, and Capital One first, then layer CU cards on top without velocity penalty.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-teal-600 font-bold mt-0.5 flex-shrink-0">5.</span>
+            <p>
+              <span className="font-semibold">Membership establishment takes 1-3 business days:</span>{' '}
+              Factor this lead time into your application timeline. Open membership and savings account first, then wait for approval before applying for credit products.
+            </p>
+          </div>
+        </div>
+
+        {/* Bureau pull table */}
+        <div className="rounded-lg border border-teal-200 bg-white overflow-hidden mt-3">
+          <div className="px-3 py-2 bg-teal-100/50 border-b border-teal-200">
+            <p className="text-[10px] font-bold text-teal-700 uppercase tracking-wide">Bureau Pull by Credit Union</p>
+          </div>
+          <div className="divide-y divide-teal-100">
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-800">PenFed / Alliant / First Tech</span>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                TransUnion
+              </span>
+            </div>
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-800">Navy Federal / BECU / DCU</span>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                Equifax
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Mock result data ─────────────────────────────────────────────────────────
 
 const MOCK_RESULTS: Omit<CardRecommendationProps, 'rank'>[] = [
@@ -1025,6 +1155,11 @@ export default function OptimizerPage() {
             )}
           </div>
 
+          {/* ── Credit Union Strategy Panel (when CU cards are in stack) ── */}
+          {cuForm.stackedCUs.length > 0 && hasResults && (
+            <CreditUnionStrategyPanel />
+          )}
+
           {/* ── API Error Banner ────────────────────────── */}
           {apiError && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -1353,15 +1488,29 @@ function EligibilityBar({ score }: { score: number }) {
 }
 
 function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
+  const isCU = isCreditUnionIssuer(rec.issuer);
+  const bureauPull = isCU ? getCUBureauPull(rec.issuer) : null;
+  const cuId = isCU ? getCUIdFromIssuer(rec.issuer) : null;
+  const cuData = cuId ? CREDIT_UNION_ISSUERS.find((cu) => cu.id === cuId) : null;
+
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 hover:border-brand-navy/20 transition-all">
+    <div className={`rounded-xl border bg-white p-4 hover:border-brand-navy/20 transition-all ${
+      isCU ? 'border-teal-200' : 'border-gray-200'
+    }`}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-brand-navy/10 flex items-center justify-center text-sm font-bold text-brand-navy">
             {rec.sequencePosition}
           </div>
           <div>
-            <h4 className="text-sm font-semibold text-gray-900">{rec.name}</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-semibold text-gray-900">{rec.name}</h4>
+              {isCU && (
+                <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200">
+                  CU
+                </span>
+              )}
+            </div>
             <p className="text-xs text-gray-400 capitalize">{rec.issuer.replace(/_/g, ' ')}</p>
           </div>
         </div>
@@ -1420,6 +1569,35 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
         <div className="mt-2 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-1.5">
           <p className="text-xs text-brand-navy font-semibold">
             Wait {rec.cooldownDays} days before this application
+          </p>
+        </div>
+      )}
+
+      {/* Credit Union details */}
+      {isCU && (
+        <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2.5 space-y-1.5">
+          <div className="flex items-center gap-3">
+            {bureauPull && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wide">Bureau:</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200">
+                  {bureauPull}
+                </span>
+              </div>
+            )}
+            {cuData && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wide">Membership:</span>
+                <span className="text-[10px] font-semibold text-teal-800">
+                  {cuData.membershipCost > 0 ? `$${cuData.membershipCost}` : 'Free'}
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-teal-700 leading-relaxed">
+            {cuData
+              ? `Membership establishment takes 1-3 business days. ${cuData.membershipEligibility[0]}. Does not count against Chase 5/24 or Amex velocity limits.`
+              : 'CU cards do not count against Chase 5/24 or Amex velocity limits. Apply after major bank cards.'}
           </p>
         </div>
       )}
