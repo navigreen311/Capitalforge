@@ -24,6 +24,9 @@ export interface WizardFormData {
   requestedLimit: number | '';
   businessPurpose: string;
   spendCategory: string;
+  /** True when client has confirmed CU membership eligibility */
+  isCreditUnion?: boolean;
+  membershipConfirmed?: boolean;
 }
 
 const INITIAL_FORM_DATA: WizardFormData = {
@@ -38,6 +41,8 @@ const INITIAL_FORM_DATA: WizardFormData = {
   requestedLimit: '',
   businessPurpose: '',
   spendCategory: '',
+  isCreditUnion: false,
+  membershipConfirmed: false,
 };
 
 // ── Step definitions ────────────────────────────────────────────────────────
