@@ -739,6 +739,82 @@ router.patch('/settings', (req: Request, res: Response) => {
 });
 
 // ============================================================
+// Settings — Profile & Firm (granular PATCH)
+// ============================================================
+
+const ProfileSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  timezone: z.string().optional(),
+});
+
+router.patch('/settings/profile', (req: Request, res: Response) => {
+  logger.info('[platform] PATCH /settings/profile');
+  const parsed = ProfileSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed.error);
+  Object.assign(SETTINGS_DATA.profile, parsed.data);
+  return ok(res, { profile: SETTINGS_DATA.profile, updatedAt: new Date().toISOString() });
+});
+
+const FirmSchema = z.object({
+  name: z.string().min(1).optional(),
+  address: z.string().optional(),
+  logoUrl: z.string().url().nullable().optional(),
+});
+
+router.patch('/settings/firm', (req: Request, res: Response) => {
+  logger.info('[platform] PATCH /settings/firm');
+  const parsed = FirmSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed.error);
+  Object.assign(SETTINGS_DATA.firm, parsed.data);
+  return ok(res, { firm: SETTINGS_DATA.firm, updatedAt: new Date().toISOString() });
+});
+
+// ============================================================
+// Integrations — Connect & Test
+// ============================================================
+
+const INTEGRATIONS_STORE: Record<string, { id: string; status: string; connectedAt: string }> = {};
+
+router.post('/integrations/:id/connect', (req: Request, res: Response) => {
+  const integrationId = req.params.id;
+  logger.info(`[platform] POST /integrations/${integrationId}/connect`);
+  INTEGRATIONS_STORE[integrationId] = {
+    id: integrationId,
+    status: 'connected',
+    connectedAt: new Date().toISOString(),
+  };
+  return ok(res, {
+    integrationId,
+    status: 'connected',
+    connectedAt: INTEGRATIONS_STORE[integrationId].connectedAt,
+    message: `Integration ${integrationId} connected successfully.`,
+  });
+});
+
+router.post('/integrations/:id/test', (req: Request, res: Response) => {
+  const integrationId = req.params.id;
+  logger.info(`[platform] POST /integrations/${integrationId}/test`);
+  const existing = INTEGRATIONS_STORE[integrationId];
+  if (!existing || existing.status !== 'connected') {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'NOT_CONNECTED', message: `Integration ${integrationId} is not connected. Connect first.` },
+      statusCode: 400,
+    });
+  }
+  const latencyMs = Math.floor(Math.random() * 150) + 20;
+  return ok(res, {
+    integrationId,
+    healthy: true,
+    latencyMs,
+    testedAt: new Date().toISOString(),
+    message: `Connection to ${integrationId} is healthy (${latencyMs}ms).`,
+  });
+});
+
+// ============================================================
 // Export
 // ============================================================
 
