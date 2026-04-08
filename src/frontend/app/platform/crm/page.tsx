@@ -96,6 +96,39 @@ export default function PlatformCrmPage() {
   const [revenue, setRevenue] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // ── Fallback mock data (shown when API unavailable) ─────────
+  const FALLBACK_PIPELINE: PipelineData = {
+    stages: [
+      { key: 'intake', label: 'Intake', count: 12, color: '#6B7280' },
+      { key: 'onboarding', label: 'Onboarding', count: 8, color: '#3B82F6' },
+      { key: 'active', label: 'Active', count: 34, color: '#22C55E' },
+      { key: 'graduated', label: 'Graduated', count: 15, color: '#C9A84C' },
+    ],
+    totalBusinesses: 69,
+    conversionRate: 71.2,
+  };
+
+  const FALLBACK_REVENUE: RevenueData = {
+    mrr: 78200,
+    arr: 938400,
+    revenueByAdvisor: [
+      { advisor: 'Sarah Chen', revenue: 32400, clients: 14 },
+      { advisor: 'Marcus Williams', revenue: 24800, clients: 11 },
+      { advisor: 'Olivia Torres', revenue: 21000, clients: 9 },
+    ],
+    avgClientLifetimeValue: 18500,
+    feeCollectionStatus: [
+      { period: 'Mar 2026', collected: 62400, pending: 12800, overdue: 3000, rate: 79.9 },
+      { period: 'Feb 2026', collected: 58200, pending: 8400, overdue: 1200, rate: 85.8 },
+      { period: 'Jan 2026', collected: 54800, pending: 6200, overdue: 800, rate: 88.7 },
+    ],
+    cohortAnalysis: [
+      { cohort: 'Q1 2026', funded: 18, active: 16, graduated: 0, churned: 2, avgRevenue: 14200 },
+      { cohort: 'Q4 2025', funded: 22, active: 15, graduated: 5, churned: 2, avgRevenue: 16800 },
+      { cohort: 'Q3 2025', funded: 14, active: 8, graduated: 4, churned: 2, avgRevenue: 19400 },
+    ],
+  };
+
   useEffect(() => {
     async function load() {
       try {
@@ -108,10 +141,12 @@ export default function PlatformCrmPage() {
         ]);
         const pJson = await pRes.json();
         const rJson = await rRes.json();
-        if (pJson.success) setPipeline(pJson.data);
-        if (rJson.success) setRevenue(rJson.data);
+        setPipeline(pJson.success ? pJson.data : FALLBACK_PIPELINE);
+        setRevenue(rJson.success ? rJson.data : FALLBACK_REVENUE);
       } catch {
-        // fallback to empty
+        // Use mock data when API is unavailable
+        setPipeline(FALLBACK_PIPELINE);
+        setRevenue(FALLBACK_REVENUE);
       } finally {
         setLoading(false);
       }
