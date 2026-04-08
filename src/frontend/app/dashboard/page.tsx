@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { SectionCard } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeStatus } from '@/components/ui/badge';
+import { useToast } from '@/components/global/ToastProvider';
 import {
   StatsBar,
   ConsentAlertBanner,
@@ -152,9 +153,13 @@ export default function DashboardPage() {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
   const [markAllLabel, setMarkAllLabel] = useState('Mark all read');
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const toast = useToast();
 
   function handleMarkAllRead() {
+    setReadIds(new Set(ACTIVITY_ITEMS.map((item) => item.id)));
     setMarkAllLabel('\u2713 Marked');
+    toast.success('All activity marked as read');
     setTimeout(() => setMarkAllLabel('Mark all read'), 2000);
   }
 
@@ -247,26 +252,32 @@ export default function DashboardPage() {
             }
           >
             <div className="divide-y divide-surface-border -mx-6">
-              {ACTIVITY_ITEMS.map((item) => (
-                <div key={item.id} className="px-6 py-3 flex items-start gap-3">
-                  <span
-                    className={`
-                      inline-flex items-center justify-center w-8 h-8 rounded-full
-                      flex-shrink-0 text-[10px] font-bold
-                      ${item.iconBg} ${item.iconText}
-                    `}
-                    aria-hidden="true"
+              {ACTIVITY_ITEMS.map((item) => {
+                const isRead = readIds.has(item.id);
+                return (
+                  <div
+                    key={item.id}
+                    className={`px-6 py-3 flex items-start gap-3 transition-opacity duration-300 ${isRead ? 'opacity-50' : ''}`}
                   >
-                    {item.icon}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-700 leading-snug">
-                      {item.description}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">{item.time}</p>
+                    <span
+                      className={`
+                        inline-flex items-center justify-center w-8 h-8 rounded-full
+                        flex-shrink-0 text-[10px] font-bold
+                        ${item.iconBg} ${item.iconText}
+                      `}
+                      aria-hidden="true"
+                    >
+                      {item.icon}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-700 leading-snug">
+                        {item.description}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">{item.time}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </SectionCard>
         </div>
