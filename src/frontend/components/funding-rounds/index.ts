@@ -34,6 +34,11 @@ export { RoundActivityTimeline } from './RoundActivityTimeline';
 export { RoundComparison } from './RoundComparison';
 export { RoundStrategyNotes } from './RoundStrategyNotes';
 
+// ── Round Action Buttons ──────────────────────────────────────
+
+export { RoundActionButtons } from './RoundActionButtons';
+export type { RoundActionButtonsProps } from './RoundActionButtons';
+
 // ── New Round ──────────────────────────────────────────────────────────────
 
 export { NewRoundEligibilityCheck } from './NewRoundEligibilityCheck';
