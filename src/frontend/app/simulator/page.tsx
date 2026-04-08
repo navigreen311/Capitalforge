@@ -252,49 +252,271 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   );
 }
 
+// ─── Compare Modal helpers ───────────────────────────────────────────────────
+
+/** Metric rows used in comparison table. `numericVal` extracts a comparable number.
+ *  `direction`: 'higher-better' or 'lower-better' determines the winner. */
+interface CompareMetricDef {
+  label: string;
+  fn: (s: SavedScenario) => string;
+  numericVal: (s: SavedScenario) => number;
+  direction: 'higher-better' | 'lower-better' | 'neutral';
+}
+
+const COMPARE_METRICS: CompareMetricDef[] = [
+  { label: 'FICO',         fn: (s) => s.input.fico,                                                  numericVal: (s) => parseInt(s.input.fico, 10) || 0,       direction: 'neutral' },
+  { label: 'Revenue',      fn: (s) => fmt$(parseInt(s.input.revenue, 10) || 0),                      numericVal: (s) => parseInt(s.input.revenue, 10) || 0,     direction: 'neutral' },
+  { label: 'DTI',          fn: (s) => s.input.debt + '%',                                            numericVal: (s) => parseFloat(s.input.debt) || 0,          direction: 'lower-better' },
+  { label: 'Target',       fn: (s) => fmt$(parseInt(s.input.target, 10) || 0),                       numericVal: (s) => parseInt(s.input.target, 10) || 0,      direction: 'neutral' },
+  { label: 'Horizon',      fn: (s) => s.input.months + ' mo',                                        numericVal: (s) => parseInt(s.input.months, 10) || 0,      direction: 'lower-better' },
+  { label: 'Suitability',  fn: (s) => s.results.suitabilityScore + '/100',                           numericVal: (s) => s.results.suitabilityScore,             direction: 'higher-better' },
+  { label: 'Total Credit', fn: (s) => fmt$(s.results.totalEstimatedCredit),                          numericVal: (s) => s.results.totalEstimatedCredit,         direction: 'higher-better' },
+  { label: 'Rounds',       fn: (s) => String(s.results.rounds.length),                               numericVal: (s) => s.results.rounds.length,                direction: 'lower-better' },
+  { label: 'Total Cards',  fn: (s) => String(s.results.rounds.reduce((a, r) => a + r.cards.length, 0)), numericVal: (s) => s.results.rounds.reduce((a, r) => a + r.cards.length, 0), direction: 'lower-better' },
+  { label: 'Warnings',     fn: (s) => String(s.results.issuerWarnings.length),                       numericVal: (s) => s.results.issuerWarnings.length,        direction: 'lower-better' },
+];
+
+/** Find the winning scenario index for a given metric, or -1 if tie/neutral. */
+function findWinner(scenarios: SavedScenario[], metric: CompareMetricDef): number {
+  if (metric.direction === 'neutral' || scenarios.length < 2) return -1;
+  const values = scenarios.map((s) => metric.numericVal(s));
+  let bestIdx = 0;
+  let tied = false;
+  for (let i = 1; i < values.length; i++) {
+    const better = metric.direction === 'higher-better' ? values[i] > values[bestIdx] : values[i] < values[bestIdx];
+    const same = values[i] === values[bestIdx];
+    if (better) { bestIdx = i; tied = false; }
+    else if (same && i !== bestIdx) { tied = true; }
+  }
+  return tied ? -1 : bestIdx;
+}
+
+/** Count wins per scenario across all scored metrics. */
+function countWins(scenarios: SavedScenario[]): number[] {
+  const wins = scenarios.map(() => 0);
+  for (const m of COMPARE_METRICS) {
+    const w = findWinner(scenarios, m);
+    if (w >= 0) wins[w]++;
+  }
+  return wins;
+}
+
+/** Generate a text comparison report for download. */
+function generateComparisonReport(scenarios: SavedScenario[], clientName: string): string {
+  const wins = countWins(scenarios);
+  const maxWins = Math.max(...wins);
+  const recommendedIdx = wins.indexOf(maxWins);
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const lines: string[] = [];
+  lines.push('='.repeat(64));
+  lines.push('  CAPITALFORGE - FUNDING SCENARIO COMPARISON REPORT');
+  lines.push('='.repeat(64));
+  lines.push('');
+  lines.push(`Client:  ${clientName}`);
+  lines.push(`Date:    ${date}`);
+  lines.push(`Scenarios compared: ${scenarios.length}`);
+  lines.push('');
+
+  // Each scenario's inputs + results
+  lines.push('-'.repeat(64));
+  lines.push('  SCENARIO DETAILS');
+  lines.push('-'.repeat(64));
+  for (let i = 0; i < scenarios.length; i++) {
+    const s = scenarios[i];
+    lines.push('');
+    lines.push(`  Scenario ${i + 1}: ${s.name}`);
+    lines.push(`  ${'~'.repeat(40)}`);
+    lines.push(`  Inputs:`);
+    lines.push(`    FICO Score:       ${s.input.fico}`);
+    lines.push(`    Annual Revenue:   ${fmt$(parseInt(s.input.revenue, 10) || 0)}`);
+    lines.push(`    DTI Ratio:        ${s.input.debt}%`);
+    lines.push(`    Capital Target:   ${fmt$(parseInt(s.input.target, 10) || 0)}`);
+    lines.push(`    Industry:         ${s.input.industry}`);
+    lines.push(`    Horizon:          ${s.input.months} months`);
+    lines.push(`  Results:`);
+    lines.push(`    Suitability:      ${s.results.suitabilityScore}/100`);
+    lines.push(`    Total Credit:     ${fmt$(s.results.totalEstimatedCredit)}`);
+    lines.push(`    Rounds:           ${s.results.rounds.length}`);
+    lines.push(`    Total Cards:      ${s.results.rounds.reduce((a, r) => a + r.cards.length, 0)}`);
+    lines.push(`    Issuer Warnings:  ${s.results.issuerWarnings.length}`);
+  }
+
+  // Side-by-side comparison
+  lines.push('');
+  lines.push('-'.repeat(64));
+  lines.push('  SIDE-BY-SIDE COMPARISON');
+  lines.push('-'.repeat(64));
+  lines.push('');
+
+  const colWidth = 20;
+  const labelWidth = 16;
+  const header = 'Metric'.padEnd(labelWidth) + scenarios.map((s, i) => `Scenario ${i + 1}`.padStart(colWidth)).join('') + '  Winner';
+  lines.push(header);
+  lines.push('-'.repeat(header.length));
+
+  for (const m of COMPARE_METRICS) {
+    const winnerIdx = findWinner(scenarios, m);
+    const row = m.label.padEnd(labelWidth) +
+      scenarios.map((s) => m.fn(s).padStart(colWidth)).join('') +
+      (winnerIdx >= 0 ? `  <- Scenario ${winnerIdx + 1}` : '');
+    lines.push(row);
+  }
+
+  // Recommendation
+  lines.push('');
+  lines.push('-'.repeat(64));
+  lines.push('  RECOMMENDATION');
+  lines.push('-'.repeat(64));
+  lines.push('');
+  lines.push(`  Win counts: ${scenarios.map((s, i) => `${s.name}: ${wins[i]}`).join(' | ')}`);
+  lines.push('');
+  if (maxWins > 0 && wins.filter((w) => w === maxWins).length === 1) {
+    lines.push(`  RECOMMENDED: Scenario ${recommendedIdx + 1} (${scenarios[recommendedIdx].name})`);
+    lines.push(`  This scenario wins on ${wins[recommendedIdx]} out of ${COMPARE_METRICS.filter((m) => m.direction !== 'neutral').length} scored metrics.`);
+  } else {
+    lines.push(`  No clear winner - scenarios are closely matched.`);
+    lines.push(`  Consider weighing the metrics most important to the client's goals.`);
+  }
+  lines.push('');
+  lines.push('='.repeat(64));
+  lines.push('  Generated by CapitalForge Funding Strategy Simulator');
+  lines.push('='.repeat(64));
+
+  return lines.join('\n');
+}
+
+/** Trigger a browser download of a text string as a .txt file. */
+function downloadTextFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ─── Compare Modal ────────────────────────────────────────────────────────────
 
 function CompareModal({ scenarios, onClose }: { scenarios: SavedScenario[]; onClose: () => void }) {
+  const [exporting, setExporting] = useState(false);
+  const wins = countWins(scenarios);
+  const maxWins = Math.max(...wins);
+  const recommendedIdx = maxWins > 0 && wins.filter((w) => w === maxWins).length === 1 ? wins.indexOf(maxWins) : -1;
+
+  function handleExportComparison() {
+    setExporting(true);
+    // Small delay for loading state visibility
+    setTimeout(() => {
+      const clientName = scenarios[0]?.name?.split('/')[0]?.trim() || 'Client';
+      const report = generateComparisonReport(scenarios, clientName);
+      const dateStr = new Date().toISOString().slice(0, 10);
+      downloadTextFile(report, `capitalforge-comparison-${dateStr}.txt`);
+      setExporting(false);
+    }, 600);
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-4xl w-full max-h-[80vh] overflow-auto p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-white">Scenario Comparison</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExportComparison}
+              disabled={exporting}
+              className="px-4 py-1.5 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-xs font-semibold transition-colors disabled:opacity-60 flex items-center gap-2"
+            >
+              {exporting && (
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {exporting ? 'Generating...' : 'Export Comparison'}
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
         </div>
+
+        {/* Recommended banner */}
+        {recommendedIdx >= 0 && (
+          <div className="rounded-lg border border-emerald-700 bg-emerald-900/30 px-4 py-3 flex items-center gap-3">
+            <span className="text-emerald-300 text-lg">&#9733;</span>
+            <div>
+              <p className="text-sm font-bold text-emerald-300">
+                Recommended: {scenarios[recommendedIdx].name}
+              </p>
+              <p className="text-xs text-emerald-400/80 mt-0.5">
+                Wins {wins[recommendedIdx]} of {COMPARE_METRICS.filter((m) => m.direction !== 'neutral').length} scored metrics
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-950 text-gray-400 text-xs uppercase tracking-wide">
                 <th className="px-4 py-3 text-left font-semibold">Metric</th>
-                {scenarios.map((s) => (
-                  <th key={s.id} className="px-4 py-3 text-center font-semibold">{s.name}</th>
+                {scenarios.map((s, i) => (
+                  <th key={s.id} className="px-4 py-3 text-center font-semibold">
+                    {s.name}
+                    {i === recommendedIdx && (
+                      <span className="ml-2 text-[10px] text-emerald-300 bg-emerald-900/40 border border-emerald-700 px-1.5 py-0.5 rounded">
+                        &#9733; Best
+                      </span>
+                    )}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
-              {[
-                { label: 'FICO', fn: (s: SavedScenario) => s.input.fico },
-                { label: 'Revenue', fn: (s: SavedScenario) => fmt$(parseInt(s.input.revenue, 10) || 0) },
-                { label: 'DTI', fn: (s: SavedScenario) => s.input.debt + '%' },
-                { label: 'Target', fn: (s: SavedScenario) => fmt$(parseInt(s.input.target, 10) || 0) },
-                { label: 'Horizon', fn: (s: SavedScenario) => s.input.months + ' mo' },
-                { label: 'Suitability', fn: (s: SavedScenario) => s.results.suitabilityScore + '/100' },
-                { label: 'Total Credit', fn: (s: SavedScenario) => fmt$(s.results.totalEstimatedCredit) },
-                { label: 'Rounds', fn: (s: SavedScenario) => String(s.results.rounds.length) },
-                { label: 'Total Cards', fn: (s: SavedScenario) => String(s.results.rounds.reduce((a, r) => a + r.cards.length, 0)) },
-                { label: 'Warnings', fn: (s: SavedScenario) => String(s.results.issuerWarnings.length) },
-              ].map((row) => (
-                <tr key={row.label} className="bg-gray-900 hover:bg-gray-800">
-                  <td className="px-4 py-2 text-gray-400 font-medium">{row.label}</td>
-                  {scenarios.map((s) => (
-                    <td key={s.id} className="px-4 py-2 text-center text-gray-200 tabular-nums">{row.fn(s)}</td>
-                  ))}
-                </tr>
-              ))}
+              {COMPARE_METRICS.map((row) => {
+                const winnerIdx = findWinner(scenarios, row);
+                return (
+                  <tr key={row.label} className="bg-gray-900 hover:bg-gray-800">
+                    <td className="px-4 py-2 text-gray-400 font-medium">{row.label}</td>
+                    {scenarios.map((s, i) => {
+                      const isWinner = winnerIdx === i;
+                      return (
+                        <td
+                          key={s.id}
+                          className={`px-4 py-2 text-center tabular-nums ${isWinner ? 'text-emerald-300 font-bold' : 'text-gray-200'}`}
+                        >
+                          <span className="inline-flex items-center gap-1.5 justify-center">
+                            {row.fn(s)}
+                            {isWinner && (
+                              <span className="text-[10px] font-bold text-emerald-300 bg-emerald-900/50 border border-emerald-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                &#10003; Best
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        </div>
+
+        {/* Win count footer */}
+        <div className="flex gap-4 pt-2 border-t border-gray-800">
+          {scenarios.map((s, i) => (
+            <div key={s.id} className="flex items-center gap-2 text-xs">
+              <span className={`font-bold ${wins[i] === maxWins && maxWins > 0 ? 'text-emerald-300' : 'text-gray-400'}`}>
+                {s.name}:
+              </span>
+              <span className={`tabular-nums ${wins[i] === maxWins && maxWins > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>
+                {wins[i]} win{wins[i] !== 1 ? 's' : ''}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -678,7 +900,44 @@ export default function SimulatorPage() {
   }
 
   function handleExport() {
-    setToast('Results exported to clipboard (demo)');
+    if (!simulationResults) return;
+    const lines: string[] = [];
+    const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    lines.push('='.repeat(56));
+    lines.push('  CAPITALFORGE - SIMULATION RESULTS');
+    lines.push('='.repeat(56));
+    lines.push('');
+    lines.push(`Date:             ${date}`);
+    lines.push(`FICO Score:       ${input.fico}`);
+    lines.push(`Annual Revenue:   ${fmt$(parseInt(input.revenue, 10) || 0)}`);
+    lines.push(`DTI Ratio:        ${input.debt}%`);
+    lines.push(`Capital Target:   ${fmt$(parseInt(input.target, 10) || 0)}`);
+    lines.push(`Industry:         ${input.industry}`);
+    lines.push(`Horizon:          ${input.months} months`);
+    lines.push('');
+    lines.push(`Suitability:      ${simulationResults.suitabilityScore}/100`);
+    lines.push(`Total Credit:     ${fmt$(simulationResults.totalEstimatedCredit)}`);
+    lines.push(`Rounds:           ${simulationResults.rounds.length}`);
+    lines.push('');
+    for (const round of simulationResults.rounds) {
+      lines.push(`--- Round ${round.round}${round.waitWeeks > 0 ? ` (wait ${round.waitWeeks} weeks)` : ''} ---`);
+      for (const card of round.cards) {
+        lines.push(`  ${card.name} (${card.issuer})`);
+        lines.push(`    Limit: ${fmt$(card.limit)} | APR: ${card.introApr !== null ? `${card.introApr}%/${card.apr}%` : `${card.apr}%`} | Approval: ${card.approvalPct}%`);
+      }
+    }
+    if (simulationResults.issuerWarnings.length > 0) {
+      lines.push('');
+      lines.push('Warnings:');
+      for (const w of simulationResults.issuerWarnings) {
+        lines.push(`  [${w.severity.toUpperCase()}] ${w.issuer}: ${w.message}`);
+      }
+    }
+    lines.push('');
+    lines.push('Generated by CapitalForge Funding Strategy Simulator');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadTextFile(lines.join('\n'), `capitalforge-results-${dateStr}.txt`);
+    setToast('Results exported as .txt');
   }
 
   function handleLoad(s: SavedScenario) {
