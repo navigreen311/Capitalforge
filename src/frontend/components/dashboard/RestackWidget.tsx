@@ -143,9 +143,9 @@ const MOCK_ELIGIBLE: RestackEligible[] = [
     activeApplicationCount: 0, recommendedRoundNumber: 4,
   },
   {
-    businessId: 'biz_004', businessName: 'Crestline Medical LLC', eligible: true,
-    reasons: ['Readiness score 73 meets threshold'],
-    readinessScore: 73, daysSinceLastApp: 200, currentUtilization: 0.15,
+    businessId: 'biz_004', businessName: 'Westbrook Partners', eligible: true,
+    reasons: ['Readiness score 61 meets threshold', '150 days since last application'],
+    readinessScore: 61, daysSinceLastApp: 150, currentUtilization: 0.30,
     activeApplicationCount: 0, recommendedRoundNumber: 2,
   },
 ];
@@ -160,7 +160,8 @@ export function RestackWidget() {
   // Use API data if available, fallback to mocks for demo
   const eligible = data?.eligible ?? MOCK_ELIGIBLE;
   const total = data?.total ?? eligible.length;
-  const displayItems = eligible.slice(0, 5);
+  const sorted = [...eligible].sort((a, b) => b.readinessScore - a.readinessScore);
+  const displayItems = sorted.slice(0, 5);
 
   const headerAction = (
     <span className="text-sm font-semibold text-[#C9A84C]">
