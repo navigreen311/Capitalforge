@@ -196,6 +196,42 @@ const FEATURE_LABELS: Record<string, string> = {
   multiCurrency: 'Multi-Currency',
 };
 
+// Minimum plan required for each feature flag
+const FEATURE_REQUIRED_PLAN: Record<string, Plan> = {
+  aiRecommendations: 'Growth',
+  sandboxAccess: 'Starter',
+  apiAccess: 'Enterprise',
+  customBranding: 'Growth',
+  ssoEnabled: 'Enterprise',
+  complianceReports: 'Growth',
+  dataExport: 'Growth',
+  multiCurrency: 'Enterprise',
+};
+
+const PLAN_RANK: Record<Plan, number> = { Starter: 0, Growth: 1, Enterprise: 2, 'White-Label': 3 };
+
+// Default feature flags per plan
+const PLAN_FEATURE_DEFAULTS: Record<Plan, Record<string, boolean>> = {
+  Starter: {
+    aiRecommendations: false, sandboxAccess: true, apiAccess: false, customBranding: false,
+    ssoEnabled: false, complianceReports: false, dataExport: false, multiCurrency: false,
+  },
+  Growth: {
+    aiRecommendations: false, sandboxAccess: true, apiAccess: false, customBranding: true,
+    ssoEnabled: false, complianceReports: true, dataExport: true, multiCurrency: false,
+  },
+  Enterprise: {
+    aiRecommendations: true, sandboxAccess: true, apiAccess: true, customBranding: true,
+    ssoEnabled: true, complianceReports: true, dataExport: true, multiCurrency: true,
+  },
+  'White-Label': {
+    aiRecommendations: true, sandboxAccess: true, apiAccess: true, customBranding: true,
+    ssoEnabled: true, complianceReports: true, dataExport: true, multiCurrency: true,
+  },
+};
+
+const PLAN_PRICES: Record<Plan, string> = { Starter: '$900', Growth: '$3,600', Enterprise: '$14,400', 'White-Label': '$28,000' };
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function planBadge(plan: Plan): string {
@@ -444,6 +480,7 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
 
   useEffect(() => {
     setAdvisorSeats(PLAN_SEAT_DEFAULTS[plan]);
+    setFeatureFlags({ ...PLAN_FEATURE_DEFAULTS[plan] });
   }, [plan]);
 
   function handleSubmit() {
@@ -456,7 +493,7 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
       status: trialEnabled ? 'Trial' : 'Active',
       advisors: 0,
       clients: 0,
-      mrr: trialEnabled ? '$0' : plan === 'Starter' ? '$900' : plan === 'Growth' ? '$3,600' : plan === 'Enterprise' ? '$14,400' : '$28,000',
+      mrr: trialEnabled ? '$0' : PLAN_PRICES[plan],
       createdAt: new Date().toISOString().slice(0, 10),
       primaryColor,
       logoInitials: initials || 'NT',
@@ -481,7 +518,7 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-base font-semibold text-gray-100">Create New Tenant</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Step {step} of 3 &mdash; {step === 1 ? 'Organization Details' : step === 2 ? 'Configuration' : 'Review & Create'}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Step {step} of 3 &mdash; {step === 1 ? 'Organization Details' : step === 2 ? 'Feature Configuration' : 'Review & Create'}</p>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
         </div>
@@ -556,46 +593,43 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
           </div>
         )}
 
-        {/* Step 2 */}
+        {/* Step 2 — Feature Configuration */}
         {step === 2 && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-xs text-gray-400 font-medium">Advisor Seats</label>
-                <input
-                  type="number"
-                  value={advisorSeats}
-                  onChange={(e) => setAdvisorSeats(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
-                />
-                <p className="text-[10px] text-gray-500">Default for {plan}: {PLAN_SEAT_DEFAULTS[plan]}</p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-gray-400 font-medium">Client Seats</label>
-                <input
-                  type="number"
-                  value={clientSeats}
-                  onChange={(e) => setClientSeats(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
-                />
-              </div>
+            <div className="rounded-lg bg-blue-900/20 border border-blue-700/50 p-3 text-xs text-blue-300">
+              Features are pre-configured for the <strong>{plan}</strong> plan. Toggle any available feature on or off.
             </div>
 
             <div className="space-y-2">
               <label className="text-xs text-gray-400 font-medium">Feature Flags</label>
-              <div className="grid grid-cols-2 gap-2">
-                {Object.entries(featureFlags).map(([key, enabled]) => (
-                  <div key={key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800">
-                    <span className="text-xs text-gray-300">{FEATURE_LABELS[key] ?? key}</span>
-                    <button
-                      type="button"
-                      onClick={() => setFeatureFlags((prev) => ({ ...prev, [key]: !prev[key] }))}
-                      className={`w-9 h-[18px] rounded-full relative transition-colors ${enabled ? 'bg-[#C9A84C]' : 'bg-gray-700'}`}
-                    >
-                      <span className={`absolute top-[1px] w-4 h-4 rounded-full bg-white shadow transition-all ${enabled ? 'left-[18px]' : 'left-[1px]'}`} />
-                    </button>
-                  </div>
-                ))}
+              <div className="space-y-1.5">
+                {Object.entries(featureFlags).map(([key, enabled]) => {
+                  const requiredPlan = FEATURE_REQUIRED_PLAN[key];
+                  const available = PLAN_RANK[plan] >= PLAN_RANK[requiredPlan];
+                  return (
+                    <div key={key} className={`flex items-center justify-between px-3 py-2.5 rounded-lg ${available ? 'bg-gray-800' : 'bg-gray-800/50 opacity-60'}`}>
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-xs font-medium ${available ? 'text-gray-200' : 'text-gray-500'}`}>
+                          {FEATURE_LABELS[key] ?? key}
+                        </span>
+                        {!available && (
+                          <p className="text-[10px] text-amber-400/80 mt-0.5">Requires {requiredPlan} plan or above</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!available}
+                        onClick={() => setFeatureFlags((prev) => ({ ...prev, [key]: !prev[key] }))}
+                        className={`w-9 h-[18px] rounded-full relative transition-colors flex-shrink-0 ml-3 ${
+                          !available ? 'bg-gray-700 cursor-not-allowed' :
+                          enabled ? 'bg-[#C9A84C]' : 'bg-gray-700'
+                        }`}
+                      >
+                        <span className={`absolute top-[1px] w-4 h-4 rounded-full bg-white shadow transition-all ${enabled && available ? 'left-[18px]' : 'left-[1px]'}`} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -615,52 +649,42 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
           </div>
         )}
 
-        {/* Step 3 — Review */}
-        {step === 3 && (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-4 space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-y-2 gap-x-4">
-                <div><span className="text-gray-500">Organization:</span> <span className="text-gray-100 font-medium">{orgName}</span></div>
-                <div><span className="text-gray-500">Slug:</span> <span className="text-gray-100 font-mono">{actualSlug}</span></div>
-                <div><span className="text-gray-500">Plan:</span> <span className={`px-1.5 py-0.5 rounded ${planBadge(plan)} text-[10px] font-semibold`}>{plan}</span></div>
-                <div><span className="text-gray-500">Admin:</span> <span className="text-gray-100">{adminEmail}</span></div>
-                <div><span className="text-gray-500">Advisor Seats:</span> <span className="text-gray-100">{advisorSeats}</span></div>
-                <div><span className="text-gray-500">Client Seats:</span> <span className="text-gray-100">{clientSeats}</span></div>
-                <div><span className="text-gray-500">Trial:</span> <span className="text-gray-100">{trialEnabled ? '14-day trial' : 'No'}</span></div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-gray-500">Color:</span>
-                  <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: primaryColor }} />
-                  <span className="text-gray-100 font-mono">{primaryColor}</span>
+        {/* Step 3 — Review & Create */}
+        {step === 3 && (() => {
+          const enabledCount = Object.values(featureFlags).filter(Boolean).length;
+          const monthlyPrice = trialEnabled ? '$0 (trial)' : PLAN_PRICES[plan];
+          return (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-4 space-y-3 text-xs">
+                <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Tenant Summary</h3>
+                <div className="grid grid-cols-2 gap-y-2.5 gap-x-4">
+                  <div><span className="text-gray-500">Organization:</span> <span className="text-gray-100 font-medium">{orgName}</span></div>
+                  <div><span className="text-gray-500">Subdomain:</span> <span className="text-gray-100 font-mono">{actualSlug}.capitalforge.io</span></div>
+                  <div><span className="text-gray-500">Plan:</span> <span className={`px-1.5 py-0.5 rounded ${planBadge(plan)} text-[10px] font-semibold`}>{plan}</span></div>
+                  <div><span className="text-gray-500">Admin Email:</span> <span className="text-gray-100">{adminEmail}</span></div>
+                  <div><span className="text-gray-500">Features Enabled:</span> <span className="text-gray-100 font-medium">{enabledCount} of {Object.keys(featureFlags).length}</span></div>
+                  <div><span className="text-gray-500">Monthly Price:</span> <span className="text-[#C9A84C] font-semibold">{monthlyPrice}</span></div>
+                </div>
+                <div>
+                  <span className="text-gray-500">Features:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {Object.entries(featureFlags).filter(([, v]) => v).map(([k]) => (
+                      <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300 border border-emerald-800">
+                        {FEATURE_LABELS[k]}
+                      </span>
+                    ))}
+                    {enabledCount === 0 && <span className="text-gray-500">None selected</span>}
+                  </div>
                 </div>
               </div>
-              <div>
-                <span className="text-gray-500">Features:</span>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {Object.entries(featureFlags).filter(([, v]) => v).map(([k]) => (
-                    <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300 border border-emerald-800">
-                      {FEATURE_LABELS[k]}
-                    </span>
-                  ))}
-                  {Object.values(featureFlags).every(v => !v) && <span className="text-gray-500">None selected</span>}
-                </div>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800">
-              <div>
-                <span className="text-xs text-gray-300">Send Welcome Email</span>
-                <p className="text-[10px] text-gray-500">Invite admin with setup instructions</p>
+              <div className="rounded-lg bg-blue-900/20 border border-blue-700/50 p-3 text-xs text-blue-300 flex items-start gap-2">
+                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                <span>An invitation email will be sent to <strong>{adminEmail}</strong> with account setup instructions.</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setSendWelcome(!sendWelcome)}
-                className={`w-10 h-5 rounded-full relative transition-colors ${sendWelcome ? 'bg-[#C9A84C]' : 'bg-gray-700'}`}
-              >
-                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${sendWelcome ? 'left-5' : 'left-0.5'}`} />
-              </button>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Navigation */}
         <div className="flex gap-3 pt-2">
@@ -686,7 +710,7 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
               onClick={handleSubmit}
               className="px-6 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-sm font-semibold transition-colors"
             >
-              Create Tenant
+              Create Tenant &amp; Send Invitation
             </button>
           )}
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-700 text-gray-300 text-sm font-medium hover:bg-gray-800 transition-colors">
@@ -1133,7 +1157,7 @@ export default function MultiTenantPage() {
     setTenants((prev) => [...prev, tenant]);
     setSelected(tenant.id);
     setShowCreate(false);
-    addToast(`${tenant.name} created successfully`, 'success');
+    addToast(`${tenant.name} created successfully — invitation sent`, 'success');
   }
 
   return (
