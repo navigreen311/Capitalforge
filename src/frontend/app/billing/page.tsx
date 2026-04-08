@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import UsageMeter from '../../components/modules/usage-meter';
 import GenerateInvoiceModal from '../../components/billing/GenerateInvoiceModal';
 import type { InvoicePayload } from '../../components/billing/GenerateInvoiceModal';
@@ -428,6 +429,29 @@ function AddSeatsModal({ onClose, onUpgradePlan }: AddSeatsModalProps) {
     setTimeout(() => {
       setAdding(false);
       showToast('5 seats added — your new limit is 17 seats ($245/mo added).');
+// Bulk Reminder Modal (inline) — 3F: overdue alert → bulk send reminder
+// ---------------------------------------------------------------------------
+
+interface BulkReminderModalProps {
+  overdueInvoices: Invoice[];
+  onClose: () => void;
+}
+
+function BulkReminderModal({ overdueInvoices, onClose }: BulkReminderModalProps) {
+  const [sending, setSending] = useState(false);
+
+  function getDaysOverdue(dueDate: string): number {
+    const diff = Date.now() - new Date(dueDate).getTime();
+    return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+  }
+
+  function handleSend(method: 'email' | 'voiceforge') {
+    setSending(true);
+    const clientCount = new Set(overdueInvoices.map((i) => i.client)).size;
+    setTimeout(() => {
+      setSending(false);
+      const methodLabel = method === 'email' ? 'Email' : 'VoiceForge';
+      showToast(`Reminders sent to ${clientCount} client${clientCount !== 1 ? 's' : ''} via ${methodLabel}`);
       onClose();
     }, 800);
   }
@@ -505,6 +529,9 @@ function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps
       <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-white">Dispute Evidence</h2>
+      <div className="rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl w-full max-w-lg mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-white">Send Overdue Reminders</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">
             ×
           </button>
@@ -547,6 +574,35 @@ function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps
               Likely a sync delay between partner portal and billing system.
             </p>
           </div>
+        <p className="text-xs text-gray-400 mb-4">
+          {overdueInvoices.length} overdue invoice{overdueInvoices.length !== 1 ? 's' : ''} totalling{' '}
+          <span className="text-red-400 font-semibold">
+            {formatCurrency(overdueInvoices.reduce((s, i) => s + i.amount, 0))}
+          </span>
+        </p>
+
+        {/* Overdue invoice list */}
+        <div className="rounded-lg border border-gray-800 bg-gray-950 max-h-56 overflow-y-auto mb-5">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-800 text-gray-500 uppercase">
+                <th className="px-3 py-2 text-left">Client</th>
+                <th className="px-3 py-2 text-right">Amount</th>
+                <th className="px-3 py-2 text-right">Days Overdue</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {overdueInvoices.map((inv) => (
+                <tr key={inv.id} className="hover:bg-gray-900/50">
+                  <td className="px-3 py-2 text-gray-200 font-semibold">{inv.client}</td>
+                  <td className="px-3 py-2 text-right text-gray-300 tabular-nums">{formatCurrency(inv.amount)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <span className="text-red-400 font-bold">{getDaysOverdue(inv.dueDate)}d</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
         <div className="flex gap-3">
@@ -555,6 +611,21 @@ function DisputeEvidenceModal({ commission, onClose }: DisputeEvidenceModalProps
             className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
           >
             Close
+            Cancel
+          </button>
+          <button
+            onClick={() => handleSend('email')}
+            disabled={sending}
+            className="flex-1 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+          >
+            {sending ? 'Sending...' : 'Send via Email'}
+          </button>
+          <button
+            onClick={() => handleSend('voiceforge')}
+            disabled={sending}
+            className="flex-1 px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
+          >
+            {sending ? 'Sending...' : 'Send via VoiceForge'}
           </button>
         </div>
       </div>
@@ -582,11 +653,13 @@ function openStripePortal() {
 // ---------------------------------------------------------------------------
 
 export default function BillingPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'invoices' | 'commissions' | 'usage'>('invoices');
   const [showModal, setShowModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [showSeatModal, setShowSeatModal] = useState(false);
+  const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceStatus | 'all'>('all');
   const [commissionFilter, setCommissionFilter] = useState<CommissionStatus | 'all'>('all');
   const [invoices, setInvoices] = useState<Invoice[]>(PLACEHOLDER_INVOICES);
@@ -766,6 +839,10 @@ export default function BillingPage() {
         <DisputeEvidenceModal
           commission={evidenceCommission}
           onClose={() => setEvidenceCommission(null)}
+      {showBulkReminderModal && (
+        <BulkReminderModal
+          overdueInvoices={overdueInvoices}
+          onClose={() => setShowBulkReminderModal(false)}
         />
       )}
       {selectedCommission && (
@@ -1022,17 +1099,23 @@ export default function BillingPage() {
             ))}
           </div>
 
-          {/* Overdue banner */}
+          {/* Overdue banner — click to open bulk reminder modal */}
           {overdueCount > 0 && (
-            <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-lg border border-amber-700/50 bg-amber-950/30">
+            <button
+              onClick={() => setShowBulkReminderModal(true)}
+              className="w-full flex items-center gap-2 mb-4 px-4 py-2.5 rounded-lg border border-amber-700/50 bg-amber-950/30 hover:bg-amber-950/50 hover:border-amber-600/60 transition-colors cursor-pointer text-left"
+            >
               <span className="inline-flex items-center justify-center bg-red-600 text-white text-xs font-bold rounded-full w-6 h-6">
                 {overdueCount}
               </span>
               <span className="text-sm font-semibold text-amber-300">
                 Overdue ({formatCurrency(overdueAmount)})
               </span>
-              <span className="text-xs text-amber-400/70 ml-1">— requires immediate attention</span>
-            </div>
+              <span className="text-xs text-amber-400/70 ml-1">— click to send bulk reminders</span>
+              <span className="ml-auto text-xs font-semibold text-amber-400 hover:text-amber-300">
+                Send Reminders →
+              </span>
+            </button>
           )}
 
           <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
@@ -1336,7 +1419,7 @@ export default function BillingPage() {
                 Overage charges apply at $0.05 per extra API call and $500 per extra deal slot.
               </p>
               <button
-                onClick={() => setShowPlanModal(true)}
+                onClick={() => router.push('/settings?tab=billing')}
                 className="text-xs font-semibold text-[#C9A84C] hover:text-amber-300 transition-colors"
               >
                 View Full Plan →
