@@ -7,6 +7,16 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -93,6 +103,113 @@ function PipelineColumn({ stage, total, onClick }: { stage: PipelineStage; total
         <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: stage.color }} />
       </div>
     </div>
+  );
+}
+
+// ── MRR Trend Data (fallback inline mock) ────────────────────
+
+interface MrrTrendPoint {
+  month: string;
+  mrr: number;
+  newBusiness: number;
+  churn: number;
+}
+
+const MRR_TREND_DATA: MrrTrendPoint[] = [
+  { month: 'Oct 25', mrr: 71400, newBusiness: 8200, churn: 2100 },
+  { month: 'Nov 25', mrr: 73100, newBusiness: 7600, churn: 1800 },
+  { month: 'Dec 25', mrr: 72800, newBusiness: 5400, churn: 2400 },
+  { month: 'Jan 26', mrr: 74600, newBusiness: 9100, churn: 1900 },
+  { month: 'Feb 26', mrr: 76500, newBusiness: 8800, churn: 2300 },
+  { month: 'Mar 26', mrr: 78200, newBusiness: 10200, churn: 2600 },
+];
+
+function formatDollarsK(n: number): string {
+  return `$${(n / 1000).toFixed(0)}k`;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function MrrTooltip({ active, payload, label }: any) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-gray-700 bg-gray-900 shadow-xl px-4 py-3 text-sm">
+      <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">{label}</p>
+      {payload.map((entry: { dataKey: string; value: number; color: string }) => (
+        <div key={entry.dataKey} className="flex items-center justify-between gap-6 mb-1">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
+            <span className="text-gray-300 text-xs capitalize">{entry.dataKey === 'newBusiness' ? 'New Business' : entry.dataKey === 'mrr' ? 'MRR' : 'Churn'}</span>
+          </span>
+          <span className="text-xs font-semibold text-gray-100 tabular-nums">{money(entry.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MrrTrendChart() {
+  return (
+    <section>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold text-white">MRR Trend &mdash; Last 6 Months</h2>
+        <p className="text-sm text-emerald-400 font-semibold mt-0.5">+$6,800 (+9.5%)</p>
+      </div>
+      <div className="rounded-xl border border-gray-700/60 bg-gray-900/60 p-5">
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={MRR_TREND_DATA}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis
+                dataKey="month"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#9CA3AF', fontSize: 12 }}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                tickFormatter={formatDollarsK}
+                width={55}
+              />
+              <Tooltip content={<MrrTooltip />} />
+              <Legend
+                wrapperStyle={{ paddingTop: 12 }}
+                formatter={(value: string) =>
+                  value === 'mrr' ? 'MRR' : value === 'newBusiness' ? 'New Business' : 'Churn'
+                }
+              />
+              <Line
+                type="monotone"
+                dataKey="mrr"
+                stroke="#C9A84C"
+                strokeWidth={2.5}
+                dot={{ fill: '#C9A84C', r: 4 }}
+                activeDot={{ r: 6 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="newBusiness"
+                stroke="#1D9E75"
+                strokeWidth={2}
+                strokeDasharray="6 3"
+                dot={{ fill: '#1D9E75', r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="churn"
+                stroke="#E24B4A"
+                strokeWidth={2}
+                strokeDasharray="2 2"
+                dot={{ fill: '#E24B4A', r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -211,6 +328,9 @@ export default function PlatformCrmPage() {
           </div>
         </section>
       )}
+
+      {/* MRR Trend Chart */}
+      <MrrTrendChart />
 
       {/* Revenue by Advisor */}
       {revenue && (
