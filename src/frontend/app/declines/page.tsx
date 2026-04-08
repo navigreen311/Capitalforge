@@ -10,14 +10,14 @@
 //   4. Adverse action notice parser upload
 // ============================================================
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type ReasonCategory = 'too_many_inquiries' | 'insufficient_history' | 'high_utilization' | 'income_verification' | 'velocity' | 'internal_policy' | 'derogatory_marks';
+type ReasonCategory = 'too_many_inquiries' | 'insufficient_history' | 'high_utilization' | 'income_verification' | 'velocity' | 'internal_policy' | 'derogatory_marks' | 'unknown';
 type ReconStatus = 'not_started' | 'in_review' | 'approved' | 'denied' | 'scheduled';
 type RecoveryStage = 'new' | 'letter_sent' | 'recon_call_scheduled' | 'recon_call_completed' | 'reapplication_ready' | 'reapplied' | 'won' | 'lost';
 
@@ -131,6 +131,7 @@ const REASON_LABELS: Record<ReasonCategory, { label: string; cls: string }> = {
   velocity:              { label: 'Velocity Rule',        cls: 'bg-yellow-900 text-yellow-300 border-yellow-700'  },
   internal_policy:       { label: 'Internal Policy',     cls: 'bg-gray-700 text-gray-300 border-gray-600'        },
   derogatory_marks:      { label: 'Derogatory',          cls: 'bg-red-950 text-red-400 border-red-800'           },
+  unknown:               { label: 'Unknown',             cls: 'bg-gray-800 text-gray-400 border-gray-700'        },
 };
 
 const RECON_STATUS_LABELS: Record<ReconStatus, { label: string; cls: string }> = {
@@ -452,23 +453,78 @@ ${record.businessName}
 }
 
 // ---------------------------------------------------------------------------
-// Adverse Action Parser
+// Searchable Client List (mock data)
 // ---------------------------------------------------------------------------
 
-function AdverseActionParser() {
+const MOCK_CLIENTS = [
+  'Horizon Retail Partners',
+  'Apex Ventures LLC',
+  'Crestline Medical LLC',
+  'NovaTech Solutions Inc.',
+  'Blue Ridge Consulting',
+  'Summit Capital Group',
+  'Pinnacle Freight Corp',
+  'Evergreen Holdings',
+  'Pacific Coast Logistics',
+  'Redwood Capital Partners',
+];
+
+const ISSUER_LIST = ['Chase', 'Amex', 'Citi', 'Capital One', 'Bank of America', 'US Bank', 'Wells Fargo', 'Barclays', 'Discover'];
+
+const DECLINE_REASON_OPTIONS: { value: ReasonCategory; label: string }[] = [
+  { value: 'too_many_inquiries', label: 'Too Many Inquiries' },
+  { value: 'velocity', label: 'Velocity Rule' },
+  { value: 'insufficient_history', label: 'Thin File' },
+  { value: 'income_verification', label: 'Income Verify' },
+  { value: 'derogatory_marks', label: 'Derogatory' },
+  { value: 'high_utilization', label: 'High Utilization' },
+  { value: 'internal_policy', label: 'Internal Policy' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+// ---------------------------------------------------------------------------
+// Adverse Action Parsed Result type
+// ---------------------------------------------------------------------------
+
+interface AdverseActionParsedData {
+  issuer: string;
+  reasonCodes: string[];
+  creditBureau: string;
+  score: number;
+  dateIssued: string;
+}
+
+// ---------------------------------------------------------------------------
+// Adverse Action Parser (Feature 4C)
+// ---------------------------------------------------------------------------
+
+function AdverseActionParser({
+  onCreateDeclineFromNotice,
+}: {
+  onCreateDeclineFromNotice: (data: AdverseActionParsedData) => void;
+}) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [parseResult, setParseResult] = useState<string | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [parsedData, setParsedData] = useState<AdverseActionParsedData | null>(null);
   const [dragging, setDragging] = useState(false);
 
   const handleFile = (file: File) => {
     setFileName(file.name);
-    // Simulate parsing — replace with real OCR/parse logic
+    setParsing(true);
+    setParsedData(null);
+
+    // Simulate 2-second parsing delay with mock result
     setTimeout(() => {
-      setParseResult(
-        `Parsed from: ${file.name}\n\nIssuer: [Detected from letterhead]\nDate: [Extracted]\nPrimary Reason Codes:\n  • [Reason 1 extracted from notice]\n  • [Reason 2 extracted from notice]\nAction Required: Review reasons, add to decline record, schedule recon call.\n\nNote: Connect to OCR service to extract full reason codes automatically.`
-      );
-    }, 900);
+      setParsing(false);
+      setParsedData({
+        issuer: 'Chase',
+        reasonCodes: ['Too many recent inquiries (6 in 12 months)', 'Insufficient business credit history', 'High revolving utilization (72%)'],
+        creditBureau: 'Experian',
+        score: 682,
+        dateIssued: '2026-03-28',
+      });
+    }, 2000);
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -499,11 +555,13 @@ function AdverseActionParser() {
             ? 'border-yellow-600 bg-yellow-900/10'
             : 'border-gray-700 hover:border-gray-600 hover:bg-gray-900'}`}
       >
-        <div className="text-3xl mb-2 opacity-40">📄</div>
+        <div className="text-3xl mb-2 opacity-40">{parsing ? '...' : String.fromCodePoint(0x1F4C4)}</div>
         <p className="text-sm text-gray-400">
-          {fileName
-            ? <span className="text-yellow-400 font-semibold">{fileName} — parsing…</span>
-            : <>Drop adverse action notice here, or <span className="text-yellow-500 underline">browse files</span></>}
+          {parsing
+            ? <span className="text-yellow-400 font-semibold animate-pulse">Parsing {fileName}...</span>
+            : fileName && parsedData
+              ? <span className="text-green-400 font-semibold">{fileName} — parsed successfully</span>
+              : <>Drop adverse action notice here, or <span className="text-yellow-500 underline">browse files</span></>}
         </p>
         <p className="text-xs text-gray-600 mt-1">PDF, PNG, JPG accepted</p>
         <input
@@ -515,31 +573,73 @@ function AdverseActionParser() {
         />
       </div>
 
-      {/* Parse result */}
-      {parseResult && (
+      {/* Parsing state */}
+      {parsing && (
+        <div className="mt-4 flex items-center gap-2 text-yellow-400 text-sm">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          Extracting reason codes, issuer info, and credit data...
+        </div>
+      )}
+
+      {/* Parsed result */}
+      {parsedData && !parsing && (
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold text-green-400">Parse Complete</p>
             <button
-              onClick={() => { setParseResult(null); setFileName(null); }}
+              onClick={() => { setParsedData(null); setFileName(null); }}
               className="text-xs text-gray-600 hover:text-gray-400"
             >
               Clear
             </button>
           </div>
-          <pre className="text-xs text-gray-300 bg-gray-950 rounded-lg p-3 whitespace-pre-wrap font-mono border border-gray-800">
-            {parseResult}
-          </pre>
-          <div className="flex gap-2 mt-3">
+
+          {/* Structured result cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+            <div className="rounded-lg bg-gray-950 border border-gray-800 px-3 py-2">
+              <p className="text-xs text-gray-500 mb-0.5">Issuer</p>
+              <p className="text-sm font-semibold text-white">{parsedData.issuer}</p>
+            </div>
+            <div className="rounded-lg bg-gray-950 border border-gray-800 px-3 py-2">
+              <p className="text-xs text-gray-500 mb-0.5">Credit Bureau</p>
+              <p className="text-sm font-semibold text-white">{parsedData.creditBureau}</p>
+            </div>
+            <div className="rounded-lg bg-gray-950 border border-gray-800 px-3 py-2">
+              <p className="text-xs text-gray-500 mb-0.5">Credit Score</p>
+              <p className="text-sm font-semibold text-red-400">{parsedData.score}</p>
+            </div>
+            <div className="rounded-lg bg-gray-950 border border-gray-800 px-3 py-2">
+              <p className="text-xs text-gray-500 mb-0.5">Date Issued</p>
+              <p className="text-sm font-semibold text-white">{parsedData.dateIssued}</p>
+            </div>
+          </div>
+
+          {/* Reason codes */}
+          <div className="rounded-lg bg-gray-950 border border-gray-800 px-3 py-2 mb-3">
+            <p className="text-xs text-gray-500 mb-1.5">Reason Codes</p>
+            <ul className="space-y-1">
+              {parsedData.reasonCodes.map((code, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-gray-300">
+                  <span className="text-red-500 mt-0.5 flex-shrink-0">&#x2022;</span>
+                  {code}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="flex gap-2">
             <button
-              onClick={() => alert('Parsed data added to decline records.')}
-              className="px-3 py-1.5 rounded-lg bg-blue-800 hover:bg-blue-700 text-xs font-semibold text-blue-200 transition-colors"
+              onClick={() => onCreateDeclineFromNotice(parsedData)}
+              className="px-3 py-1.5 rounded-lg bg-[#C9A84C] hover:bg-[#b8993f] text-xs font-semibold text-gray-900 transition-colors"
             >
-              Add to Decline Record
+              Create Decline Record from This Notice
             </button>
             <button
               onClick={() => {
-                const blob = new Blob([parseResult ?? ''], { type: 'application/json' });
+                const blob = new Blob([JSON.stringify(parsedData, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -559,6 +659,241 @@ function AdverseActionParser() {
 }
 
 // ---------------------------------------------------------------------------
+// Log Decline Modal (Feature 5A)
+// ---------------------------------------------------------------------------
+
+interface LogDeclineFormData {
+  client: string;
+  issuer: string;
+  cardName: string;
+  appId: string;
+  declinedDate: string;
+  reasonCategory: ReasonCategory;
+  requestedLimit: number;
+  notes: string;
+}
+
+function LogDeclineModal({
+  onClose,
+  onSubmit,
+  prefill,
+}: {
+  onClose: () => void;
+  onSubmit: (data: LogDeclineFormData) => void;
+  prefill?: Partial<LogDeclineFormData>;
+}) {
+  const [form, setForm] = useState<LogDeclineFormData>({
+    client: prefill?.client ?? '',
+    issuer: prefill?.issuer ?? '',
+    cardName: prefill?.cardName ?? '',
+    appId: prefill?.appId ?? '',
+    declinedDate: prefill?.declinedDate ?? new Date().toISOString().split('T')[0],
+    reasonCategory: prefill?.reasonCategory ?? 'unknown',
+    requestedLimit: prefill?.requestedLimit ?? 0,
+    notes: prefill?.notes ?? '',
+  });
+  const [clientSearch, setClientSearch] = useState(prefill?.client ?? '');
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
+
+  const filteredClients = useMemo(
+    () =>
+      clientSearch.length > 0
+        ? MOCK_CLIENTS.filter((c) => c.toLowerCase().includes(clientSearch.toLowerCase()))
+        : MOCK_CLIENTS,
+    [clientSearch],
+  );
+
+  const handleChange = (field: keyof LogDeclineFormData, value: string | number) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.client || !form.issuer || !form.cardName) return;
+    onSubmit(form);
+  };
+
+  const inputCls =
+    'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-[#C9A84C] transition-colors';
+  const labelCls = 'block text-xs font-semibold text-gray-400 mb-1';
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+          <div>
+            <h3 className="text-base font-semibold text-white">Log Decline</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Record a new application decline</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-300 text-xl leading-none p-1"
+            aria-label="Close"
+          >
+            {String.fromCharCode(10005)}
+          </button>
+        </div>
+
+        {/* Form body */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Client — searchable dropdown */}
+          <div className="relative">
+            <label className={labelCls}>Client *</label>
+            <input
+              type="text"
+              value={clientSearch}
+              onChange={(e) => {
+                setClientSearch(e.target.value);
+                handleChange('client', e.target.value);
+                setShowClientDropdown(true);
+              }}
+              onFocus={() => setShowClientDropdown(true)}
+              onBlur={() => setTimeout(() => setShowClientDropdown(false), 150)}
+              placeholder="Search client..."
+              className={inputCls}
+              required
+            />
+            {showClientDropdown && filteredClients.length > 0 && (
+              <ul className="absolute z-10 mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                {filteredClients.map((c) => (
+                  <li
+                    key={c}
+                    onMouseDown={() => {
+                      setClientSearch(c);
+                      handleChange('client', c);
+                      setShowClientDropdown(false);
+                    }}
+                    className="px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 cursor-pointer"
+                  >
+                    {c}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Issuer */}
+          <div>
+            <label className={labelCls}>Issuer *</label>
+            <select
+              value={form.issuer}
+              onChange={(e) => handleChange('issuer', e.target.value)}
+              className={inputCls}
+              required
+            >
+              <option value="">Select issuer...</option>
+              {ISSUER_LIST.map((iss) => (
+                <option key={iss} value={iss}>{iss}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Card Name */}
+          <div>
+            <label className={labelCls}>Card Name *</label>
+            <input
+              type="text"
+              value={form.cardName}
+              onChange={(e) => handleChange('cardName', e.target.value)}
+              placeholder="e.g. Ink Business Preferred"
+              className={inputCls}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Application ID (optional) */}
+            <div>
+              <label className={labelCls}>Application ID</label>
+              <input
+                type="text"
+                value={form.appId}
+                onChange={(e) => handleChange('appId', e.target.value)}
+                placeholder="APP-XXXX"
+                className={inputCls}
+              />
+            </div>
+
+            {/* Declined Date */}
+            <div>
+              <label className={labelCls}>Declined Date *</label>
+              <input
+                type="date"
+                value={form.declinedDate}
+                onChange={(e) => handleChange('declinedDate', e.target.value)}
+                className={inputCls}
+                required
+              />
+            </div>
+          </div>
+
+          {/* Decline Reason */}
+          <div>
+            <label className={labelCls}>Decline Reason *</label>
+            <select
+              value={form.reasonCategory}
+              onChange={(e) => handleChange('reasonCategory', e.target.value)}
+              className={inputCls}
+              required
+            >
+              {DECLINE_REASON_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Requested Limit */}
+          <div>
+            <label className={labelCls}>Requested Limit</label>
+            <input
+              type="number"
+              value={form.requestedLimit || ''}
+              onChange={(e) => handleChange('requestedLimit', Number(e.target.value))}
+              placeholder="0"
+              min={0}
+              className={inputCls}
+            />
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className={labelCls}>Notes</label>
+            <textarea
+              value={form.notes}
+              onChange={(e) => handleChange('notes', e.target.value)}
+              placeholder="Additional details about the decline..."
+              rows={3}
+              className={inputCls + ' resize-none'}
+            />
+          </div>
+        </form>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-800">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              if (!form.client || !form.issuer || !form.cardName) return;
+              onSubmit(form);
+            }}
+            disabled={!form.client || !form.issuer || !form.cardName}
+            className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8993f] text-sm font-semibold text-gray-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Log Decline
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -570,6 +905,8 @@ export default function DeclinesPage() {
   const [reasonFilter, setReasonFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [showLogDeclineModal, setShowLogDeclineModal] = useState(false);
+  const [logDeclinePrefill, setLogDeclinePrefill] = useState<Partial<LogDeclineFormData> | undefined>(undefined);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -589,13 +926,67 @@ export default function DeclinesPage() {
     showToast(`Recovery stage updated to "${RECOVERY_STAGE_LABELS[stage]}"`);
   }, [showToast]);
 
+  // Feature 5A — open Log Decline modal
   const handleLogDecline = () => {
-    showToast('Log Decline form coming soon — use the Applications pipeline to track new declines.');
+    setLogDeclinePrefill(undefined);
+    setShowLogDeclineModal(true);
   };
 
+  // Feature 5A — submit handler
+  const handleLogDeclineSubmit = useCallback((data: LogDeclineFormData) => {
+    const newRecord: DeclineRecord = {
+      id: `dec_${String(Date.now()).slice(-6)}`,
+      businessName: data.client,
+      issuer: data.issuer,
+      cardProduct: data.cardName,
+      declinedDate: data.declinedDate,
+      reasonCategory: data.reasonCategory,
+      reasonDetail: data.notes || REASON_LABELS[data.reasonCategory]?.label || 'No details provided.',
+      reconStatus: 'not_started',
+      cooldownEndsDate: null,
+      requestedLimit: data.requestedLimit,
+      appId: data.appId || `APP-${String(Date.now()).slice(-4)}`,
+      recoveryStage: 'new',
+      resolvedAt: null,
+    };
+    setDeclineRecords(prev => [newRecord, ...prev]);
+    setShowLogDeclineModal(false);
+    showToast(`Decline logged for ${data.client}`);
+  }, [showToast]);
+
+  // Feature 4D — Reapply handler
   const handleReapply = (item: ReapplyItem) => {
-    router.push(`/applications/new?issuer=${encodeURIComponent(item.issuer)}&card=${encodeURIComponent(item.cardProduct)}`);
+    if (item.eligible) {
+      router.push(`/applications?issuer=${encodeURIComponent(item.issuer)}&card=${encodeURIComponent(item.cardProduct)}`);
+    }
   };
+
+  // Feature 4D — Set Reminder handler
+  const handleSetReminder = useCallback((item: ReapplyItem) => {
+    showToast(`Reminder set for ${item.eligibleDate} — ${item.issuer} ${item.cardProduct}`);
+  }, [showToast]);
+
+  // Feature 4C — Create decline record from adverse action notice
+  const handleCreateDeclineFromNotice = useCallback((data: AdverseActionParsedData) => {
+    // Map the first reason code to a category
+    let category: ReasonCategory = 'unknown';
+    const firstReason = (data.reasonCodes[0] ?? '').toLowerCase();
+    if (firstReason.includes('inquir')) category = 'too_many_inquiries';
+    else if (firstReason.includes('history') || firstReason.includes('thin')) category = 'insufficient_history';
+    else if (firstReason.includes('utilization')) category = 'high_utilization';
+    else if (firstReason.includes('income') || firstReason.includes('verif')) category = 'income_verification';
+    else if (firstReason.includes('velocity') || firstReason.includes('5/24')) category = 'velocity';
+    else if (firstReason.includes('derogatory') || firstReason.includes('lien')) category = 'derogatory_marks';
+    else if (firstReason.includes('policy') || firstReason.includes('internal')) category = 'internal_policy';
+
+    setLogDeclinePrefill({
+      issuer: data.issuer,
+      declinedDate: data.dateIssued,
+      reasonCategory: category,
+      notes: `Parsed from adverse action notice.\nCredit Bureau: ${data.creditBureau}\nScore: ${data.score}\nReasons:\n${data.reasonCodes.map(r => `  - ${r}`).join('\n')}`,
+    });
+    setShowLogDeclineModal(true);
+  }, []);
 
   const filteredDeclines = declineRecords.filter((d) => {
     const matchStatus = statusFilter === 'all' || d.reconStatus === statusFilter;
@@ -849,15 +1240,24 @@ export default function DeclinesPage() {
                     )}
                   </div>
 
-                  {/* Reapply button */}
-                  {r.eligible && (
-                    <button
-                      onClick={() => handleReapply(r)}
-                      className="flex-shrink-0 px-2.5 py-1 rounded bg-green-900 hover:bg-green-800 text-green-300 text-xs font-semibold border border-green-700 transition-colors"
-                    >
-                      Reapply
-                    </button>
-                  )}
+                  {/* Reapply / Set Reminder button (Feature 4D) */}
+                  <div className="flex-shrink-0">
+                    {r.eligible ? (
+                      <button
+                        onClick={() => handleReapply(r)}
+                        className="px-2.5 py-1 rounded bg-green-900 hover:bg-green-800 text-green-300 text-xs font-semibold border border-green-700 transition-colors"
+                      >
+                        Reapply
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleSetReminder(r)}
+                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold border border-gray-600 transition-colors"
+                      >
+                        Set Reminder
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -865,14 +1265,23 @@ export default function DeclinesPage() {
         </section>
       </div>
 
-      {/* ── Section 4: Adverse Action Parser ─────────────────────── */}
-      <AdverseActionParser />
+      {/* ── Section 4: Adverse Action Parser (Feature 4C) ──────── */}
+      <AdverseActionParser onCreateDeclineFromNotice={handleCreateDeclineFromNotice} />
 
       {/* ── Letter Generator Modal ────────────────────────────────── */}
       {selectedRecord && (
         <LetterGeneratorModal
           record={selectedRecord}
           onClose={() => setSelectedRecord(null)}
+        />
+      )}
+
+      {/* ── Log Decline Modal (Feature 5A) ────────────────────────── */}
+      {showLogDeclineModal && (
+        <LogDeclineModal
+          onClose={() => setShowLogDeclineModal(false)}
+          onSubmit={handleLogDeclineSubmit}
+          prefill={logDeclinePrefill}
         />
       )}
     </div>
