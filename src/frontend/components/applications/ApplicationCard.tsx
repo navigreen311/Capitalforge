@@ -31,6 +31,8 @@ export interface ApplicationCardApp {
   decline_reason?: string;
   /** Assigned advisor full name — used for initials avatar */
   advisor?: string;
+  /** Issuer type: bank or credit union */
+  issuer_type?: 'bank' | 'credit_union';
 }
 
 export interface ApplicationCardProps {
@@ -132,10 +134,19 @@ export function ApplicationCard({ app, onClick }: ApplicationCardProps) {
             <p className="text-xs text-gray-500 truncate inline-flex items-center gap-1">
               {app.card_product} &middot;{' '}
               <span
-                className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${consentDotColor(app.consent_status)}`}
-                title={consentDotTitle(app.consent_status)}
+                className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
+                  app.issuer_type === 'credit_union' ? 'bg-[#1D9E75]' : consentDotColor(app.consent_status)
+                }`}
+                title={
+                  app.issuer_type === 'credit_union' ? 'Credit Union' : consentDotTitle(app.consent_status)
+                }
               />
               {app.issuer}
+              {app.issuer_type === 'credit_union' && (
+                <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 ml-1">
+                  CU
+                </span>
+              )}
             </p>
           </div>
 
