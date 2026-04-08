@@ -23,6 +23,9 @@ interface Disclosure {
   deadline: string;
   status: DisclosureStatus;
   filedAt: string | null;
+  filedBy: string | null;
+  confirmationRef: string | null;
+  documentUrl: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -30,16 +33,16 @@ interface Disclosure {
 // ---------------------------------------------------------------------------
 
 const PLACEHOLDER_DISCLOSURES: Disclosure[] = [
-  { id: 'dis_001', businessName: 'Apex Ventures LLC',       state: 'CA', regulation: 'SB 1235 Commercial Finance Disclosures',       deadline: '2026-04-15', status: 'Pending',  filedAt: null },
-  { id: 'dis_002', businessName: 'NovaTech Solutions Inc.',  state: 'NY', regulation: 'Commercial Finance Disclosure Law',             deadline: '2026-03-31', status: 'Overdue',  filedAt: null },
-  { id: 'dis_003', businessName: 'Horizon Retail Partners',  state: 'IL', regulation: 'Consumer Installment Loan Act Disclosure',      deadline: '2026-05-01', status: 'Filed',    filedAt: '2026-03-20T10:00:00Z' },
-  { id: 'dis_004', businessName: 'Summit Capital Group',     state: 'TX', regulation: 'HB 1442 Business Lending Transparency',         deadline: '2026-09-01', status: 'Draft',    filedAt: null },
-  { id: 'dis_005', businessName: 'Blue Ridge Consulting',    state: 'VA', regulation: 'Open-End Credit Disclosure Requirements',       deadline: '2026-04-10', status: 'Pending',  filedAt: null },
-  { id: 'dis_006', businessName: 'Crestline Medical LLC',    state: 'UT', regulation: 'Consumer Credit Protection — Title 70C',        deadline: '2026-06-30', status: 'Filed',    filedAt: '2026-03-15T14:00:00Z' },
-  { id: 'dis_007', businessName: 'Meridian Capital',         state: 'CA', regulation: 'CCPA / CPRA Privacy Disclosure',                deadline: '2026-04-05', status: 'Overdue',  filedAt: null },
-  { id: 'dis_008', businessName: 'Pinnacle Freight LLC',     state: 'NY', regulation: 'Truth in Lending — NY Addendum',                deadline: '2026-04-12', status: 'Pending',  filedAt: null },
-  { id: 'dis_009', businessName: 'Apex Ventures LLC',        state: 'IL', regulation: 'Predatory Lending Prevention Disclosure',       deadline: '2026-07-15', status: 'Draft',    filedAt: null },
-  { id: 'dis_010', businessName: 'Summit Capital Group',     state: 'VA', regulation: 'VA Consumer Protection Act Addendum',           deadline: '2026-04-08', status: 'Pending',  filedAt: null },
+  { id: 'dis_001', businessName: 'Apex Ventures LLC',       state: 'CA', regulation: 'SB 1235 Commercial Finance Disclosures',       deadline: '2026-04-15', status: 'Pending',  filedAt: null, filedBy: null, confirmationRef: null, documentUrl: null },
+  { id: 'dis_002', businessName: 'NovaTech Solutions Inc.',  state: 'NY', regulation: 'Commercial Finance Disclosure Law',             deadline: '2026-03-31', status: 'Overdue',  filedAt: null, filedBy: null, confirmationRef: null, documentUrl: null },
+  { id: 'dis_003', businessName: 'Horizon Retail Partners',  state: 'IL', regulation: 'Consumer Installment Loan Act Disclosure',      deadline: '2026-05-01', status: 'Filed',    filedAt: '2026-03-20T10:00:00Z', filedBy: 'Sarah Chen', confirmationRef: 'CF-2026-IL-0042', documentUrl: '/documents/disclosures/dis_003.pdf' },
+  { id: 'dis_004', businessName: 'Summit Capital Group',     state: 'TX', regulation: 'HB 1442 Business Lending Transparency',         deadline: '2026-09-01', status: 'Draft',    filedAt: null, filedBy: null, confirmationRef: null, documentUrl: null },
+  { id: 'dis_005', businessName: 'Blue Ridge Consulting',    state: 'VA', regulation: 'Open-End Credit Disclosure Requirements',       deadline: '2026-04-10', status: 'Pending',  filedAt: null, filedBy: null, confirmationRef: null, documentUrl: null },
+  { id: 'dis_006', businessName: 'Crestline Medical LLC',    state: 'UT', regulation: 'Consumer Credit Protection — Title 70C',        deadline: '2026-06-30', status: 'Filed',    filedAt: '2026-03-15T14:00:00Z', filedBy: 'Marcus Reid', confirmationRef: 'CF-2026-UT-0019', documentUrl: '/documents/disclosures/dis_006.pdf' },
+  { id: 'dis_007', businessName: 'Meridian Capital',         state: 'CA', regulation: 'CCPA / CPRA Privacy Disclosure',                deadline: '2026-04-05', status: 'Overdue',  filedAt: null, filedBy: null, confirmationRef: null, documentUrl: null },
+  { id: 'dis_008', businessName: 'Pinnacle Freight LLC',     state: 'NY', regulation: 'Truth in Lending — NY Addendum',                deadline: '2026-04-12', status: 'Pending',  filedAt: null, filedBy: null, confirmationRef: null, documentUrl: null },
+  { id: 'dis_009', businessName: 'Apex Ventures LLC',        state: 'IL', regulation: 'Predatory Lending Prevention Disclosure',       deadline: '2026-07-15', status: 'Draft',    filedAt: null, filedBy: null, confirmationRef: null, documentUrl: null },
+  { id: 'dis_010', businessName: 'Summit Capital Group',     state: 'VA', regulation: 'VA Consumer Protection Act Addendum',           deadline: '2026-04-08', status: 'Pending',  filedAt: null, filedBy: null, confirmationRef: null, documentUrl: null },
 ];
 
 // ---------------------------------------------------------------------------
@@ -124,7 +127,7 @@ export default function DisclosuresPage() {
 
   const handleFile = useCallback((id: string) => {
     setDisclosures((prev) =>
-      prev.map((d) => d.id === id ? { ...d, status: 'Filed' as DisclosureStatus, filedAt: new Date().toISOString() } : d)
+      prev.map((d) => d.id === id ? { ...d, status: 'Filed' as DisclosureStatus, filedAt: new Date().toISOString(), filedBy: 'Current Advisor', confirmationRef: `CF-${new Date().getFullYear()}-${d.state}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`, documentUrl: `/documents/disclosures/${id}.pdf` } : d)
     );
     const disc = disclosures.find((d) => d.id === id);
     if (disc) {
@@ -167,7 +170,7 @@ export default function DisclosuresPage() {
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i];
       setDisclosures((prev) =>
-        prev.map((d) => d.id === id ? { ...d, status: 'Filed' as DisclosureStatus, filedAt: new Date().toISOString() } : d)
+        prev.map((d) => d.id === id ? { ...d, status: 'Filed' as DisclosureStatus, filedAt: new Date().toISOString(), filedBy: 'Current Advisor', confirmationRef: `CF-${new Date().getFullYear()}-${d.state}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`, documentUrl: `/documents/disclosures/${id}.pdf` } : d)
       );
       fetch(`/api/compliance/disclosures/${id}/file`, { method: 'POST' }).catch(() => {});
       setBulkProgress(i + 1);
@@ -307,7 +310,27 @@ export default function DisclosuresPage() {
                             File Disclosure
                           </button>
                         ) : (
-                          <span className="text-xs text-gray-500">Filed {d.filedAt ? formatDate(d.filedAt) : ''}</span>
+                          <div className="space-y-1">
+                            <div className="text-xs text-green-400 font-medium">
+                              Filed {d.filedAt ? formatDate(d.filedAt) : ''}
+                            </div>
+                            {d.filedBy && (
+                              <div className="text-xs text-gray-400">by {d.filedBy}</div>
+                            )}
+                            {d.confirmationRef && (
+                              <div className="text-xs text-gray-500">Ref: {d.confirmationRef}</div>
+                            )}
+                            {d.documentUrl && (
+                              <a
+                                href={d.documentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-block text-xs text-[#C9A84C] hover:text-[#b8973f] font-medium transition-colors"
+                              >
+                                View Document &rarr;
+                              </a>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
