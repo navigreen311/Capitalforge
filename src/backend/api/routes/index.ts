@@ -311,6 +311,10 @@ apiRouter.use('/readiness', readinessRouter);
 import { declineRecoveryRouter } from './decline-recovery.routes.js';
 apiRouter.use('/', declineRecoveryRouter);
 
+// ── Decline Actions (create, analytics, reminders) ──────────────
+import { declineActionsRouter } from './decline-actions.routes.js';
+apiRouter.use('/', declineActionsRouter);
+
 // ── Re-Stack Eligibility ─────────────────────────────────────────
 import { restackRouter } from './restack.routes.js';
 apiRouter.use('/restack', restackRouter);
