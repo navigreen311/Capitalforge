@@ -344,3 +344,12 @@ apiRouter.use('/chat', chatRouter);
 // POST /api/credit-builder/:clientId/tradeline-disputes
 import { creditBuilderRouter } from './credit-builder.routes.js';
 apiRouter.use('/credit-builder', creditBuilderRouter);
+
+// ── Spend Governance ────────────────────────────────────────────
+// POST  /api/spend-governance/violations/:id/acknowledge
+// PATCH /api/spend-governance/transactions/:id/business-purpose
+// POST  /api/spend-governance/export-evidence
+// (also mounts existing /api/businesses/:id/transactions/* routes)
+import { spendGovernanceRouter } from './spend-governance.routes.js';
+apiRouter.use('/spend-governance', spendGovernanceRouter);
+apiRouter.use('/', spendGovernanceRouter);
