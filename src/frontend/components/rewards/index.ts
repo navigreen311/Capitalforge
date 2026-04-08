@@ -4,7 +4,7 @@ export { FeeRenewalCalendar } from './FeeRenewalCalendar';
 export type { FeeRenewalCard, FeeRenewalCalendarProps } from './FeeRenewalCalendar';
 export { RewardsTrendChart, REWARDS_TREND_PLACEHOLDER } from './RewardsTrendChart';
 export { RoutingOpportunityGap } from './RoutingOpportunityGap';
-export type { RoutingOpportunityGapProps } from './RoutingOpportunityGap';
+export type { RoutingOpportunityGapProps, CardSwapOpportunity } from './RoutingOpportunityGap';
 export { RewardsClientSelector } from './RewardsClientSelector';
 export type { RewardsClient, RewardsClientSelectorProps } from './RewardsClientSelector';
 export { PointsValuationColumn, POINT_VALUES } from './PointsValuationColumn';
