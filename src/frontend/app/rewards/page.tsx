@@ -1,7 +1,7 @@
 'use client';
 
 // Metadata moved to layout or removed — client components cannot export metadata
-import { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { StatCard, SectionCard } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeStatus } from '@/components/ui/badge';
@@ -26,6 +26,12 @@ import type { RewardsClient, RewardsActionCard, FeeRenewalCard } from '@/compone
 
 type CardRec = 'keep' | 'review' | 'cancel';
 
+interface SpendRouteAlternative {
+  cardName: string;
+  rate: number;          // e.g. 0.02 = 2%
+  annualReward: number;  // monthly spend * rate * 12
+}
+
 interface SpendRoute {
   [key: string]: unknown;
   id: string;
@@ -36,6 +42,14 @@ interface SpendRoute {
   rewardType: string;
   monthlySpend: string;
   projectedAnnualReward: string;
+  /** Current card the client actually uses for this category */
+  currentCard: string;
+  currentRate: number;
+  bestRate: number;
+  monthlySpendNum: number;
+  /** Why the best card wins for this category */
+  reason: string;
+  alternatives: SpendRouteAlternative[];
 }
 
 interface CardSummary {
@@ -61,6 +75,16 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Points',
     monthlySpend: '$8,400',
     projectedAnnualReward: '$5,040',
+    currentCard: 'Chase Ink Preferred',
+    currentRate: 0.03,
+    bestRate: 0.05,
+    monthlySpendNum: 8400,
+    reason: 'Amex Business Platinum earns 5x MR points on flights booked directly with airlines or via Amex Travel, the highest multiplier available for MCC 3000-3299.',
+    alternatives: [
+      { cardName: 'Chase Ink Preferred', rate: 0.03, annualReward: 3024 },
+      { cardName: 'Citi Business AA Plat', rate: 0.02, annualReward: 2016 },
+      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 2016 },
+    ],
   },
   {
     id: 'sr-02',
@@ -71,6 +95,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Points',
     monthlySpend: '$3,200',
     projectedAnnualReward: '$1,152',
+    currentCard: 'Chase Ink Preferred',
+    currentRate: 0.03,
+    bestRate: 0.03,
+    monthlySpendNum: 3200,
+    reason: 'Chase Ink Preferred earns 3x UR points on travel including hotels, and points transfer 1:1 to Hyatt/United for outsized value.',
+    alternatives: [
+      { cardName: 'Amex Business Platinum', rate: 0.02, annualReward: 768 },
+      { cardName: 'Citi Business AA Plat', rate: 0.02, annualReward: 768 },
+    ],
   },
   {
     id: 'sr-03',
@@ -81,6 +114,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Points',
     monthlySpend: '$2,600',
     projectedAnnualReward: '$1,248',
+    currentCard: 'Capital One Spark Cash+',
+    currentRate: 0.02,
+    bestRate: 0.04,
+    monthlySpendNum: 2600,
+    reason: 'Amex Business Gold earns 4x MR on the top two spending categories each month, and dining consistently qualifies as a top category.',
+    alternatives: [
+      { cardName: 'Chase Ink Preferred', rate: 0.03, annualReward: 936 },
+      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 624 },
+    ],
   },
   {
     id: 'sr-04',
@@ -91,6 +133,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Cash Back',
     monthlySpend: '$1,100',
     projectedAnnualReward: '$660',
+    currentCard: 'Chase Ink Cash',
+    currentRate: 0.05,
+    bestRate: 0.05,
+    monthlySpendNum: 1100,
+    reason: 'Chase Ink Cash earns 5% cash back on office supply stores (first $25K/yr), the highest flat rate for MCC 5943.',
+    alternatives: [
+      { cardName: 'Amex Business Gold', rate: 0.04, annualReward: 528 },
+      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 264 },
+    ],
   },
   {
     id: 'sr-05',
@@ -101,6 +152,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Points',
     monthlySpend: '$5,800',
     projectedAnnualReward: '$2,784',
+    currentCard: 'Amex Business Gold',
+    currentRate: 0.04,
+    bestRate: 0.04,
+    monthlySpendNum: 5800,
+    reason: 'Amex Business Gold earns 4x MR on US advertising purchases in select media, making it the top card for ad spend.',
+    alternatives: [
+      { cardName: 'Chase Ink Preferred', rate: 0.03, annualReward: 2088 },
+      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 1392 },
+    ],
   },
   {
     id: 'sr-06',
@@ -111,6 +171,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Cash Back',
     monthlySpend: '$900',
     projectedAnnualReward: '$540',
+    currentCard: 'Amex Business Gold',
+    currentRate: 0.04,
+    bestRate: 0.05,
+    monthlySpendNum: 900,
+    reason: 'Chase Ink Cash earns 5% cash back on shipping purchases (first $25K/yr), beating all other cards for shipping MCCs.',
+    alternatives: [
+      { cardName: 'Amex Business Gold', rate: 0.04, annualReward: 432 },
+      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 216 },
+    ],
   },
   {
     id: 'sr-07',
@@ -121,6 +190,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Cash Back',
     monthlySpend: '$1,400',
     projectedAnnualReward: '$504',
+    currentCard: 'Bank of America Bus. Cash',
+    currentRate: 0.03,
+    bestRate: 0.03,
+    monthlySpendNum: 1400,
+    reason: 'Bank of America Business Advantage Cash Rewards earns 3% on gas stations as a selectable category, the best flat rate.',
+    alternatives: [
+      { cardName: 'Amex Business Gold', rate: 0.04, annualReward: 672 },
+      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 336 },
+    ],
   },
   {
     id: 'sr-08',
@@ -131,6 +209,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Miles',
     monthlySpend: '$2,200',
     projectedAnnualReward: '$528',
+    currentCard: 'Wells Fargo Bus. Elite',
+    currentRate: 0.01,
+    bestRate: 0.02,
+    monthlySpendNum: 2200,
+    reason: 'Citi Business AA Platinum earns 2x AA miles on all purchases including utilities, and miles are worth ~1 cpp for flights.',
+    alternatives: [
+      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 528 },
+      { cardName: 'Wells Fargo Bus. Elite', rate: 0.01, annualReward: 264 },
+    ],
   },
   {
     id: 'sr-09',
@@ -141,6 +228,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Points',
     monthlySpend: '$3,900',
     projectedAnnualReward: '$1,404',
+    currentCard: 'Capital One Spark Cash+',
+    currentRate: 0.02,
+    bestRate: 0.03,
+    monthlySpendNum: 3900,
+    reason: 'Chase Ink Preferred earns 3x UR points on internet/cable/phone purchases, which includes most SaaS subscriptions coded under MCC 5045.',
+    alternatives: [
+      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 936 },
+      { cardName: 'Amex Business Gold', rate: 0.01, annualReward: 468 },
+    ],
   },
   {
     id: 'sr-10',
@@ -151,6 +247,15 @@ const SPEND_ROUTES: SpendRoute[] = [
     rewardType: 'Cash Back',
     monthlySpend: '$4,100',
     projectedAnnualReward: '$984',
+    currentCard: 'Capital One Spark Cash+',
+    currentRate: 0.02,
+    bestRate: 0.02,
+    monthlySpendNum: 4100,
+    reason: 'Capital One Spark Cash+ earns a flat 2% on all purchases, making it the best default card for uncategorized general spend.',
+    alternatives: [
+      { cardName: 'Chase Ink Preferred', rate: 0.01, annualReward: 492 },
+      { cardName: 'Bank of America Bus. Cash', rate: 0.01, annualReward: 492 },
+    ],
   },
 ];
 
@@ -491,6 +596,13 @@ export default function RewardsPage() {
   // Reminder toast state
   const [reminderToast, setReminderToast] = useState<string | null>(null);
 
+  // Spend routing detail expand/collapse
+  const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
+
+  const toggleRouteDetail = useCallback((route: SpendRoute) => {
+    setExpandedRouteId((prev) => (prev === route.id ? null : route.id));
+  }, []);
+
   // Card summary sort state
   const [cardSortCol, setCardSortCol] = useState<keyof CardSummary | null>(null);
   const [cardSortDir, setCardSortDir] = useState<'asc' | 'desc'>('asc');
@@ -646,19 +758,69 @@ export default function RewardsPage() {
         {/* ── Left: tables (2/3) ──────────────────────────────── */}
         <div className="xl:col-span-2 space-y-6">
 
-          {/* Spend routing table */}
+          {/* Spend routing table with expandable detail */}
           <SectionCard
             title="Spend Routing Recommendations"
             subtitle="Optimal card assignment per MCC category to maximise reward yield"
             flushBody
           >
-            <DataTable<SpendRoute>
-              columns={routeColumns}
-              data={SPEND_ROUTES}
-              rowKey="id"
-              defaultPageSize={10}
-              pageSizeOptions={[10, 25]}
-            />
+            <div className="flex flex-col gap-0">
+              <div className="overflow-x-auto rounded-t-xl border border-surface-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-surface-overlay border-b border-surface-border">
+                      {routeColumns.map((col) => (
+                        <th
+                          key={col.key}
+                          className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 whitespace-nowrap select-none ${
+                            col.align === 'right' ? 'text-right' : 'text-left'
+                          }`}
+                        >
+                          {col.header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-surface-border">
+                    {SPEND_ROUTES.map((route) => {
+                      const isExpanded = expandedRouteId === route.id;
+                      return (
+                        <React.Fragment key={route.id}>
+                          <tr
+                            onClick={() => toggleRouteDetail(route)}
+                            className={`border-b border-surface-border last:border-0 cursor-pointer transition-colors duration-100 ${
+                              isExpanded ? 'bg-blue-50/60' : 'hover:bg-surface-overlay'
+                            }`}
+                          >
+                            {routeColumns.map((col) => (
+                              <td
+                                key={col.key}
+                                className={`px-4 py-3 text-gray-700 whitespace-nowrap ${
+                                  col.align === 'right' ? 'text-right' : 'text-left'
+                                }`}
+                              >
+                                {col.cell ? col.cell(route, 0) : String((route as Record<string, unknown>)[col.key] ?? '')}
+                              </td>
+                            ))}
+                          </tr>
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={routeColumns.length} className="bg-gray-50 px-6 py-4 border-b border-surface-border">
+                                <SpendRouteDetailPanel route={route} />
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between gap-4 px-4 py-3 bg-white border-x border-b border-surface-border rounded-b-xl text-sm text-gray-500">
+                <span>{SPEND_ROUTES.length} categories</span>
+                <span className="text-xs text-gray-400">Click a row for details</span>
+              </div>
+            </div>
           </SectionCard>
 
           {/* Routing opportunity gap */}
@@ -732,6 +894,75 @@ export default function RewardsPage() {
           {reminderToast}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Spend route detail panel (3E) ──────────────────────────────────────────
+
+function SpendRouteDetailPanel({ route }: { route: SpendRoute }) {
+  const monthlyReward = route.monthlySpendNum * route.bestRate;
+  const annualReward = monthlyReward * 12;
+
+  return (
+    <div className="space-y-4">
+      {/* Why this card is best */}
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
+          Why {route.bestCard}?
+        </h4>
+        <p className="text-sm text-gray-700 leading-relaxed">{route.reason}</p>
+      </div>
+
+      {/* Reward calculation */}
+      <div className="bg-white rounded-lg border border-gray-200 p-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+          Reward Calculation
+        </h4>
+        <div className="grid grid-cols-3 gap-4 text-sm">
+          <div>
+            <p className="text-gray-400 text-xs">Monthly Spend x Rate</p>
+            <p className="font-semibold text-gray-800">
+              ${route.monthlySpendNum.toLocaleString()} x {(route.bestRate * 100).toFixed(1)}%
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-400 text-xs">Monthly Rewards</p>
+            <p className="font-bold text-emerald-600">${monthlyReward.toLocaleString()}</p>
+          </div>
+          <div>
+            <p className="text-gray-400 text-xs">Annual Rewards</p>
+            <p className="font-bold text-emerald-600">${annualReward.toLocaleString()}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Alternatives considered */}
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+          Alternatives Considered
+        </h4>
+        <div className="space-y-1.5">
+          {route.alternatives.map((alt) => {
+            const diff = annualReward - alt.annualReward;
+            return (
+              <div
+                key={alt.cardName}
+                className="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              >
+                <span className="text-gray-700">{alt.cardName}</span>
+                <div className="flex items-center gap-4">
+                  <span className="text-gray-500">{(alt.rate * 100).toFixed(1)}%</span>
+                  <span className="text-gray-500">${alt.annualReward.toLocaleString()}/yr</span>
+                  <span className="text-red-500 font-medium text-xs">
+                    -${diff.toLocaleString()}/yr vs best
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
