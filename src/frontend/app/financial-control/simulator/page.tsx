@@ -11,7 +11,8 @@
 //   5. Save / export scenario summary
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,10 +80,15 @@ function generateId(): string {
 function simulateScenario(input: ScenarioInput): ScenarioResult {
   const totalCapital = input.rounds * input.targetPerRound;
   const effectiveApr = input.avgApr * 0.85; // simplified: blend with intro rates
-  const totalInterest = totalCapital * (effectiveApr / 100) * (input.timingMonths * input.rounds / 12);
-  const costOfCapital = (totalInterest / totalCapital) * 100;
-  const monthlyPayment = (totalCapital + totalInterest) / (input.timingMonths * input.rounds);
-  const projectedPayoffMonths = Math.ceil((totalCapital + totalInterest) / monthlyPayment);
+  const totalInterest = totalCapital > 0
+    ? totalCapital * (effectiveApr / 100) * (input.timingMonths * input.rounds / 12)
+    : 0;
+  const costOfCapital = totalCapital > 0 ? (totalInterest / totalCapital) * 100 : 0;
+  const denom = input.timingMonths * input.rounds;
+  const monthlyPayment = denom > 0 ? (totalCapital + totalInterest) / denom : 0;
+  const projectedPayoffMonths = monthlyPayment > 0
+    ? Math.ceil((totalCapital + totalInterest) / monthlyPayment)
+    : 0;
 
   let creditImpactEstimate: ScenarioResult['creditImpactEstimate'] = 'minimal';
   if (totalCapital > 200_000 || input.rounds > 4) creditImpactEstimate = 'significant';
@@ -103,6 +109,17 @@ function simulateScenario(input: ScenarioInput): ScenarioResult {
 function formatCurrency(n: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 }
+
+const SCENARIO_AUTO_NAMES = ['Conservative', 'Moderate', 'Aggressive'] as const;
+
+const BLANK_SCENARIO: Omit<ScenarioInput, 'id' | 'name'> = {
+  clientId: 'c1',
+  rounds: 1,
+  targetPerRound: 0,
+  timingMonths: 6,
+  avgApr: 0,
+  introAprMonths: 0,
+};
 
 const CREDIT_IMPACT_CONFIG: Record<ScenarioResult['creditImpactEstimate'], { label: string; color: string }> = {
   minimal:     { label: 'Minimal',     color: 'text-green-400' },
@@ -130,15 +147,33 @@ function ScenarioCard({
   index,
   onRemove,
   onChange,
+  onSaveToProfile,
+  onCreateFundingRound,
 }: {
   scenario: ScenarioInput;
   result: ScenarioResult;
   index: number;
   onRemove: () => void;
   onChange: (updated: ScenarioInput) => void;
+  onSaveToProfile: () => void;
+  onCreateFundingRound: () => void;
 }) {
   const client = CLIENTS.find((c) => c.id === scenario.clientId);
   const impact = CREDIT_IMPACT_CONFIG[result.creditImpactEstimate];
+  const [editingName, setEditingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const startEditing = () => {
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.focus(), 0);
+  };
+
+  const finishEditing = () => {
+    setEditingName(false);
+    if (!scenario.name.trim()) {
+      onChange({ ...scenario, name: SCENARIO_AUTO_NAMES[index] ?? `Scenario ${index + 1}` });
+    }
+  };
 
   return (
     <div className="rounded-xl border border-gray-800 bg-[#0A1628] p-5 flex flex-col">
@@ -148,12 +183,26 @@ function ScenarioCard({
           <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#C9A84C] text-[#0A1628] text-xs font-bold">
             {index + 1}
           </span>
-          <input
-            type="text"
-            value={scenario.name}
-            onChange={(e) => onChange({ ...scenario, name: e.target.value })}
-            className="bg-transparent text-sm font-semibold text-white border-b border-transparent hover:border-gray-700 focus:border-[#C9A84C] focus:outline-none px-1 py-0.5"
-          />
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={scenario.name}
+              onChange={(e) => onChange({ ...scenario, name: e.target.value })}
+              onBlur={finishEditing}
+              onKeyDown={(e) => { if (e.key === 'Enter') finishEditing(); }}
+              className="bg-transparent text-sm font-semibold text-white border-b border-[#C9A84C] focus:outline-none px-1 py-0.5"
+            />
+          ) : (
+            <button
+              onClick={startEditing}
+              className="flex items-center gap-1.5 text-sm font-semibold text-white hover:text-[#C9A84C] transition-colors px-1 py-0.5 group"
+              title="Click to edit name"
+            >
+              {scenario.name}
+              <span className="text-gray-600 group-hover:text-[#C9A84C] text-xs transition-colors">&#9998;</span>
+            </button>
+          )}
         </div>
         <button
           onClick={onRemove}
@@ -289,6 +338,25 @@ function ScenarioCard({
           <span className={`text-sm font-bold ${impact.color}`}>{impact.label}</span>
         </div>
       </div>
+
+      {/* Divider */}
+      <div className="border-t border-gray-800 my-3" />
+
+      {/* Action buttons */}
+      <div className="space-y-2 mt-auto">
+        <button
+          onClick={onSaveToProfile}
+          className="w-full px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-300 hover:border-[#C9A84C]/60 hover:text-white transition-colors"
+        >
+          Save to Client Profile &rarr;
+        </button>
+        <button
+          onClick={onCreateFundingRound}
+          className="w-full px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-sm font-bold transition-colors"
+        >
+          Create Funding Round &rarr;
+        </button>
+      </div>
     </div>
   );
 }
@@ -298,24 +366,26 @@ function ScenarioCard({
 // ---------------------------------------------------------------------------
 
 export default function FinancialControlSimulatorPage() {
+  const router = useRouter();
   const [scenarios, setScenarios] = useState<ScenarioInput[]>([
-    { id: generateId(), name: 'Conservative', clientId: 'c1', rounds: 2, targetPerRound: 40_000, timingMonths: 6, avgApr: 20, introAprMonths: 12 },
-    { id: generateId(), name: 'Moderate', clientId: 'c1', rounds: 3, targetPerRound: 50_000, timingMonths: 6, avgApr: 22.5, introAprMonths: 12 },
+    { id: generateId(), name: 'Conservative', ...BLANK_SCENARIO },
+    { id: generateId(), name: 'Moderate', ...BLANK_SCENARIO },
   ]);
 
   const results = scenarios.map(simulateScenario);
 
   const handleAdd = useCallback(() => {
     if (scenarios.length >= 3) {
-      showToast('Maximum 3 scenarios for comparison.');
+      showToast('Maximum 3 scenarios — remove one before adding another.');
       return;
     }
+    const autoName = SCENARIO_AUTO_NAMES[scenarios.length] ?? `Scenario ${scenarios.length + 1}`;
     setScenarios((prev) => [
       ...prev,
       {
         id: generateId(),
-        name: `Scenario ${prev.length + 1}`,
-        ...DEFAULT_SCENARIO,
+        name: autoName,
+        ...BLANK_SCENARIO,
       },
     ]);
   }, [scenarios.length]);
@@ -327,6 +397,23 @@ export default function FinancialControlSimulatorPage() {
   const handleChange = useCallback((id: string, updated: ScenarioInput) => {
     setScenarios((prev) => prev.map((s) => (s.id === id ? updated : s)));
   }, []);
+
+  const handleSaveToProfile = useCallback((scenario: ScenarioInput) => {
+    const client = CLIENTS.find((c) => c.id === scenario.clientId);
+    const clientName = client ? client.name.split(' — ')[0] : 'client';
+    // Mock POST
+    setTimeout(() => {
+      showToast(`${scenario.name} saved to ${clientName}'s profile`);
+    }, 300);
+  }, []);
+
+  const handleCreateFundingRound = useCallback((scenario: ScenarioInput) => {
+    // Mock POST
+    setTimeout(() => {
+      showToast(`Funding Round created from ${scenario.name}`);
+      router.push('/funding-rounds');
+    }, 300);
+  }, [router]);
 
   const handleExport = useCallback(() => {
     const data = scenarios.map((s, i) => ({
@@ -419,6 +506,8 @@ export default function FinancialControlSimulatorPage() {
               index={i}
               onRemove={() => handleRemove(s.id)}
               onChange={(updated) => handleChange(s.id, updated)}
+              onSaveToProfile={() => handleSaveToProfile(s)}
+              onCreateFundingRound={() => handleCreateFundingRound(s)}
             />
           ))}
         </div>
