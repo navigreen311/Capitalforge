@@ -87,29 +87,30 @@ creditUnionRouter.get('/strategy-note', async (_req: Request, res: Response) => 
 
 creditUnionRouter.get('/:slug/products', async (req: Request, res: Response) => {
   try {
-    const { slug } = req.params;
+    const slug = String(req.params.slug);
     logger.info('[credit-union] GET /:slug/products', { slug });
 
-    const creditUnion = await getPrisma().creditUnion.findUnique({
+    const db = getPrisma();
+
+    const creditUnion = await db.creditUnion.findUnique({
       where: { slug },
-      include: {
-        products: {
-          where: { isActive: true },
-          orderBy: { productType: 'asc' },
-        },
-      },
     });
 
     if (!creditUnion) {
       return notFound(res, `Credit union not found: ${slug}`);
     }
 
+    const products = await db.creditUnionProduct.findMany({
+      where: { creditUnionId: creditUnion.id, isActive: true },
+      orderBy: { productType: 'asc' },
+    });
+
     return ok(res, {
       creditUnionId: creditUnion.id,
       creditUnionName: creditUnion.name,
       slug: creditUnion.slug,
-      products: creditUnion.products,
-      total: creditUnion.products.length,
+      products,
+      total: products.length,
     });
   } catch (err) {
     return serverError(res, err);
@@ -126,29 +127,31 @@ creditUnionRouter.get(
   '/:slug/eligibility',
   async (req: Request, res: Response) => {
     try {
-      const { slug } = req.params;
-      const { businessId } = req.query;
+      const slug = String(req.params.slug);
+      const businessId = typeof req.query.businessId === 'string'
+        ? req.query.businessId
+        : undefined;
       logger.info('[credit-union] GET /:slug/eligibility', { slug, businessId });
 
       const db = getPrisma();
 
-      // Fetch the credit union and its products
+      // Fetch the credit union
       const creditUnion = await db.creditUnion.findUnique({
         where: { slug },
-        include: {
-          products: {
-            where: { isActive: true },
-          },
-        },
       });
 
       if (!creditUnion) {
         return notFound(res, `Credit union not found: ${slug}`);
       }
 
+      // Fetch active products separately to avoid Prisma include inference issues
+      const products = await db.creditUnionProduct.findMany({
+        where: { creditUnionId: creditUnion.id, isActive: true },
+      });
+
       // If no businessId, return basic product requirements
-      if (!businessId || typeof businessId !== 'string') {
-        const productRequirements = creditUnion.products.map((p) => ({
+      if (!businessId) {
+        const productRequirements = products.map((p) => ({
           productId: p.id,
           productName: p.productName,
           productType: p.productType,
@@ -168,19 +171,19 @@ creditUnionRouter.get(
       // Fetch the business with its latest credit profile
       const business = await db.business.findUnique({
         where: { id: businessId },
-        include: {
-          creditProfiles: {
-            orderBy: { pulledAt: 'desc' },
-            take: 1,
-          },
-        },
       });
 
       if (!business) {
         return notFound(res, `Business not found: ${businessId}`);
       }
 
-      const latestCredit = business.creditProfiles[0] ?? null;
+      const creditProfiles = await db.creditProfile.findMany({
+        where: { businessId },
+        orderBy: { pulledAt: 'desc' },
+        take: 1,
+      });
+
+      const latestCredit = creditProfiles[0] ?? null;
       const creditScore = latestCredit?.score ?? null;
 
       // Business age in months
@@ -214,7 +217,7 @@ creditUnionRouter.get(
           .toLowerCase()
           .split('state:')[1]
           ?.split(',')
-          .map((s) => s.trim());
+          .map((s: string) => s.trim());
         if (
           allowedStates &&
           !allowedStates.includes(businessState.toLowerCase())
@@ -225,7 +228,7 @@ creditUnionRouter.get(
       }
 
       // Per-product eligibility
-      const productEligibility = creditUnion.products.map((p) => {
+      const productEligibility = products.map((p) => {
         const checks: { field: string; pass: boolean; detail: string }[] = [];
 
         // Credit score check
@@ -300,14 +303,14 @@ creditUnionRouter.get(
       });
 
       const overallEligible =
-        stateEligible && productEligibility.some((p) => p.eligible);
+        stateEligible && productEligibility.some((pe) => pe.eligible);
 
       return ok(res, {
         creditUnion: { id: creditUnion.id, name: creditUnion.name, slug },
         businessId,
         stateCheck: { eligible: stateEligible, note: stateNote },
         overallEligible,
-        eligibleProductCount: productEligibility.filter((p) => p.eligible)
+        eligibleProductCount: productEligibility.filter((pe) => pe.eligible)
           .length,
         products: productEligibility,
       });
@@ -330,7 +333,7 @@ creditUnionRouter.post(
   '/:slug/membership/verify',
   async (req: Request, res: Response) => {
     try {
-      const { slug } = req.params;
+      const slug = String(req.params.slug);
       const { businessId } = req.body;
       logger.info('[credit-union] POST /:slug/membership/verify', {
         slug,
