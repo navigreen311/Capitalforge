@@ -3,48 +3,69 @@
 // ============================================================
 // DealCommitteeQueue — Pending deal committee reviews with SLA
 //
-// Shows a table of deals awaiting committee decision. Displays
-// reviewer avatar stack, consensus status, and SLA countdown.
-// Only renders for admin / committee_member roles.
+// Shows deals awaiting committee decision with risk badges,
+// SLA countdown + progress bar, reviewer avatar stack, and
+// "Review Deal" action button.
+// Only renders for admin role (checked via localStorage cf_user).
 // ============================================================
 
-import { SectionCard } from '../ui/card';
-import { useAuthFetch } from '@/hooks/useAuthFetch';
-import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
+import { useState, useEffect } from 'react';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 interface Reviewer {
   name: string;
-  responded: boolean;
+  avatar?: string;
 }
 
 interface CommitteeDeal {
   id: string;
   client_name: string;
-  client_id: string;
   deal_amount: number;
-  risk_tier: string;
-  submitted_date: string;
-  reviewers: Reviewer[];
-  consensus: string;
+  risk_tier: 'High' | 'Critical';
   sla_hours_remaining: number;
-  application_id: string | null;
-}
-
-interface CommitteeQueueData {
-  queue_count: number;
-  deals: CommitteeDeal[];
-  last_updated: string;
+  sla_hours_max: number;
+  reviewers: Reviewer[];
+  submitted_at: string;
 }
 
 interface CfUser {
   role?: string;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Mock Data ──────────────────────────────────────────────────────────────
 
-const ALLOWED_ROLES = ['admin', 'committee_member'];
+const MOCK_DEALS: CommitteeDeal[] = [
+  {
+    id: 'dc-001',
+    client_name: 'Apex Ventures',
+    deal_amount: 250_000,
+    risk_tier: 'High',
+    sla_hours_remaining: 8.5,
+    sla_hours_max: 12,
+    reviewers: [
+      { name: 'Sarah Chen' },
+      { name: 'Mike Ross' },
+      { name: 'Dana Liu' },
+    ],
+    submitted_at: new Date(Date.now() - 3.5 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'dc-002',
+    client_name: 'Meridian Holdings',
+    deal_amount: 350_000,
+    risk_tier: 'Critical',
+    sla_hours_remaining: 2.3,
+    sla_hours_max: 6,
+    reviewers: [
+      { name: 'James Park' },
+      { name: 'Elena Voss' },
+    ],
+    submitted_at: new Date(Date.now() - 3.7 * 60 * 60 * 1000).toISOString(),
+  },
+];
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function getUserRole(): string | null {
   try {
@@ -57,34 +78,28 @@ function getUserRole(): string | null {
   }
 }
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
+function formatDealAmount(amount: number): string {
+  if (amount >= 1_000) {
+    return `$${Math.round(amount / 1_000)}k`;
+  }
+  return `$${amount.toLocaleString('en-US')}`;
 }
 
 function formatSla(hours: number): string {
   const h = Math.floor(hours);
   const m = Math.round((hours - h) * 60);
-  return `${h}h ${m}m remaining`;
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
 }
 
-function slaColorClass(hours: number): string {
-  if (hours < 2) return 'text-red-600 bg-red-50';
-  if (hours < 8) return 'text-amber-600 bg-amber-50';
-  return 'text-emerald-600 bg-emerald-50';
+function slaIsUrgent(hours: number): boolean {
+  return hours < 4;
 }
 
-function riskBadgeClass(tier: string): string {
-  const t = tier.toLowerCase();
-  if (t === 'critical') return 'bg-red-100 text-red-700 border-red-200';
-  if (t === 'high') return 'bg-amber-100 text-amber-700 border-amber-200';
-  if (t === 'medium') return 'bg-blue-100 text-blue-700 border-blue-200';
-  if (t === 'low') return 'bg-green-100 text-green-700 border-green-200';
-  return 'bg-gray-100 text-gray-700 border-gray-200';
+function riskBadgeClasses(tier: string): string {
+  if (tier === 'Critical') return 'bg-red-100 text-red-700 border border-red-200';
+  if (tier === 'High') return 'bg-amber-100 text-amber-700 border border-amber-200';
+  return 'bg-gray-100 text-gray-700 border border-gray-200';
 }
 
 function getInitials(name: string): string {
@@ -96,162 +111,199 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+// Deterministic color from name for avatar backgrounds
+const AVATAR_COLORS = [
+  'bg-blue-100 text-blue-700',
+  'bg-purple-100 text-purple-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-amber-100 text-amber-700',
+  'bg-rose-100 text-rose-700',
+  'bg-cyan-100 text-cyan-700',
+];
+
+function avatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+// ── SLA Progress Bar ────────────────────────────────────────────────────────
+
+function SlaProgressBar({
+  remaining,
+  max,
+}: {
+  remaining: number;
+  max: number;
+}) {
+  const pct = Math.max(0, Math.min(100, (remaining / max) * 100));
+  const barColor =
+    pct < 33 ? 'bg-red-500' : pct < 66 ? 'bg-amber-500' : 'bg-emerald-500';
+
+  return (
+    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+      <div
+        className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+// ── Deal Row ────────────────────────────────────────────────────────────────
+
+function DealRow({ deal }: { deal: CommitteeDeal }) {
+  const urgent = slaIsUrgent(deal.sla_hours_remaining);
+
+  return (
+    <div className="px-6 py-4 space-y-2">
+      {/* Main row */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {/* Client name */}
+        <span className="text-sm font-semibold text-gray-900 min-w-[140px]">
+          {deal.client_name}
+        </span>
+
+        {/* Deal amount */}
+        <span className="text-sm font-medium text-gray-700 min-w-[60px]">
+          {formatDealAmount(deal.deal_amount)}
+        </span>
+
+        {/* Risk tier badge */}
+        <span
+          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${riskBadgeClasses(deal.risk_tier)}`}
+        >
+          {deal.risk_tier}
+        </span>
+
+        {/* SLA countdown */}
+        <span
+          className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-md ${
+            urgent
+              ? 'text-red-700 bg-red-50'
+              : 'text-gray-600 bg-gray-50'
+          }`}
+        >
+          <svg
+            className="w-3.5 h-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+            />
+          </svg>
+          {formatSla(deal.sla_hours_remaining)}
+        </span>
+
+        {/* Reviewer avatar stack */}
+        <div className="flex -space-x-2 ml-auto">
+          {deal.reviewers.map((reviewer, idx) => (
+            <div
+              key={idx}
+              className={`relative flex items-center justify-center w-7 h-7 rounded-full text-[10px] font-bold border-2 border-white ${avatarColor(reviewer.name)}`}
+              title={reviewer.name}
+            >
+              {getInitials(reviewer.name)}
+            </div>
+          ))}
+        </div>
+
+        {/* Review Deal button */}
+        <a
+          href="/applications"
+          className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors flex-shrink-0"
+        >
+          Review Deal
+        </a>
+      </div>
+
+      {/* SLA progress bar */}
+      <SlaProgressBar
+        remaining={deal.sla_hours_remaining}
+        max={deal.sla_hours_max}
+      />
+    </div>
+  );
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function DealCommitteeQueue() {
-  // ── Role gate ─────────────────────────────────────────────────
-  const role = typeof window !== 'undefined' ? getUserRole() : null;
-  const authorized = role !== null && ALLOWED_ROLES.includes(role);
+  const [authorized, setAuthorized] = useState(false);
+  const [checked, setChecked] = useState(false);
 
-  // ── Data fetch (always called — hooks cannot be conditional) ──
-  const { data, isLoading, error, refetch } = useAuthFetch<CommitteeQueueData>(
-    '/api/v1/dashboard/committee-queue',
-  );
+  // Check role on mount (client-only)
+  useEffect(() => {
+    const role = getUserRole();
+    setAuthorized(role === 'admin');
+    setChecked(true);
+  }, []);
 
-  // ── Role not allowed — render nothing ─────────────────────────
+  // Don't render until we've checked
+  if (!checked) return null;
+
+  // Only visible to admin role
   if (!authorized) return null;
 
-  // ── Loading skeleton ──────────────────────────────────────────
-  if (isLoading) {
-    return (
-      <SectionCard title="Deal Committee Queue">
-        <div className="animate-pulse space-y-3 p-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="flex gap-4">
-              <div className="h-4 w-32 rounded bg-gray-200" />
-              <div className="h-4 w-20 rounded bg-gray-200" />
-              <div className="h-4 w-16 rounded bg-gray-200" />
-              <div className="h-4 w-24 rounded bg-gray-200" />
-              <div className="h-4 w-16 rounded bg-gray-200" />
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-    );
-  }
-
-  // ── Error ─────────────────────────────────────────────────────
-  if (error) {
-    return (
-      <SectionCard title="Deal Committee Queue">
-        <DashboardErrorState error={error} onRetry={refetch} />
-      </SectionCard>
-    );
-  }
+  const deals = MOCK_DEALS;
+  const pendingCount = deals.length;
 
   // ── Empty state ───────────────────────────────────────────────
-  if (!data || data.deals.length === 0) {
+  if (pendingCount === 0) {
     return (
-      <SectionCard title="Deal Committee Queue">
-        <p className="px-4 py-6 text-sm text-gray-500">
-          No deals pending review
-        </p>
-      </SectionCard>
+      <section aria-label="Deal Committee Queue">
+        <div className="bg-white rounded-xl border border-surface-border shadow-card overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-surface-border">
+            <div className="flex items-center gap-3">
+              <h3 className="text-base font-semibold text-gray-900">
+                Deal Committee Queue
+              </h3>
+              <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-gray-100 text-xs font-bold text-gray-500">
+                0
+              </span>
+            </div>
+          </div>
+          <div className="px-6 py-8 text-center">
+            <p className="text-sm text-gray-500">
+              No deals awaiting committee review
+            </p>
+          </div>
+        </div>
+      </section>
     );
   }
 
-  // ── Table ─────────────────────────────────────────────────────
+  // ── Populated state ──────────────────────────────────────────
   return (
-    <SectionCard title="Deal Committee Queue" flushBody>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-              <th className="px-4 py-3">Client</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">Risk Tier</th>
-              <th className="px-4 py-3">Submitted</th>
-              <th className="px-4 py-3">Reviewers</th>
-              <th className="px-4 py-3">Consensus</th>
-              <th className="px-4 py-3">SLA</th>
-              <th className="px-4 py-3">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {data.deals.map((deal) => (
-              <tr key={deal.id} className="hover:bg-gray-50/50 transition-colors">
-                {/* Client name */}
-                <td className="px-4 py-3 font-medium text-gray-900">
-                  {deal.client_name}
-                </td>
+    <section aria-label="Deal Committee Queue">
+      <div className="bg-white rounded-xl border border-surface-border shadow-card overflow-hidden">
+        {/* Header with pending count badge */}
+        <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-surface-border">
+          <div className="flex items-center gap-3">
+            <h3 className="text-base font-semibold text-gray-900">
+              Deal Committee Queue
+            </h3>
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-100 text-xs font-bold text-red-700">
+              {pendingCount}
+            </span>
+          </div>
+        </div>
 
-                {/* Deal amount */}
-                <td className="px-4 py-3 text-gray-700">
-                  {formatCurrency(deal.deal_amount)}
-                </td>
-
-                {/* Risk tier badge */}
-                <td className="px-4 py-3">
-                  <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${riskBadgeClass(deal.risk_tier)}`}
-                  >
-                    {deal.risk_tier}
-                  </span>
-                </td>
-
-                {/* Submitted date */}
-                <td className="px-4 py-3 text-gray-600">
-                  {formatDate(deal.submitted_date)}
-                </td>
-
-                {/* Reviewer avatar stack */}
-                <td className="px-4 py-3">
-                  <div className="flex -space-x-1">
-                    {deal.reviewers.map((reviewer, idx) => (
-                      <div
-                        key={idx}
-                        className={`relative flex items-center justify-center w-7 h-7 rounded-full text-[10px] font-bold border-2 ${
-                          reviewer.responded
-                            ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-                            : 'border-gray-300 bg-gray-100 text-gray-600'
-                        }`}
-                        title={`${reviewer.name}${reviewer.responded ? ' (responded)' : ' (pending)'}`}
-                      >
-                        {getInitials(reviewer.name)}
-                      </div>
-                    ))}
-                    {deal.reviewers.length === 0 && (
-                      <span className="text-xs text-gray-400">--</span>
-                    )}
-                  </div>
-                </td>
-
-                {/* Consensus */}
-                <td className="px-4 py-3 text-gray-600 capitalize text-xs">
-                  {deal.consensus}
-                </td>
-
-                {/* SLA remaining */}
-                <td className="px-4 py-3">
-                  <span
-                    className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${slaColorClass(deal.sla_hours_remaining)}`}
-                  >
-                    {formatSla(deal.sla_hours_remaining)}
-                  </span>
-                </td>
-
-                {/* Review button */}
-                <td className="px-4 py-3">
-                  <a
-                    href="/applications"
-                    className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
-                  >
-                    Review Deal
-                  </a>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {/* Deal rows */}
+        <div className="divide-y divide-gray-100">
+          {deals.map((deal) => (
+            <DealRow key={deal.id} deal={deal} />
+          ))}
+        </div>
       </div>
-    </SectionCard>
+    </section>
   );
 }
