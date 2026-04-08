@@ -26,6 +26,8 @@ type DocumentType =
   | 'contract'
   | 'other';
 
+type SignatureStatus = 'signed' | 'pending' | 'not_required' | 'esign_sent';
+
 interface DocumentRecord {
   id: string;
   businessId: string;
@@ -38,6 +40,8 @@ interface DocumentRecord {
   legalHold: boolean;
   tags: string[];
   description?: string;
+  signatureStatus: SignatureStatus;
+  esignSentAt?: string;
 }
 
 interface ToastMessage {
@@ -51,16 +55,16 @@ interface ToastMessage {
 // ---------------------------------------------------------------------------
 
 const PLACEHOLDER_DOCS: DocumentRecord[] = [
-  { id: 'doc_001', businessId: 'biz_001', businessName: 'Apex Ventures LLC',   type: 'bank_statement',          fileName: 'apex_bank_stmt_feb2026.pdf',    fileSizeBytes: 248_000,  uploadedAt: '2026-03-01T10:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: false, tags: ['bank', 'q1-2026'], description: 'February 2026 business checking statement' },
-  { id: 'doc_002', businessId: 'biz_001', businessName: 'Apex Ventures LLC',   type: 'consent_record',          fileName: 'apex_tcpa_consent_voice.json',  fileSizeBytes: 4_200,    uploadedAt: '2026-02-15T09:30:00Z', uploadedBy: 'System',          legalHold: true,  tags: ['consent', 'tcpa', 'voice'] },
-  { id: 'doc_003', businessId: 'biz_002', businessName: 'NovaTech Solutions',  type: 'tax_return',              fileName: 'novatech_1120_2024.pdf',        fileSizeBytes: 1_200_000,uploadedAt: '2026-03-10T14:00:00Z', uploadedBy: 'Marcus Williams', legalHold: false, tags: ['tax', '2024'] },
-  { id: 'doc_004', businessId: 'biz_003', businessName: 'Blue Ridge Consulting',type: 'articles_of_incorporation',fileName: 'blueridge_articles.pdf',       fileSizeBytes: 380_000,  uploadedAt: '2026-01-05T11:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: false, tags: ['formation', 'legal'] },
-  { id: 'doc_005', businessId: 'biz_004', businessName: 'Summit Capital Group', type: 'compliance_check',        fileName: 'summit_kyb_report.pdf',         fileSizeBytes: 92_000,   uploadedAt: '2026-03-20T16:00:00Z', uploadedBy: 'System',          legalHold: true,  tags: ['compliance', 'kyb'] },
-  { id: 'doc_006', businessId: 'biz_005', businessName: 'Horizon Retail',      type: 'product_reality',         fileName: 'horizon_product_ack.pdf',       fileSizeBytes: 18_000,   uploadedAt: '2026-03-22T08:45:00Z', uploadedBy: 'Marcus Williams', legalHold: true,  tags: ['disclosure', 'ack'] },
-  { id: 'doc_007', businessId: 'biz_006', businessName: 'Crestline Medical',   type: 'credit_report',           fileName: 'crestline_experian_pull.pdf',   fileSizeBytes: 560_000,  uploadedAt: '2026-03-28T09:00:00Z', uploadedBy: 'System',          legalHold: false, tags: ['credit', 'experian'] },
-  { id: 'doc_008', businessId: 'biz_004', businessName: 'Summit Capital Group', type: 'application',             fileName: 'summit_chase_app_2026.pdf',     fileSizeBytes: 145_000,  uploadedAt: '2026-03-25T13:30:00Z', uploadedBy: 'James Okafor',    legalHold: false, tags: ['application', 'chase'] },
-  { id: 'doc_009', businessId: 'biz_001', businessName: 'Apex Ventures LLC',   type: 'contract',                fileName: 'apex_advisor_agreement.pdf',    fileSizeBytes: 210_000,  uploadedAt: '2026-01-10T10:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: true,  tags: ['contract', 'legal'] },
-  { id: 'doc_010', businessId: 'biz_007', businessName: 'Pinnacle Freight',    type: 'bank_statement',          fileName: 'pinnacle_bank_stmt_q4.pdf',     fileSizeBytes: 330_000,  uploadedAt: '2026-02-28T15:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: false, tags: ['bank', 'q4-2025'] },
+  { id: 'doc_001', businessId: 'biz_001', businessName: 'Apex Ventures LLC',    type: 'bank_statement',            fileName: 'apex_bank_stmt_feb2026.pdf',    fileSizeBytes: 248_000,   uploadedAt: '2026-03-01T10:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: false, tags: ['bank', 'q1-2026'], description: 'February 2026 business checking statement', signatureStatus: 'not_required' },
+  { id: 'doc_002', businessId: 'biz_001', businessName: 'Apex Ventures LLC',    type: 'consent_record',            fileName: 'apex_tcpa_consent_voice.json',  fileSizeBytes: 4_200,     uploadedAt: '2026-02-15T09:30:00Z', uploadedBy: 'System',          legalHold: true,  tags: ['consent', 'tcpa', 'voice'], signatureStatus: 'signed' },
+  { id: 'doc_003', businessId: 'biz_002', businessName: 'NovaTech Solutions',   type: 'tax_return',                fileName: 'novatech_1120_2024.pdf',        fileSizeBytes: 1_200_000, uploadedAt: '2026-03-10T14:00:00Z', uploadedBy: 'Marcus Williams', legalHold: false, tags: ['tax', '2024'], signatureStatus: 'not_required' },
+  { id: 'doc_004', businessId: 'biz_003', businessName: 'Blue Ridge Consulting', type: 'articles_of_incorporation', fileName: 'blueridge_articles.pdf',        fileSizeBytes: 380_000,   uploadedAt: '2026-01-05T11:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: false, tags: ['formation', 'legal'], signatureStatus: 'pending' },
+  { id: 'doc_005', businessId: 'biz_004', businessName: 'Summit Capital Group',  type: 'compliance_check',          fileName: 'summit_kyb_report.pdf',         fileSizeBytes: 92_000,    uploadedAt: '2026-03-20T16:00:00Z', uploadedBy: 'System',          legalHold: true,  tags: ['compliance', 'kyb'], signatureStatus: 'signed' },
+  { id: 'doc_006', businessId: 'biz_005', businessName: 'Horizon Retail',       type: 'product_reality',           fileName: 'horizon_product_ack.pdf',       fileSizeBytes: 18_000,    uploadedAt: '2026-03-22T08:45:00Z', uploadedBy: 'Marcus Williams', legalHold: true,  tags: ['disclosure', 'ack'], signatureStatus: 'pending' },
+  { id: 'doc_007', businessId: 'biz_006', businessName: 'Crestline Medical',    type: 'credit_report',             fileName: 'crestline_experian_pull.pdf',   fileSizeBytes: 560_000,   uploadedAt: '2026-03-28T09:00:00Z', uploadedBy: 'System',          legalHold: false, tags: ['credit', 'experian'], signatureStatus: 'not_required' },
+  { id: 'doc_008', businessId: 'biz_004', businessName: 'Summit Capital Group',  type: 'application',               fileName: 'summit_chase_app_2026.pdf',     fileSizeBytes: 145_000,   uploadedAt: '2026-03-25T13:30:00Z', uploadedBy: 'James Okafor',    legalHold: false, tags: ['application', 'chase'], signatureStatus: 'pending' },
+  { id: 'doc_009', businessId: 'biz_001', businessName: 'Apex Ventures LLC',    type: 'contract',                  fileName: 'apex_advisor_agreement.pdf',    fileSizeBytes: 210_000,   uploadedAt: '2026-01-10T10:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: true,  tags: ['contract', 'legal'], signatureStatus: 'signed' },
+  { id: 'doc_010', businessId: 'biz_007', businessName: 'Pinnacle Freight',     type: 'bank_statement',            fileName: 'pinnacle_bank_stmt_q4.pdf',     fileSizeBytes: 330_000,   uploadedAt: '2026-02-28T15:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: false, tags: ['bank', 'q4-2025'], signatureStatus: 'not_required' },
 ];
 
 const PLACEHOLDER_CLIENTS = [
@@ -232,17 +236,21 @@ export default function DocumentsPage() {
   // ---------------------------------------------------------------------------
 
   const displayed = docs.filter((d) => {
+    const q = search.toLowerCase();
     const matchSearch =
       !search ||
-      d.fileName.toLowerCase().includes(search.toLowerCase()) ||
-      d.businessName.toLowerCase().includes(search.toLowerCase()) ||
-      d.tags.some((t) => t.includes(search.toLowerCase()));
+      d.fileName.toLowerCase().includes(q) ||
+      d.businessName.toLowerCase().includes(q) ||
+      DOC_TYPE_LABELS[d.type].toLowerCase().includes(q) ||
+      d.tags.some((t) => t.includes(q));
     const matchType = !typeFilter || d.type === typeFilter;
     const matchBusiness = !businessFilter || d.businessId === businessFilter || d.businessName.toLowerCase().includes(businessFilter.toLowerCase());
     const matchHold = !legalHoldOnly || d.legalHold;
     const matchClient = !clientSelector || d.businessId === clientSelector;
     return matchSearch && matchType && matchBusiness && matchHold && matchClient;
   });
+
+  const isFiltered = search || typeFilter || businessFilter || legalHoldOnly || clientSelector;
 
   const businesses = Array.from(new Set(docs.map((d) => d.businessName))).sort();
 
@@ -264,6 +272,7 @@ export default function DocumentsPage() {
       uploadedBy: 'Current User',
       legalHold: uploadLegalHold,
       tags: uploadTags.split(',').map((t) => t.trim()).filter(Boolean),
+      signatureStatus: 'not_required',
     };
     setDocs((prev) => [newDoc, ...prev]);
     showToast(`Uploaded "${uploadFile.name}" successfully`, 'success');
@@ -300,6 +309,37 @@ export default function DocumentsPage() {
     setReleaseHoldModal(null);
     setReleaseReason('');
   };
+
+  // 2C — Legal Hold Toggle (optimistic update)
+  const handleToggleLegalHold = useCallback((doc: DocumentRecord) => {
+    const newHoldState = !doc.legalHold;
+    // Optimistic update
+    setDocs((prev) =>
+      prev.map((d) => d.id === doc.id ? { ...d, legalHold: newHoldState } : d)
+    );
+    showToast(
+      newHoldState ? 'Legal hold applied' : 'Legal hold removed',
+      'success',
+    );
+    // In production: POST/DELETE to /api/v1/documents/:id/hold
+    console.info('[DocumentVault] %s legal hold for doc_id=%s', newHoldState ? 'Applied' : 'Removed', doc.id);
+  }, [showToast]);
+
+  // 2D — Send E-Sign
+  const handleSendESign = useCallback((doc: DocumentRecord) => {
+    // Optimistic update: mark as esign_sent with timestamp
+    const sentAt = new Date().toISOString();
+    setDocs((prev) =>
+      prev.map((d) =>
+        d.id === doc.id
+          ? { ...d, signatureStatus: 'esign_sent' as SignatureStatus, esignSentAt: sentAt }
+          : d
+      )
+    );
+    showToast(`E-Sign request sent for ${doc.fileName}`, 'success');
+    // In production: POST to /api/v1/documents/:id/esign
+    console.info('[DocumentVault] E-Sign sent for doc_id=%s at %s', doc.id, sentAt);
+  }, [showToast]);
 
   const handleRequestSubmit = () => {
     if (!requestClient) return;
@@ -387,7 +427,10 @@ export default function DocumentsPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Document Vault</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {displayed.length} documents · {docs.filter((d) => d.legalHold).length} on legal hold
+            {isFiltered
+              ? `Showing ${displayed.length} of ${docs.length} documents`
+              : `${displayed.length} documents`}
+            {' · '}{docs.filter((d) => d.legalHold).length} on legal hold
           </p>
         </div>
         <div className="flex gap-2">
@@ -408,13 +451,24 @@ export default function DocumentsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-6">
-        <input
-          type="text"
-          placeholder="Search filename, business, tag..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-[220px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-500"
-        />
+        <div className="relative flex-1 min-w-[220px]">
+          <input
+            type="text"
+            placeholder="Search filename, business, document type..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-8 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-500"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition-colors text-sm"
+              aria-label="Clear search"
+            >
+              &times;
+            </button>
+          )}
+        </div>
 
         <select
           value={typeFilter}
@@ -505,6 +559,7 @@ export default function DocumentsPage() {
                 <th className="text-left px-4 py-3 font-semibold">Business</th>
                 <th className="text-left px-4 py-3 font-semibold">Uploaded</th>
                 <th className="text-left px-4 py-3 font-semibold">Size</th>
+                <th className="text-left px-4 py-3 font-semibold">Signature</th>
                 <th className="text-left px-4 py-3 font-semibold">Legal Hold</th>
                 <th className="text-right px-4 py-3 font-semibold">Actions</th>
               </tr>
@@ -567,14 +622,59 @@ export default function DocumentsPage() {
                   {/* Size */}
                   <td className="px-4 py-3 text-gray-500 text-xs">{formatBytes(doc.fileSizeBytes)}</td>
 
-                  {/* Legal hold */}
+                  {/* Signature status (2D) */}
                   <td className="px-4 py-3">
-                    {doc.legalHold ? (
-                      <span className="text-xs font-bold bg-orange-900 text-orange-300 border border-orange-700 px-2 py-0.5 rounded-full">
-                        Hold
+                    {doc.signatureStatus === 'pending' ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium bg-amber-900/60 text-amber-300 border border-amber-700 px-2 py-0.5 rounded-full">
+                          Pending
+                        </span>
+                        <button
+                          onClick={() => handleSendESign(doc)}
+                          className="text-xs font-medium text-blue-400 hover:text-blue-300 hover:underline transition-colors whitespace-nowrap"
+                        >
+                          Send E-Sign &rarr;
+                        </button>
+                      </div>
+                    ) : doc.signatureStatus === 'esign_sent' ? (
+                      <div className="flex flex-col">
+                        <span className="text-xs font-medium bg-blue-900/60 text-blue-300 border border-blue-700 px-2 py-0.5 rounded-full inline-block w-fit">
+                          E-Sign Sent
+                        </span>
+                        {doc.esignSentAt && (
+                          <span className="text-[10px] text-gray-500 mt-0.5">
+                            {formatDate(doc.esignSentAt)}
+                          </span>
+                        )}
+                      </div>
+                    ) : doc.signatureStatus === 'signed' ? (
+                      <span className="text-xs font-medium bg-emerald-900/60 text-emerald-300 border border-emerald-700 px-2 py-0.5 rounded-full">
+                        Signed
                       </span>
                     ) : (
                       <span className="text-xs text-gray-600">---</span>
+                    )}
+                  </td>
+
+                  {/* Legal hold toggle (2C) */}
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleToggleLegalHold(doc)}
+                      role="switch"
+                      aria-checked={doc.legalHold}
+                      aria-label={`Legal hold for ${doc.fileName}`}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 ${
+                        doc.legalHold ? 'bg-orange-600' : 'bg-gray-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transform transition-transform ${
+                          doc.legalHold ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                        }`}
+                      />
+                    </button>
+                    {doc.legalHold && (
+                      <span className="ml-2 text-xs font-bold text-orange-400">HOLD</span>
                     )}
                   </td>
 
@@ -594,14 +694,7 @@ export default function DocumentsPage() {
                       >
                         {exportingId === doc.businessId ? 'Exporting...' : 'Dossier'}
                       </button>
-                      {doc.legalHold && (
-                        <button
-                          onClick={() => { setReleaseHoldModal(doc); setReleaseReason(''); }}
-                          className="text-xs text-orange-400 hover:text-orange-300 transition-colors"
-                        >
-                          Release Hold
-                        </button>
-                      )}
+                      {/* Release Hold button kept in modal for audit trail */}
                     </div>
                   </td>
                 </tr>
