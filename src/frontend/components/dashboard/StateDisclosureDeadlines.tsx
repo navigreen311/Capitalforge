@@ -9,6 +9,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
@@ -242,12 +243,12 @@ export function StateDisclosureDeadlines() {
                       {STATUS_LABELS[dl.status]}
                     </span>
                     {dl.status !== 'filed' && (
-                      <a
-                        href={`/compliance/disclosures/new?state=${dl.state}&client_id=${dl.client_id}`}
+                      <Link
+                        href={`/compliance/disclosures?state=${dl.state}`}
                         className="text-xs font-semibold text-brand-navy hover:underline flex-shrink-0"
                       >
                         File Disclosure
-                      </a>
+                      </Link>
                     )}
                   </div>
                 </div>
