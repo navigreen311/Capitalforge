@@ -6,7 +6,7 @@
 // compliance status, documents, timeline, and action buttons.
 // ============================================================
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { DashboardBadge, type DashboardBadgeStatus } from '@/components/dashboard/DashboardBadge';
@@ -88,22 +88,32 @@ function getMockDetail(appId: string): ApplicationDetail {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+function formatCurrency(value: number | null | undefined): string {
+  if (value == null || isNaN(Number(value))) return '\u2014';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(value));
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function formatDateTime(dateStr: string): string {
+function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '\u2014';
   const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '\u2014';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '\u2014';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '\u2014';
   return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 }
 
-function turnaroundDays(applied: string, decided: string): number {
-  const ms = new Date(decided).getTime() - new Date(applied).getTime();
-  return Math.round(ms / (1000 * 60 * 60 * 24));
+function turnaroundDays(applied: string | null | undefined, decided: string | null | undefined): string {
+  if (!applied || !decided) return '\u2014';
+  const a = new Date(applied);
+  const b = new Date(decided);
+  if (isNaN(a.getTime()) || isNaN(b.getTime())) return '\u2014';
+  const ms = b.getTime() - a.getTime();
+  return `${Math.round(ms / (1000 * 60 * 60 * 24))} days`;
 }
 
 type ComplianceLevel = 'complete' | 'pending' | 'missing';
@@ -344,9 +354,11 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                       value={
                         <span>
                           {formatCurrency(app.approved_amount)}
-                          <span className="ml-1.5 text-xs text-gray-400">
-                            ({Math.round((app.approved_amount / app.requested_amount) * 100)}% of requested)
-                          </span>
+                          {app.requested_amount ? (
+                            <span className="ml-1.5 text-xs text-gray-400">
+                              ({Math.round((Number(app.approved_amount) / Number(app.requested_amount)) * 100)}% of requested)
+                            </span>
+                          ) : null}
                         </span>
                       }
                       highlight
@@ -361,7 +373,7 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
                       />
                       <DetailRow
                         label="Turnaround"
-                        value={`${turnaroundDays(app.applied_date, app.decision_date)} days`}
+                        value={turnaroundDays(app.applied_date, app.decision_date)}
                       />
                     </>
                   )}
