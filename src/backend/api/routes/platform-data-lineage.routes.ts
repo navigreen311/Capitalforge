@@ -97,7 +97,7 @@ function mockEvents(businessId: string) {
 }
 
 platformDataLineageRouter.get('/:businessId/events', (req: Request, res: Response) => {
-  const { businessId } = req.params;
+  const businessId = req.params.businessId as string;
   logger.info(`[platform-data-lineage] GET /${businessId}/events`);
 
   const events = mockEvents(businessId);
@@ -119,7 +119,7 @@ const ExportSchema = z.object({
 });
 
 platformDataLineageRouter.post('/:businessId/export', (req: Request, res: Response) => {
-  const { businessId } = req.params;
+  const businessId = req.params.businessId as string;
   logger.info(`[platform-data-lineage] POST /${businessId}/export`);
 
   const parsed = ExportSchema.safeParse(req.body ?? {});

@@ -57,7 +57,7 @@ const AdvanceSchema = z.object({
 });
 
 platformOffboardingRouter.patch('/:id/advance', (req: Request, res: Response) => {
-  const offboardingId = req.params.id;
+  const offboardingId = req.params.id as string;
   logger.info(`[platform-offboarding] PATCH /${offboardingId}/advance`);
 
   const parsed = AdvanceSchema.safeParse(req.body ?? {});
@@ -94,7 +94,7 @@ platformOffboardingRouter.patch('/:id/advance', (req: Request, res: Response) =>
 // ============================================================
 
 platformOffboardingRouter.get('/:id/audit-log', (req: Request, res: Response) => {
-  const offboardingId = req.params.id;
+  const offboardingId = req.params.id as string;
   logger.info(`[platform-offboarding] GET /${offboardingId}/audit-log`);
 
   const currentStage = stageTracker[offboardingId] ?? 'requested';
