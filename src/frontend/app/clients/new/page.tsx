@@ -34,6 +34,17 @@ interface BusinessInfo {
   website: string;
   industry: string;
   mcc: string;
+  // Address fields
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  zip: string;
+  // Contact fields
+  businessPhone: string;
+  businessEmail: string;
+  // Computed / manual
+  monthsInBusiness: string;
 }
 
 interface Owner {
@@ -211,8 +222,19 @@ export default function NewClientPage() {
     legalName: '', dba: '', ein: '', entityType: '', stateOfFormation: '',
     dateOfFormation: '', annualRevenue: '', monthlyRevenue: '', employees: '',
     website: '', industry: '', mcc: '',
+    addressLine1: '', addressLine2: '', city: '', state: '', zip: '',
+    businessPhone: '', businessEmail: '', monthsInBusiness: '',
   });
   const [bizErrors, setBizErrors] = useState<Partial<Record<keyof BusinessInfo, string>>>({});
+
+  // Auto-compute months in business from dateOfFormation
+  useEffect(() => {
+    if (biz.dateOfFormation) {
+      const formed = new Date(biz.dateOfFormation);
+      const months = Math.max(0, Math.floor((Date.now() - formed.getTime()) / (30.44 * 24 * 60 * 60 * 1000)));
+      setBiz((prev) => ({ ...prev, monthsInBusiness: String(months) }));
+    }
+  }, [biz.dateOfFormation]);
 
   // Step 2: Owners
   const [owners, setOwners] = useState<Owner[]>([emptyOwner()]);
@@ -253,6 +275,16 @@ export default function NewClientPage() {
     if (biz.mcc && !/^\d{4}$/.test(biz.mcc)) {
       errs.mcc = 'MCC must be exactly 4 digits';
     }
+    if (!biz.addressLine1.trim()) errs.addressLine1 = 'Address is required';
+    if (!biz.city.trim()) errs.city = 'City is required';
+    if (!biz.state) errs.state = 'State is required';
+    if (!biz.zip.trim()) errs.zip = 'ZIP code is required';
+    if (biz.zip && !/^\d{5}(-\d{4})?$/.test(biz.zip.trim())) {
+      errs.zip = 'ZIP must be 5 digits (or ZIP+4 format)';
+    }
+    if (biz.businessEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(biz.businessEmail)) {
+      errs.businessEmail = 'Invalid email format';
+    }
     setBizErrors(errs);
     return Object.keys(errs).length === 0;
   }, [biz]);
@@ -267,7 +299,7 @@ export default function NewClientPage() {
 
   const canNext = useMemo(() => {
     switch (step) {
-      case 0: return biz.legalName.trim() && biz.entityType;
+      case 0: return !!(biz.legalName.trim() && biz.entityType && biz.addressLine1.trim() && biz.city.trim() && biz.state && biz.zip.trim());
       case 1: return validateStep2();
       case 2: return true; // consent is optional but captured
       case 3: return true; // suitability is informational
@@ -360,6 +392,14 @@ export default function NewClientPage() {
         mcc: biz.mcc.trim() || undefined,
         annualRevenue: biz.annualRevenue ? parseFloat(biz.annualRevenue) : undefined,
         monthlyRevenue: biz.monthlyRevenue ? parseFloat(biz.monthlyRevenue) : undefined,
+        addressLine1: biz.addressLine1.trim(),
+        addressLine2: biz.addressLine2.trim() || undefined,
+        city: biz.city.trim(),
+        state: biz.state,
+        zip: biz.zip.trim(),
+        businessPhone: biz.businessPhone.trim() || undefined,
+        businessEmail: biz.businessEmail.trim() || undefined,
+        monthsInBusiness: biz.monthsInBusiness ? parseInt(biz.monthsInBusiness, 10) : undefined,
       };
 
       // Create business
@@ -507,6 +547,66 @@ export default function NewClientPage() {
         <Field label="MCC Code" error={bizErrors.mcc}>
           <input className={inputClass} value={biz.mcc} onChange={(e) => updateBiz('mcc', e.target.value)} placeholder="5411" maxLength={4} />
         </Field>
+      </div>
+
+      {/* Business Address */}
+      <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-[#C9A84C] uppercase tracking-wide">Business Address</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <Field label="Address Line 1" required error={bizErrors.addressLine1}>
+              <input className={inputClass} value={biz.addressLine1} onChange={(e) => updateBiz('addressLine1', e.target.value)} placeholder="123 Main St" />
+            </Field>
+          </div>
+          <div className="md:col-span-2">
+            <Field label="Address Line 2">
+              <input className={inputClass} value={biz.addressLine2} onChange={(e) => updateBiz('addressLine2', e.target.value)} placeholder="Suite 200" />
+            </Field>
+          </div>
+          <Field label="City" required error={bizErrors.city}>
+            <input className={inputClass} value={biz.city} onChange={(e) => updateBiz('city', e.target.value)} placeholder="New York" />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="State" required error={bizErrors.state}>
+              <select className={selectClass} value={biz.state} onChange={(e) => updateBiz('state', e.target.value)}>
+                <option value="">Select</option>
+                {US_STATES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="ZIP Code" required error={bizErrors.zip}>
+              <input className={inputClass} value={biz.zip} onChange={(e) => updateBiz('zip', e.target.value)} placeholder="10001" maxLength={10} />
+            </Field>
+          </div>
+        </div>
+      </div>
+
+      {/* Contact & Additional */}
+      <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-[#C9A84C] uppercase tracking-wide">Contact Information</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Business Phone">
+            <input type="tel" className={inputClass} value={biz.businessPhone} onChange={(e) => updateBiz('businessPhone', e.target.value)} placeholder="(555) 555-5555" />
+          </Field>
+          <Field label="Business Email" error={bizErrors.businessEmail}>
+            <input type="email" className={inputClass} value={biz.businessEmail} onChange={(e) => updateBiz('businessEmail', e.target.value)} placeholder="contact@acme.com" />
+          </Field>
+          <Field label="Months in Business">
+            <input
+              type="number"
+              className={inputClass}
+              value={biz.monthsInBusiness}
+              onChange={(e) => updateBiz('monthsInBusiness', e.target.value)}
+              placeholder={biz.dateOfFormation ? 'Auto-computed from Date of Formation' : 'Enter manually'}
+              readOnly={!!biz.dateOfFormation}
+              min={0}
+            />
+            {biz.dateOfFormation && (
+              <p className="text-xs text-gray-500 mt-1">Auto-computed from Date of Formation</p>
+            )}
+          </Field>
+        </div>
       </div>
     </div>
   );
@@ -813,6 +913,10 @@ export default function NewClientPage() {
           {biz.monthlyRevenue && <div><dt className="text-gray-500">Monthly Revenue</dt><dd className="text-gray-200">{formatCurrency(biz.monthlyRevenue)}</dd></div>}
           {biz.industry && <div><dt className="text-gray-500">Industry</dt><dd className="text-gray-200">{biz.industry}</dd></div>}
           {biz.mcc && <div><dt className="text-gray-500">MCC</dt><dd className="text-gray-200">{biz.mcc}</dd></div>}
+          <div><dt className="text-gray-500">Address</dt><dd className="text-gray-200">{biz.addressLine1}{biz.addressLine2 ? `, ${biz.addressLine2}` : ''}, {biz.city}, {biz.state} {biz.zip}</dd></div>
+          {biz.businessPhone && <div><dt className="text-gray-500">Phone</dt><dd className="text-gray-200">{biz.businessPhone}</dd></div>}
+          {biz.businessEmail && <div><dt className="text-gray-500">Email</dt><dd className="text-gray-200">{biz.businessEmail}</dd></div>}
+          {biz.monthsInBusiness && <div><dt className="text-gray-500">Months in Business</dt><dd className="text-gray-200">{biz.monthsInBusiness}</dd></div>}
         </dl>
       </div>
 
@@ -906,7 +1010,7 @@ export default function NewClientPage() {
       <StepIndicator current={step} steps={STEPS} />
 
       {/* Step content */}
-      <div className="max-w-4xl">
+      <div className="max-w-4xl rounded-2xl border border-gray-800 bg-gray-900 p-6 md:p-8 shadow-lg">
         {step === 0 && renderStep1()}
         {step === 1 && renderStep2()}
         {step === 2 && renderStep3()}
