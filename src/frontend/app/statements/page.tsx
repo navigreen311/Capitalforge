@@ -748,15 +748,79 @@ function UploadModal({ onClose }: { onClose: () => void }) {
 function InvestigationModal({
   anomaly,
   onClose,
+  onToast,
 }: {
   anomaly: Anomaly;
   onClose: () => void;
+  onToast: (msg: string) => void;
 }) {
   const [contactDone, setContactDone] = useState(false);
+  const [contactLoading, setContactLoading] = useState(false);
   const [disputeLogged, setDisputeLogged] = useState(false);
+  const [disputeLoading, setDisputeLoading] = useState(false);
   const [reminderSet, setReminderSet] = useState(false);
+  const [reminderLoading, setReminderLoading] = useState(false);
 
   const stepsComplete = [contactDone, disputeLogged, reminderSet].filter(Boolean).length;
+  const allComplete = stepsComplete === 3;
+
+  // Compute follow-up date (5 business days from now)
+  function getFollowUpDate(): string {
+    const d = new Date();
+    let added = 0;
+    while (added < 5) {
+      d.setDate(d.getDate() + 1);
+      const day = d.getDay();
+      if (day !== 0 && day !== 6) added++;
+    }
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  // Mock POST helper — simulates a 400ms network call
+  function mockPost(endpoint: string, _body: Record<string, unknown>): Promise<void> {
+    return new Promise((resolve) => {
+      // eslint-disable-next-line no-console
+      console.log(`[mock POST] ${endpoint}`, _body);
+      setTimeout(resolve, 400);
+    });
+  }
+
+  async function handleContactDone() {
+    if (contactDone || contactLoading) return;
+    setContactLoading(true);
+    await mockPost('/api/investigations/contact-issuer', {
+      anomalyId: anomaly.id,
+      issuer: anomaly.issuer,
+    });
+    setContactDone(true);
+    setContactLoading(false);
+    onToast('Issuer contacted — step 1 of 3 complete');
+  }
+
+  async function handleLogDispute() {
+    if (disputeLogged || disputeLoading) return;
+    setDisputeLoading(true);
+    await mockPost('/api/investigations/log-dispute', {
+      anomalyId: anomaly.id,
+      card: anomaly.affectedCard,
+    });
+    setDisputeLogged(true);
+    setDisputeLoading(false);
+    onToast('Dispute logged');
+  }
+
+  async function handleSetReminder() {
+    if (reminderSet || reminderLoading) return;
+    setReminderLoading(true);
+    const followUpDate = getFollowUpDate();
+    await mockPost('/api/investigations/set-reminder', {
+      anomalyId: anomaly.id,
+      followUpDate,
+    });
+    setReminderSet(true);
+    setReminderLoading(false);
+    onToast(`Reminder set for ${followUpDate}`);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -766,7 +830,9 @@ function InvestigationModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <h2 className="text-lg font-bold text-white">Investigate Anomaly</h2>
+          <h2 className="text-lg font-bold text-white">
+            {allComplete ? 'Investigation Complete' : 'Investigate Anomaly'}
+          </h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors text-xl leading-none">
             &#10005;
           </button>
@@ -774,13 +840,13 @@ function InvestigationModal({
 
         <div className="px-5 py-4 space-y-4">
           {/* Anomaly summary */}
-          <div className="rounded-xl border border-orange-800 bg-orange-950/30 p-3">
-            <p className="text-sm font-semibold text-orange-300">{anomaly.description}</p>
+          <div className={`rounded-xl border p-3 transition-colors ${allComplete ? 'border-emerald-800 bg-emerald-950/30' : 'border-orange-800 bg-orange-950/30'}`}>
+            <p className={`text-sm font-semibold ${allComplete ? 'text-emerald-300' : 'text-orange-300'}`}>{anomaly.description}</p>
             <div className="flex gap-4 mt-2">
               {anomaly.amount !== undefined && (
                 <div>
                   <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Amount</p>
-                  <p className="text-xs text-orange-300 font-bold">{fmtCurrency(anomaly.amount)}</p>
+                  <p className={`text-xs font-bold ${allComplete ? 'text-emerald-300' : 'text-orange-300'}`}>{fmtCurrency(anomaly.amount)}</p>
                 </div>
               )}
               {anomaly.statementId && (
@@ -796,12 +862,22 @@ function InvestigationModal({
           <div className="flex items-center gap-2">
             <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
               <div
-                className="h-full bg-[#C9A84C] transition-all duration-300 rounded-full"
+                className={`h-full transition-all duration-300 rounded-full ${allComplete ? 'bg-emerald-500' : 'bg-[#C9A84C]'}`}
                 style={{ width: `${(stepsComplete / 3) * 100}%` }}
               />
             </div>
-            <span className="text-[10px] text-gray-500 font-semibold">{stepsComplete}/3</span>
+            <span className={`text-[10px] font-semibold ${allComplete ? 'text-emerald-400' : 'text-gray-500'}`}>{stepsComplete}/3</span>
           </div>
+
+          {/* Investigation complete banner */}
+          {allComplete && (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-3 flex items-center gap-3">
+              <svg className="h-5 w-5 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <p className="text-sm font-bold text-emerald-300">All investigation steps completed successfully.</p>
+            </div>
+          )}
 
           {/* Step 1: Contact issuer */}
           <div className={`rounded-xl border p-3 transition-colors ${contactDone ? 'border-emerald-800 bg-emerald-950/20' : 'border-gray-700 bg-gray-800/30'}`}>
@@ -821,15 +897,17 @@ function InvestigationModal({
                 </p>
               </div>
               <button
-                onClick={() => setContactDone(true)}
-                disabled={contactDone}
+                onClick={handleContactDone}
+                disabled={contactDone || contactLoading}
                 className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
                   contactDone
                     ? 'bg-emerald-900 text-emerald-400 cursor-default border border-emerald-700'
+                    : contactLoading
+                    ? 'bg-gray-700 text-gray-400 cursor-wait'
                     : 'bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628]'
                 }`}
               >
-                {contactDone ? 'Done' : 'Mark Done'}
+                {contactLoading ? 'Saving...' : contactDone ? 'Done' : 'Mark Done'}
               </button>
             </div>
           </div>
@@ -849,15 +927,17 @@ function InvestigationModal({
                 </p>
               </div>
               <button
-                onClick={() => setDisputeLogged(true)}
-                disabled={disputeLogged}
+                onClick={handleLogDispute}
+                disabled={disputeLogged || disputeLoading}
                 className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
                   disputeLogged
                     ? 'bg-emerald-900 text-emerald-400 cursor-default border border-emerald-700'
+                    : disputeLoading
+                    ? 'bg-gray-700 text-gray-400 cursor-wait'
                     : 'bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628]'
                 }`}
               >
-                {disputeLogged ? 'Logged' : 'Log Dispute'}
+                {disputeLoading ? 'Saving...' : disputeLogged ? 'Logged' : 'Log Dispute'}
               </button>
             </div>
           </div>
@@ -877,21 +957,23 @@ function InvestigationModal({
                 </p>
               </div>
               <button
-                onClick={() => setReminderSet(true)}
-                disabled={reminderSet}
+                onClick={handleSetReminder}
+                disabled={reminderSet || reminderLoading}
                 className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
                   reminderSet
                     ? 'bg-emerald-900 text-emerald-400 cursor-default border border-emerald-700'
+                    : reminderLoading
+                    ? 'bg-gray-700 text-gray-400 cursor-wait'
                     : 'bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628]'
                 }`}
               >
-                {reminderSet ? 'Set' : 'Set Reminder'}
+                {reminderLoading ? 'Saving...' : reminderSet ? 'Set' : 'Set Reminder'}
               </button>
             </div>
           </div>
 
           {/* Close / finish */}
-          {stepsComplete === 3 && (
+          {allComplete && (
             <button
               onClick={onClose}
               className="w-full py-2.5 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-emerald-100 text-sm font-bold transition-colors border border-emerald-600"
@@ -998,6 +1080,13 @@ export default function StatementsPage() {
     });
   }
 
+  // Mock POST helper for dismiss logging
+  function mockPostDismiss(anomalyId: string) {
+    // eslint-disable-next-line no-console
+    console.log('[mock POST] /api/anomalies/dismiss', { anomalyId });
+    // Fire-and-forget — optimistic UI
+  }
+
   function dismissAnomaly(id: string) {
     const anomaly = anomalies.find((a) => a.id === id);
     if (!anomaly) return;
@@ -1007,14 +1096,18 @@ export default function StatementsPage() {
       return;
     }
 
+    // Optimistically remove from UI, fire mock POST
     setAnomalies((prev) => prev.filter((a) => a.id !== id));
+    mockPostDismiss(id);
     setToast('Anomaly dismissed');
   }
 
   function confirmDismiss() {
     if (!dismissConfirm) return;
+    // Optimistically remove from UI, fire mock POST
     setAnomalies((prev) => prev.filter((a) => a.id !== dismissConfirm.id));
-    setToast(`Dismissed: ${dismissConfirm.description.slice(0, 50)}...`);
+    mockPostDismiss(dismissConfirm.id);
+    setToast('Anomaly dismissed');
     setDismissConfirm(null);
   }
 
@@ -1243,6 +1336,7 @@ export default function StatementsPage() {
         <InvestigationModal
           anomaly={investigationModal}
           onClose={() => setInvestigationModal(null)}
+          onToast={setToast}
         />
       )}
       {dismissConfirm && (
