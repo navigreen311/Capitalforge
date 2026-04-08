@@ -56,7 +56,7 @@ const PLACEHOLDER_APPS: ApplicationCard[] = [
   },
   {
     id: 'APP-0090', businessId: 'biz_002', businessName: 'NovaTech Solutions Inc.',
-    issuer: 'Amex', cardProduct: 'Business Gold', status: 'pending_consent',
+    issuer: 'American Express', cardProduct: 'Business Gold', status: 'pending_consent',
     requestedLimit: 30000, createdAt: '2026-03-27T09:00:00Z', updatedAt: '2026-03-29T11:00:00Z',
     roundNumber: 1, daysInStatus: 5, consentStatus: 'missing', advisor: 'Marcus Reid',
   },
@@ -80,7 +80,7 @@ const PLACEHOLDER_APPS: ApplicationCard[] = [
   },
   {
     id: 'APP-0086', businessId: 'biz_006', businessName: 'Crestline Medical LLC',
-    issuer: 'Amex', cardProduct: 'Plum Card', status: 'draft',
+    issuer: 'American Express', cardProduct: 'Plum Card', status: 'draft',
     requestedLimit: 40000, createdAt: '2026-03-30T07:00:00Z', updatedAt: '2026-03-30T07:00:00Z',
     roundNumber: 3, daysInStatus: 1, consentStatus: 'pending', advisor: 'Olivia Torres',
   },
@@ -405,7 +405,11 @@ export default function ApplicationsPage() {
       (!search ||
         a.businessName.toLowerCase().includes(search.toLowerCase()) ||
         a.cardProduct.toLowerCase().includes(search.toLowerCase()) ||
-        a.issuer.toLowerCase().includes(search.toLowerCase())),
+        a.issuer.toLowerCase().includes(search.toLowerCase())) &&
+      (!filters.issuer || a.issuer === filters.issuer) &&
+      (!filters.client || a.businessName === filters.client) &&
+      (!filters.advisor || a.advisor === filters.advisor) &&
+      (!filters.round || (a.roundNumber !== null && `Round ${a.roundNumber}` === filters.round)),
   );
 
   const byStatus = (status: ApplicationStatus) =>
