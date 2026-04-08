@@ -353,3 +353,12 @@ apiRouter.use('/credit-builder', creditBuilderRouter);
 import { spendGovernanceRouter } from './spend-governance.routes.js';
 apiRouter.use('/spend-governance', spendGovernanceRouter);
 apiRouter.use('/', spendGovernanceRouter);
+
+// ── Rewards Points & Card Management ────────────────────────────
+// GET  /api/rewards/:clientId/points-balances
+// POST /api/rewards/:clientId/export
+// POST /api/cards/:id/cancel
+// (also mounts existing /api/businesses/:id/rewards/* & benefits/* routes)
+import { rewardsRouter } from './rewards.routes.js';
+apiRouter.use('/rewards', rewardsRouter);
+apiRouter.use('/', rewardsRouter);
