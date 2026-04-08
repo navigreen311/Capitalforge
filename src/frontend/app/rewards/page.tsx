@@ -17,6 +17,9 @@ import {
   FeeRenewalCalendar,
   RoutingOpportunityGap,
   PointsValuationColumn,
+  PointsBalancePanel,
+  POINTS_BALANCE_PLACEHOLDER,
+  FeeWaiverModal,
 } from '@/components/rewards';
 import type { RewardsClient, RewardsActionCard, FeeRenewalCard } from '@/components/rewards';
 
@@ -488,6 +491,14 @@ export default function RewardsPage() {
     card: { name: '', issuer: '', annualFee: 0, rewardsEarned: 0, netBenefit: 0 },
   });
 
+  // Fee waiver modal state
+  const [feeWaiverModal, setFeeWaiverModal] = useState<{
+    isOpen: boolean;
+    cardName: string;
+    issuer: string;
+    annualFee: number;
+  }>({ isOpen: false, cardName: '', issuer: '', annualFee: 0 });
+
   // Reminder toast state
   const [reminderToast, setReminderToast] = useState<string | null>(null);
 
@@ -551,6 +562,19 @@ export default function RewardsPage() {
 
   const closeModal = useCallback(() => {
     setActionModal((prev) => ({ ...prev, isOpen: false }));
+  }, []);
+
+  const openFeeWaiverModal = useCallback((card: FeeRenewalCard) => {
+    setFeeWaiverModal({
+      isOpen: true,
+      cardName: card.card,
+      issuer: card.issuer,
+      annualFee: card.annualFee,
+    });
+  }, []);
+
+  const closeFeeWaiverModal = useCallback(() => {
+    setFeeWaiverModal((prev) => ({ ...prev, isOpen: false }));
   }, []);
 
   const handleSetReminder = useCallback((route: SpendRoute) => {
@@ -640,6 +664,9 @@ export default function RewardsPage() {
         yoyDelta="+$1,240 vs last year"
       />
 
+      {/* ── Points balance panel ──────────────────────────────── */}
+      <PointsBalancePanel cards={POINTS_BALANCE_PLACEHOLDER} />
+
       {/* ── Main body ────────────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
@@ -684,7 +711,7 @@ export default function RewardsPage() {
           </SectionCard>
 
           {/* Fee renewal calendar */}
-          <FeeRenewalCalendar cards={FEE_RENEWAL_CARDS} />
+          <FeeRenewalCalendar cards={FEE_RENEWAL_CARDS} onFeeWaiver={openFeeWaiverModal} />
         </div>
 
         {/* ── Right: summary card (1/3) ────────────────────────── */}
@@ -724,6 +751,15 @@ export default function RewardsPage() {
         onClose={closeModal}
         type={actionModal.type}
         card={actionModal.card}
+      />
+
+      {/* ── Fee waiver modal ──────────────────────────────────── */}
+      <FeeWaiverModal
+        isOpen={feeWaiverModal.isOpen}
+        onClose={closeFeeWaiverModal}
+        cardName={feeWaiverModal.cardName}
+        issuer={feeWaiverModal.issuer}
+        annualFee={feeWaiverModal.annualFee}
       />
 
       {/* ── Reminder toast ──────────────────────────────────── */}
