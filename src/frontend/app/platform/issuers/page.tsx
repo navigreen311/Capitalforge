@@ -32,6 +32,14 @@ interface VelocityRule {
   note: string;
 }
 
+interface EditableRule {
+  id: string;
+  name: string;
+  value: string;
+  severity: 'hard' | 'soft';
+  active: boolean;
+}
+
 interface ApprovalCriteriaDetail {
   minFICO: number;
   minYears: number;
@@ -448,10 +456,201 @@ function CuExpandedDetail({ cuMeta }: { cuMeta: CuMeta }) {
   );
 }
 
+// ── Edit Rules Modal ────────────────────────────────────────
+
+function buildInitialRules(issuer: Issuer): EditableRule[] {
+  return issuer.velocityRulesList.map((r, i) => ({
+    id: `rule_${i}_${Date.now()}`,
+    name: r.name,
+    value: r.value,
+    severity: r.note.toLowerCase().includes('hard') ? 'hard' as const : 'soft' as const,
+    active: true,
+  }));
+}
+
+function EditRulesModal({ issuer, onClose }: { issuer: Issuer; onClose: () => void }) {
+  const [rules, setRules] = useState<EditableRule[]>(() => buildInitialRules(issuer));
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  const updateRule = (id: string, field: keyof EditableRule, val: string | boolean) => {
+    setRules(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
+  };
+
+  const addRule = () => {
+    setRules(prev => [...prev, {
+      id: `rule_new_${Date.now()}`,
+      name: '',
+      value: '',
+      severity: 'soft',
+      active: true,
+    }]);
+  };
+
+  const deleteRule = (id: string) => {
+    setRules(prev => prev.filter(r => r.id !== id));
+    setDeleteConfirm(null);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    // Mock POST
+    await new Promise(res => setTimeout(res, 600));
+    setSaving(false);
+    setToast(`Rules updated for ${issuer.name}`);
+    setTimeout(() => {
+      setToast(null);
+      onClose();
+    }, 1500);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-xl border border-gray-700/60 bg-[#0F1D32] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Toast */}
+        {toast && (
+          <div className="absolute top-4 right-4 z-10 px-4 py-2 rounded-lg bg-emerald-900/60 border border-emerald-700/50 text-emerald-400 text-sm font-medium animate-pulse">
+            {toast}
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-white">Edit Rules — {issuer.name}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Manage velocity and approval rules for this issuer</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition text-xl leading-none">&times;</button>
+        </div>
+
+        {/* Rules List */}
+        <div className="px-6 py-4 space-y-3">
+          {rules.length === 0 && (
+            <p className="text-sm text-gray-500 text-center py-4">No rules defined. Click &quot;+ Add Rule&quot; to create one.</p>
+          )}
+          {rules.map((rule) => (
+            <div key={rule.id} className="rounded-lg bg-gray-800/50 border border-gray-700/40 p-4 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase block mb-1">Rule Name</label>
+                  <input
+                    type="text"
+                    value={rule.name}
+                    onChange={(e) => updateRule(rule.id, 'name', e.target.value)}
+                    placeholder="e.g. 5/24"
+                    className="w-full rounded-lg bg-gray-900 border border-gray-700 text-sm text-gray-200 px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:border-[#C9A84C]/60"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase block mb-1">Value / Description</label>
+                  <input
+                    type="text"
+                    value={rule.value}
+                    onChange={(e) => updateRule(rule.id, 'value', e.target.value)}
+                    placeholder="e.g. Max 5 new cards in 24 months"
+                    className="w-full rounded-lg bg-gray-900 border border-gray-700 text-sm text-gray-200 px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:border-[#C9A84C]/60"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-4">
+                  {/* Severity Toggle */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-500 uppercase">Severity:</span>
+                    <button
+                      onClick={() => updateRule(rule.id, 'severity', rule.severity === 'hard' ? 'soft' : 'hard')}
+                      className={`px-2.5 py-1 rounded text-xs font-semibold transition ${
+                        rule.severity === 'hard'
+                          ? 'bg-red-900/40 text-red-400 border border-red-700/50'
+                          : 'bg-yellow-900/30 text-yellow-400 border border-yellow-700/50'
+                      }`}
+                    >
+                      {rule.severity === 'hard' ? 'Hard' : 'Soft'}
+                    </button>
+                  </div>
+                  {/* Active Toggle */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-500 uppercase">Active:</span>
+                    <button
+                      onClick={() => updateRule(rule.id, 'active', !rule.active)}
+                      className={`relative w-10 h-5 rounded-full transition ${
+                        rule.active ? 'bg-emerald-600' : 'bg-gray-700'
+                      }`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                        rule.active ? 'left-[22px]' : 'left-0.5'
+                      }`} />
+                    </button>
+                  </div>
+                </div>
+                {/* Delete */}
+                {deleteConfirm === rule.id ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-red-400">Delete this rule?</span>
+                    <button
+                      onClick={() => deleteRule(rule.id)}
+                      className="px-2 py-1 rounded text-xs font-semibold bg-red-900/60 text-red-300 border border-red-700/50 hover:bg-red-900/80 transition"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirm(null)}
+                      className="px-2 py-1 rounded text-xs font-semibold bg-gray-800 text-gray-400 border border-gray-700 hover:bg-gray-700 transition"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setDeleteConfirm(rule.id)}
+                    className="text-xs text-red-400/60 hover:text-red-400 transition"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-800 flex items-center justify-between">
+          <button
+            onClick={addRule}
+            className="px-4 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm font-medium hover:bg-gray-700 transition"
+          >
+            + Add Rule
+          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 text-sm font-medium hover:bg-gray-700 transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-5 py-2 rounded-lg bg-[#C9A84C]/20 border border-[#C9A84C]/40 text-[#C9A84C] text-sm font-semibold hover:bg-[#C9A84C]/30 transition disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Expandable Issuer Row ────────────────────────────────────
 
 function IssuerRow({ issuer }: { issuer: Issuer }) {
   const [expanded, setExpanded] = useState(false);
+  const [showEditRules, setShowEditRules] = useState(false);
 
   return (
     <>
@@ -577,8 +776,8 @@ function IssuerRow({ issuer }: { issuer: Issuer }) {
               <CuExpandedDetail cuMeta={issuer.cuMeta} />
             )}
 
-            {/* Action Button (3A) */}
-            <div className="pt-2 border-t border-gray-800">
+            {/* Action Buttons (3A) */}
+            <div className="pt-2 border-t border-gray-800 flex items-center gap-3">
               <a
                 href="/platform/applications"
                 onClick={(e) => e.stopPropagation()}
@@ -587,9 +786,20 @@ function IssuerRow({ issuer }: { issuer: Issuer }) {
                 View Applications
                 <span aria-hidden="true">&rarr;</span>
               </a>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowEditRules(true); }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm font-medium hover:bg-gray-700 hover:text-white transition"
+              >
+                Edit Rules
+              </button>
             </div>
           </td>
         </tr>
+      )}
+
+      {/* Edit Rules Modal */}
+      {showEditRules && (
+        <EditRulesModal issuer={issuer} onClose={() => setShowEditRules(false)} />
       )}
     </>
   );
