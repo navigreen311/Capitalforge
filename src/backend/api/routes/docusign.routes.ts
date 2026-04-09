@@ -174,10 +174,27 @@ export function createDocuSignRouter(
       // Delegate to the webhook handler for signature verification and processing
       await webhook.handle(req, res);
 
-      // If envelope-completed, also update acknowledgment records
-      if (event === 'envelope-completed' && envelopeId) {
-        const completedAt = (summary['completedDateTime'] as string) ?? new Date().toISOString();
-        await svc.handleWebhookCompletion(envelopeId, 'completed', completedAt);
+      // Update acknowledgment records based on envelope event
+      if (envelopeId) {
+        switch (event) {
+          case 'envelope-completed': {
+            const completedAt = (summary['completedDateTime'] as string) ?? new Date().toISOString();
+            await svc.handleWebhookCompletion(envelopeId, 'completed', completedAt);
+            break;
+          }
+          case 'envelope-declined': {
+            const declinedAt = (summary['declinedDateTime'] as string) ?? new Date().toISOString();
+            await svc.handleWebhookCompletion(envelopeId, 'declined', declinedAt);
+            break;
+          }
+          case 'envelope-voided': {
+            const voidedAt = (summary['voidedDateTime'] as string) ?? new Date().toISOString();
+            await svc.handleWebhookCompletion(envelopeId, 'voided', voidedAt);
+            break;
+          }
+          default:
+            logger.debug('[DocuSignRoutes] Webhook event not mapped to acknowledgment update', { event });
+        }
       }
     } catch (err) {
       logger.error('[DocuSignRoutes] Webhook processing error', {
