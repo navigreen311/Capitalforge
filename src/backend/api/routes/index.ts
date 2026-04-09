@@ -27,6 +27,10 @@ apiRouter.use('/health', healthRouter);
 // -- Auth (public) --
 apiRouter.use('/auth', authRouter);
 
+// -- Two-Factor Authentication (requires auth) --
+import { twoFactorRouter } from './two-factor.routes.js';
+apiRouter.use('/auth/2fa', twoFactorRouter);
+
 // -- Tenant lookup (public — needed for login flow) --
 import { tenantLookupRouter } from './tenant-lookup.routes.js';
 apiRouter.use('/tenants', tenantLookupRouter);
