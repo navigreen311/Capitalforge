@@ -74,6 +74,22 @@ export default function LoginPage() {
       localStorage.setItem('cf_refresh_token', refreshToken);
       localStorage.setItem('cf_user', JSON.stringify(user));
 
+      // Check if 2FA is enabled — redirect to challenge page if so
+      try {
+        const tfaRes = await fetch('/api/auth/2fa/status', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (tfaRes.ok) {
+          const tfaData = await tfaRes.json();
+          if (tfaData.data?.enabled) {
+            router.push('/login/two-factor');
+            return;
+          }
+        }
+      } catch {
+        // If 2FA status check fails, proceed to dashboard
+      }
+
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed. Please try again.');

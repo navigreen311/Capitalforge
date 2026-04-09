@@ -527,6 +527,14 @@ function SettingsPageInner() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorSetupPhase, setTwoFactorSetupPhase] = useState<'idle' | 'loading' | 'qr' | 'verifying'>('idle');
+  const [twoFactorSecret, setTwoFactorSecret] = useState('');
+  const [twoFactorQr, setTwoFactorQr] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [twoFactorMock, setTwoFactorMock] = useState(false);
+  const [twoFactorMessage, setTwoFactorMessage] = useState('');
+  const [disablePassword, setDisablePassword] = useState('');
+  const [disableModalOpen, setDisableModalOpen] = useState(false);
 
   const handleChangePassword = () => {
     if (!currentPassword || !newPassword || !confirmPassword) return;
@@ -536,6 +544,109 @@ function SettingsPageInner() {
     setNewPassword('');
     setConfirmPassword('');
     toast.show('Password changed successfully');
+  };
+
+  // Check 2FA status on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+        const res = await fetch('/api/auth/2fa/status', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setTwoFactorEnabled(data.data?.enabled ?? false);
+          setTwoFactorMock(data.data?.mock ?? false);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const handle2FASetup = async () => {
+    setTwoFactorSetupPhase('loading');
+    setTwoFactorMessage('');
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch('/api/auth/2fa/setup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTwoFactorSecret(data.data.secret);
+        setTwoFactorQr(data.data.qrDataUrl ?? null);
+        setTwoFactorMock(data.data.mock ?? false);
+        setTwoFactorMessage(data.data.message ?? '');
+        setTwoFactorSetupPhase('qr');
+      } else {
+        toast.show(data.error?.message ?? 'Failed to set up 2FA');
+        setTwoFactorSetupPhase('idle');
+      }
+    } catch {
+      toast.show('Failed to set up 2FA');
+      setTwoFactorSetupPhase('idle');
+    }
+  };
+
+  const handle2FAVerify = async () => {
+    if (twoFactorCode.length !== 6) { toast.show('Enter a 6-digit code'); return; }
+    setTwoFactorSetupPhase('verifying');
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch('/api/auth/2fa/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ code: twoFactorCode }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTwoFactorEnabled(true);
+        setTwoFactorSetupPhase('idle');
+        setTwoFactorCode('');
+        setTwoFactorSecret('');
+        setTwoFactorQr(null);
+        toast.show('2FA enabled successfully');
+      } else {
+        toast.show(data.error?.message ?? 'Invalid code');
+        setTwoFactorSetupPhase('qr');
+      }
+    } catch {
+      toast.show('Verification failed');
+      setTwoFactorSetupPhase('qr');
+    }
+  };
+
+  const handle2FADisable = async () => {
+    if (!disablePassword) { toast.show('Password is required'); return; }
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch('/api/auth/2fa/disable', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ password: disablePassword }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTwoFactorEnabled(false);
+        setDisableModalOpen(false);
+        setDisablePassword('');
+        toast.show('2FA disabled');
+      } else {
+        toast.show(data.error?.message ?? 'Failed to disable 2FA');
+      }
+    } catch {
+      toast.show('Failed to disable 2FA');
+    }
   };
 
   // ── Integration state ──────────────────────────────────────
@@ -1012,20 +1123,145 @@ function SettingsPageInner() {
                 <h3 className="text-sm font-semibold text-gray-200">Two-Factor Authentication</h3>
                 <p className="text-xs text-gray-500 mt-1">Add an extra layer of security to your account</p>
               </div>
-              <button
-                onClick={() => { setTwoFactorEnabled(!twoFactorEnabled); toast.show(twoFactorEnabled ? '2FA disabled' : '2FA enabled'); }}
-                className={`w-11 h-6 rounded-full relative transition-colors ${twoFactorEnabled ? 'bg-emerald-600' : 'bg-gray-700'}`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${twoFactorEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </button>
-            </div>
-            <div className="rounded-lg border border-gray-700/50 bg-gray-800/50 p-4 text-xs text-gray-400">
-              {twoFactorEnabled ? (
-                <p className="text-emerald-400">Two-factor authentication is enabled. You will be prompted for a verification code on each login.</p>
-              ) : (
-                <p>Enable 2FA to require a verification code from an authenticator app when signing in.</p>
+              {twoFactorEnabled && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-900/50 border border-emerald-700/50 text-emerald-400 text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  2FA Enabled
+                </span>
               )}
             </div>
+
+            {/* Status: 2FA is enabled */}
+            {twoFactorEnabled && twoFactorSetupPhase === 'idle' && (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-emerald-700/50 bg-emerald-900/20 p-4 text-xs text-emerald-400">
+                  Two-factor authentication is active. You will be prompted for a verification code on each login.
+                </div>
+                <button
+                  onClick={() => setDisableModalOpen(true)}
+                  className="px-4 py-2 rounded-lg bg-red-900/30 border border-red-700/50 text-red-400 text-xs font-medium hover:bg-red-900/50 transition-colors"
+                >
+                  Disable 2FA
+                </button>
+              </div>
+            )}
+
+            {/* Status: 2FA not enabled — show setup button */}
+            {!twoFactorEnabled && twoFactorSetupPhase === 'idle' && (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-gray-700/50 bg-gray-800/50 p-4 text-xs text-gray-400">
+                  Enable 2FA to require a verification code from an authenticator app when signing in.
+                </div>
+                <button onClick={handle2FASetup} className={goldBtn}>
+                  Enable Two-Factor Authentication
+                </button>
+              </div>
+            )}
+
+            {/* Loading phase */}
+            {twoFactorSetupPhase === 'loading' && (
+              <div className="flex items-center gap-3 py-4">
+                <div className="w-5 h-5 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-gray-400">Generating secret...</span>
+              </div>
+            )}
+
+            {/* QR Code phase */}
+            {(twoFactorSetupPhase === 'qr' || twoFactorSetupPhase === 'verifying') && (
+              <div className="space-y-4">
+                {twoFactorMock && (
+                  <div className="rounded-lg border border-amber-700/50 bg-amber-900/20 p-3 text-xs text-amber-400">
+                    Mock mode: otplib is not installed. Use code <span className="font-mono font-bold">123456</span> to verify.
+                  </div>
+                )}
+                {twoFactorMessage && (
+                  <p className="text-xs text-gray-400">{twoFactorMessage}</p>
+                )}
+                <div className="flex flex-col items-center gap-4 py-2">
+                  {twoFactorQr ? (
+                    <img src={twoFactorQr} alt="2FA QR Code" className="w-48 h-48 rounded-lg border border-gray-700" />
+                  ) : (
+                    <div className="w-48 h-48 rounded-lg border border-gray-700 bg-gray-800 flex items-center justify-center text-gray-500 text-xs text-center p-4">
+                      QR code unavailable.<br />Enter the secret manually in your authenticator app.
+                    </div>
+                  )}
+                  <div className="w-full max-w-xs">
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Secret Key (manual entry)</label>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 font-mono break-all select-all">
+                        {twoFactorSecret}
+                      </code>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(twoFactorSecret); toast.show('Secret copied'); }}
+                        className="px-2 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 hover:text-gray-200 text-xs"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="border-t border-gray-700/50 pt-4">
+                  <label className="block text-xs font-medium text-gray-400 mb-2">Enter 6-digit verification code</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="text"
+                      value={twoFactorCode}
+                      onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="000000"
+                      maxLength={6}
+                      autoFocus
+                      className="w-40 px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-xl text-center text-lg font-mono text-gray-100 tracking-[0.5em] placeholder:text-gray-600 focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/40"
+                    />
+                    <button
+                      onClick={handle2FAVerify}
+                      disabled={twoFactorCode.length !== 6 || twoFactorSetupPhase === 'verifying'}
+                      className={`${goldBtn} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {twoFactorSetupPhase === 'verifying' ? 'Verifying...' : 'Verify & Enable'}
+                    </button>
+                    <button
+                      onClick={() => { setTwoFactorSetupPhase('idle'); setTwoFactorCode(''); setTwoFactorSecret(''); setTwoFactorQr(null); }}
+                      className="px-3 py-2 text-xs text-gray-500 hover:text-gray-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Disable 2FA modal */}
+            {disableModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <div className="w-full max-w-sm bg-[#0f1b2e] border border-gray-700 rounded-2xl p-6 shadow-2xl space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-200">Disable Two-Factor Authentication</h3>
+                  <p className="text-xs text-gray-400">Enter your password to confirm disabling 2FA. This will reduce your account security.</p>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5">Password</label>
+                    <input
+                      type="password"
+                      value={disablePassword}
+                      onChange={(e) => setDisablePassword(e.target.value)}
+                      placeholder="Enter your password"
+                      autoFocus
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/40"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-3">
+                    <button onClick={() => { setDisableModalOpen(false); setDisablePassword(''); }} className="px-4 py-2 text-xs text-gray-400 hover:text-gray-200">
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handle2FADisable}
+                      disabled={!disablePassword}
+                      className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Disable 2FA
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Session info */}
