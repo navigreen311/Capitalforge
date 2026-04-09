@@ -248,48 +248,124 @@ export class DocuSignService {
   /**
    * Obtain a JWT access token for DocuSign API calls.
    *
+   * When DocuSign credentials are configured, performs the JWT Grant flow:
+   *   1. Build a JWT assertion signed with the RSA private key
+   *   2. POST to DocuSign OAuth token endpoint
+   *   3. Cache the token until near expiry
+   *
    * Returns a stub token when credentials are not configured.
    */
-  async getAccessToken(): Promise<{ token: string; isMock: boolean }> {
+  async getAccessToken(): Promise<{ token: string; expiresIn: number; isMock: boolean }> {
     if (!isDocuSignConfigured()) {
-      return { token: `mock-token-${Date.now()}`, isMock: true };
+      return { token: `mock-token-${Date.now()}`, expiresIn: 3600, isMock: true };
     }
 
-    // Delegate to the DocuSign client's internal token management.
-    // The client caches tokens and refreshes before expiry.
-    // Since the client doesn't expose getAccessToken publicly,
-    // we trigger a lightweight status check that forces token refresh.
+    // Check cache first
+    if (this._cachedToken && this._cachedTokenExpiresAt > Date.now() + 60_000) {
+      return { token: this._cachedToken, expiresIn: Math.floor((this._cachedTokenExpiresAt - Date.now()) / 1000), isMock: false };
+    }
+
+    const privateKey = process.env['DOCUSIGN_PRIVATE_KEY'] ?? '';
+    const userId = process.env['DOCUSIGN_USER_ID'] ?? '';
+    const oauthBase = process.env['DOCUSIGN_OAUTH_BASE_URL'] ?? 'https://account-d.docusign.com';
+
+    if (!privateKey || !userId) {
+      logger.warn('[DocuSignService] DOCUSIGN_PRIVATE_KEY or DOCUSIGN_USER_ID not set — returning mock token');
+      return { token: `mock-token-${Date.now()}`, expiresIn: 3600, isMock: true };
+    }
+
     try {
-      // Create a minimal no-op to trigger token fetch
-      return { token: `live-token-${Date.now()}`, isMock: false };
+      // Build JWT assertion for DocuSign JWT Grant
+      const now = Math.floor(Date.now() / 1000);
+      const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+      const payload = Buffer.from(JSON.stringify({
+        iss: DOCUSIGN_INTEGRATION_KEY,
+        sub: userId,
+        aud: new URL(oauthBase).hostname,
+        iat: now,
+        exp: now + 3600,
+        scope: 'signature impersonation',
+      })).toString('base64url');
+
+      const { createSign } = await import('crypto');
+      const sign = createSign('RSA-SHA256');
+      sign.update(`${header}.${payload}`);
+      const signature = sign.sign(privateKey, 'base64url');
+
+      const assertion = `${header}.${payload}.${signature}`;
+
+      // Exchange JWT for access token
+      const tokenUrl = `${oauthBase}/oauth/token`;
+      const body = new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      });
+
+      const resp = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.text();
+        throw new Error(`DocuSign OAuth error ${resp.status}: ${errBody}`);
+      }
+
+      const tokenData = await resp.json() as { access_token: string; expires_in: number };
+      this._cachedToken = tokenData.access_token;
+      this._cachedTokenExpiresAt = Date.now() + tokenData.expires_in * 1000;
+
+      logger.info('[DocuSignService] JWT access token obtained', {
+        expiresIn: tokenData.expires_in,
+      });
+
+      return { token: tokenData.access_token, expiresIn: tokenData.expires_in, isMock: false };
     } catch (err) {
       logger.error('[DocuSignService] Failed to get access token', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return { token: `fallback-token-${Date.now()}`, isMock: true };
+      return { token: `fallback-token-${Date.now()}`, expiresIn: 3600, isMock: true };
     }
   }
+
+  // Token cache for JWT grant flow
+  private _cachedToken: string | null = null;
+  private _cachedTokenExpiresAt: number = 0;
 
   // ── Handle Webhook Completion ─────────────────────────────
 
   /**
-   * Called when a DocuSign webhook fires completion event.
-   * Updates the ProductAcknowledgment record status in the database.
+   * Called when a DocuSign webhook fires an envelope status event.
+   * Updates the Document record linked to this envelope in the database.
+   *
+   * Handled statuses:
+   *   - 'completed' → marks signatureStatus as 'signed', records completedAt
+   *   - 'declined'  → marks signatureStatus as 'declined', records declinedAt
+   *   - 'voided'    → marks signatureStatus as 'voided', records voidedAt
    */
   async handleWebhookCompletion(
     envelopeId: string,
     status: EnvelopeStatus,
-    completedAt?: string,
-  ): Promise<{ updated: boolean; envelopeId: string }> {
+    timestamp?: string,
+  ): Promise<{ updated: boolean; envelopeId: string; status: string }> {
     const svcLog = logger.child({
       service: 'DocuSignService',
       op:      'handleWebhookCompletion',
       envelopeId,
     });
 
+    // Map DocuSign envelope status to our acknowledgment signature status
+    const signatureStatusMap: Record<string, string> = {
+      completed: 'signed',
+      declined:  'declined',
+      voided:    'voided',
+    };
+    const signatureStatus = signatureStatusMap[status] ?? status;
+    const ts = timestamp ?? new Date().toISOString();
+
     try {
-      // Update the acknowledgment record if this envelope is linked to one
-      // Look up by metadata in ProductAcknowledgment or Document tables
+      // Update the Document records linked to this envelope
       const updatedCount = await this.prisma.document.updateMany({
         where: {
           metadata: {
@@ -300,8 +376,11 @@ export class DocuSignService {
         data: {
           metadata: {
             envelopeId,
-            signatureStatus: status,
-            completedAt:     completedAt ?? new Date().toISOString(),
+            signatureStatus,
+            ...(status === 'completed' ? { completedAt: ts } : {}),
+            ...(status === 'declined'  ? { declinedAt: ts }  : {}),
+            ...(status === 'voided'    ? { voidedAt: ts }    : {}),
+            updatedAt: ts,
           },
         },
       });
@@ -309,15 +388,16 @@ export class DocuSignService {
       svcLog.info('[handleWebhookCompletion] Updated records', {
         envelopeId,
         status,
+        signatureStatus,
         count: updatedCount.count,
       });
 
-      return { updated: updatedCount.count > 0, envelopeId };
+      return { updated: updatedCount.count > 0, envelopeId, status: signatureStatus };
     } catch (err) {
       svcLog.error('[handleWebhookCompletion] Failed to update records', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return { updated: false, envelopeId };
+      return { updated: false, envelopeId, status: signatureStatus };
     }
   }
 
