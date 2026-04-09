@@ -441,3 +441,8 @@ apiRouter.use('/sandbox', sandboxRouter);
 import { hardshipRouter } from './hardship.routes.js';
 apiRouter.use('/hardship', hardshipRouter);
 apiRouter.use('/', hardshipRouter);
+
+// ── Client Portal (public-facing client view) ───────────────
+// GET /api/portal/:clientId/summary — funding status, APR countdowns, payments, docs
+import { portalRouter } from './portal.routes.js';
+apiRouter.use('/portal', portalRouter);
