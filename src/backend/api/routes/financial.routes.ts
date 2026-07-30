@@ -11,7 +11,8 @@
 // ============================================================
 
 import { Router } from 'express';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';

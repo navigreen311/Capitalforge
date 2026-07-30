@@ -13,7 +13,8 @@
 // Auth: tenantMiddleware on all routes.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse, TenantContext } from '../../../shared/types/index.js';

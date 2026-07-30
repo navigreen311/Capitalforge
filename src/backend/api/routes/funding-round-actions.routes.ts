@@ -8,7 +8,8 @@
 // All routes require a valid tenant JWT via tenantMiddleware.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';

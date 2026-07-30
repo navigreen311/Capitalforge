@@ -5,7 +5,8 @@
 // POST /api/auth/2fa/disable  — disable 2FA for user
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { requireAuth } from '../../middleware/auth.middleware.js';
 import crypto from 'crypto';

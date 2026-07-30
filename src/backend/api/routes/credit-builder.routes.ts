@@ -9,7 +9,8 @@
 //   POST /api/credit-builder/:clientId/tradeline-disputes — file dispute
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import logger from '../../config/logger.js';
 
 export const creditBuilderRouter = Router({ mergeParams: true });

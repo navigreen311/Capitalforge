@@ -3,7 +3,8 @@
 // Entry point for the backend API process.
 // ============================================================
 
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Response, NextFunction } from 'express';
+import type { Request } from './types/http.js';
 import cors from 'cors';
 import helmet from 'helmet';
 import { config } from './config/index.js';

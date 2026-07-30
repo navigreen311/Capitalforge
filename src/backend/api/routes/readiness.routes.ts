@@ -8,7 +8,8 @@
 // All routes require a valid JWT.
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { calculateReadinessScore, type ReadinessClient } from '../../services/readiness-score.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';

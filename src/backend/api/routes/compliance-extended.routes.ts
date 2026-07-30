@@ -17,7 +17,8 @@
 //   GET  /api/compliance/decisions/:id            — decision detail
 // ============================================================
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 
 export const complianceExtendedRouter = Router();

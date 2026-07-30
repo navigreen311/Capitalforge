@@ -6,7 +6,8 @@
 //   GET   /api/platform/offboarding/:id/audit-log — mock audit log
 // ============================================================
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';

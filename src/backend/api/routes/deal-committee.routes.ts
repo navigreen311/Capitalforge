@@ -30,7 +30,8 @@
 // All routes require a valid JWT. TenantContext is expected on req.tenant.
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import {
   createDealReview,

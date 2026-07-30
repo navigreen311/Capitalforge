@@ -18,7 +18,8 @@
 // POST /api/governance/cadence/reminders/process   — process due reminders (cron)
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { ReferenceDataService } from '../../services/governance/reference-data.service.js';
 import { ReleaseManagementService } from '../../services/governance/release-management.service.js';
 import { SupportOpsService } from '../../services/governance/support-ops.service.js';

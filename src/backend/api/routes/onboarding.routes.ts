@@ -8,7 +8,8 @@
 // GET    /api/businesses/:id/readiness — get readiness score details
 // ============================================================
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Response, type NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import {
   createBusiness,
   getBusinessById,

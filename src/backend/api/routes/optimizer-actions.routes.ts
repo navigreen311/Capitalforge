@@ -15,8 +15,8 @@
 // All routes are mock implementations that return success.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
-
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 export const optimizerActionsRouter = Router();
 
 // ── POST /api/optimizer/save-strategy ─────────────────────────

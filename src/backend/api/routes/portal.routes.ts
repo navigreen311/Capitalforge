@@ -6,7 +6,8 @@
 //       APR countdowns, upcoming payments, and unsigned documents
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import logger from '../../config/logger.js';
 
 export const portalRouter = Router({ mergeParams: true });

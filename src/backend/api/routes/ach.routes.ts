@@ -8,7 +8,8 @@
 // GET    /api/businesses/:id/ach/alerts           — unauthorized debit alerts
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { AchControlsService } from '../../services/ach-controls.service.js';
 import { DebitMonitor } from '../../services/debit-monitor.js';
 import type { ApiResponse } from '../../../shared/types/index.js';

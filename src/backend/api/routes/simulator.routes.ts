@@ -28,7 +28,8 @@
 // All routes require a valid JWT (req.tenant set upstream).
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, type ZodError } from 'zod';
 import {
   FundingSimulatorService,

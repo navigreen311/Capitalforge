@@ -13,7 +13,8 @@
 // routes at /api/businesses/:id/suitability/*.
 // ============================================================
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import {
   calculateSuitability,

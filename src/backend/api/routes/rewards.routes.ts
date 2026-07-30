@@ -28,7 +28,8 @@
 //        Keep vs cancel / negotiate recommendation per card.
 // ============================================================
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Response, type NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, type ZodError } from 'zod';
 import { RewardsOptimizationService, MCC_CATEGORIES, type MccCategory, type SpendProfile } from '../../services/rewards-optimization.service.js';
 import { CardBenefitsService } from '../../services/card-benefits.service.js';
