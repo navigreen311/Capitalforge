@@ -50,113 +50,6 @@ function err(res: Response, status: number, code: string, message: string): void
   res.status(status).json(body);
 }
 
-// ── Mock / placeholder data for list ──────────────────────────
-
-function daysFromNow(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
-}
-
-const MOCK_CLIENTS = [
-  {
-    id: 'biz_001',
-    businessName: 'Apex Ventures LLC',
-    status: 'active',
-    advisorName: 'Sarah Chen',
-    fundingReadinessScore: 82,
-    lastActivityAt: daysFromNow(-2),
-    entityType: 'llc',
-    state: 'TX',
-    aprAlert: { days: 12, tier: 'critical' },
-    consentStatus: 'complete',
-  },
-  {
-    id: 'biz_002',
-    businessName: 'NovaTech Solutions Inc.',
-    status: 'onboarding',
-    advisorName: 'Marcus Williams',
-    fundingReadinessScore: 61,
-    lastActivityAt: daysFromNow(-3),
-    entityType: 'corporation',
-    state: 'CA',
-    aprAlert: null,
-    consentStatus: 'pending',
-  },
-  {
-    id: 'biz_003',
-    businessName: 'Blue Ridge Consulting',
-    status: 'active',
-    advisorName: 'Sarah Chen',
-    fundingReadinessScore: 74,
-    lastActivityAt: daysFromNow(-4),
-    entityType: 'llc',
-    state: 'NC',
-    aprAlert: { days: 45, tier: 'warning' },
-    consentStatus: 'complete',
-  },
-  {
-    id: 'biz_004',
-    businessName: 'Summit Capital Group',
-    status: 'active',
-    advisorName: 'James Okafor',
-    fundingReadinessScore: 91,
-    lastActivityAt: daysFromNow(-5),
-    entityType: 's_corp',
-    state: 'NY',
-    aprAlert: null,
-    consentStatus: 'complete',
-  },
-  {
-    id: 'biz_005',
-    businessName: 'Horizon Retail Partners',
-    status: 'intake',
-    advisorName: 'Marcus Williams',
-    fundingReadinessScore: 43,
-    lastActivityAt: daysFromNow(-6),
-    entityType: 'partnership',
-    state: 'FL',
-    aprAlert: { days: 8, tier: 'critical' },
-    consentStatus: 'blocked',
-  },
-  {
-    id: 'biz_006',
-    businessName: 'Crestline Medical LLC',
-    status: 'active',
-    advisorName: 'James Okafor',
-    fundingReadinessScore: 77,
-    lastActivityAt: daysFromNow(-7),
-    entityType: 'llc',
-    state: 'OH',
-    aprAlert: null,
-    consentStatus: 'complete',
-  },
-  {
-    id: 'biz_007',
-    businessName: 'Pinnacle Freight Corp',
-    status: 'graduated',
-    advisorName: 'Sarah Chen',
-    fundingReadinessScore: 95,
-    lastActivityAt: daysFromNow(-11),
-    entityType: 'c_corp',
-    state: 'IL',
-    aprAlert: null,
-    consentStatus: 'pending',
-  },
-  {
-    id: 'biz_008',
-    businessName: 'Redwood Digital',
-    status: 'offboarding',
-    advisorName: 'Marcus Williams',
-    fundingReadinessScore: 55,
-    lastActivityAt: daysFromNow(-13),
-    entityType: 'llc',
-    state: 'WA',
-    aprAlert: null,
-    consentStatus: 'complete',
-  },
-];
-
 // ── Router ────────────────────────────────────────────────────
 
 export const clientsRouter = Router();
@@ -209,8 +102,7 @@ clientsRouter.get('/', async (req: Request, res: Response, _next: NextFunction):
       prisma.business.count({ where }),
     ]);
 
-    if (businesses.length > 0 || total > 0) {
-      const rows = businesses.map((biz) => {
+    const rows = businesses.map((biz) => {
         const advisorName = biz.advisor
           ? `${biz.advisor.firstName} ${biz.advisor.lastName}`
           : 'Unassigned';
@@ -250,31 +142,16 @@ clientsRouter.get('/', async (req: Request, res: Response, _next: NextFunction):
         };
       });
 
-      ok(res, rows, { total, page: pageNum, pageSize: size, totalPages: Math.ceil(total / size) });
-      return;
-    }
+    // An empty tenant is a legitimate answer — return the empty page rather
+    // than substituting sample clients, which previously made a brand-new or
+    // a broken tenant look identical to a populated one.
+    ok(res, rows, { total, page: pageNum, pageSize: size, totalPages: Math.ceil(total / size) });
   } catch (error) {
-    logger.warn('Prisma query failed for clients list, returning mock', { error });
+    // Previously this fell through to hardcoded sample clients, so a database
+    // outage was indistinguishable from a healthy tenant. Surface it instead.
+    logger.error('Prisma query failed for clients list', { tenantId, error });
+    err(res, 500, 'CLIENT_LIST_FAILED', 'Unable to load clients.');
   }
-
-  // Fallback to mock data with client-side filtering/pagination
-  let filtered = [...MOCK_CLIENTS];
-  if (search) {
-    const s = (search as string).toLowerCase();
-    filtered = filtered.filter(
-      (c) =>
-        c.businessName.toLowerCase().includes(s) ||
-        c.advisorName.toLowerCase().includes(s),
-    );
-  }
-  if (status) {
-    filtered = filtered.filter((c) => c.status === status);
-  }
-
-  const total = filtered.length;
-  const paged = filtered.slice((pageNum - 1) * size, pageNum * size);
-
-  ok(res, paged, { total, page: pageNum, pageSize: size, totalPages: Math.ceil(total / size) });
 });
 
 // POST / — create new business/client
@@ -304,19 +181,12 @@ clientsRouter.post('/', async (req: Request, res: Response, _next: NextFunction)
       },
     });
     created(res, business);
-    return;
   } catch (error) {
-    logger.warn('Prisma create failed for client, returning mock', { error });
+    // This previously answered 201 Created with a fabricated `biz_<timestamp>`
+    // id when the write failed. The caller recorded a client that does not
+    // exist, and every subsequent request for that id 404'd. A failed write
+    // must report as a failed write.
+    logger.error('Prisma create failed for client', { tenantId, error });
+    err(res, 500, 'CLIENT_CREATE_FAILED', 'Unable to create the client.');
   }
-
-  // Mock fallback
-  const mockId = `biz_${Date.now()}`;
-  created(res, {
-    id: mockId,
-    tenantId,
-    ...body,
-    status: 'intake',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
 });

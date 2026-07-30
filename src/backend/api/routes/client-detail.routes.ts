@@ -8,13 +8,18 @@
 // GET    /acknowledgments         — product acknowledgments
 // GET    /ach-authorization       — ACH authorization status
 // GET    /credit/business         — business credit scores
-// GET    /credit/history          — 12-month score history
-// GET    /credit/recommendations  — credit optimization tips
-// GET    /repayment               — repayment schedule
+// GET    /credit/history          — 12-month score history      [STUB]
+// GET    /credit/recommendations  — credit optimization tips    [STUB]
+// GET    /repayment               — repayment schedule          [STUB]
 // GET    /timeline                — client event timeline
-// POST   /compliance/run          — trigger compliance check
-// POST   /consent/request         — request re-consent
+// GET    /compliance              — compliance checks
+// GET    /documents               — documents for this business
+// POST   /compliance/run          — trigger compliance check    [STUB]
+// POST   /consent/request         — request re-consent          [STUB]
 // PATCH  /                        — update business fields
+//
+// Endpoints marked [STUB] have no implementation behind them and return
+// sample data flagged via `meta.stub` — see ./_stub-response.ts.
 // ============================================================
 
 import { Router, type Response, type NextFunction } from 'express';
@@ -22,6 +27,7 @@ import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
+import { okStub, registerStub } from './_stub-response.js';
 
 // ── Dependency setup ──────────────────────────────────────────
 
@@ -29,9 +35,21 @@ const prisma = new PrismaClient();
 
 // ── Helpers ───────────────────────────────────────────────────
 
+/**
+ * The tenant is taken from the verified access token only.
+ *
+ * This previously read `tenant.id` — a field TenantContext does not have (it
+ * is `tenantId`) — and fell back to the literal string 'unknown'. Every query
+ * in this module therefore filtered on tenantId = 'unknown', matched nothing,
+ * and fell through to the sample data below. The mock path was not a
+ * fallback for rare failures; it was the only path this module ever took.
+ */
 function getTenantId(req: Request): string {
-  const tenant = (req as Request & { tenant?: { id: string } }).tenant;
-  return tenant?.id ?? 'unknown';
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    throw new Error('Tenant context is missing — authentication middleware did not run.');
+  }
+  return tenantId;
 }
 
 function ok(res: Response, data: unknown, meta?: Record<string, unknown>): void {
@@ -44,7 +62,27 @@ function err(res: Response, status: number, code: string, message: string): void
   res.status(status).json(body);
 }
 
-// ── Mock fallback data (inline, mirrors client-mocks.ts) ──────
+/** Prisma raises P2025 when an update/delete targets a row that is not there. */
+function isNotFound(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2025';
+}
+
+/**
+ * Compliance score derived from the checks actually on record.
+ *
+ * ComplianceCheck carries `riskScore` (higher = worse), so the score is its
+ * inverse, averaged. Returns null when no check has a score: "we cannot tell"
+ * is a real answer, and is safer here than the hardcoded 78 this endpoint
+ * used to report regardless of input, or a 0 that would read as total failure.
+ */
+function scoreFromChecks(checks: { riskScore: number | null }[]): number | null {
+  const scored = checks
+    .map((c) => c.riskScore)
+    .filter((n): n is number => typeof n === 'number');
+  if (scored.length === 0) return null;
+  const averageRisk = scored.reduce((sum, n) => sum + n, 0) / scored.length;
+  return Math.max(0, Math.min(100, Math.round(100 - averageRisk)));
+}
 
 function daysFromNow(days: number): string {
   const d = new Date();
@@ -58,72 +96,34 @@ function dateOnly(offsetDays: number): string {
   return d.toISOString().split('T')[0];
 }
 
-const MOCK_PROFILE = {
-  id: 'biz_meridian_001',
-  legalName: 'Meridian Holdings LLC',
-  dba: 'Meridian Financial Services',
-  ein: '82-1234567',
-  entityType: 'LLC',
-  stateOfFormation: 'DE',
-  annualRevenue: 4800000,
-  monthlyRevenue: 400000,
-  industry: 'Financial Services',
-  naicsCode: '523910',
-  mcc: '6012',
-  status: 'active',
-  advisorName: 'Sarah Chen',
-  fundingReadinessScore: 92,
-  website: 'https://meridianholdings.example.com',
-  employees: 24,
-  dateOfFormation: '2019-03-15',
-};
+// ── Sample payloads for the endpoints that are still stubs ────
+// These are reached only through okStub(), which flags them in the response.
 
-const MOCK_OWNERS = [
-  { id: 'own_001', firstName: 'James', lastName: 'Harrington', ownershipPercent: 60, title: 'CEO & Managing Member', kycStatus: 'verified', kycVerifiedAt: daysFromNow(-170), personalGuarantee: true },
-  { id: 'own_002', firstName: 'Patricia', lastName: 'Chen', ownershipPercent: 30, title: 'COO', kycStatus: 'verified', kycVerifiedAt: daysFromNow(-168), personalGuarantee: true },
-  { id: 'own_003', firstName: 'Derek', lastName: 'Olsen', ownershipPercent: 10, title: 'CFO', kycStatus: 'pending', kycVerifiedAt: null, personalGuarantee: false },
-];
+registerStub('client.credit.history', 'No Prisma model for historical score snapshots yet.');
+registerStub('client.credit.recommendations', 'Requires the credit-optimization pipeline.');
+registerStub('client.repayment', 'Requires aggregation across card/payment sources.');
+registerStub('client.compliance.run', 'Does not start a compliance run; no job runner wired.');
+registerStub('client.consent.request', 'Does not send anything; no email/SMS provider wired.');
 
-const MOCK_ACKNOWLEDGMENTS = [
-  { id: 'ack_001', type: 'product_reality', status: 'signed', signedAt: daysFromNow(-160), signedBy: 'James Harrington', documentUrl: '/documents/ack_product_reality_001.pdf' },
-  { id: 'ack_002', type: 'fee_refund', status: 'signed', signedAt: daysFromNow(-160), signedBy: 'James Harrington', documentUrl: '/documents/ack_fee_refund_001.pdf' },
-  { id: 'ack_003', type: 'personal_guarantee', status: 'signed', signedAt: daysFromNow(-155), signedBy: 'Patricia Chen', documentUrl: '/documents/ack_pg_001.pdf' },
-  { id: 'ack_004', type: 'cash_advance_restriction', status: 'pending', signedAt: null, signedBy: null, documentUrl: null },
-  { id: 'ack_005', type: 'data_sharing', status: 'not_sent', signedAt: null, signedBy: null, documentUrl: null },
-];
-
-const MOCK_ACH = {
-  status: 'active', authorizedAmount: 25000, frequency: 'monthly', bankLast4: '6789', bankName: 'Chase Business Checking', authorizedAt: daysFromNow(-150), toleranceStatus: 'within_limit',
-  debitHistory: Array.from({ length: 6 }, (_, i) => ({ id: `dbt_${String(i + 1).padStart(3, '0')}`, date: dateOnly(-(i * 15 + 5)), amount: 4200 + Math.round(Math.random() * 800), status: i === 0 ? 'pending' : 'completed', returnCode: null })),
-};
-
-const MOCK_BIZ_CREDIT = {
-  scores: [
-    { bureau: 'dnb_paydex', score: 80, maxScore: 100, pullDate: daysFromNow(-14), tradelines: 12, paymentRating: 'Prompt' },
-    { bureau: 'experian_business', score: 68, maxScore: 100, pullDate: daysFromNow(-14), tradelines: 9, paymentRating: 'Mostly Prompt' },
-    { bureau: 'fico_sbss', score: 210, maxScore: 300, pullDate: daysFromNow(-14), tradelines: 15, paymentRating: 'Satisfactory' },
-  ],
-};
-
-const MOCK_CREDIT_HISTORY = {
+const STUB_CREDIT_HISTORY = {
   months: Array.from({ length: 12 }, (_, i) => {
     const d = new Date(); d.setMonth(d.getMonth() - (11 - i));
     return { month: d.toISOString().slice(0, 7), experian: 680 + i * 5, equifax: 695 + i * 4, transunion: 670 + i * 6 };
   }),
 };
 
-const MOCK_RECOMMENDATIONS = [
+const STUB_RECOMMENDATIONS = [
   { id: 'rec_001', priority: 'high', title: 'Reduce credit utilization below 30%', estimatedPointImpact: { min: 25, max: 40 } },
   { id: 'rec_002', priority: 'high', title: 'Dispute inaccurate late payment on Experian', estimatedPointImpact: { min: 15, max: 20 } },
   { id: 'rec_003', priority: 'medium', title: 'Add authorized user on a seasoned card', estimatedPointImpact: { min: 10, max: 15 } },
 ];
 
-const MOCK_REPAYMENT = {
+const STUB_REPAYMENT = {
   nextPayment: { date: dateOnly(3), amount: 8750, cards: 3, autopay: true },
   totalMonthlyObligations: 34200,
   autopayPct: 72,
   cardsAtRisk: 1,
-  paymentCalendar: Array.from({ length: 30 }, (_, i) => ({ date: dateOnly(i), amount: i % 3 === 0 ? 0 : 2500 + Math.round(Math.random() * 3000), cardCount: i % 3 === 0 ? 0 : 1 + Math.floor(Math.random() * 3) })),
+  paymentCalendar: Array.from({ length: 30 }, (_, i) => ({ date: dateOnly(i), amount: i % 3 === 0 ? 0 : 2500, cardCount: i % 3 === 0 ? 0 : 2 })),
   aprExpirySchedule: [
     { issuer: 'Chase', cardLast4: '4821', expiryDate: dateOnly(5), currentApr: 0, postExpiryApr: 24.99, creditLimit: 75000 },
     { issuer: 'American Express', cardLast4: '9173', expiryDate: dateOnly(22), currentApr: 0, postExpiryApr: 21.99, creditLimit: 150000 },
@@ -134,16 +134,7 @@ const MOCK_REPAYMENT = {
   ],
 };
 
-const MOCK_TIMELINE = [
-  { id: 'evt_001', type: 'application', title: 'Round 2 Application Submitted', timestamp: daysFromNow(-2), actor: 'Sarah Chen' },
-  { id: 'evt_002', type: 'consent', title: 'TCPA Acknowledgment Signed', timestamp: daysFromNow(-3), actor: 'James Harrington' },
-  { id: 'evt_003', type: 'payment', title: 'Autopay Processed — Chase ****4821', timestamp: daysFromNow(-5), actor: 'System' },
-  { id: 'evt_004', type: 'call', title: 'APR Expiry Outreach Call', timestamp: daysFromNow(-7), actor: 'Sarah Chen' },
-  { id: 'evt_005', type: 'document', title: 'Bank Statement Uploaded', timestamp: daysFromNow(-8), actor: 'James Harrington' },
-  { id: 'evt_006', type: 'compliance', title: 'NY Disclosure Filed', timestamp: daysFromNow(-10), actor: 'System' },
-];
-
-const MOCK_COMPLIANCE = {
+const STUB_COMPLIANCE_RUN = {
   complianceScore: 78, maxScore: 100, overallStatus: 'needs_attention',
   checks: [
     { id: 'chk_001', name: 'KYC — All Owners Verified', status: 'warning', detail: '2 of 3 owners verified' },
@@ -163,15 +154,16 @@ clientDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunct
 
   try {
     logger.debug('GET client profile', { clientId, tenantId });
-    const business = await prisma.business.findFirst({
-      where: { id: clientId, tenantId },
-    });
-    if (business) { ok(res, business); return; }
+    const business = await prisma.business.findFirst({ where: { id: clientId, tenantId } });
+    if (!business) {
+      err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
+      return;
+    }
+    ok(res, business);
   } catch (error) {
-    logger.warn('Prisma query failed for client profile, returning mock', { clientId, error });
+    logger.error('Prisma query failed for client profile', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_PROFILE_FAILED', 'Unable to load the client profile.');
   }
-
-  ok(res, { ...MOCK_PROFILE, id: clientId });
 });
 
 // GET /owners
@@ -181,15 +173,13 @@ clientDetailRouter.get('/owners', async (req: Request, res: Response, _next: Nex
 
   try {
     logger.debug('GET client owners', { clientId, tenantId });
-    const owners = await prisma.businessOwner.findMany({
-      where: { businessId: clientId },
-    });
-    if (owners.length > 0) { ok(res, owners, { total: owners.length }); return; }
+    const owners = await prisma.businessOwner.findMany({ where: { businessId: clientId } });
+    // No owners on file is a real answer, and the UI needs to show it as such.
+    ok(res, owners, { total: owners.length });
   } catch (error) {
-    logger.warn('Prisma query failed for owners, returning mock', { clientId, error });
+    logger.error('Prisma query failed for owners', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_OWNERS_FAILED', 'Unable to load business owners.');
   }
-
-  ok(res, MOCK_OWNERS, { total: MOCK_OWNERS.length });
 });
 
 // GET /acknowledgments
@@ -199,15 +189,12 @@ clientDetailRouter.get('/acknowledgments', async (req: Request, res: Response, _
 
   try {
     logger.debug('GET client acknowledgments', { clientId, tenantId });
-    const acks = await prisma.productAcknowledgment.findMany({
-      where: { businessId: clientId },
-    });
-    if (acks.length > 0) { ok(res, acks, { total: acks.length }); return; }
+    const acks = await prisma.productAcknowledgment.findMany({ where: { businessId: clientId } });
+    ok(res, acks, { total: acks.length });
   } catch (error) {
-    logger.warn('Prisma query failed for acknowledgments, returning mock', { clientId, error });
+    logger.error('Prisma query failed for acknowledgments', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_ACKNOWLEDGMENTS_FAILED', 'Unable to load acknowledgments.');
   }
-
-  ok(res, MOCK_ACKNOWLEDGMENTS, { total: MOCK_ACKNOWLEDGMENTS.length });
 });
 
 // GET /ach-authorization
@@ -217,15 +204,18 @@ clientDetailRouter.get('/ach-authorization', async (req: Request, res: Response,
 
   try {
     logger.debug('GET ACH authorization', { clientId, tenantId });
-    const ach = await prisma.achAuthorization.findFirst({
-      where: { businessId: clientId },
-    });
-    if (ach) { ok(res, ach); return; }
+    const ach = await prisma.achAuthorization.findFirst({ where: { businessId: clientId } });
+    if (!ach) {
+      // Reporting a fabricated "active" authorization for a client who never
+      // signed one is a compliance problem, not a cosmetic one.
+      err(res, 404, 'ACH_AUTHORIZATION_NOT_FOUND', 'No ACH authorization on file for this client.');
+      return;
+    }
+    ok(res, ach);
   } catch (error) {
-    logger.warn('Prisma query failed for ACH authorization, returning mock', { clientId, error });
+    logger.error('Prisma query failed for ACH authorization', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_ACH_FAILED', 'Unable to load the ACH authorization.');
   }
-
-  ok(res, MOCK_ACH);
 });
 
 // GET /credit/business
@@ -238,30 +228,26 @@ clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _
     const profiles = await prisma.creditProfile.findMany({
       where: { businessId: clientId, profileType: 'business' },
     });
-    if (profiles.length > 0) { ok(res, profiles); return; }
+    ok(res, { scores: profiles }, { total: profiles.length });
   } catch (error) {
-    logger.warn('Prisma query failed for business credit, returning mock', { clientId, error });
+    logger.error('Prisma query failed for business credit', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_CREDIT_FAILED', 'Unable to load business credit.');
   }
-
-  ok(res, MOCK_BIZ_CREDIT);
 });
 
-// GET /credit/history
+// GET /credit/history — STUB
 clientDetailRouter.get('/credit/history', async (_req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  // No Prisma model for historical score snapshots yet — return mock
-  ok(res, MOCK_CREDIT_HISTORY);
+  okStub(res, STUB_CREDIT_HISTORY, 'client.credit.history');
 });
 
-// GET /credit/recommendations
+// GET /credit/recommendations — STUB
 clientDetailRouter.get('/credit/recommendations', async (_req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  // AI-generated recommendations — mock until ML pipeline is wired
-  ok(res, MOCK_RECOMMENDATIONS, { total: MOCK_RECOMMENDATIONS.length });
+  okStub(res, STUB_RECOMMENDATIONS, 'client.credit.recommendations', { total: STUB_RECOMMENDATIONS.length });
 });
 
-// GET /repayment
+// GET /repayment — STUB
 clientDetailRouter.get('/repayment', async (_req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  // Aggregated from multiple card/payment sources — mock for now
-  ok(res, MOCK_REPAYMENT);
+  okStub(res, STUB_REPAYMENT, 'client.repayment');
 });
 
 // GET /timeline
@@ -276,12 +262,11 @@ clientDetailRouter.get('/timeline', async (req: Request, res: Response, _next: N
       orderBy: { publishedAt: 'desc' },
       take: 50,
     });
-    if (events.length > 0) { ok(res, events, { total: events.length }); return; }
+    ok(res, events, { total: events.length });
   } catch (error) {
-    logger.warn('Prisma query failed for timeline, returning mock', { clientId, error });
+    logger.error('Prisma query failed for timeline', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_TIMELINE_FAILED', 'Unable to load the client timeline.');
   }
-
-  ok(res, MOCK_TIMELINE, { total: MOCK_TIMELINE.length });
 });
 
 // GET /compliance — compliance checks for this business
@@ -295,15 +280,11 @@ clientDetailRouter.get('/compliance', async (req: Request, res: Response, _next:
       where: { businessId: clientId, tenantId },
       orderBy: { createdAt: 'desc' },
     });
-    if (checks.length > 0) {
-      ok(res, { complianceScore: 78, checks }, { total: checks.length });
-      return;
-    }
+    ok(res, { complianceScore: scoreFromChecks(checks), maxScore: 100, checks }, { total: checks.length });
   } catch (error) {
-    logger.warn('Prisma query failed for compliance, returning mock', { clientId, error });
+    logger.error('Prisma query failed for compliance', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_COMPLIANCE_FAILED', 'Unable to load compliance checks.');
   }
-
-  ok(res, MOCK_COMPLIANCE);
 });
 
 // GET /compliance/status — alias for compliance status
@@ -317,15 +298,11 @@ clientDetailRouter.get('/compliance/status', async (req: Request, res: Response,
       where: { businessId: clientId, tenantId },
       orderBy: { createdAt: 'desc' },
     });
-    if (checks.length > 0) {
-      ok(res, { complianceScore: 78, checks });
-      return;
-    }
+    ok(res, { complianceScore: scoreFromChecks(checks), maxScore: 100, checks });
   } catch (error) {
-    logger.warn('Prisma query failed for compliance status, returning mock', { clientId, error });
+    logger.error('Prisma query failed for compliance status', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_COMPLIANCE_STATUS_FAILED', 'Unable to load compliance status.');
   }
-
-  ok(res, MOCK_COMPLIANCE);
 });
 
 // GET /documents — documents for this business
@@ -339,53 +316,45 @@ clientDetailRouter.get('/documents', async (req: Request, res: Response, _next: 
       where: { businessId: clientId, tenantId },
       orderBy: { createdAt: 'desc' },
     });
-    if (docs.length > 0) {
-      ok(res, docs, { total: docs.length });
-      return;
-    }
+    ok(res, docs, { total: docs.length });
   } catch (error) {
-    logger.warn('Prisma query failed for documents, returning mock', { clientId, error });
+    logger.error('Prisma query failed for documents', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_DOCUMENTS_FAILED', 'Unable to load documents.');
   }
-
-  ok(res, [
-    { id: 'doc_001', documentType: 'bank_statement', title: 'Chase Business Checking — Feb 2026', storageKey: '/vault/doc_001.pdf', mimeType: 'application/pdf', createdAt: daysFromNow(-8) },
-    { id: 'doc_002', documentType: 'tax_return', title: '2025 Business Tax Return', storageKey: '/vault/doc_002.pdf', mimeType: 'application/pdf', createdAt: daysFromNow(-30) },
-    { id: 'doc_003', documentType: 'articles_of_incorporation', title: 'Articles of Organization — DE', storageKey: '/vault/doc_003.pdf', mimeType: 'application/pdf', createdAt: daysFromNow(-170) },
-  ], { total: 3 });
 });
 
-// POST /compliance/run
+// POST /compliance/run — STUB (starts nothing)
 clientDetailRouter.post('/compliance/run', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { clientId } = req.params;
   const tenantId = getTenantId(req);
-  logger.info('POST compliance run triggered', { clientId, tenantId });
+  logger.info('POST compliance run requested against stub endpoint', { clientId, tenantId });
 
-  // Mock response — in production this would kick off async compliance checks
-  ok(res, {
-    ...MOCK_COMPLIANCE,
+  okStub(res, {
+    ...STUB_COMPLIANCE_RUN,
     runId: `run_${Date.now()}`,
     triggeredAt: new Date().toISOString(),
     status: 'completed',
-  });
+  }, 'client.compliance.run');
 });
 
-// POST /consent/request
+// POST /consent/request — STUB (sends nothing)
 clientDetailRouter.post('/consent/request', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { clientId } = req.params;
   const tenantId = getTenantId(req);
   const { consentType, recipientEmail } = req.body ?? {};
-  logger.info('POST consent request', { clientId, tenantId, consentType });
+  logger.info('POST consent request against stub endpoint', { clientId, tenantId, consentType });
 
-  // Mock response — in production this sends an email/SMS
-  ok(res, {
+  // `status: 'sent'` below is sample data — nothing is dispatched. The stub
+  // markers are what stop this from reading as a real consent request.
+  okStub(res, {
     requestId: `cr_${Date.now()}`,
     clientId,
     consentType: consentType ?? 'general',
-    recipientEmail: recipientEmail ?? 'client@example.com',
+    recipientEmail: recipientEmail ?? null,
     status: 'sent',
     sentAt: new Date().toISOString(),
     expiresAt: daysFromNow(7),
-  });
+  }, 'client.consent.request');
 });
 
 // PATCH / — update business fields
@@ -401,15 +370,16 @@ clientDetailRouter.patch('/', async (req: Request, res: Response, _next: NextFun
 
   try {
     logger.debug('PATCH client profile', { clientId, tenantId, fields: Object.keys(updates) });
-    const updated = await prisma.business.update({
-      where: { id: clientId },
-      data: updates,
-    });
+    const updated = await prisma.business.update({ where: { id: clientId }, data: updates });
     ok(res, updated);
-    return;
   } catch (error) {
-    logger.warn('Prisma update failed for client profile, returning mock', { clientId, error });
+    if (isNotFound(error)) {
+      err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
+      return;
+    }
+    // This previously echoed the caller's own edits back as if they had been
+    // persisted, so a failed update looked like a successful one.
+    logger.error('Prisma update failed for client profile', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_UPDATE_FAILED', 'Unable to update the client.');
   }
-
-  ok(res, { ...MOCK_PROFILE, id: clientId, ...updates, updatedAt: new Date().toISOString() });
 });
