@@ -128,8 +128,8 @@ export interface EmailStatementParseResult {
 const EMAIL_PATTERNS: Record<string, RegExp> = {
   closingBalance: /(?:new balance|closing balance|balance due)[:\s]+\$?([\d,]+\.?\d*)/i,
   minimumPayment: /(?:minimum payment|min.*?due|minimum.*?due)[:\s]+\$?([\d,]+\.?\d*)/i,
-  dueDate: /(?:payment due date|due date)[:\s]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})/i,
-  statementDate: /(?:statement date|statement closing date|closing date)[:\s]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})/i,
+  dueDate: /(?:payment due date|due date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i,
+  statementDate: /(?:statement date|statement closing date|closing date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i,
   creditLimit: /(?:credit limit|total credit line)[:\s]+\$?([\d,]+\.?\d*)/i,
   availableCredit: /(?:available credit)[:\s]+\$?([\d,]+\.?\d*)/i,
 };

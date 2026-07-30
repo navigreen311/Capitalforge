@@ -69,7 +69,7 @@ const LIMIT_REDUCTION_PATTERNS = [
 /** Matches "Reason: <text>", "Reason Code: <code>", numbered reasons, etc. */
 const REASON_LINE_PATTERNS = [
   /reason(?:\s+code)?[:\s]+(\d{1,2})[:\s\-–]*(.*)/gi,
-  /^\s*(?:\d+[\.\):]|\-|•)\s+(.+)/gm,
+  /^\s*(?:\d+[.):]|-|•)\s+(.+)/gm,
   /adverse.{0,10}reason[s]?[:\s]+(.+)/gi,
   /principal reason[s]?[:\s]+(.+)/gi,
 ];
@@ -87,8 +87,8 @@ const ISSUER_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
   { pattern: /discover/i,             name: 'discover' },
 ];
 
-const APP_REF_PATTERN   = /(?:application|reference|ref|app).{0,10}(?:#|number|no\.?|id)[:\s]+([A-Z0-9\-]{4,30})/i;
-const ACCOUNT_REF_PATTERN = /(?:account|acct).{0,10}(?:number|no\.?|ending in|last 4)[:\s]+([X*\d\-]{4,20})/i;
+const APP_REF_PATTERN   = /(?:application|reference|ref|app).{0,10}(?:#|number|no\.?|id)[:\s]+([A-Z0-9-]{4,30})/i;
+const ACCOUNT_REF_PATTERN = /(?:account|acct).{0,10}(?:number|no\.?|ending in|last 4)[:\s]+([X*\d-]{4,20})/i;
 
 // ── JSON Schema Detection ─────────────────────────────────────
 
