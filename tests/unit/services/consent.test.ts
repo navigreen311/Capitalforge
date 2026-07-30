@@ -129,8 +129,8 @@ const BUSINESS_ID = 'biz-001';
 
 function makeTestDeps() {
   const store = makeConsentStore();
-  const mockPrisma = { consentRecord: store } as unknown as Parameters<
-    typeof ConsentService.prototype['constructor']
+  const mockPrisma = { consentRecord: store } as unknown as ConstructorParameters<
+    typeof ConsentService
   >[0];
 
   const service = new ConsentService(mockPrisma as never);

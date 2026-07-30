@@ -471,7 +471,7 @@ describe('Performance scoring', () => {
 
     const round = makeRound({ applications: apps });
     const metrics = (svc as unknown as {
-      _computeMetrics(r: unknown): ReturnType<FundingRoundService['computeRoundMetrics']>;
+      _computeMetrics(r: unknown): Awaited<ReturnType<FundingRoundService['computeRoundMetrics']>>;
     })._computeMetrics(round);
 
     expect(metrics.weightedAvgIntroApr).toBeCloseTo(0.09995, 4);
@@ -486,7 +486,7 @@ describe('Performance scoring', () => {
 
     const round = makeRound({ applications: apps });
     const metrics = (svc as unknown as {
-      _computeMetrics(r: unknown): ReturnType<FundingRoundService['computeRoundMetrics']>;
+      _computeMetrics(r: unknown): Awaited<ReturnType<FundingRoundService['computeRoundMetrics']>>;
     })._computeMetrics(round);
 
     expect(metrics.weightedAvgIntroApr).toBeNull();

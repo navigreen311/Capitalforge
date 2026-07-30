@@ -129,7 +129,17 @@ export class ApplicationPipelineService {
    * The application is scoped to the caller's tenant.
    */
   async createApplication(
-    businessIdOrInput: string | (CreateApplicationInput & { businessId: string; tenantId?: string }),
+    // The object form defaults assignedAdvisorIds to [] (see below), so the
+    // declared type must not require it — intersecting with the full
+    // CreateApplicationInput did, making every documented test-friendly call
+    // a compile error.
+    businessIdOrInput:
+      | string
+      | (Omit<CreateApplicationInput, 'assignedAdvisorIds'> & {
+          businessId: string;
+          tenantId?: string;
+          assignedAdvisorIds?: string[];
+        }),
     inputOrCaller?: CreateApplicationInput | CallerContext,
     callerArg?: CallerContext,
   ): Promise<ApplicationRecord> {
@@ -306,7 +316,17 @@ export class ApplicationPipelineService {
    *  5. Consent timestamp is written if status is `pending_consent`.
    */
   async transitionStatus(
-    applicationIdOrInput: string | (TransitionStatusInput & { applicationId: string; tenantId?: string; toStatus?: string }),
+    // The object form maps `toStatus → status` (see below), so `status` must be
+    // optional here; intersecting with the full TransitionStatusInput required
+    // both, which no caller supplies.
+    applicationIdOrInput:
+      | string
+      | (Omit<TransitionStatusInput, 'status'> & {
+          applicationId: string;
+          tenantId?: string;
+          toStatus?: string;
+          status?: TransitionStatusInput['status'];
+        }),
     inputOrCaller?: TransitionStatusInput | CallerContext,
     callerArg?: CallerContext,
   ): Promise<ApplicationRecord> {

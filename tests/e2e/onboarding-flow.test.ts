@@ -86,7 +86,7 @@ describe('E2E: Onboarding Flow', () => {
     vi.mocked(isHardOFACStop).mockReturnValue(false);
     vi.mocked(detectFraud).mockResolvedValue({
       riskScore: 10,
-      disposition: 'clear',
+      disposition: 'low',
       signals: [],
       requiresManualReview: false,
       summary: 'No fraud signals detected.',
@@ -202,9 +202,9 @@ describe('E2E: Onboarding Flow', () => {
       businessId:       graph.business.id,
       tenantId:         graph.tenant.id,
       legalName:        graph.business.legalName,
-      ein:              graph.business.ein,
+      ein:              graph.business.ein!,
       entityType:       graph.business.entityType,
-      stateOfFormation: graph.business.stateOfFormation,
+      stateOfFormation: graph.business.stateOfFormation!,
     });
 
     expect(result.status).toBe('verified');
@@ -317,8 +317,13 @@ describe('E2E: Onboarding Flow', () => {
     // Override fraud detection mock for this test to simulate high-risk fraud
     vi.mocked(detectFraud).mockResolvedValueOnce({
       riskScore:            85,
-      disposition:          'review_required' as const,
-      signals:              [{ type: 'synthetic_identity', score: 85, description: 'Synthetic identity' }],
+      disposition:          'high' as const,
+      signals:              [{
+        code:          'synthetic_identity',
+        description:   'Synthetic identity',
+        weight:        85,
+        flagForReview: true,
+      }],
       requiresManualReview: true,
       summary:              'High-risk synthetic identity detected.',
       evaluatedAt:          new Date(),
@@ -419,10 +424,10 @@ describe('E2E: Onboarding Flow', () => {
       tenantId:         graph.tenant.id,
       advisorId:        ctx.userId,
       legalName:        graph.business.legalName,
-      ein:              graph.business.ein,
+      ein:              graph.business.ein!,
       entityType:       graph.business.entityType,
-      stateOfFormation: graph.business.stateOfFormation,
-      industry:         graph.business.industry,
+      stateOfFormation: graph.business.stateOfFormation!,
+      industry:         graph.business.industry!,
       annualRevenue:    Number(graph.business.annualRevenue),
     });
     expect(business).toBeDefined();
@@ -452,8 +457,8 @@ describe('E2E: Onboarding Flow', () => {
 
     const kyb = await kybSvc.verifyKyb({
       businessId: business.id, tenantId: graph.tenant.id,
-      legalName: business.legalName, ein: business.ein,
-      entityType: business.entityType, stateOfFormation: business.stateOfFormation,
+      legalName: business.legalName, ein: business.ein!,
+      entityType: business.entityType, stateOfFormation: business.stateOfFormation!,
     });
     expect(kyb.status).toBe('verified');
 

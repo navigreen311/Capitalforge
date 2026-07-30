@@ -117,11 +117,11 @@ function makeRestackInput(overrides?: Partial<RestackReadinessInput>): RestackRe
 
 // ── Test setup ────────────────────────────────────────────────
 
-let mockPrisma: ReturnType<typeof PrismaClient>;
+let mockPrisma: PrismaClient;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockPrisma = new PrismaClient() as ReturnType<typeof PrismaClient>;
+  mockPrisma = new PrismaClient();
   setHardshipPrisma(mockPrisma as unknown as PrismaClient);
   setRestackPrisma(mockPrisma as unknown as PrismaClient);
 });
