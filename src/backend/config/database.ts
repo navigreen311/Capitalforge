@@ -41,7 +41,6 @@ function buildPrismaClient(): PrismaClient {
 
   // In development, log slow queries and query details
   if (!IS_PRODUCTION && !IS_TEST) {
-    // @ts-expect-error — Prisma's $on typings require event-emit log config
     client.$on('query', (e: QueryEvent) => {
       const slow = e.duration > 200;
       const logFn = slow ? logger.warn.bind(logger) : logger.debug.bind(logger);
@@ -53,19 +52,16 @@ function buildPrismaClient(): PrismaClient {
       });
     });
 
-    // @ts-expect-error — same reason
     client.$on('info', (e: LogEvent) => {
       logger.debug('Prisma info', { message: e.message, target: e.target });
     });
   }
 
   // Warn-level events always go to the application logger
-  // @ts-expect-error — same reason
   client.$on('warn', (e: LogEvent) => {
     logger.warn('Prisma warning', { message: e.message, target: e.target });
   });
 
-  // @ts-expect-error — same reason
   client.$on('error', (e: LogEvent) => {
     logger.error('Prisma error', { message: e.message, target: e.target });
   });
