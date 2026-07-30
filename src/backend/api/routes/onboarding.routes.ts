@@ -221,10 +221,14 @@ onboardingRouter.get(
   }),
 );
 
-// ── 404 fallback (within this router) ─────────────────────────
-
-onboardingRouter.use((_req: Request, res: Response) => {
-  fail(res, 'NOT_FOUND', 'Endpoint not found', 404);
-});
+// NOTE: no router-level 404 fallback here.
+//
+// This router is mounted FIRST on /api/businesses (see routes/index.ts), and
+// several sibling routers mount deeper paths under that same prefix — KYB/KYC,
+// acknowledgments, consent, suitability, cost, optimizer, and the per-business
+// application list. A catch-all `onboardingRouter.use(...)` swallowed every one
+// of those requests and returned 404 before Express reached the later routers.
+// Unmatched /api/businesses/* paths now fall through to the global
+// notFoundHandler in server.ts, which is where the 404 belongs.
 
 export default onboardingRouter;
