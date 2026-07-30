@@ -7,7 +7,16 @@
 // with pre-submission checklist, and decline handling.
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
+import {
+  toApplicationViews,
+  summariseGates,
+  formatAmount,
+  type ApplicationStatus,
+  type ApplicationView,
+} from '@/lib/applications-view';
 import AprCountdown from '@/components/modules/apr-countdown';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -17,68 +26,6 @@ interface ApplicationsTabProps {
   clientName: string;
 }
 
-type ApplicationStatus = 'approved' | 'draft' | 'submitted' | 'declined';
-
-interface PlaceholderApplication {
-  id: string;
-  cardProduct: string;
-  issuer: string;
-  status: ApplicationStatus;
-  requestedAmount: number;
-  approvedAmount: number | null;
-  consentComplete: boolean;
-  ackSigned: boolean;
-  // Approved-specific
-  currentBalance?: number;
-  availableCredit?: number;
-  utilization?: number;
-  nextPaymentDue?: string;
-  aprExpiresAt?: string;
-  regularApr?: number;
-  // Declined-specific
-  declineReason?: string;
-}
-
-// ── Placeholder Data ────────────────────────────────────────────────────────
-
-const PLACEHOLDER_APPLICATIONS: PlaceholderApplication[] = [
-  {
-    id: 'app-001',
-    cardProduct: 'Chase Ink Business Preferred',
-    issuer: 'Chase',
-    status: 'approved',
-    requestedAmount: 50_000,
-    approvedAmount: 45_000,
-    consentComplete: true,
-    ackSigned: true,
-    currentBalance: 12_400,
-    availableCredit: 32_600,
-    utilization: 27,
-    nextPaymentDue: 'Apr 15, 2026',
-    aprExpiresAt: '2026-09-15',
-    regularApr: 24.99,
-  },
-  {
-    id: 'app-002',
-    cardProduct: 'Bank of America Business Advantage',
-    issuer: 'Bank of America',
-    status: 'draft',
-    requestedAmount: 30_000,
-    approvedAmount: null,
-    consentComplete: true,
-    ackSigned: false,
-  },
-  {
-    id: 'app-003',
-    cardProduct: 'Capital One Spark Cash Plus',
-    issuer: 'Capital One',
-    status: 'submitted',
-    requestedAmount: 25_000,
-    approvedAmount: null,
-    consentComplete: false,
-    ackSigned: true,
-  },
-];
 
 // ── Status Badge ────────────────────────────────────────────────────────────
 
@@ -117,30 +64,34 @@ function StatusBadge({ status }: { status: ApplicationStatus }) {
 
 // ── Consent & Acknowledgment Chips ──────────────────────────────────────────
 
-function ConsentChip({ complete }: { complete: boolean }) {
+// `null` is a third state, not a falsy second one. Rendering an unloaded gate
+// as "Missing" would assert that a client's consent is absent from the file.
+function ConsentChip({ complete }: { complete: boolean | null }) {
+  const className =
+    complete === null
+      ? 'bg-gray-100 text-gray-700 border-gray-300'
+      : complete
+        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+        : 'bg-red-100 text-red-800 border-red-300';
+
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-        complete
-          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-          : 'bg-red-100 text-red-800 border-red-300'
-      }`}
-    >
-      Consent: {complete ? 'Complete' : 'Missing'}
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${className}`}>
+      Consent: {complete === null ? 'Unknown' : complete ? 'Complete' : 'Missing'}
     </span>
   );
 }
 
-function AckChip({ signed }: { signed: boolean }) {
+function AckChip({ signed }: { signed: boolean | null }) {
+  const className =
+    signed === null
+      ? 'bg-gray-100 text-gray-700 border-gray-300'
+      : signed
+        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+        : 'bg-amber-100 text-amber-800 border-amber-300';
+
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-        signed
-          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-          : 'bg-amber-100 text-amber-800 border-amber-300'
-      }`}
-    >
-      Ack: {signed ? 'Signed' : 'Required'}
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${className}`}>
+      Ack: {signed === null ? 'Unknown' : signed ? 'Signed' : 'Required'}
     </span>
   );
 }
@@ -293,29 +244,36 @@ function DeclineSection({
   reason,
 }: {
   appId: string;
-  reason: string;
+  /** null when no decline reason is on record — the toggle is then hidden. */
+  reason: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="mt-3 space-y-2">
-      <button
-        onClick={() => setExpanded((prev) => !prev)}
-        className="text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors flex items-center gap-1"
-      >
-        <span
-          className="inline-block transition-transform"
-          style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
-        >
-          &#9656;
-        </span>
-        View Decline Reason
-      </button>
+      {reason ? (
+        <>
+          <button
+            onClick={() => setExpanded((prev) => !prev)}
+            className="text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors flex items-center gap-1"
+          >
+            <span
+              className="inline-block transition-transform"
+              style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            >
+              &#9656;
+            </span>
+            View Decline Reason
+          </button>
 
-      {expanded && (
-        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
-          {reason}
-        </div>
+          {expanded && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+              {reason}
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="text-sm text-gray-500">No decline reason on record.</p>
       )}
 
       <a
@@ -374,7 +332,7 @@ function formatCurrency(amount: number): string {
 
 // ── Application Card ────────────────────────────────────────────────────────
 
-function ApplicationCard({ app }: { app: PlaceholderApplication }) {
+function ApplicationCard({ app }: { app: ApplicationView }) {
   const [showModal, setShowModal] = useState(false);
 
   return (
@@ -397,14 +355,14 @@ function ApplicationCard({ app }: { app: PlaceholderApplication }) {
             <div>
               <span className="text-gray-500">Requested: </span>
               <span className="font-medium text-gray-800">
-                {formatCurrency(app.requestedAmount)}
+                {formatAmount(app.requestedAmount)}
               </span>
             </div>
             {app.approvedAmount !== null && (
               <div>
                 <span className="text-gray-500">Approved: </span>
                 <span className="font-semibold text-emerald-700">
-                  {formatCurrency(app.approvedAmount)}
+                  {formatAmount(app.approvedAmount)}
                 </span>
               </div>
             )}
@@ -416,50 +374,15 @@ function ApplicationCard({ app }: { app: PlaceholderApplication }) {
             <AckChip signed={app.ackSigned} />
           </div>
 
-          {/* Approved-specific: balance, utilization, APR countdown */}
+          {/* Card account detail — balance, utilisation, APR expiry — is not
+              modelled behind this endpoint. It previously defaulted to $0 and
+              0% utilisation, which reads as a healthy, unused card rather
+              than as an unknown one. */}
           {app.status === 'approved' && (
-            <div className="space-y-3 pt-2 border-t border-gray-100">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-gray-500 text-xs">Current Balance</span>
-                  <p className="font-semibold text-gray-900">
-                    {formatCurrency(app.currentBalance ?? 0)}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-gray-500 text-xs">Available Credit</span>
-                  <p className="font-semibold text-gray-900">
-                    {formatCurrency(app.availableCredit ?? 0)}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <span className="text-gray-500 text-xs block mb-1">
-                  Utilization
-                </span>
-                <UtilizationBar pct={app.utilization ?? 0} />
-              </div>
-
-              {app.nextPaymentDue && (
-                <div className="text-sm">
-                  <span className="text-gray-500">Next Payment Due: </span>
-                  <span className="font-medium text-gray-800">
-                    {app.nextPaymentDue}
-                  </span>
-                </div>
-              )}
-
-              {app.aprExpiresAt && (
-                <AprCountdown
-                  cardProduct={app.cardProduct}
-                  issuer={app.issuer}
-                  expiresAt={app.aprExpiresAt}
-                  regularApr={app.regularApr}
-                  balance={app.currentBalance}
-                  compact
-                />
-              )}
+            <div className="space-y-2 pt-2 border-t border-gray-100">
+              <p className="text-xs text-gray-500">
+                Balance, utilisation and APR expiry are not available for this card.
+              </p>
             </div>
           )}
 
@@ -475,10 +398,11 @@ function ApplicationCard({ app }: { app: PlaceholderApplication }) {
             </div>
           )}
 
-          {/* Declined-specific: reason + reconsideration */}
-          {app.status === 'declined' && app.declineReason && (
+          {/* Declined-specific: the list endpoint carries no decline reason,
+              so none is asserted. */}
+          {app.status === 'declined' && (
             <div className="pt-2 border-t border-gray-100">
-              <DeclineSection appId={app.id} reason={app.declineReason} />
+              <DeclineSection appId={app.id} reason={null} />
             </div>
           )}
         </div>
@@ -501,13 +425,20 @@ export default function ApplicationsTab({
   clientId,
   clientName,
 }: ApplicationsTabProps) {
-  const [isLoading] = useState(false);
+  // The list endpoint is business-scoped; consent/acknowledgment status is a
+  // property of the business, so it comes from the compliance gate.
+  const { data, isLoading, error, refetch } = useAuthFetch<unknown>(
+    `/api/applications`,
+    { businessId: clientId },
+  );
+  const { data: gateData } = useAuthFetch<unknown>(
+    `/api/applications/compliance-gate/${clientId}`,
+  );
 
-  // In a real implementation this would fetch from the API:
-  // const { data, isLoading, error } = useAuthFetch<ApplicationsResponse>(
-  //   `/api/v1/clients/${clientId}/applications`
-  // );
-  const applications = PLACEHOLDER_APPLICATIONS;
+  const applications = useMemo(
+    () => toApplicationViews(data, summariseGates(gateData)),
+    [data, gateData],
+  );
 
   return (
     <section aria-label={`Applications for ${clientName}`}>
@@ -525,6 +456,15 @@ export default function ApplicationsTab({
       {/* Cards */}
       {isLoading ? (
         <LoadingSkeletons />
+      ) : error ? (
+        <DashboardErrorState error={error} onRetry={refetch} />
+      ) : applications.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
+          <p className="text-sm font-medium text-gray-700">No applications yet</p>
+          <p className="mt-1 text-xs text-gray-500">
+            This client has not applied for any cards.
+          </p>
+        </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
           {applications.map((app) => (
