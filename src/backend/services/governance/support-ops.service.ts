@@ -220,7 +220,7 @@ export class SupportOpsService {
       // Check SLA breach on first response
       if (now > incident.slaFirstResponseDeadline) {
         incident.slaBreached = true;
-        logger.warn({ incidentId: incident.id }, 'SLA first-response deadline breached');
+        logger.warn('SLA first-response deadline breached', { incidentId: incident.id });
       }
     }
 
@@ -230,7 +230,7 @@ export class SupportOpsService {
         incident.resolvedAt = now;
         if (now > incident.slaResolutionDeadline) {
           incident.slaBreached = true;
-          logger.warn({ incidentId: incident.id }, 'SLA resolution deadline breached');
+          logger.warn('SLA resolution deadline breached', { incidentId: incident.id });
         }
       }
       if (input.status === 'closed') {
@@ -248,7 +248,7 @@ export class SupportOpsService {
       message: input.message,
     });
 
-    logger.info({ incidentId: incident.id, status: incident.status, actor: input.actor }, 'incident updated');
+    logger.info('incident updated', { incidentId: incident.id, status: incident.status, actor: input.actor });
     return incident;
   }
 
@@ -321,7 +321,7 @@ export class SupportOpsService {
 
       if (newBreach && !incident.slaBreached) {
         incident.slaBreached = true;
-        logger.warn({ incidentId: incident.id, severity: incident.severity }, 'SLA breach detected');
+        logger.warn('SLA breach detected', { incidentId: incident.id, severity: incident.severity });
         breached.push(incident);
       }
     }

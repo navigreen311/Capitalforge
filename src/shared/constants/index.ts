@@ -25,6 +25,10 @@ export const EVENT_TYPES = {
   SUITABILITY_ASSESSED: 'suitability.assessed',
   NOGO_TRIGGERED: 'nogo.triggered',
 
+  // Rules / reference data / release governance
+  RULE_CREATED: 'rule.created',
+  RULE_UPDATED: 'rule.updated',
+
   // ACH
   DEBIT_AUTHORIZED: 'debit.authorized',
   DEBIT_REVOKED: 'debit.revoked',
@@ -66,6 +70,8 @@ export const AGGREGATE_TYPES = {
   ACH: 'ach_authorization',
   USER: 'user',
   TENANT: 'tenant',
+  /** Versioned reference data and release/feature-flag governance. */
+  RULE: 'rule',
 } as const;
 
 // Risk Thresholds

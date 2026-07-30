@@ -267,17 +267,14 @@ export class ReferenceDataService {
 
     store.push(version);
 
-    await eventBus.publishAndPersist({
-      id: uuidv4(),
-      type: EVENT_TYPES.RULE_CREATED,
+    await eventBus.publishAndPersist(tenantId ?? 'platform', {
+      eventType: EVENT_TYPES.RULE_CREATED,
       aggregateType: AGGREGATE_TYPES.RULE,
       aggregateId: entityId,
-      tenantId: tenantId ?? 'platform',
       payload: { versionId: version.id, domain, semver, qualityScore: score },
-      occurredAt: new Date(),
     });
 
-    logger.info({ versionId: version.id, domain, entityId, semver }, 'ref-data version created');
+    logger.info('ref-data version created', { versionId: version.id, domain, entityId, semver });
     return version;
   }
 
@@ -295,7 +292,7 @@ export class ReferenceDataService {
     version.status = 'pending_review';
     version.submittedForReviewAt = new Date();
 
-    logger.info({ versionId, domain: version.domain }, 'ref-data version submitted for review');
+    logger.info('ref-data version submitted for review', { versionId, domain: version.domain });
     return version;
   }
 
@@ -311,11 +308,11 @@ export class ReferenceDataService {
 
     if (approve) {
       version.status = 'approved';
-      logger.info({ versionId, reviewedBy }, 'ref-data version approved');
+      logger.info('ref-data version approved', { versionId, reviewedBy });
     } else {
       version.status = 'rejected';
       version.rejectionReason = rejectionReason;
-      logger.info({ versionId, reviewedBy, rejectionReason }, 'ref-data version rejected');
+      logger.info('ref-data version rejected', { versionId, reviewedBy, rejectionReason });
     }
 
     return version;
@@ -346,17 +343,14 @@ export class ReferenceDataService {
     version.status      = 'active';
     version.activatedAt = new Date();
 
-    await eventBus.publishAndPersist({
-      id: uuidv4(),
-      type: EVENT_TYPES.RULE_UPDATED,
+    await eventBus.publishAndPersist(version.tenantId ?? 'platform', {
+      eventType: EVENT_TYPES.RULE_UPDATED,
       aggregateType: AGGREGATE_TYPES.RULE,
       aggregateId: version.entityId,
-      tenantId: version.tenantId ?? 'platform',
       payload: { versionId, domain: version.domain, semver: version.semver, activatedBy },
-      occurredAt: new Date(),
     });
 
-    logger.info({ versionId, activatedBy }, 'ref-data version activated');
+    logger.info('ref-data version activated', { versionId, activatedBy });
     return version;
   }
 
@@ -408,7 +402,7 @@ export class ReferenceDataService {
     version.qualityScore  = score;
     version.qualityIssues = issues;
 
-    logger.info({ versionId, score }, 'ref-data quality recheck complete');
+    logger.info('ref-data quality recheck complete', { versionId, score });
     return version;
   }
 

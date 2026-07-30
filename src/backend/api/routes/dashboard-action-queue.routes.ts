@@ -284,7 +284,7 @@ dashboardActionQueueRouter.get('/', async (req: Request, res: Response) => {
 
     res.json(body);
   } catch (err) {
-    logger.error({ err }, 'Failed to build action queue');
+    logger.error('Failed to build action queue', { err });
     const body: ApiResponse = {
       success: false,
       error: {

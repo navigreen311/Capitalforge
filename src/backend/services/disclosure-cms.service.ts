@@ -423,7 +423,7 @@ export class DisclosureCmsService {
   async createTemplate(input: CreateTemplateInput): Promise<DisclosureTemplateRecord> {
     const { tenantId, state, category, name, content, effectiveDate, variables } = input;
 
-    logger.info({ tenantId, state, category }, 'DisclosureCMS: creating template');
+    logger.info('DisclosureCMS: creating template', { tenantId, state, category });
 
     const record = await this.prisma.disclosureTemplate.create({
       data: {
@@ -523,7 +523,7 @@ export class DisclosureCmsService {
       version: 1,
     });
 
-    logger.info({ templateId, tenantId }, 'DisclosureCMS: template submitted for approval');
+    logger.info('DisclosureCMS: template submitted for approval', { templateId, tenantId });
 
     return this.mapRecord(existing, CATEGORY_VARIABLES[existing.category as DisclosureCategory] ?? []);
   }
@@ -779,7 +779,7 @@ export class DisclosureCmsService {
       seeded++;
     }
 
-    logger.info({ tenantId, seeded }, 'DisclosureCMS: seeded default templates');
+    logger.info('DisclosureCMS: seeded default templates', { tenantId, seeded });
     return seeded;
   }
 

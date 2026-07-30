@@ -306,7 +306,7 @@ export class GovernanceCadenceService {
       );
     }
 
-    logger.info({ reviewId: review.id, completedBy: input.completedBy }, 'governance review completed');
+    logger.info('governance review completed', { reviewId: review.id, completedBy: input.completedBy });
 
     this._sendEmailStub(
       review,
@@ -385,7 +385,7 @@ export class GovernanceCadenceService {
     }
 
     if (sent.length > 0) {
-      logger.info({ count: sent.length }, 'governance reminders dispatched');
+      logger.info('governance reminders dispatched', { count: sent.length });
     }
 
     return sent;
@@ -412,7 +412,7 @@ export class GovernanceCadenceService {
     }
 
     if (updated.length > 0) {
-      logger.warn({ count: updated.length }, 'governance items marked overdue');
+      logger.warn('governance items marked overdue', { count: updated.length });
     }
 
     return updated;

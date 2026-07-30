@@ -568,7 +568,7 @@ export class ContractIntelligenceService {
   async analyzeContract(input: ContractAnalysisInput): Promise<ContractAnalysisResult> {
     const { tenantId, contractType, documentText, documentId, partnerId } = input;
 
-    logger.info({ tenantId, contractType }, 'ContractIntelligence: analyzing contract');
+    logger.info('ContractIntelligence: analyzing contract', { tenantId, contractType });
 
     const extractedClauses = extractClausesFromText(documentText);
     const redFlags = detectRedFlags(documentText, extractedClauses);

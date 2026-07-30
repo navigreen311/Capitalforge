@@ -31,14 +31,23 @@ export type PathParams = Record<string, string>;
 
 /**
  * Express's Request with the parameter dictionary narrowed to strings.
- * Generic positions match express's own ordering so existing explicit
- * annotations keep working.
+ *
+ * Every generic position and default mirrors express's own declaration
+ * except P. In particular ResBody/ReqBody stay `any`, as express has
+ * them: defaulting ReqBody to `unknown` instead is stricter than the
+ * upstream type and makes `req.body.field` an error across the whole
+ * codebase, which is a different change from the one this alias exists
+ * to make.
  */
 export type Request<
   P = PathParams,
-  ResBody = unknown,
-  ReqBody = unknown,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ResBody = any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ReqBody = any,
   ReqQuery = ParsedQs,
-> = ExpressRequest<P, ResBody, ReqBody, ReqQuery>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  LocalsObj extends Record<string, any> = Record<string, any>,
+> = ExpressRequest<P, ResBody, ReqBody, ReqQuery, LocalsObj>;
 
 export type { Response, NextFunction, Router } from 'express';
