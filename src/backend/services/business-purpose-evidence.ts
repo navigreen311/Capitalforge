@@ -545,7 +545,7 @@ export class BusinessPurposeEvidenceService {
     }
 
     const transactions = await this.prisma.spendTransaction.findMany({
-      where: where as Parameters<typeof this.prisma.spendTransaction.findMany>[0]['where'],
+      where: where as NonNullable<Parameters<typeof this.prisma.spendTransaction.findMany>[0]>['where'],
       orderBy: { transactionDate: 'desc' },
     });
 

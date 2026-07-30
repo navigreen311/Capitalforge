@@ -192,15 +192,12 @@ export class SupportOpsService {
 
     incidentStore.push(incident);
 
-    logger.info(
-      {
+    logger.info('incident created', {
         incidentId: incident.id,
         severity: incident.severity,
         tenantId: incident.tenantId,
         team: incident.assignedTeam,
-      },
-      'incident created',
-    );
+      });
 
     // Stub: in production, dispatch PagerDuty / Slack / email via sla.notifyChannels
     this._sendNotificationStub(incident);
@@ -333,14 +330,11 @@ export class SupportOpsService {
 
   private _sendNotificationStub(incident: Incident): void {
     const sla = SLA_POLICIES[incident.severity];
-    logger.info(
-      {
+    logger.info('[STUB] support notification dispatched', {
         incidentId: incident.id,
         channels: sla.notifyChannels,
         assignedTeam: incident.assignedTeam,
-      },
-      '[STUB] support notification dispatched',
-    );
+      });
     // TODO: integrate PagerDuty, Slack, and email notifiers
   }
 

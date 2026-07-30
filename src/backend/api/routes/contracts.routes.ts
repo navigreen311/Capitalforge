@@ -810,10 +810,7 @@ contractsRouter.post(
       );
 
       if (rendered.missingVariables.length > 0) {
-        logger.warn(
-          { templateId, missing: rendered.missingVariables },
-          'Disclosure rendered with missing variables',
-        );
+        logger.warn('Disclosure rendered with missing variables', { templateId, missing: rendered.missingVariables });
       }
 
       const response: ApiResponse<typeof rendered> = {
@@ -894,7 +891,7 @@ contractsRouter.post(
 contractsRouter.post(
   '/disclosures/seed',
   tenantMiddleware,
-  requirePermission(PERMISSIONS.ADMIN ?? 'ADMIN'),
+  requirePermission(PERMISSIONS.ADMIN_TENANT),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { autoApprove, approverId } = req.body ?? {};

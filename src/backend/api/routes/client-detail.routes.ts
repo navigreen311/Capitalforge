@@ -272,8 +272,8 @@ clientDetailRouter.get('/timeline', async (req: Request, res: Response, _next: N
   try {
     logger.debug('GET client timeline', { clientId, tenantId });
     const events = await prisma.ledgerEvent.findMany({
-      where: { businessId: clientId },
-      orderBy: { createdAt: 'desc' },
+      where: { aggregateId: clientId },
+      orderBy: { publishedAt: 'desc' },
       take: 50,
     });
     if (events.length > 0) { ok(res, events, { total: events.length }); return; }

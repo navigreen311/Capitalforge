@@ -345,7 +345,11 @@ export class PortfolioBenchmarkingService {
       by:    ['advisorId'],
       where: { tenantId, advisorId: { not: null } },
       _count: { id: true },
-    }) as Array<{ advisorId: string | null; _count: { id: number } }>;
+      orderBy: { advisorId: 'asc' },
+    } as Parameters<typeof this.db.business.groupBy>[0]) as unknown as Array<{
+      advisorId: string | null;
+      _count: { id: number };
+    }>;
     const advisorClientMap = new Map(
       advisorCounts.map((r) => [r.advisorId!, r._count.id]),
     );

@@ -149,10 +149,7 @@ export class GovernanceCadenceService {
     };
 
     reviewStore.push(review);
-    logger.info(
-      { reviewId: review.id, type: input.reviewType, dueDate: input.dueDate },
-      'governance review scheduled',
-    );
+    logger.info('governance review scheduled', { reviewId: review.id, type: input.reviewType, dueDate: input.dueDate });
 
     // Send initial scheduling notification
     this._sendEmailStub(review, `Governance review scheduled: ${input.title}`, input.notifyEmails);
@@ -300,10 +297,7 @@ export class GovernanceCadenceService {
     // Schedule next recurrence if applicable
     if (review.recurrenceMonths) {
       review.nextReviewDate = addMonths(review.dueDate, review.recurrenceMonths);
-      logger.info(
-        { reviewId: review.id, nextReviewDate: review.nextReviewDate },
-        'next recurrence date set',
-      );
+      logger.info('next recurrence date set', { reviewId: review.id, nextReviewDate: review.nextReviewDate });
     }
 
     logger.info('governance review completed', { reviewId: review.id, completedBy: input.completedBy });
@@ -425,15 +419,12 @@ export class GovernanceCadenceService {
     subject: string,
     recipients: string[],
   ): void {
-    logger.info(
-      {
+    logger.info('[STUB] governance email notification dispatched', {
         reviewId: review.id,
         reviewType: review.reviewType,
         subject,
         recipients,
-      },
-      '[STUB] governance email notification dispatched',
-    );
+      });
     // TODO: integrate SendGrid / AWS SES:
     // await emailProvider.send({ to: recipients, subject, body: buildEmailBody(review) });
   }

@@ -490,10 +490,7 @@ export class DisclosureCmsService {
       },
     });
 
-    logger.info(
-      { templateId, newVersion, tenantId },
-      'DisclosureCMS: template updated, requires re-approval',
-    );
+    logger.info('DisclosureCMS: template updated, requires re-approval', { templateId, newVersion, tenantId });
 
     return this.mapRecord(updated, input.variables ?? CATEGORY_VARIABLES[existing.category as DisclosureCategory] ?? []);
   }
@@ -574,10 +571,7 @@ export class DisclosureCmsService {
       version: 1,
     });
 
-    logger.info(
-      { templateId, approvedBy: input.approverId, tenantId },
-      'DisclosureCMS: template approved and activated',
-    );
+    logger.info('DisclosureCMS: template approved and activated', { templateId, approvedBy: input.approverId, tenantId });
 
     return this.mapRecord(approved, CATEGORY_VARIABLES[approved.category as DisclosureCategory] ?? []);
   }
@@ -672,10 +666,7 @@ export class DisclosureCmsService {
     const { rendered, missing } = renderTemplate(record.content, enrichedContext);
 
     if (missing.length > 0) {
-      logger.warn(
-        { templateId, missing },
-        'DisclosureCMS: rendered with missing variables',
-      );
+      logger.warn('DisclosureCMS: rendered with missing variables', { templateId, missing });
     }
 
     return {

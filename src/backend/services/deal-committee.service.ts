@@ -304,7 +304,7 @@ export async function createDealReview(
       conditions:      Prisma.DbNull,
       counselSignoff:  false,
       accountantSignoff: false,
-      reviewedBy:      null,
+      reviewedBy:      Prisma.DbNull,
       decidedAt:       null,
     },
   });

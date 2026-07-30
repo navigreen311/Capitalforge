@@ -231,10 +231,8 @@ dashboardActionQueueRouter.get('/', async (req: Request, res: Response) => {
         tenantId,
         status: { in: ['pending', 'escalated', 'in_review'] },
       },
-      include: {
-        // DealCommitteeReview has businessId but no explicit relation in schema,
-        // so we manually look up the business
-      },
+      // DealCommitteeReview has businessId but no explicit relation in the
+      // schema, so the business is looked up separately below.
     });
 
     // Batch-fetch business names for deal reviews

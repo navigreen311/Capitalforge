@@ -14,7 +14,7 @@
 // the underwriting decision.
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import logger from '../config/logger.js';
 
@@ -161,15 +161,15 @@ export class FairLendingService {
         businessId:     input.businessId,
         applicationId:  input.applicationId ?? null,
         demographicData: input.demographicData
-          ? (input.demographicData as unknown as object)
-          : null,
+          ? (input.demographicData as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
         businessType:   input.businessType ?? null,
         creditPurpose:  input.creditPurpose,
         actionTaken:    input.actionTaken,
         actionDate:     input.actionDate,
         adverseReasons: input.adverseReasons
-          ? (input.adverseReasons as unknown as object)
-          : null,
+          ? (input.adverseReasons as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
         isFirewalled:   true,
       },
     });

@@ -62,7 +62,7 @@ function ok<T>(res: Response, data: T, status = 200): void {
 }
 
 function fail(res: Response, message: string, status = 400): void {
-  const body: ApiResponse<null> = { success: false, error: message };
+  const body: ApiResponse<null> = { success: false, error: { code: 'BAD_REQUEST', message } };
   res.status(status).json(body);
 }
 

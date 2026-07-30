@@ -213,7 +213,7 @@ webhooksRouter.get(
 
     const result = webhookDeliveryService.listDeliveries(tenantId, {
       subscriptionId,
-      status:  status as Parameters<typeof webhookDeliveryService.listDeliveries>[1]['status'],
+      status:  status as NonNullable<Parameters<typeof webhookDeliveryService.listDeliveries>[1]>['status'],
       limit,
       offset,
     });

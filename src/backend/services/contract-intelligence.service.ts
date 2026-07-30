@@ -607,10 +607,7 @@ export class ContractIntelligenceService {
       version: 1,
     });
 
-    logger.info(
-      { id: record.id, riskScore, riskLevel, flagCount: redFlags.length },
-      'ContractIntelligence: analysis complete',
-    );
+    logger.info('ContractIntelligence: analysis complete', { id: record.id, riskScore, riskLevel, flagCount: redFlags.length });
 
     return {
       id: record.id,

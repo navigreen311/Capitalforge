@@ -8,13 +8,12 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 
-// ── Path resolution (ESM-safe) ────────────────────────────────
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = dirname(__filename);
+// ── Path resolution ───────────────────────────────────────────
+// This module builds to CommonJS (tsconfig "module": "NodeNext" with no
+// "type": "module"), so __dirname is already a module global. `import.meta`
+// is not permitted in CJS output and was a compile error here.
 
 // The spec lives two directories up from routes/
 const SPEC_PATH = join(__dirname, '..', 'openapi.yaml');

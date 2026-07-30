@@ -398,7 +398,7 @@ export class StatementReconciliationService {
         tenantId,
         businessId,
         // Only fetch records that have anomalies (non-empty JSON array)
-        NOT: { anomalies: { equals: null } },
+        NOT: { anomalies: { equals: Prisma.DbNull } },
       },
       orderBy: { statementDate: 'desc' },
       select: { id: true, issuer: true, statementDate: true, anomalies: true },

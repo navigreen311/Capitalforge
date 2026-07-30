@@ -40,8 +40,9 @@ export interface CreateRoundInput {
 }
 
 export interface UpdateRoundInput {
-  targetCredit?: number;
-  targetCardCount?: number;
+  // null clears the value — the route's zod schema marks both .nullable()
+  targetCredit?: number | null;
+  targetCardCount?: number | null;
   issuerMixStrategy?: string[];
   notes?: string;
   status?: RoundStatus;

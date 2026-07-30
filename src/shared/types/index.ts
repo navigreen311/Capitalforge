@@ -8,6 +8,12 @@ export interface TenantContext {
   userId: string;
   role: string;
   permissions: string[];
+  /**
+   * Optional. Not populated by requireAuth (the access token carries no email
+   * claim) — present only where a caller attaches it. Consumers must handle
+   * its absence.
+   */
+  email?: string;
 }
 
 // Event Bus

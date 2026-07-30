@@ -9,7 +9,7 @@
 //   5. Log all AI decisions to AiDecisionLog
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
 import { AGGREGATE_TYPES, ROLES } from '@shared/constants/index.js';
@@ -457,7 +457,7 @@ export async function logAiDecision(params: {
       tenantId:      params.tenantId,
       moduleSource:  params.moduleSource,
       decisionType:  params.decisionType,
-      output:        params.output,
+      output:        params.output as Prisma.InputJsonValue,
       inputHash:     params.inputHash ?? null,
       confidence:    params.confidence ?? null,
       modelVersion:  params.modelVersion ?? null,
@@ -522,7 +522,7 @@ export async function captureHumanOverride(
     data: {
       overriddenBy:  req.overriddenBy,
       overrideReason: req.justification.trim(),
-      output:        req.newOutput,
+      output:        req.newOutput as Prisma.InputJsonValue,
     },
   });
 
