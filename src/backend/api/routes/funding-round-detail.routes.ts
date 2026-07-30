@@ -13,6 +13,12 @@ import { Router, type Response, type NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
+import { okStub, registerStub } from './_stub-response.js';
+
+registerStub(
+  'fundingRound.detail',
+  'Round detail, repayment and timeline are sample data; no persistence.',
+);
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -28,9 +34,13 @@ function dateOnly(offsetDays: number): string {
   return d.toISOString().split('T')[0];
 }
 
+/**
+ * Every endpoint in this module returns hardcoded sample data — funding-round
+ * detail has no persistence behind it yet — so the module's success helper
+ * marks all of them as stubs.
+ */
 function ok(res: Response, data: unknown, meta?: Record<string, unknown>): void {
-  const body: ApiResponse = { success: true, data, ...(meta ? { meta } : {}) };
-  res.status(200).json(body);
+  okStub(res, data, 'fundingRound.detail', meta);
 }
 
 function err(res: Response, status: number, code: string, message: string): void {

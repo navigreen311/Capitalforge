@@ -13,6 +13,17 @@ import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
+import { okStub, registerStub } from './_stub-response.js';
+
+registerStub(
+  'paymentReminders.eligibility',
+  'Eligibility is a hardcoded list; no consent records are consulted.',
+);
+registerStub(
+  'voiceforge.smsCampaign',
+  'Dispatches nothing — no SMS provider is wired. The returned sent_count '
+  + 'describes a send that did not happen.',
+)
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -86,11 +97,7 @@ paymentReminderEligibleRouter.get(
         ineligible: MOCK_INELIGIBLE,
       };
 
-      const body: ApiResponse<ReminderEligibilityResponse> = {
-        success: true,
-        data,
-      };
-      res.json(body);
+      okStub(res, data, 'paymentReminders.eligibility');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       logger.error('Payment reminder eligibility check failed', { error: message });
@@ -125,7 +132,7 @@ smsCampaignRouter.post(
       const sentIds = client_ids.filter((id) => eligibleIds.has(id));
       const skippedCount = client_ids.length - sentIds.length;
 
-      logger.info('SMS campaign dispatched', {
+      logger.info('SMS campaign requested against stub endpoint (nothing sent)', {
         channel: channel ?? 'sms',
         template: template ?? 'payment_reminder',
         sent: sentIds.length,
@@ -138,8 +145,7 @@ smsCampaignRouter.post(
         campaign_id: `camp_${Date.now()}`,
       };
 
-      const body: ApiResponse<SmsCampaignResponse> = { success: true, data };
-      res.json(body);
+      okStub(res, data, 'voiceforge.smsCampaign', { dispatched: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       logger.error('SMS campaign dispatch failed', { error: message });

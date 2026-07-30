@@ -12,6 +12,13 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import logger from '../../config/logger.js';
+import { okStub, createdStub, registerStub } from './_stub-response.js';
+
+registerStub(
+  'creditBuilder',
+  'Scores/tradelines are sample data; POSTed tradelines and disputes are held '
+  + 'in process memory only and are lost on restart.',
+)
 
 export const creditBuilderRouter = Router({ mergeParams: true });
 
@@ -61,14 +68,7 @@ creditBuilderRouter.get(
     const clientId = param(req, 'clientId');
     logger.debug('GET credit-builder scores', { clientId });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        clientId,
-        asOf: new Date().toISOString(),
-        scores: MOCK_SCORES,
-      },
-    });
+    okStub(res, { clientId, asOf: new Date().toISOString(), scores: MOCK_SCORES }, 'creditBuilder');
   },
 );
 
@@ -80,13 +80,7 @@ creditBuilderRouter.get(
     const clientId = param(req, 'clientId');
     logger.debug('GET credit-builder score-history', { clientId });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        clientId,
-        months: generateScoreHistory(clientId),
-      },
-    });
+    okStub(res, { clientId, months: generateScoreHistory(clientId) }, 'creditBuilder');
   },
 );
 
@@ -100,14 +94,11 @@ creditBuilderRouter.get(
 
     const extra = addedTradelines[clientId] ?? [];
 
-    res.status(200).json({
-      success: true,
-      data: {
-        clientId,
-        tradelines: [...MOCK_TRADELINES, ...extra],
-        total: MOCK_TRADELINES.length + extra.length,
-      },
-    });
+    okStub(res, {
+      clientId,
+      tradelines: [...MOCK_TRADELINES, ...extra],
+      total: MOCK_TRADELINES.length + extra.length,
+    }, 'creditBuilder');
   },
 );
 
@@ -142,10 +133,7 @@ creditBuilderRouter.post(
 
     logger.info('Credit-builder tradeline added', { clientId, tradeline: tradeline.id });
 
-    res.status(201).json({
-      success: true,
-      data: tradeline,
-    });
+    createdStub(res, tradeline, 'creditBuilder');
   },
 );
 
@@ -186,9 +174,6 @@ creditBuilderRouter.post(
 
     logger.info('Tradeline dispute filed', { clientId, disputeId: dispute.id });
 
-    res.status(201).json({
-      success: true,
-      data: dispute,
-    });
+    createdStub(res, dispute, 'creditBuilder');
   },
 );
