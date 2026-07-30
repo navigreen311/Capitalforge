@@ -9,6 +9,7 @@ export const EVENT_TYPES = {
   CONSENT_REVOKED: 'consent.revoked',
 
   // Application
+  APPLICATION_CREATED: 'application.created',
   APPLICATION_SUBMITTED: 'application.submitted',
   APPLICATION_APPROVED: 'application.approved',
   APPLICATION_DECLINED: 'card.declined',

@@ -18,6 +18,8 @@ import { PrismaClient } from '@prisma/client';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse, TenantContext } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
+import { eventBus } from '../../events/event-bus.js';
+import { EVENT_TYPES, AGGREGATE_TYPES } from '../../../shared/constants/index.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -401,6 +403,29 @@ router.post(
         },
       });
 
+      // Canonical ledger event. The auditLog row above is an operational
+      // access record; the ledger is the immutable chain of custody relied
+      // on for regulatory inquiry, so a card application — the most
+      // consequential act in the product — must appear in it.
+      await eventBus.publishAndPersist(ctx.tenantId, {
+        eventType: isSubmit ? EVENT_TYPES.APPLICATION_SUBMITTED : EVENT_TYPES.APPLICATION_CREATED,
+        aggregateType: AGGREGATE_TYPES.APPLICATION,
+        aggregateId: application.id,
+        payload: {
+          applicationId:  application.id,
+          businessId:     application.businessId,
+          businessName:   application.business.legalName,
+          issuer:         application.issuer,
+          cardProduct:    application.cardProduct,
+          requestedLimit: application.creditLimit ? Number(application.creditLimit) : null,
+          fundingRoundId: application.fundingRoundId,
+          status:         application.status,
+          submittedAt:    application.submittedAt?.toISOString() ?? null,
+          createdBy:      ctx.userId,
+          ...(isSubmit ? { declarations } : {}),
+        },
+      });
+
       created(res, {
         id: application.id,
         businessId: application.businessId,
@@ -596,10 +621,31 @@ router.post(
         },
       });
 
+      const businessName = updated.business.legalName;
+
+      // Canonical ledger event for the status transition (see POST /applications).
+      await eventBus.publishAndPersist(ctx.tenantId, {
+        eventType: EVENT_TYPES.APPLICATION_SUBMITTED,
+        aggregateType: AGGREGATE_TYPES.APPLICATION,
+        aggregateId: updated.id,
+        payload: {
+          applicationId:  updated.id,
+          businessId:     updated.businessId,
+          businessName,
+          issuer:         updated.issuer,
+          cardProduct:    updated.cardProduct,
+          previousStatus: application.status,
+          status:         updated.status,
+          submittedAt:    updated.submittedAt?.toISOString() ?? null,
+          declarations,
+          submittedBy:    ctx.userId,
+        },
+      });
+
       ok(res, {
         id: updated.id,
         businessId: updated.businessId,
-        businessName: updated.business.legalName,
+        businessName,
         issuer: updated.issuer,
         cardProduct: updated.cardProduct,
         status: updated.status,
