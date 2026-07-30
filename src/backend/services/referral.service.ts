@@ -621,14 +621,23 @@ export class ReferralService {
    * Retrieve active consent records for a business-partner pair.
    */
   async getActiveConsents(businessId: string, partnerId: string, tenantId: string) {
-    return this.prisma.consentRecord.findMany({
+  // NOTE: Prisma's JSON `path` filter is a PostgreSQL/MySQL feature and is not
+  // supported on this SQLite datasource — the query below was rejected. The
+  // predicate is applied in application code instead, which behaves identically
+  // on every provider. If the datasource moves to PostgreSQL this can go back
+  // to a `path`/`equals` filter and push the work into the database.
+    const candidates = await this.prisma.consentRecord.findMany({
       where: {
         tenantId,
         businessId,
         consentType: 'referral',
         status:      'active',
-        metadata:    { path: ['partnerId'], equals: partnerId },
       },
+    });
+
+    return candidates.filter((c) => {
+      const metadata = c.metadata as Record<string, unknown> | null;
+      return metadata != null && metadata.partnerId === partnerId;
     });
   }
 

@@ -348,18 +348,23 @@ export async function getBusinessDecisionExplanations(
 ): Promise<AiDecisionLogEntry[]> {
   const prisma = getPrisma();
 
-  // Find log entries for this tenant that reference this businessId in their output
-  const logs = await prisma.aiDecisionLog.findMany({
-    where: {
-      tenantId,
-      output: {
-        path:   ['businessId'],
-        equals: businessId,
-      },
-    },
+  // Find log entries for this tenant that reference this businessId in their output.
+  // NOTE: Prisma's JSON `path` filter is a PostgreSQL/MySQL feature and is not
+  // supported on this SQLite datasource — the query below was rejected. The
+  // predicate is applied in application code instead, which behaves identically
+  // on every provider. If the datasource moves to PostgreSQL this can go back
+  // to a `path`/`equals` filter and push the work into the database.
+  const candidates = await prisma.aiDecisionLog.findMany({
+    where: { tenantId },
     orderBy: { createdAt: 'desc' },
-    take:    limit,
   });
+
+  const logs = candidates
+    .filter((l) => {
+      const output = l.output as Record<string, unknown> | null;
+      return output != null && output.businessId === businessId;
+    })
+    .slice(0, limit);
 
   return logs.map((l: typeof logs[number]) => ({
     id:             l.id,

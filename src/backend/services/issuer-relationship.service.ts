@@ -104,7 +104,12 @@ export class IssuerRelationshipService {
     const contacts = await this.db.issuerContact.findMany({
       where: {
         tenantId,
-        ...(issuer ? { issuer: { contains: issuer, mode: 'insensitive' } } : {}),
+      // NOTE: `mode: 'insensitive'` is a PostgreSQL-only Prisma feature and is
+      // rejected on this SQLite datasource. SQLite implements LIKE (which
+      // backs `contains`) case-insensitively for ASCII, so dropping the flag
+      // preserves the intended behaviour here. Restore it if the datasource
+      // ever moves to PostgreSQL, where LIKE *is* case-sensitive.
+        ...(issuer ? { issuer: { contains: issuer } } : {}),
       },
       orderBy: [{ issuer: 'asc' }, { createdAt: 'desc' }],
     });

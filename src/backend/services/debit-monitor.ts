@@ -181,14 +181,24 @@ export class DebitMonitor {
       );
     }
 
-    // Check whether an authorization exists for this processor
-    const existingAuth = await this.prisma.achAuthorization.findFirst({
+    // Check whether an authorization exists for this processor.
+    //
+    // `mode: 'insensitive'` is PostgreSQL-only and is rejected on this SQLite
+    // datasource. Unlike LIKE, SQLite's `=` is case-sensitive, so simply
+    // dropping the flag would silently make this comparison stricter. A
+    // business has a handful of authorizations at most, so the case-insensitive
+    // match is done here instead — behaviour is identical on every provider.
+    const candidateAuths = await this.prisma.achAuthorization.findMany({
       where: {
         businessId: input.businessId,
-        processorName: { equals: input.processorName, mode: 'insensitive' },
         status: 'active',
       },
     });
+
+    const wantedProcessor = input.processorName.toLowerCase();
+    const existingAuth = candidateAuths.find(
+      (a) => a.processorName.toLowerCase() === wantedProcessor,
+    ) ?? null;
 
     if (existingAuth) {
       // Authorization exists — route to normal evaluation

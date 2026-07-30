@@ -761,7 +761,7 @@ describe('DebitMonitor — handleUnknownProcessorDebit', () => {
 
   it('detects UNKNOWN_PROCESSOR when no active authorization exists for processor', async () => {
     prisma.business.findFirst.mockResolvedValue({ id: BUSINESS_ID });
-    prisma.achAuthorization.findFirst.mockResolvedValue(null); // no match
+    prisma.achAuthorization.findMany.mockResolvedValue([]); // no match
 
     const result = await monitor.handleUnknownProcessorDebit({
       tenantId: TENANT_ID,
@@ -777,7 +777,7 @@ describe('DebitMonitor — handleUnknownProcessorDebit', () => {
 
   it('publishes DEBIT_UNAUTHORIZED_DETECTED for unknown processor', async () => {
     prisma.business.findFirst.mockResolvedValue({ id: BUSINESS_ID });
-    prisma.achAuthorization.findFirst.mockResolvedValue(null);
+    prisma.achAuthorization.findMany.mockResolvedValue([]);
 
     await monitor.handleUnknownProcessorDebit({
       tenantId: TENANT_ID,
@@ -795,7 +795,7 @@ describe('DebitMonitor — handleUnknownProcessorDebit', () => {
 
   it('returns unauthorized=false when an active authorization exists for the processor', async () => {
     prisma.business.findFirst.mockResolvedValue({ id: BUSINESS_ID });
-    prisma.achAuthorization.findFirst.mockResolvedValue(makeAuthorization());
+    prisma.achAuthorization.findMany.mockResolvedValue([makeAuthorization()]);
 
     const result = await monitor.handleUnknownProcessorDebit({
       tenantId: TENANT_ID,
