@@ -376,7 +376,11 @@ describe('assessGraduation', () => {
 // ── autoAssessGraduation (DB-backed, mocked Prisma) ──────────
 
 describe('autoAssessGraduation', () => {
-  let mockPrisma: ReturnType<typeof vi.fn>;
+  // The mocked PrismaClient constructor returns an object of model delegates
+  // (business.findUnique, etc.). `ReturnType<typeof vi.fn>` is the Mock type
+  // itself, which has no model properties — so every `mockPrisma.business.*`
+  // was an error.
+  let mockPrisma: Record<string, Record<string, ReturnType<typeof vi.fn>>>;
 
   beforeEach(() => {
     const instance = new (PrismaClient as ReturnType<typeof vi.fn>)();
@@ -547,7 +551,11 @@ describe('evaluateMilestoneProgress', () => {
 // ── buildCreditRoadmapForBusiness (DB-backed) ─────────────────
 
 describe('buildCreditRoadmapForBusiness', () => {
-  let mockPrisma: ReturnType<typeof vi.fn>;
+  // The mocked PrismaClient constructor returns an object of model delegates
+  // (business.findUnique, etc.). `ReturnType<typeof vi.fn>` is the Mock type
+  // itself, which has no model properties — so every `mockPrisma.business.*`
+  // was an error.
+  let mockPrisma: Record<string, Record<string, ReturnType<typeof vi.fn>>>;
 
   beforeEach(() => {
     const instance = new (PrismaClient as ReturnType<typeof vi.fn>)();

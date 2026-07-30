@@ -348,8 +348,8 @@ describe('BureauWebhookHandler — score change alerts', () => {
     }, TENANT_ID);
 
     const calls = (eventBus.publish as ReturnType<typeof vi.fn>).mock.calls;
-    const significantCall = calls.find(([, payload]: [string, { eventType: string }]) =>
-      payload.eventType === 'bureau.alert.score_change.significant',
+    const significantCall = (calls as [string, { eventType: string }][]).find(
+      ([, payload]) => payload.eventType === 'bureau.alert.score_change.significant',
     );
     expect(significantCall).toBeDefined();
   });

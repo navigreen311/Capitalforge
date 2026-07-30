@@ -189,7 +189,7 @@ describe('ConsentStatusGrid — record-by-channel lookup', () => {
 
   it('missing channel defaults to "expired" status for display', () => {
     // From the component: const status: ConsentStatus = record?.status ?? 'expired'
-    const record: ConsentRecord | undefined = undefined;
+    const record = undefined as ConsentRecord | undefined;
     const status: ConsentStatus = record?.status ?? 'expired';
     expect(status).toBe('expired');
   });
@@ -241,7 +241,7 @@ describe('ConsentStatusGrid — date label logic', () => {
 
 describe('ConsentStatusGrid — re-consent button logic', () => {
   it('re-consent button shown for non-active channel when onRequestConsent is provided', () => {
-    const status: ConsentStatus = 'revoked';
+    const status = 'revoked' as ConsentStatus;
     const hasCallback = true;
     const shouldShow = hasCallback && (status !== 'active' || false);
     expect(shouldShow).toBe(true);
@@ -255,7 +255,7 @@ describe('ConsentStatusGrid — re-consent button logic', () => {
   });
 
   it('re-consent button shown for missing record', () => {
-    const status: ConsentStatus = 'expired'; // default for missing
+    const status = 'expired' as ConsentStatus; // default for missing
     const missing = true;
     const shouldShow = status !== 'active' || missing;
     expect(shouldShow).toBe(true);

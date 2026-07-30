@@ -247,7 +247,11 @@ export class FundingRoundService {
    */
   async completeRound(
     roundIdOrOpts: string | { fundingRoundId: string; tenantId: string },
-    tenantIdArg?: string,
+    // In the string form this is the tenantId; in the documented object form
+    // callers pass a caller-context object here instead (the tenantId comes
+    // from the opts). Typing it as `string` alone rejected every object-form
+    // call. It is only read (as a tenantId) in the string branch.
+    tenantIdArg?: string | unknown,
     _ctx?: unknown,
   ): Promise<RoundPlain & { round: RoundPlain; metrics: RoundPerformanceMetrics }> {
     // Support both calling conventions:
@@ -257,7 +261,7 @@ export class FundingRoundService {
     let tenantId: string;
     if (typeof roundIdOrOpts === 'string') {
       roundId = roundIdOrOpts;
-      tenantId = tenantIdArg!;
+      tenantId = tenantIdArg as string;
     } else {
       roundId = roundIdOrOpts.fundingRoundId;
       tenantId = roundIdOrOpts.tenantId;

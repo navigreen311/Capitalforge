@@ -259,8 +259,8 @@ describe('Stripe Integration', () => {
       expect(result.id).toBe('cus_test123');
       const [params] = stripeMock.customers.create.mock.calls[0] as [Stripe.CustomerCreateParams, ...unknown[]];
       expect(params.email).toBe('owner@acmecorp.com');
-      expect(params.metadata?.tenantId).toBe('tenant-001');
-      expect(params.metadata?.businessId).toBe('biz-acme');
+      expect((params.metadata as Stripe.MetadataParam | undefined)?.tenantId).toBe('tenant-001');
+      expect((params.metadata as Stripe.MetadataParam | undefined)?.businessId).toBe('biz-acme');
     });
 
     it('propagates Stripe SDK errors as AppError', async () => {
@@ -271,7 +271,7 @@ describe('Stripe Integration', () => {
         requestId: 'req_xxx',
         headers: {},
         rawType: 'invalid_request_error',
-      } as unknown as Stripe.errors.StripeRawError);
+      } as unknown as Stripe.StripeRawError);
       stripeMock.customers.create.mockRejectedValueOnce(stripeErr);
 
       await expect(
@@ -301,8 +301,8 @@ describe('Stripe Integration', () => {
 
       expect(result.id).toBe('sub_test123');
       const [params] = stripeMock.subscriptions.create.mock.calls[0] as [Stripe.SubscriptionCreateParams, ...unknown[]];
-      expect(params.items[0]?.price).toBe('price_monthly_pro');
-      expect(params.metadata?.tenantId).toBe('tenant-001');
+      expect(params.items?.[0]?.price).toBe('price_monthly_pro');
+      expect((params.metadata as Stripe.MetadataParam | undefined)?.tenantId).toBe('tenant-001');
     });
   });
 
@@ -351,7 +351,7 @@ describe('Stripe Integration', () => {
       const [params] = stripeMock.paymentIntents.create.mock.calls[0] as [Stripe.PaymentIntentCreateParams, ...unknown[]];
       expect(params.amount).toBe(250000);
       expect(params.currency).toBe('usd');
-      expect(params.metadata?.tenantId).toBe('tenant-001');
+      expect((params.metadata as Stripe.MetadataParam | undefined)?.tenantId).toBe('tenant-001');
     });
   });
 
@@ -540,7 +540,7 @@ describe('Stripe Integration', () => {
         requestId: 'req_xyz',
         headers: {},
         rawType: 'card_error',
-      } as unknown as Stripe.errors.StripeRawError);
+      } as unknown as Stripe.StripeRawError);
 
       const err = mapStripeError(raw);
       expect(err).toBeInstanceOf(AppError);
@@ -556,7 +556,7 @@ describe('Stripe Integration', () => {
         requestId: 'req_ratelimit',
         headers: {},
         rawType: 'invalid_request_error',
-      } as unknown as Stripe.errors.StripeRawError);
+      } as unknown as Stripe.StripeRawError);
 
       const err = mapStripeError(raw);
       expect(err).toBeInstanceOf(AppError);

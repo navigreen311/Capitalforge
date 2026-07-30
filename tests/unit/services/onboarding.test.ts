@@ -12,6 +12,7 @@
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Prisma } from '@prisma/client';
 import type { PrismaClient, Business, BusinessOwner } from '@prisma/client';
 
 // ── Funding Readiness (pure, no Prisma) ──────────────────────
@@ -597,7 +598,7 @@ describe('createBusiness() — with mocked Prisma and EventBus', () => {
           businessId:       'biz-uuid-001',
           firstName:        'John',
           lastName:         'Doe',
-          ownershipPercent: 100,
+          ownershipPercent: new Prisma.Decimal(100),
           ssn:              null,
           dateOfBirth:      null,
           address:          null,
