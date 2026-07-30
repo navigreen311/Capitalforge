@@ -63,6 +63,23 @@ export interface FraudDetectionInput {
   einAgeMonths?: number;
   /** Number of prior addresses associated with this EIN */
   einAddressCount?: number;
+
+  // ── Reference instant ───────────────────────────────────────
+  /**
+   * The moment the `*AgeMonths` figures above were measured, ISO string or
+   * Date. Defaults to now.
+   *
+   * Several checks compare an age derived from an absolute date (a formation
+   * date, a date of birth) against an age the caller supplies as a number of
+   * months (from a bureau or IRS pull). Those two are only comparable when
+   * measured from the same instant. Deriving one from `Date.now()` while the
+   * other is a fixed snapshot makes the difference between them grow purely
+   * with elapsed time, so a record drifts toward looking fraudulent the
+   * longer it sits — without anything about the applicant changing.
+   *
+   * Pass the timestamp of the data pull whenever the figures are not fresh.
+   */
+  asOf?: string | Date;
 }
 
 export interface FraudDetectionOutput {
@@ -75,6 +92,27 @@ export interface FraudDetectionOutput {
   /** High-level narrative for audit trail */
   summary: string;
   evaluatedAt: Date;
+}
+
+// ── Reference instant ─────────────────────────────────────────────────────────
+
+/** Filing lag tolerated between entity formation and EIN issuance. */
+const EIN_ENTITY_GRACE_MONTHS = 6;
+
+const MS_PER_MONTH = 1000 * 60 * 60 * 24 * 30.44;
+const MS_PER_YEAR = 1000 * 60 * 60 * 24 * 365.25;
+
+/**
+ * The instant every derived age in this module is measured from.
+ *
+ * Falls back to now, which is correct when the caller's figures come from a
+ * fresh pull — the intended case. An invalid `asOf` also falls back rather
+ * than producing ages measured from an epoch.
+ */
+function referenceInstant(input: FraudDetectionInput): number {
+  if (input.asOf === undefined) return Date.now();
+  const asOf = input.asOf instanceof Date ? input.asOf : new Date(input.asOf);
+  return isNaN(asOf.getTime()) ? Date.now() : asOf.getTime();
 }
 
 // ── Score → disposition mapping ───────────────────────────────────────────────
@@ -105,8 +143,7 @@ function checkSsnAgeMismatch(input: FraudDetectionInput): FraudSignal | null {
   const dob = new Date(dateOfBirth);
   if (isNaN(dob.getTime())) return null;
 
-  const ageYears =
-    (Date.now() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+  const ageYears = (referenceInstant(input) - dob.getTime()) / MS_PER_YEAR;
 
   if (ageYears >= 35 && creditFileAgeMonths < 24) {
     return {
@@ -281,17 +318,19 @@ function checkEinEntityMismatch(input: FraudDetectionInput): FraudSignal | null 
   if (einAgeMonths !== undefined && entityFormationDate) {
     const formed = new Date(entityFormationDate);
     if (!isNaN(formed.getTime())) {
-      const entityAgeMonths =
-        (Date.now() - formed.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
+      const entityAgeMonths = (referenceInstant(input) - formed.getTime()) / MS_PER_MONTH;
 
-      // EIN should not be younger than the entity, with a 6-month grace window
+      // An EIN is normally obtained around formation, so it should not be
+      // materially younger than the entity. A 6-month grace window absorbs
+      // ordinary filing lag.
       const gap = entityAgeMonths - einAgeMonths;
-      if (gap > 6) {
+      if (gap > EIN_ENTITY_GRACE_MONTHS) {
         return {
           code: 'EIN_ENTITY_AGE_MISMATCH',
           description:
             `Entity claims formation ${Math.floor(entityAgeMonths)} months ago but EIN is only ` +
-            `${einAgeMonths} months old (${Math.floor(gap)}-month discrepancy). ` +
+            `${einAgeMonths} months old (${gap.toFixed(1)}-month discrepancy, ` +
+            `grace window ${EIN_ENTITY_GRACE_MONTHS} months). ` +
             'Possible shell entity or EIN substitution.',
           weight: 40,
           flagForReview: true,

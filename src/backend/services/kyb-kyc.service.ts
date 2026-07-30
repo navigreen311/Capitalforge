@@ -509,6 +509,10 @@ export async function verifyKyc(
     highestCreditLimit: request.creditData?.highestCreditLimit,
     totalUtilization: request.creditData?.totalUtilization,
     inquiriesLast6Mo: request.creditData?.inquiriesLast6Mo,
+    // The figures above are a snapshot from the bureau pull, so the ages
+    // fraud detection derives from dates of birth and formation dates have to
+    // be measured from the same instant.
+    asOf: request.creditData?.pulledAt,
   });
 
   // ── 5. Determine KYC status ─────────────────────────────────
