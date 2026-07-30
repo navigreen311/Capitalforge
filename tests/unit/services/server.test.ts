@@ -171,13 +171,25 @@ describe('Request ID middleware', () => {
 // Error handling
 // ─────────────────────────────────────────────────────────────
 describe('Error handling', () => {
-  it('returns 404 for unknown routes', async () => {
-    const res = await get('/api/does-not-exist');
+  it('returns 404 for unknown routes outside the API surface', async () => {
+    const res = await get('/does-not-exist');
     expect(res.status).toBe(404);
 
     const body = await readJson(res);
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('answers 401, not 404, for an unknown /api route without credentials', async () => {
+    // Deliberate: /api is default-deny, and the auth gate runs before the
+    // not-found handler. Answering 404 here would tell an unauthenticated
+    // caller which API paths exist and which do not, which is a path
+    // enumeration oracle. Callers learn nothing until they authenticate.
+    const res = await get('/api/does-not-exist');
+    expect(res.status).toBe(401);
+
+    const body = await readJson(res);
+    expect(body.success).toBe(false);
   });
 
   it('returns 404 for completely unknown path', async () => {
