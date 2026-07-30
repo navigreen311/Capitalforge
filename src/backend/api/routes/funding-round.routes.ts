@@ -49,7 +49,9 @@ const UpdateRoundSchema = z.object({
 // ── Helper: extract tenantId from authenticated request ───────────────────────
 
 function getTenantId(req: Request): string {
-  const tenantId = req.tenantContext?.tenantId;
+  // requireAuth populates req.tenant (see middleware/auth.middleware.ts).
+  // There is no req.tenantContext — nothing has ever assigned it.
+  const tenantId = req.tenant?.tenantId;
   if (!tenantId) {
     throw new AppError(401, 'AUTH_REQUIRED', 'Authentication context missing.');
   }

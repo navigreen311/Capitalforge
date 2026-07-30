@@ -42,7 +42,7 @@ export function configureAchRouter(
 // ── Helpers ──────────────────────────────────────────────────
 
 function tenantId(req: Request): string {
-  return req.tenantContext?.tenantId ?? 'unknown';
+  return req.tenant?.tenantId ?? 'unknown';
 }
 
 function handleError(res: Response, err: unknown, context: string): void {
@@ -184,7 +184,7 @@ achRouter.delete(
     const businessId = req.params.id;
     const authorizationId = req.params.authId;
     const tid = tenantId(req);
-    const revokedBy = req.tenantContext?.userId ?? 'system';
+    const revokedBy = req.tenant?.userId ?? 'system';
 
     try {
       const { revocationReason } = req.body as Record<string, unknown>;
@@ -269,7 +269,7 @@ achRouter.post(
 
       // Tenant can come from auth middleware or body (webhook scenario)
       const tid =
-        req.tenantContext?.tenantId ??
+        req.tenant?.tenantId ??
         (typeof bodyTenantId === 'string' ? bodyTenantId : undefined);
 
       if (!tid) {

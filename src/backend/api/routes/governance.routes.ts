@@ -66,7 +66,7 @@ function fail(res: Response, message: string, status = 400): void {
 }
 
 function tenantId(req: Request): string {
-  return req.tenantContext?.tenantId ?? 'unknown';
+  return req.tenant?.tenantId ?? 'unknown';
 }
 
 // ============================================================

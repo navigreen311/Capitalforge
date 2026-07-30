@@ -27,12 +27,11 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 
 /**
  * Extract tenantId from the authenticated request context.
- * In production this comes from JWT middleware (req.tenantContext).
+ * Populated by requireAuth as req.tenant (middleware/auth.middleware.ts).
  * We fall back to an X-Tenant-Id header for dev / test convenience.
  */
 function resolveTenantId(req: Request): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ctx = (req as any).tenantContext;
+  const ctx = req.tenant;
   if (ctx?.tenantId) return ctx.tenantId;
 
   const header = req.headers['x-tenant-id'];

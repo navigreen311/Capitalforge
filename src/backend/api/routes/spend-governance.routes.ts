@@ -47,7 +47,7 @@ export function configureSpendGovernanceRouter(
 // ── Helpers ───────────────────────────────────────────────────
 
 function tenantId(req: Request): string {
-  return req.tenantContext?.tenantId ?? 'unknown';
+  return req.tenant?.tenantId ?? 'unknown';
 }
 
 function handleError(res: Response, err: unknown, context: string): void {

@@ -26,7 +26,7 @@ const creditService = new CreditIntelligenceService(prisma);
 // validates the JWT and attaches the decoded context.
 
 function getTenantContext(req: Request): TenantContext {
-  const ctx = (req as Request & { tenantContext?: TenantContext }).tenantContext;
+  const ctx = req.tenant;
   if (!ctx) {
     throw Object.assign(new Error('Unauthorized: missing tenant context'), { statusCode: 401 });
   }
