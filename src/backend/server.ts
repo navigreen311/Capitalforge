@@ -18,6 +18,7 @@ import { csrfProtection } from './middleware/csrf-protection.js';
 import { timeoutMiddleware } from './middleware/timeout.js';
 import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.js';
 import { apiRouter } from './api/routes/index.js';
+import { listStubs } from './api/routes/_stub-response.js';
 import { eventBus } from './events/event-bus.js';
 import { LedgerService } from './events/ledger.service.js';
 
@@ -137,6 +138,16 @@ if (process.env.VITEST !== 'true') {
       env: config.nodeEnv,
       frontendUrl: config.frontendUrl,
     });
+
+    // Print the stub inventory at boot so unimplemented endpoints stay
+    // visible instead of quietly accumulating behind plausible 200s.
+    const stubs = listStubs();
+    if (stubs.length > 0) {
+      logger.warn(
+        `${stubs.length} endpoint group(s) are serving sample data, not real state`,
+        { stubs: stubs.map((s) => `${s.feature} — ${s.reason}`) },
+      );
+    }
   });
 
   // ── Graceful shutdown ──────────────────────────────────────
