@@ -240,8 +240,15 @@ describe('withRetry', () => {
   it('throws RetryExhaustedError after all attempts fail', async () => {
     const fn = vi.fn().mockRejectedValue(new Error('always fails'));
     const promise = withRetry(fn, { maxAttempts: 3, baseDelayMs: 10, operationName: 'svc' });
+
+    // Attach the rejection handler before advancing timers. Draining them
+    // settles the promise, and if nothing is listening at that moment Node
+    // reports an unhandled rejection — which vitest surfaces as an error and
+    // exits non-zero even though every test passed.
+    const assertion = expect(promise).rejects.toBeInstanceOf(RetryExhaustedError);
     await vi.runAllTimersAsync();
-    await expect(promise).rejects.toBeInstanceOf(RetryExhaustedError);
+    await assertion;
+
     expect(fn).toHaveBeenCalledTimes(3);
   });
 
