@@ -15,7 +15,9 @@
 //      (green=up, red=down, gray=flat trend)
 // ============================================================
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { loadJson, toLoadError, type AuthFetchError } from '@/lib/load-json';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -86,208 +88,6 @@ interface Issuer {
 
 type FilterMode = 'all' | 'banks' | 'credit_unions';
 
-// ── Fallback data when API is unavailable ────────────────────
-const FALLBACK_ISSUERS: Issuer[] = [
-  {
-    id: 'iss_001', name: 'Chase', logo: '🏦', issuerType: 'bank',
-    velocityRules: '2/30, 5/24 rule',
-    velocityRulesList: [
-      { name: '2/30', value: 'Max 2 apps per 30 days', note: 'Hard enforcement' },
-      { name: '5/24', value: 'Max 5 new cards in 24 months', note: 'Includes all issuers' },
-    ],
-    approvalCriteria: 'Min 700 FICO, 1yr+ business',
-    approvalCriteriaDetail: { minFICO: 700, minYears: 1, minRevenue: 50000 },
-    declineReasons: [
-      { reason: 'Too many recent accounts', pct: 38 },
-      { reason: 'Insufficient credit history', pct: 24 },
-      { reason: 'High utilization', pct: 20 },
-      { reason: 'Low revenue', pct: 18 },
-    ],
-    totalApps: 342, approved: 253, declined: 72, pending: 17,
-    approvalRate: 74.0, approvalTrend: [68, 70, 71, 73, 72, 74],
-    avgCreditLimit: 28500, doNotApply: false, doNotApplyReason: null, dnaDetail: null, cuMeta: null,
-  },
-  {
-    id: 'iss_002', name: 'Amex', logo: '💳', issuerType: 'bank',
-    velocityRules: '1/5 rule, 2/90 for charge cards',
-    velocityRulesList: [
-      { name: '1/5', value: 'Max 1 credit card per 5 days', note: 'Soft limit' },
-      { name: '2/90', value: 'Max 2 charge cards per 90 days', note: 'Charge cards only' },
-    ],
-    approvalCriteria: 'Min 680 FICO, $25k+ revenue',
-    approvalCriteriaDetail: { minFICO: 680, minYears: 2, minRevenue: 25000 },
-    declineReasons: [
-      { reason: 'Previous Amex default', pct: 32 },
-      { reason: 'Too many inquiries', pct: 28 },
-      { reason: 'Low stated revenue', pct: 22 },
-      { reason: 'Short credit history', pct: 18 },
-    ],
-    totalApps: 298, approved: 212, declined: 68, pending: 18,
-    approvalRate: 71.1, approvalTrend: [65, 67, 69, 70, 71, 71],
-    avgCreditLimit: 35000, doNotApply: false, doNotApplyReason: null, dnaDetail: null, cuMeta: null,
-  },
-  {
-    id: 'iss_003', name: 'Capital One', logo: '🏛️', issuerType: 'bank',
-    velocityRules: '1/6mo, inquiry-sensitive',
-    velocityRulesList: [
-      { name: '1/6mo', value: 'Max 1 app per 6 months', note: 'Business cards' },
-      { name: 'Inquiry sensitive', value: '< 3 inquiries in 6 months', note: 'All bureaus checked' },
-    ],
-    approvalCriteria: 'Min 660 FICO, $15k+ revenue',
-    approvalCriteriaDetail: { minFICO: 660, minYears: 1, minRevenue: 15000 },
-    declineReasons: [
-      { reason: 'Too many inquiries', pct: 35 },
-      { reason: 'Thin business file', pct: 25 },
-      { reason: 'High existing debt', pct: 22 },
-      { reason: 'Recent derogatory marks', pct: 18 },
-    ],
-    totalApps: 264, approved: 180, declined: 72, pending: 12,
-    approvalRate: 68.2, approvalTrend: [64, 65, 66, 67, 68, 68],
-    avgCreditLimit: 22000, doNotApply: false, doNotApplyReason: null, dnaDetail: null, cuMeta: null,
-  },
-  {
-    id: 'iss_004', name: 'Citi', logo: '🏢', issuerType: 'bank',
-    velocityRules: '1/8 rule, 2/65',
-    velocityRulesList: [
-      { name: '1/8', value: 'Max 1 Citi card per 8 days', note: 'Hard enforcement' },
-      { name: '2/65', value: 'Max 2 Citi cards per 65 days', note: 'Applies to all Citi products' },
-    ],
-    approvalCriteria: 'Min 700 FICO, 5yr+ credit',
-    approvalCriteriaDetail: { minFICO: 700, minYears: 5, minRevenue: 30000 },
-    declineReasons: [
-      { reason: 'Recent Citi applications', pct: 30 },
-      { reason: 'Insufficient credit age', pct: 28 },
-      { reason: 'High revolving balance', pct: 24 },
-      { reason: 'Too many new accounts', pct: 18 },
-    ],
-    totalApps: 218, approved: 131, declined: 74, pending: 13,
-    approvalRate: 60.1, approvalTrend: [62, 61, 60, 59, 60, 60],
-    avgCreditLimit: 26000, doNotApply: false, doNotApplyReason: null, dnaDetail: null, cuMeta: null,
-  },
-  {
-    id: 'iss_005', name: 'Bank of America', logo: '🏦', issuerType: 'bank',
-    velocityRules: '2/3/4 rule',
-    velocityRulesList: [
-      { name: '2/3/4', value: '2 cards/30d, 3/12mo, 4/24mo', note: 'Combined personal + business' },
-    ],
-    approvalCriteria: 'Min 700 FICO, existing BofA preferred',
-    approvalCriteriaDetail: { minFICO: 700, minYears: 2, minRevenue: 25000 },
-    declineReasons: [
-      { reason: 'No existing BofA relationship', pct: 34 },
-      { reason: 'Too many recent cards', pct: 26 },
-      { reason: 'Low deposit balance', pct: 22 },
-      { reason: 'Insufficient revenue', pct: 18 },
-    ],
-    totalApps: 186, approved: 121, declined: 54, pending: 11,
-    approvalRate: 65.1, approvalTrend: [63, 64, 64, 65, 65, 65],
-    avgCreditLimit: 24000, doNotApply: false, doNotApplyReason: null, dnaDetail: null, cuMeta: null,
-  },
-  {
-    id: 'iss_006', name: 'US Bank', logo: '🏛️', issuerType: 'bank',
-    velocityRules: '0/6 for business cards',
-    velocityRulesList: [
-      { name: '0/6', value: '0 new biz cards in 6 months', note: 'Very strict — must wait 6mo between apps' },
-      { name: '0/12 (biz checking)', value: 'New biz checking required', note: 'Must open 30+ days prior' },
-    ],
-    approvalCriteria: 'Min 720 FICO, existing relationship',
-    approvalCriteriaDetail: { minFICO: 720, minYears: 3, minRevenue: 40000 },
-    declineReasons: [
-      { reason: 'No US Bank relationship', pct: 40 },
-      { reason: 'Recent business card apps', pct: 25 },
-      { reason: 'Low FICO score', pct: 20 },
-      { reason: 'Thin business credit', pct: 15 },
-    ],
-    totalApps: 142, approved: 77, declined: 56, pending: 9,
-    approvalRate: 54.2, approvalTrend: [61, 59, 57, 56, 55, 54],
-    avgCreditLimit: 20000, doNotApply: true, doNotApplyReason: 'Policy change under review',
-    dnaDetail: {
-      reason: 'Internal policy review — new business card underwriting criteria effective Q1 2026. Approval rates dropped below threshold triggering automatic DNA flag.',
-      flaggedDate: '2026-02-15',
-      declineCount: 56,
-      approvalRateInWindow: 42.1,
-      removalCriteria: [
-        'Approval rate recovers above 55% for 30 consecutive days',
-        'US Bank confirms new underwriting policy is finalized',
-        'Manual override by admin after issuer relationship review',
-      ],
-      daysUntilAutoReview: 18,
-      recommendation: 'Hold all US Bank business card applications until auto-review completes on May 3, 2026. Redirect applicants to personal card products or alternative issuers with similar velocity profiles.',
-    },
-    cuMeta: null,
-  },
-  {
-    id: 'iss_007', name: 'Wells Fargo', logo: '🏦', issuerType: 'bank',
-    velocityRules: '1/12 for business cards',
-    velocityRulesList: [
-      { name: '1/12', value: 'Max 1 business card per 12 months', note: 'Very conservative' },
-    ],
-    approvalCriteria: 'Min 680 FICO, WF checking required',
-    approvalCriteriaDetail: { minFICO: 680, minYears: 2, minRevenue: 20000 },
-    declineReasons: [
-      { reason: 'No WF checking account', pct: 36 },
-      { reason: 'Recent business app', pct: 28 },
-      { reason: 'High utilization', pct: 20 },
-      { reason: 'Low stated revenue', pct: 16 },
-    ],
-    totalApps: 158, approved: 95, declined: 52, pending: 11,
-    approvalRate: 60.1, approvalTrend: [58, 59, 59, 60, 60, 60],
-    avgCreditLimit: 18000, doNotApply: false, doNotApplyReason: null, dnaDetail: null, cuMeta: null,
-  },
-  {
-    id: 'iss_008', name: 'Navy Federal CU', logo: '⚓', issuerType: 'credit_union',
-    velocityRules: 'No 5/24 equivalent',
-    velocityRulesList: [
-      { name: 'No velocity cap', value: 'No hard limit on applications', note: 'Inquiry-based review only' },
-    ],
-    approvalCriteria: 'Military/DoD affiliation required',
-    approvalCriteriaDetail: { minFICO: 650, minYears: 1, minRevenue: 0 },
-    declineReasons: [
-      { reason: 'Non-eligible membership', pct: 45 },
-      { reason: 'Recent delinquency', pct: 30 },
-      { reason: 'High DTI ratio', pct: 25 },
-    ],
-    totalApps: 87, approved: 72, declined: 10, pending: 5,
-    approvalRate: 82.8, approvalTrend: [78, 79, 80, 81, 82, 83],
-    avgCreditLimit: 32000, doNotApply: false, doNotApplyReason: null, dnaDetail: null,
-    cuMeta: { membershipRequirement: 'Military affiliation', membershipType: 'Restricted', joinFee: 0, bureauPull: 'TransUnion' },
-  },
-  {
-    id: 'iss_009', name: 'Alliant CU', logo: '🏦', issuerType: 'credit_union',
-    velocityRules: 'No strict velocity rules',
-    velocityRulesList: [
-      { name: 'No hard cap', value: 'Discretionary review', note: 'Based on overall profile' },
-    ],
-    approvalCriteria: 'Open membership ($5 donation)',
-    approvalCriteriaDetail: { minFICO: 640, minYears: 1, minRevenue: 0 },
-    declineReasons: [
-      { reason: 'Low FICO score', pct: 40 },
-      { reason: 'High existing debt', pct: 35 },
-      { reason: 'Recent bankruptcy', pct: 25 },
-    ],
-    totalApps: 54, approved: 41, declined: 9, pending: 4,
-    approvalRate: 75.9, approvalTrend: [72, 73, 74, 75, 75, 76],
-    avgCreditLimit: 25000, doNotApply: false, doNotApplyReason: null, dnaDetail: null,
-    cuMeta: { membershipRequirement: '$5 Foster Care donation', membershipType: 'Open', joinFee: 5, bureauPull: 'TransUnion' },
-  },
-  {
-    id: 'iss_010', name: 'PenFed CU', logo: '🛡️', issuerType: 'credit_union',
-    velocityRules: 'No velocity rules',
-    velocityRulesList: [
-      { name: 'No restrictions', value: 'Apply any time', note: 'No velocity enforcement' },
-    ],
-    approvalCriteria: 'Open to anyone ($5 savings)',
-    approvalCriteriaDetail: { minFICO: 660, minYears: 1, minRevenue: 0 },
-    declineReasons: [
-      { reason: 'Insufficient credit history', pct: 38 },
-      { reason: 'High utilization', pct: 32 },
-      { reason: 'Too many inquiries', pct: 30 },
-    ],
-    totalApps: 43, approved: 31, declined: 8, pending: 4,
-    approvalRate: 72.1, approvalTrend: [70, 71, 71, 72, 72, 72],
-    avgCreditLimit: 22000, doNotApply: false, doNotApplyReason: null, dnaDetail: null,
-    cuMeta: { membershipRequirement: '$5 savings account', membershipType: 'Open', joinFee: 5, bureauPull: 'Equifax + TransUnion' },
-  },
-];
 
 // ── Formatting helpers ───────────────────────────────────────
 
@@ -853,30 +653,26 @@ function FilterToggle({ mode, onChange }: { mode: FilterMode; onChange: (m: Filt
 export default function PlatformIssuersPage() {
   const [issuers, setIssuers] = useState<Issuer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<AuthFetchError | null>(null);
   const [showDnaOnly, setShowDnaOnly] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-        const _h: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) _h['Authorization'] = `Bearer ${token}`;
-        const res = await fetch('/api/platform/issuers', { headers: _h });
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          setIssuers(json.data);
-        } else {
-          setIssuers(FALLBACK_ISSUERS);
-        }
-      } catch {
-        setIssuers(FALLBACK_ISSUERS);
-      } finally {
-        setLoading(false);
-      }
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await loadJson<Issuer[]>('/api/platform/issuers');
+      setIssuers(Array.isArray(data) ? data : []);
+    } catch (e) {
+      // Previously fell back to a hardcoded issuer list, so a failure looked
+      // like a fully populated issuer directory.
+      setError(toLoadError(e));
+    } finally {
+      setLoading(false);
     }
-    load();
   }, []);
+
+  useEffect(() => { void load(); }, [load]);
 
   // Derived data
   const banks = useMemo(() => issuers.filter(i => i.issuerType === 'bank'), [issuers]);
@@ -908,6 +704,19 @@ export default function PlatformIssuersPage() {
     return (
       <div className="min-h-screen bg-[#0A1628] flex items-center justify-center">
         <div className="animate-pulse text-gray-500 text-sm">Loading issuer data...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#0A1628] flex items-center justify-center p-6">
+        <DashboardErrorState
+          variant="dark"
+          className="max-w-md w-full"
+          error={error}
+          onRetry={() => void load()}
+        />
       </div>
     );
   }

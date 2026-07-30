@@ -665,14 +665,19 @@ export default function OptimizerPage() {
         if (json.success && json.data) {
           setStackingPlan(json.data as ApiStackingPlan);
           setHasResults(true);
+        } else if (res.status === 401 || res.status === 403) {
+          setApiError('Your session has expired. Sign in again to run the optimizer.');
+          setHasResults(false);
         } else {
           setApiError(json.error?.message || 'Optimizer failed. Please try again.');
-          // Fall back to mock results
-          setHasResults(true);
+          // Deliberately no results: this previously set hasResults(true) with
+          // no plan, which rendered the sample card stack as though it were a
+          // recommendation generated for the selected business.
+          setHasResults(false);
         }
       } catch {
-        setApiError('Unable to reach the optimizer API. Showing mock data.');
-        setHasResults(true);
+        setApiError('Unable to reach the optimizer API.');
+        setHasResults(false);
       }
     } else {
       // No business selected — use mock data (existing behavior)
