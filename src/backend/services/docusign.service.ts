@@ -365,26 +365,14 @@ export class DocuSignService {
     const ts = timestamp ?? new Date().toISOString();
 
     try {
-      // Update the Document records linked to this envelope.
-      //
-      // Prisma's JSON `path` filter is PostgreSQL/MySQL-only and is rejected on
-      // this SQLite datasource, so the envelope match is resolved in two steps:
-      // select the candidate documents, filter on the parsed metadata here,
-      // then update them by id. Behaviour is identical on every provider.
-      const candidates = await this.prisma.document.findMany({
-        where: { documentType: 'contract' },
-        select: { id: true, metadata: true },
-      });
-
-      const matchingIds = candidates
-        .filter((d) => {
-          const metadata = d.metadata as Record<string, unknown> | null;
-          return metadata != null && metadata.envelopeId === envelopeId;
-        })
-        .map((d) => d.id);
-
+      // Update the Document records linked to this envelope. The envelope is
+      // matched with a JSONB path filter, so this is a single statement rather
+      // than a read of every contract document followed by an update by id.
       const updatedCount = await this.prisma.document.updateMany({
-        where: { id: { in: matchingIds } },
+        where: {
+          documentType: 'contract',
+          metadata: { path: ['envelopeId'], equals: envelopeId },
+        },
         data: {
           metadata: {
             envelopeId,

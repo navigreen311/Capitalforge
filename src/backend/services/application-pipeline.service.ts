@@ -272,13 +272,8 @@ export class ApplicationPipelineService {
       businessId,
       ...(params.status ? { status: params.status } : {}),
       ...(params.fundingRoundId ? { fundingRoundId: params.fundingRoundId } : {}),
-      // NOTE: `mode: 'insensitive'` is a PostgreSQL-only Prisma feature and is
-      // rejected on this SQLite datasource. SQLite implements LIKE (which
-      // backs `contains`) case-insensitively for ASCII, so dropping the flag
-      // preserves the intended behaviour here. Restore it if the datasource
-      // ever moves to PostgreSQL, where LIKE *is* case-sensitive.
       ...(params.issuer
-        ? { issuer: { contains: params.issuer } }
+        ? { issuer: { contains: params.issuer, mode: 'insensitive' } }
         : {}),
     };
 

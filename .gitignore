@@ -11,3 +11,10 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+
+# Local SQLite artefacts. The datasource is PostgreSQL; a stray .db file
+# here would be a leftover, not the database the app runs on.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
