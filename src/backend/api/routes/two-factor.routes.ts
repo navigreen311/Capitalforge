@@ -21,8 +21,11 @@ let authenticator: {
 
 let QRCode: { toDataURL: (text: string) => Promise<string> } | null = null;
 
+// NOTE: loaded with require() rather than `await import()` — this backend compiles
+// to CommonJS (tsconfig "module": "NodeNext" with no "type": "module" in
+// package.json), where top-level await is not valid.
 try {
-  const otplib = await import('otplib');
+  const otplib = require('otplib');
   authenticator = otplib.authenticator;
   otplibAvailable = true;
 } catch {
@@ -30,7 +33,7 @@ try {
 }
 
 try {
-  const qr = await import('qrcode');
+  const qr = require('qrcode');
   QRCode = qr.default ?? qr;
 } catch {
   // qrcode not installed — use placeholder
