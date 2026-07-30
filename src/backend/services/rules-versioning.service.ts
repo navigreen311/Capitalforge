@@ -255,8 +255,7 @@ export class RulesVersioningService {
       stage:   params.targetStage,
     });
 
-    await eventBus.publishAndPersist({
-      tenantId:      params.tenantId,
+    await eventBus.publishAndPersist(params.tenantId, {
       eventType:     EVENT_TYPES.RULE_VERSION_DEPLOYED ?? 'RULE_VERSION_DEPLOYED',
       aggregateType: AGGREGATE_TYPES.BUSINESS ?? 'rule',
       aggregateId:   version.ruleId,
@@ -321,8 +320,7 @@ export class RulesVersioningService {
       restoredSemver: restored?.semver,
     });
 
-    await eventBus.publishAndPersist({
-      tenantId:      params.tenantId,
+    await eventBus.publishAndPersist(params.tenantId, {
       eventType:     EVENT_TYPES.RULE_VERSION_ROLLED_BACK ?? 'RULE_VERSION_ROLLED_BACK',
       aggregateType: AGGREGATE_TYPES.BUSINESS ?? 'rule',
       aggregateId:   version.ruleId,

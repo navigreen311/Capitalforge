@@ -21,7 +21,7 @@
 //   Discover, Wells Fargo, Barclays, Synchrony
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { EventBus } from '../events/event-bus.js';
 import { AGGREGATE_TYPES } from '../events/event-types.js';
 import logger from '../config/logger.js';
@@ -232,8 +232,8 @@ export class StatementReconciliationService {
         interestCharged: normalized.interestCharged ?? null,
         feesCharged: normalized.feesCharged ?? null,
         sourceDocumentId: input.sourceDocumentId ?? null,
-        normalizedData: normalized as unknown as Record<string, unknown>,
-        anomalies: anomalies as unknown as Record<string, unknown>[],
+        normalizedData: normalized as unknown as Prisma.InputJsonValue,
+        anomalies: anomalies as unknown as Prisma.InputJsonValue,
         reconciled: false,
       },
     });

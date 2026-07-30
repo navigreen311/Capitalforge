@@ -592,9 +592,7 @@ export class ContractIntelligenceService {
     });
 
     // Emit event
-    await eventBus.publish({
-      id: uuidv4(),
-      tenantId,
+    await eventBus.publish(tenantId, {
       eventType: EVENT_TYPES.COMPLIANCE_CHECK_COMPLETED ?? 'CONTRACT_ANALYZED',
       aggregateType: AGGREGATE_TYPES.COMPLIANCE ?? 'contract_analysis',
       aggregateId: record.id,

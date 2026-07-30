@@ -440,9 +440,7 @@ export class DisclosureCmsService {
       },
     });
 
-    await eventBus.publish({
-      id: uuidv4(),
-      tenantId,
+    await eventBus.publish(tenantId, {
       eventType: 'DISCLOSURE_TEMPLATE_CREATED',
       aggregateType: 'disclosure_template',
       aggregateId: record.id,
@@ -513,9 +511,7 @@ export class DisclosureCmsService {
 
     // For now status is tracked via approvedBy/approvedAt nullability
     // Log event to signal pending review
-    await eventBus.publish({
-      id: uuidv4(),
-      tenantId,
+    await eventBus.publish(tenantId, {
       eventType: 'DISCLOSURE_TEMPLATE_SUBMITTED_FOR_APPROVAL',
       aggregateType: 'disclosure_template',
       aggregateId: templateId,
@@ -564,9 +560,7 @@ export class DisclosureCmsService {
       },
     });
 
-    await eventBus.publish({
-      id: uuidv4(),
-      tenantId,
+    await eventBus.publish(tenantId, {
       eventType: 'DISCLOSURE_TEMPLATE_APPROVED',
       aggregateType: 'disclosure_template',
       aggregateId: templateId,

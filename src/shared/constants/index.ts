@@ -28,6 +28,12 @@ export const EVENT_TYPES = {
   // Rules / reference data / release governance
   RULE_CREATED: 'rule.created',
   RULE_UPDATED: 'rule.updated',
+  RULE_VERSION_DEPLOYED: 'rule.version.deployed',
+  RULE_VERSION_ROLLED_BACK: 'rule.version.rolled_back',
+
+  // Policy & workflow orchestration
+  POLICY_EVALUATED: 'policy.evaluated',
+  WORKFLOW_EVALUATED: 'workflow.evaluated',
 
   // ACH
   DEBIT_AUTHORIZED: 'debit.authorized',
@@ -72,6 +78,8 @@ export const AGGREGATE_TYPES = {
   TENANT: 'tenant',
   /** Versioned reference data and release/feature-flag governance. */
   RULE: 'rule',
+  /** Platform/tenant administration actions. */
+  ADMIN: 'admin',
 } as const;
 
 // Risk Thresholds

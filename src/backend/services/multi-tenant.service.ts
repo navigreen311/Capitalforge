@@ -264,7 +264,7 @@ export class MultiTenantService {
       return [newTenant];
     });
 
-    await eventBus.publish({
+    await eventBus.publish(tenant.id, {
       eventType:     EVENT_TYPES.BUSINESS_CREATED,
       aggregateType: AGGREGATE_TYPES.TENANT,
       aggregateId:   tenant.id,

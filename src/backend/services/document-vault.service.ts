@@ -19,7 +19,7 @@
 // Replace the stub functions below with those SDK calls.
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { EventBus } from '../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '@shared/constants/index.js';
 import logger, { maskPii } from '../config/logger.js';
@@ -203,7 +203,7 @@ export class DocumentVaultService {
         sha256Hash,
         cryptoTimestamp: null,       // updated below
         legalHold:    false,
-        metadata:     this._sanitiseMetadata(input.metadata ?? {}),
+        metadata:     this._sanitiseMetadata(input.metadata ?? {}) as Prisma.InputJsonValue,
         uploadedBy:   input.uploadedBy ?? null,
       },
     });

@@ -61,7 +61,12 @@ vi.mock('@prisma/client', () => {
     },
   }));
 
-  return { PrismaClient };
+  // The service writes SQL NULL to nullable Json columns via Prisma.DbNull
+  // (a plain `null` is rejected by Prisma's Json input types), so the mocked
+  // module has to expose it the way the real one does.
+  const Prisma = { DbNull: 'DbNull', JsonNull: 'JsonNull', AnyNull: 'AnyNull' };
+
+  return { PrismaClient, Prisma };
 });
 
 // ── Imports (after mocks) ─────────────────────────────────────
