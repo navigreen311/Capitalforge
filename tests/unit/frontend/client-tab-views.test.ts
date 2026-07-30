@@ -205,40 +205,41 @@ describe('documents-view', () => {
 // ── Applications ────────────────────────────────────────────────────────────
 
 describe('applications-view', () => {
-  const noGates = { consentComplete: null, ackSigned: null };
-
   it('returns nothing when the client has no applications', () => {
-    expect(toApplicationViews([], noGates)).toEqual([]);
-    expect(toApplicationViews(null, noGates)).toEqual([]);
+    expect(toApplicationViews([])).toEqual([]);
+    expect(toApplicationViews(null)).toEqual([]);
   });
 
   it('maps the list response', () => {
-    const [app] = toApplicationViews(
-      [
-        {
-          id: 'app-1',
-          issuer: 'Chase',
-          cardProduct: 'Ink Business Preferred',
-          status: 'approved',
-          requestedLimit: 50000,
-          approvedLimit: 45000,
-        },
-      ],
-      { consentComplete: true, ackSigned: false },
-    );
+    const [app] = toApplicationViews([
+      {
+        id: 'app-1',
+        issuer: 'Chase',
+        cardProduct: 'Ink Business Preferred',
+        status: 'approved',
+        requestedLimit: 50000,
+        approvedLimit: 45000,
+      },
+    ]);
 
     expect(app).toMatchObject({
       issuer: 'Chase',
       status: 'approved',
       requestedAmount: 50000,
       approvedAmount: 45000,
-      consentComplete: true,
-      ackSigned: false,
     });
   });
 
+  it('keeps business-level gate status off the per-application rows', () => {
+    // Consent and acknowledgment belong to the client, so they are summarised
+    // once for the header rather than copied onto every card.
+    const [app] = toApplicationViews([{ id: 'a', issuer: null, cardProduct: null, status: 'draft' }]);
+    expect(app).not.toHaveProperty('consentComplete');
+    expect(app).not.toHaveProperty('ackSigned');
+  });
+
   it('reports an absent amount as unknown, not as zero', () => {
-    const [app] = toApplicationViews([{ id: 'a', issuer: null, cardProduct: null, status: 'draft' }], noGates);
+    const [app] = toApplicationViews([{ id: 'a', issuer: null, cardProduct: null, status: 'draft' }]);
 
     expect(app.requestedAmount).toBeNull();
     expect(formatAmount(app.requestedAmount)).toBe('Not available');

@@ -1,10 +1,11 @@
 'use client';
 
 // ============================================================
-// ApplicationsTab — Client detail page tab showing all
-// applications for a given client with consent/ack chips,
-// balance & utilization for approved cards, submit flow
-// with pre-submission checklist, and decline handling.
+// ApplicationsTab — Client detail page tab showing every application
+// for a client, with the submit flow and decline handling.
+//
+// Consent and acknowledgment are business-level facts, so they are stated
+// once in the header rather than repeated identically on every card.
 // ============================================================
 
 import { useState, useMemo } from 'react';
@@ -368,12 +369,6 @@ function ApplicationCard({ app }: { app: ApplicationView }) {
             )}
           </div>
 
-          {/* Consent & Ack chips */}
-          <div className="flex flex-wrap gap-2">
-            <ConsentChip complete={app.consentComplete} />
-            <AckChip signed={app.ackSigned} />
-          </div>
-
           {/* Card account detail — balance, utilisation, APR expiry — is not
               modelled behind this endpoint. It previously defaulted to $0 and
               0% utilisation, which reads as a healthy, unused card rather
@@ -435,19 +430,28 @@ export default function ApplicationsTab({
     `/api/applications/compliance-gate/${clientId}`,
   );
 
-  const applications = useMemo(
-    () => toApplicationViews(data, summariseGates(gateData)),
-    [data, gateData],
-  );
+  const applications = useMemo(() => toApplicationViews(data), [data]);
+
+  // Consent and acknowledgment are properties of the business, not of an
+  // individual application, so they are stated once for the client rather
+  // than repeated identically on every card.
+  const gates = useMemo(() => summariseGates(gateData), [gateData]);
 
   return (
     <section aria-label={`Applications for ${clientName}`}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">Applications</h2>
+      <div className="flex items-start justify-between gap-4 mb-6">
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold text-gray-900">Applications</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-500">Client status:</span>
+            <ConsentChip complete={gates.consentComplete} />
+            <AckChip signed={gates.ackSigned} />
+          </div>
+        </div>
         <a
           href={`/applications/new?client_id=${clientId}`}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy/90 transition-colors"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy/90 transition-colors"
         >
           + New Application
         </a>

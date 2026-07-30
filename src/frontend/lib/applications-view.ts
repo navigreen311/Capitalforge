@@ -11,7 +11,10 @@
 //     account detail. Balance, available credit, utilisation and APR are not
 //     modelled, so they are reported as unknown rather than as zero.
 //   - Consent and acknowledgment status are real, but live on the business,
-//     not the application. They come from the compliance-gate endpoint.
+//     not the application. They come from the compliance-gate endpoint and are
+//     summarised separately by summariseGates(), so the tab can state them
+//     once for the client rather than repeating one identical pair of chips
+//     on every card.
 // ============================================================
 
 export type ApplicationStatus = 'approved' | 'draft' | 'submitted' | 'declined';
@@ -36,9 +39,6 @@ export interface ApplicationView {
   status: ApplicationStatus;
   requestedAmount: number | null;
   approvedAmount: number | null;
-  /** null means "not known", which is distinct from "complete" or "missing". */
-  consentComplete: boolean | null;
-  ackSigned: boolean | null;
   roundNumber: number | null;
   submittedAt: string | null;
 }
@@ -77,10 +77,10 @@ export interface GateSummary {
 }
 
 /**
- * Reduce the compliance-gate response to the two flags the cards show.
+ * Reduce the compliance-gate response to the two flags the tab header shows.
  *
  * Returns nulls when the gate data has not loaded or does not contain the
- * relevant gates. That matters: `false` renders as "consent incomplete", a
+ * relevant gates. That matters: `false` renders as "Consent: Missing", a
  * claim about the client's file that an absent response does not support.
  */
 export function summariseGates(data: unknown): GateSummary {
@@ -107,7 +107,7 @@ export function summariseGates(data: unknown): GateSummary {
 
 // ── Application rows ────────────────────────────────────────────────────────
 
-export function toApplicationView(app: ApiApplication, gates: GateSummary): ApplicationView {
+export function toApplicationView(app: ApiApplication): ApplicationView {
   return {
     id: app.id,
     cardProduct: app.cardProduct?.trim() || 'Unspecified card',
@@ -115,15 +115,13 @@ export function toApplicationView(app: ApiApplication, gates: GateSummary): Appl
     status: toApplicationStatus(app.status),
     requestedAmount: numberOrNull(app.requestedLimit),
     approvedAmount: numberOrNull(app.approvedLimit),
-    consentComplete: gates.consentComplete,
-    ackSigned: gates.ackSigned,
     roundNumber: numberOrNull(app.roundNumber),
     submittedAt: app.submittedAt ?? null,
   };
 }
 
 /** Accepts a bare array or an `{ applications: [] }` / `{ items: [] }` wrapper. */
-export function toApplicationViews(data: unknown, gates: GateSummary): ApplicationView[] {
+export function toApplicationViews(data: unknown): ApplicationView[] {
   const record = asRecord(data);
   const rows = Array.isArray(data)
     ? data
@@ -135,7 +133,7 @@ export function toApplicationViews(data: unknown, gates: GateSummary): Applicati
 
   return rows
     .filter((row): row is ApiApplication => !!row && typeof row === 'object' && 'id' in row)
-    .map((row) => toApplicationView(row, gates));
+    .map(toApplicationView);
 }
 
 /** Currency, or an explicit "not available" for values the API does not carry. */
