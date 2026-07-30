@@ -64,7 +64,7 @@ export const fundingRoundRouter: Router = Router({ mergeParams: true });
 // Cross-business listing (all rounds visible to the tenant)
 
 fundingRoundRouter.get(
-  '/api/funding-rounds',
+  '/funding-rounds',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -91,7 +91,7 @@ fundingRoundRouter.get(
 // Alternative endpoint for creating a round without business ID in URL
 
 fundingRoundRouter.post(
-  '/api/funding-rounds',
+  '/funding-rounds',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_WRITE),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -127,7 +127,7 @@ fundingRoundRouter.post(
 // ── POST /api/businesses/:id/rounds ───────────────────────────────────────────
 
 fundingRoundRouter.post(
-  '/api/businesses/:id/rounds',
+  '/businesses/:id/rounds',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_WRITE),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -165,7 +165,7 @@ fundingRoundRouter.post(
 // Must be registered BEFORE /api/businesses/:id/rounds to avoid param collision
 
 fundingRoundRouter.get(
-  '/api/businesses/:id/rounds/round2-eligibility',
+  '/businesses/:id/rounds/round2-eligibility',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -192,7 +192,7 @@ fundingRoundRouter.get(
 // ── GET /api/businesses/:id/rounds/compare ────────────────────────────────────
 
 fundingRoundRouter.get(
-  '/api/businesses/:id/rounds/compare',
+  '/businesses/:id/rounds/compare',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -220,7 +220,7 @@ fundingRoundRouter.get(
 // ── GET /api/businesses/:id/rounds ────────────────────────────────────────────
 
 fundingRoundRouter.get(
-  '/api/businesses/:id/rounds',
+  '/businesses/:id/rounds',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -248,7 +248,7 @@ fundingRoundRouter.get(
 // ── GET /api/rounds/:id ───────────────────────────────────────────────────────
 
 fundingRoundRouter.get(
-  '/api/rounds/:id',
+  '/rounds/:id',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -279,7 +279,7 @@ fundingRoundRouter.get(
 // ── PUT /api/rounds/:id ───────────────────────────────────────────────────────
 
 fundingRoundRouter.put(
-  '/api/rounds/:id',
+  '/rounds/:id',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_WRITE),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -324,7 +324,7 @@ fundingRoundRouter.put(
 // ── POST /api/rounds/:id/complete ─────────────────────────────────────────────
 
 fundingRoundRouter.post(
-  '/api/rounds/:id/complete',
+  '/rounds/:id/complete',
   requireAuth,
   requirePermissions(PERMISSIONS.BUSINESS_WRITE),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
