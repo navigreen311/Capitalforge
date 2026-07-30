@@ -6,9 +6,8 @@
 // ============================================================
 
 import { Request, Response, NextFunction } from 'express';
-import { jwtVerify } from 'jose';
 import type { TenantContext, ApiResponse } from '@shared/types/index.js';
-import { JWT_ACCESS_SECRET } from '../config/index.js';
+import { verifyAccessToken } from '../config/auth.js';
 import logger from '../config/logger.js';
 
 // ── Request augmentation ──────────────────────────────────────
@@ -54,40 +53,50 @@ export async function tenantMiddleware(
     return;
   }
 
-  try {
-    // Verify with the same secret the tokens are signed with
-    // (config/auth.ts -> getAccessSecret). Signature and expiry are checked in
-    // every environment: the previous decode-only path outside production
-    // accepted any forged token carrying the right claims.
-    const secretBytes = new TextEncoder().encode(JWT_ACCESS_SECRET);
+  // Verification goes through config/auth.ts — the same module that signs the
+  // tokens — so the signer and the verifier can never drift apart.
+  //
+  // They previously did: this middleware read JWT_ACCESS_SECRET from
+  // config/index.ts, which captures process.env once at module load and falls
+  // back to a hardcoded dev default when the variable is not set at that
+  // instant. config/auth.ts reads the variable lazily, per call. Whenever the
+  // two resolved differently, every route behind this middleware rejected
+  // tokens that had just been issued by this same server.
+  const result = await verifyAccessToken(token);
 
-    const { payload: verified } = await jwtVerify(token, secretBytes);
-    const payload = verified as unknown as JwtPayload;
-
-    if (!payload.tenantId || !payload.sub || !payload.role) {
-      throw new Error('JWT missing required tenant claims (tenantId, sub, role).');
-    }
-
-    req.tenant = {
-      tenantId: payload.tenantId,
-      userId: payload.sub,
-      role: payload.role,
-      permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
-    };
-
-    next();
-  } catch (err) {
+  if (!result.valid) {
     const reqLog = logger.child({ requestId: req.requestId });
-    reqLog.warn('Tenant middleware: invalid or expired token', {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    reqLog.warn('Tenant middleware: token rejected', { reason: result.reason });
 
     const body: ApiResponse = {
       success: false,
-      error: { code: 'INVALID_TOKEN', message: 'Token is invalid or has expired.' },
+      error: result.reason === 'expired'
+        ? { code: 'TOKEN_EXPIRED', message: 'Token has expired.' }
+        : { code: 'INVALID_TOKEN', message: 'Token is invalid.' },
     };
     res.status(401).json(body);
+    return;
   }
+
+  const payload = result.payload;
+
+  if (!payload.tenantId || !payload.sub || !payload.role) {
+    const body: ApiResponse = {
+      success: false,
+      error: { code: 'INVALID_TOKEN', message: 'Token is missing required tenant claims.' },
+    };
+    res.status(401).json(body);
+    return;
+  }
+
+  req.tenant = {
+    tenantId: payload.tenantId,
+    userId: payload.sub,
+    role: payload.role,
+    permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
+  };
+
+  next();
 }
 
 // ── Optional variant — skips auth on public routes ────────────
@@ -104,11 +113,11 @@ export async function optionalTenantMiddleware(
     return;
   }
 
-  try {
-    const secretBytes = new TextEncoder().encode(JWT_ACCESS_SECRET);
-    const { payload: verified } = await jwtVerify(token, secretBytes);
-    const payload = verified as unknown as JwtPayload;
+  // Same single verification path as the required variant.
+  const result = await verifyAccessToken(token);
 
+  if (result.valid) {
+    const payload = result.payload;
     if (payload.tenantId && payload.sub && payload.role) {
       req.tenant = {
         tenantId: payload.tenantId,
@@ -117,9 +126,8 @@ export async function optionalTenantMiddleware(
         permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
       };
     }
-  } catch {
-    // Silently ignore in optional mode
   }
+  // An invalid token is ignored in optional mode — the route stays public.
 
   next();
 }

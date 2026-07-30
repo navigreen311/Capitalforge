@@ -45,17 +45,20 @@ export const JWT_SECRET = IS_PRODUCTION
   : optional('JWT_SECRET', 'dev-secret-change-in-production');
 
 /**
- * The secret access tokens are actually signed with — see config/auth.ts,
- * which reads JWT_ACCESS_SECRET directly and requires it to be >= 32 chars.
+ * JWT_ACCESS_SECRET is deliberately NOT exported here.
  *
- * Exported here so token *verifiers* (tenant.middleware) read the same value
- * as the signer. They previously diverged: tokens were signed with
- * JWT_ACCESS_SECRET and verified against JWT_SECRET, which would have
- * rejected every valid token in production.
+ * This module snapshots process.env once, at import time, and substitutes a
+ * hardcoded default when a variable is absent at that instant. For a signing
+ * secret both properties are hazards: any verifier reading the snapshot can
+ * silently end up on the dev default while config/auth.ts — which reads the
+ * variable lazily on each call — uses the real one. The two then disagree,
+ * and every token this server issues is rejected by whichever component read
+ * the snapshot.
+ *
+ * config/auth.ts owns access-token signing and verification. Route both
+ * through it (generateAccessToken / verifyAccessToken) rather than
+ * re-deriving the secret anywhere else.
  */
-export const JWT_ACCESS_SECRET = IS_PRODUCTION
-  ? required('JWT_ACCESS_SECRET')
-  : optional('JWT_ACCESS_SECRET', 'dev-access-secret-change-in-production-0123456789');
 export const JWT_EXPIRY = optional('JWT_EXPIRY', '15m');
 export const REFRESH_TOKEN_EXPIRY = optional('REFRESH_TOKEN_EXPIRY', '7d');
 
