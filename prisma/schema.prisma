@@ -28,6 +28,9 @@ model Tenant {
   complianceChecks ComplianceCheck[]
   documents       Document[]
   branding        TenantBranding?
+  voiceCalls      VoiceCall[]
+  callComplianceScans CallComplianceScan[]
+  callQaScores    CallQaScore[]
 
   @@map("tenants")
 }
@@ -149,6 +152,8 @@ model Business {
   industry            String?
   annualRevenue       Decimal?
   monthlyRevenue      Decimal?
+  /** Primary contact number used by VoiceForge outreach campaigns */
+  phoneNumber         String?
   fundingReadinessScore Int?
   status              String   @default("intake")
   createdAt           DateTime @default(now())
@@ -164,6 +169,8 @@ model Business {
   consentRecords      ConsentRecord[]
   documents           Document[]
   suitabilityChecks   SuitabilityCheck[]
+  voiceCalls          VoiceCall[]
+  repaymentPlans      RepaymentPlan[]
   acknowledgments     ProductAcknowledgment[]
   achAuthorizations   AchAuthorization[]
   costCalculations    CostCalculation[]
@@ -513,6 +520,7 @@ model RepaymentPlan {
   updatedAt           DateTime @updatedAt
 
   schedules           PaymentSchedule[]
+  business            Business @relation(fields: [businessId], references: [id])
 
   @@index([tenantId, businessId])
   @@map("repayment_plans")
@@ -948,6 +956,8 @@ model RegulatoryAlert {
   reviewedBy          String?
   reviewedAt          DateTime?
   effectiveDate       DateTime?
+  /** Free-form response/workflow state written by regulator-response.service */
+  metadata            Json?
   createdAt           DateTime @default(now())
 
   @@index([tenantId, status])
@@ -1288,4 +1298,109 @@ model CreditUnionProduct {
 
   @@index([creditUnionId, productType])
   @@map("credit_union_products")
+}
+
+// ============================================================
+// VOICEFORGE (Module 45)
+// ============================================================
+//
+// These three models back src/backend/services/voiceforge.service.ts and
+// voiceforge-compliance.ts, which query prisma.voiceCall,
+// prisma.callComplianceScan and prisma.callQaScore. The models did not exist,
+// so every VoiceForge call threw at runtime. Columns below are derived from
+// the services' own create()/select() shapes.
+
+model VoiceCall {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  advisorId           String?
+
+  // Twilio linkage
+  twilioCallSid       String?
+  recordingSid        String?
+  recordingUrl        String?
+
+  toPhoneNumber       String
+  fromPhoneNumber     String
+  direction           String   // outbound | inbound
+  status              String   @default("queued") // queued | ringing | in_progress | completed | failed | busy | no_answer
+
+  purpose             String
+  campaignType        String?
+  campaignId          String?
+
+  durationSeconds     Int?
+  transcriptText      String?
+  /** Document Vault entry holding the immutable call log */
+  documentVaultId     String?
+
+  startedAt           DateTime?
+  endedAt             DateTime?
+  createdAt           DateTime @default(now())
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  business            Business @relation(fields: [businessId], references: [id])
+
+  complianceScans     CallComplianceScan[]
+  qaScores            CallQaScore[]
+
+  @@index([tenantId, businessId])
+  @@index([tenantId, status])
+  @@index([twilioCallSid])
+  @@map("voice_calls")
+}
+
+model CallComplianceScan {
+  id                     String   @id @default(uuid())
+  tenantId               String
+  callId                 String
+  advisorId              String
+
+  riskScore              Int
+  riskLevel              String   // low | medium | high | critical
+  violationCount         Int      @default(0)
+  criticalViolationCount Int      @default(0)
+  complianceStatus       String   // pass | review | fail
+
+  /** Serialised violation and disclosure detail (written with JSON.stringify) */
+  violationsJson         String
+  disclosuresJson        String
+
+  /** True when scanned mid-call rather than post-call */
+  isLiveScan             Boolean  @default(false)
+  scannedAt              DateTime @default(now())
+
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id])
+  call                   VoiceCall @relation(fields: [callId], references: [id])
+
+  @@index([tenantId, callId])
+  @@index([tenantId, complianceStatus])
+  @@map("call_compliance_scans")
+}
+
+model CallQaScore {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  callId              String
+  advisorId           String
+
+  overallScore        Int
+  complianceScore     Int?
+  scriptAdherence     Int?
+  tcpaHandling        Int?
+  consentCapture      Int?
+  riskClaimAvoidance  Int?
+  disclosureDelivery  Int?
+
+  grade               String   // A | B | C | D | F
+  feedback            String?
+  scoredAt            DateTime @default(now())
+
+  tenant              Tenant    @relation(fields: [tenantId], references: [id])
+  call                VoiceCall @relation(fields: [callId], references: [id])
+
+  @@index([tenantId, advisorId])
+  @@index([tenantId, callId])
+  @@map("call_qa_scores")
 }

@@ -98,7 +98,7 @@ function makePrismaMock() {
     fundingRound: {
       findMany: vi.fn().mockResolvedValue([]),
     },
-    repaymentSchedule: {
+    paymentSchedule: {
       findMany: vi.fn().mockResolvedValue([]),
     },
     business: {

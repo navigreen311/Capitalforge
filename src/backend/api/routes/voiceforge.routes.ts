@@ -141,7 +141,7 @@ voiceForgeRouter.post(
           error: {
             code:    'TCPA_CONSENT_BLOCKED',
             message: err.message,
-            reason:  err.reason,
+            details: { reason: err.reason },
           },
         } satisfies ApiResponse<never>);
         return;

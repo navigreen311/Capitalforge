@@ -564,6 +564,7 @@ describe('createBusiness() — with mocked Prisma and EventBus', () => {
     tenantId:             'tenant-001',
     advisorId:            null,
     legalName:            'Test Co LLC',
+    phoneNumber:          null,
     dba:                  null,
     ein:                  '12-3456789',
     entityType:           'llc',
