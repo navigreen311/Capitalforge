@@ -5,6 +5,7 @@
 // ============================================================
 
 import { Router } from 'express';
+import { requireAuth } from '../../middleware/auth.middleware.js';
 import { healthRouter } from './health.routes.js';
 import authRouter from './auth.routes.js';
 import { openApiRouter } from './openapi.routes.js';
@@ -17,6 +18,50 @@ import { suitabilityRouter } from './suitability.routes.js';
 import { costCalculatorRouter } from './cost-calculator.routes.js';
 
 export const apiRouter = Router();
+
+// ── Authentication gate (default deny) ────────────────────────
+//
+// Every /api route requires a valid access token unless its path is listed
+// below. This is deliberately a single choke point rather than per-router
+// middleware: 46 of the 91 route modules previously applied no authentication
+// at all, so `GET /api/clients` and `GET /api/businesses/:id` (among many
+// others) returned real tenant data to an unauthenticated caller.
+//
+// Adding a route is therefore secure by default — you have to opt a path OUT
+// of authentication here, in one reviewable place, rather than remembering to
+// opt it in.
+//
+// Paths are matched against req.path, which is relative to the /api mount.
+const PUBLIC_API_PATHS: readonly RegExp[] = [
+  // Liveness/readiness probes
+  /^\/health(?:\/|$)/,
+
+  // Credential exchange — these mint tokens, so they cannot require one
+  /^\/auth\/(?:login|register|refresh|logout)$/,
+
+  // Tenant lookup by slug: the login page resolves the tenant before it has
+  // any credentials to present
+  /^\/tenants(?:\/|$)/,
+
+  // OpenAPI document and its viewer
+  /^\/docs(?:\/|$)/,
+  /^\/openapi(?:\.json|\.yaml)?$/,
+
+  // Inbound provider webhooks. These are authenticated by request signature
+  // (HMAC) inside their handlers — a bearer token is neither sent nor
+  // meaningful for a third-party callback.
+  /^\/stripe\/webhook$/,
+  /^\/docusign\/webhook$/,
+  /^\/integrations\/[^/]+\/webhook$/,
+];
+
+apiRouter.use((req, res, next) => {
+  if (PUBLIC_API_PATHS.some((pattern) => pattern.test(req.path))) {
+    next();
+    return;
+  }
+  void requireAuth(req, res, next);
+});
 
 // -- OpenAPI docs (public) --
 apiRouter.use('/', openApiRouter);

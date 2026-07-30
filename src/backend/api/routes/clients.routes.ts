@@ -19,12 +19,20 @@ const prisma = new PrismaClient();
 
 // ── Helpers ───────────────────────────────────────────────────
 
+/**
+ * The tenant is taken from the verified access token only.
+ *
+ * This previously read `tenant.id` — a field TenantContext does not have (it
+ * is `tenantId`) — so it always fell through to a caller-supplied
+ * X-Tenant-Id header, or to the literal string 'default'. Both let a caller
+ * choose which tenant's data to read.
+ */
 function getTenantId(req: Request): string {
-  const tenant = (req as Request & { tenant?: { id: string } }).tenant;
-  if (tenant?.id) return tenant.id;
-  const header = req.headers['x-tenant-id'];
-  if (typeof header === 'string' && header.length > 0) return header;
-  return 'default';
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    throw new Error('Tenant context is missing — authentication middleware did not run.');
+  }
+  return tenantId;
 }
 
 function ok(res: Response, data: unknown, meta?: Record<string, unknown>): void {

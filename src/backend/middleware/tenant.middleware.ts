@@ -6,9 +6,9 @@
 // ============================================================
 
 import { Request, Response, NextFunction } from 'express';
-import { jwtVerify, decodeJwt } from 'jose';
+import { jwtVerify } from 'jose';
 import type { TenantContext, ApiResponse } from '@shared/types/index.js';
-import { JWT_SECRET, IS_PRODUCTION } from '../config/index.js';
+import { JWT_ACCESS_SECRET } from '../config/index.js';
 import logger from '../config/logger.js';
 
 // ── Request augmentation ──────────────────────────────────────
@@ -55,19 +55,14 @@ export async function tenantMiddleware(
   }
 
   try {
-    const secretBytes = new TextEncoder().encode(JWT_SECRET);
+    // Verify with the same secret the tokens are signed with
+    // (config/auth.ts -> getAccessSecret). Signature and expiry are checked in
+    // every environment: the previous decode-only path outside production
+    // accepted any forged token carrying the right claims.
+    const secretBytes = new TextEncoder().encode(JWT_ACCESS_SECRET);
 
-    let payload: JwtPayload;
-
-    if (IS_PRODUCTION) {
-      // Full verification: signature + expiry
-      const { payload: verified } = await jwtVerify(token, secretBytes);
-      payload = verified as unknown as JwtPayload;
-    } else {
-      // In dev/test environments allow decode-only (useful for local tooling)
-      // Still validate shape; just skip signature check
-      payload = decodeJwt(token) as unknown as JwtPayload;
-    }
+    const { payload: verified } = await jwtVerify(token, secretBytes);
+    const payload = verified as unknown as JwtPayload;
 
     if (!payload.tenantId || !payload.sub || !payload.role) {
       throw new Error('JWT missing required tenant claims (tenantId, sub, role).');
@@ -110,15 +105,9 @@ export async function optionalTenantMiddleware(
   }
 
   try {
-    const secretBytes = new TextEncoder().encode(JWT_SECRET);
-    let payload: JwtPayload;
-
-    if (IS_PRODUCTION) {
-      const { payload: verified } = await jwtVerify(token, secretBytes);
-      payload = verified as unknown as JwtPayload;
-    } else {
-      payload = decodeJwt(token) as unknown as JwtPayload;
-    }
+    const secretBytes = new TextEncoder().encode(JWT_ACCESS_SECRET);
+    const { payload: verified } = await jwtVerify(token, secretBytes);
+    const payload = verified as unknown as JwtPayload;
 
     if (payload.tenantId && payload.sub && payload.role) {
       req.tenant = {

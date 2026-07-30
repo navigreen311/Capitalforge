@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
+import { authHeaders } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -146,7 +147,7 @@ export default function DocumentVaultPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/compliance/documents');
+        const res = await fetch('/api/compliance/documents', { headers: authHeaders() });
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.data?.length) setDocs(data.data);
@@ -178,7 +179,7 @@ export default function DocumentVaultPage() {
       // Try API
       fetch(`/api/compliance/documents/${id}/hold`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ legalHold: newState }),
       }).catch(() => {});
     }
@@ -240,7 +241,7 @@ export default function DocumentVaultPage() {
     // Try API
     fetch('/api/compliance/documents', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(newDoc),
     }).catch(() => {});
   }, [uploadForm]);
@@ -257,7 +258,7 @@ export default function DocumentVaultPage() {
     setSelectedDoc(null);
     setDeleteConfirm(false);
     setToast(`"${doc.fileName}" deleted`);
-    fetch(`/api/compliance/documents/${doc.id}`, { method: 'DELETE' }).catch(() => {});
+    fetch(`/api/compliance/documents/${doc.id}`, { method: 'DELETE', headers: authHeaders() }).catch(() => {});
   }, []);
   const toggleSlideoverHold = useCallback((doc: DocumentRecord) => {
     const newState = !doc.legalHold;
@@ -266,7 +267,7 @@ export default function DocumentVaultPage() {
     setToast(`${doc.fileName} — legal hold ${newState ? 'enabled' : 'released'}`);
     fetch(`/api/compliance/documents/${doc.id}/hold`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ legalHold: newState }),
     }).catch(() => {});
   }, []);

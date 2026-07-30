@@ -29,14 +29,14 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 /**
  * Extract tenantId from the authenticated request context.
  * Populated by requireAuth as req.tenant (middleware/auth.middleware.ts).
- * We fall back to an X-Tenant-Id header for dev / test convenience.
+ *
+ * There is deliberately no X-Tenant-Id fallback: it allowed a caller
+ * authenticated for one tenant to read and write another tenant's data simply
+ * by setting a header.
  */
 function resolveTenantId(req: Request): string {
   const ctx = req.tenant;
   if (ctx?.tenantId) return ctx.tenantId;
-
-  const header = req.headers['x-tenant-id'];
-  if (typeof header === 'string' && header.length > 0) return header;
 
   throw new Error('Tenant context is missing — ensure authentication middleware is applied.');
 }

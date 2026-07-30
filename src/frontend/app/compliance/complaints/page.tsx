@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { authHeaders } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,7 +115,7 @@ export default function ComplaintsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/compliance/complaints');
+        const res = await fetch('/api/compliance/complaints', { headers: authHeaders() });
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.data?.length) setComplaints(data.data);
@@ -149,7 +150,7 @@ export default function ComplaintsPage() {
     setToast(`Complaint ${newComplaint.id} created`);
     fetch('/api/compliance/complaints', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(newComplaint),
     }).catch(() => {});
   }, [form, complaints.length]);
@@ -161,7 +162,7 @@ export default function ComplaintsPage() {
     setToast(`${id} status updated to ${newStatus}`);
     fetch(`/api/compliance/complaints/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ status: newStatus }),
     }).catch(() => {});
   }, []);

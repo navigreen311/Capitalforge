@@ -43,6 +43,19 @@ export const REDIS_URL = optional('REDIS_URL', 'redis://localhost:6379');
 export const JWT_SECRET = IS_PRODUCTION
   ? required('JWT_SECRET')
   : optional('JWT_SECRET', 'dev-secret-change-in-production');
+
+/**
+ * The secret access tokens are actually signed with — see config/auth.ts,
+ * which reads JWT_ACCESS_SECRET directly and requires it to be >= 32 chars.
+ *
+ * Exported here so token *verifiers* (tenant.middleware) read the same value
+ * as the signer. They previously diverged: tokens were signed with
+ * JWT_ACCESS_SECRET and verified against JWT_SECRET, which would have
+ * rejected every valid token in production.
+ */
+export const JWT_ACCESS_SECRET = IS_PRODUCTION
+  ? required('JWT_ACCESS_SECRET')
+  : optional('JWT_ACCESS_SECRET', 'dev-access-secret-change-in-production-0123456789');
 export const JWT_EXPIRY = optional('JWT_EXPIRY', '15m');
 export const REFRESH_TOKEN_EXPIRY = optional('REFRESH_TOKEN_EXPIRY', '7d');
 

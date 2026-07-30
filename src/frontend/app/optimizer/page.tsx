@@ -12,6 +12,7 @@
 // ============================================================
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { authHeaders } from '@/lib/api-client';
 import { useRouter } from 'next/navigation';
 import { SectionCard } from '@/components/ui/card';
 import {
@@ -584,7 +585,7 @@ export default function OptimizerPage() {
   // Load clients on mount
   useEffect(() => {
     setClientsLoading(true);
-    fetch('/api/v1/clients')
+    fetch('/api/v1/clients', { headers: authHeaders() })
       .then((res) => res.json())
       .then((json) => {
         if (json.success && Array.isArray(json.data)) {
@@ -648,7 +649,7 @@ export default function OptimizerPage() {
       try {
         const res = await fetch('/api/optimizer/run', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({
             businessId: form.selectedBusinessId,
             targetAmount: form.targetFunding ? Number(form.targetFunding) : 100000,
@@ -694,7 +695,7 @@ export default function OptimizerPage() {
     try {
       const res = await fetch('/api/optimizer/save-strategy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           clientId: form.selectedBusinessId || 'mock-client',
           results: stackingPlan ?? { mock: true, cards: MOCK_RESULTS.length },
@@ -722,7 +723,7 @@ export default function OptimizerPage() {
     try {
       const res = await fetch('/api/optimizer/create-round', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           clientId: form.selectedBusinessId || 'mock-client',
           roundNumber,
