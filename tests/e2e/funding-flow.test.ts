@@ -223,7 +223,11 @@ describe('E2E: Funding Flow', () => {
       svc,
     );
 
+    // GateResult is a discriminated union (GateAllowed | GateDenied); an
+    // expect() call does not narrow it, so `reason` is only visible after a
+    // real type guard.
     expect(result.allowed).toBe(false);
+    if (result.allowed) throw new Error('expected the consent gate to deny');
     expect(result.reason).toBe('CONSENT_REVOKED');
   });
 
@@ -273,9 +277,12 @@ describe('E2E: Funding Flow', () => {
       fundingRoundId: graph.fundingRound.id,
       issuer:         'Chase',
       cardProduct:    'Ink Business Preferred',
-      creditLimit:    new Prisma.Decimal('25000'),
-      regularApr:     new Prisma.Decimal('0.2124'),
-      annualFee:      new Prisma.Decimal('95'),
+      // CreateApplicationSchema declares these as z.number() — it validates an
+      // HTTP request body, where money arrives as a JSON number. Prisma.Decimal
+      // is the database representation, not the API input type.
+      creditLimit:    25000,
+      regularApr:     0.2124,
+      annualFee:      95,
     }, ctx);
 
     expect(app.status).toBe('draft');

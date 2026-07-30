@@ -446,15 +446,28 @@ export interface EventBusSpy {
  *   spy.assertEventFired('business.created');
  *   spy.restore();
  */
-export function createEventBusSpy(eventBus: { publishAndPersist: (...args: unknown[]) => unknown }): EventBusSpy {
+// The parameter is constrained with `never[]` rather than `unknown[]` because
+// function parameters are contravariant: the real
+// `publishAndPersist(tenantId: string, envelope: Omit<LedgerEnvelope, 'tenantId'>)`
+// is NOT assignable to `(...args: unknown[]) => unknown` (a caller could pass
+// `unknown` where `string` is required), so every call site failed to compile.
+// `never` is assignable to every parameter type, so this accepts any real
+// event-bus-shaped object while still requiring the method to exist.
+export function createEventBusSpy<
+  T extends { publishAndPersist: (...args: never[]) => unknown },
+>(eventBus: T): EventBusSpy {
   const published: EventBusSpy['published'] = [];
 
-  const spy = vi.spyOn(eventBus, 'publishAndPersist').mockImplementation(
-    async (tenantId: unknown, envelope: unknown) => {
+  // Narrow to the method-bearing shape so vitest can resolve the key name
+  // through the generic parameter.
+  const target = eventBus as { publishAndPersist: (...args: never[]) => unknown };
+
+  const spy = vi.spyOn(target, 'publishAndPersist').mockImplementation(
+    (async (tenantId: unknown, envelope: unknown) => {
       const env = envelope as { eventType: string; payload?: unknown };
       published.push({ tenantId: String(tenantId), eventType: env.eventType, payload: env.payload ?? {} });
       return { id: `ledger-${Date.now()}`, publishedAt: new Date() };
-    },
+    }) as never,
   );
 
   return {

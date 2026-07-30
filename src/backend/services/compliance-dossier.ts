@@ -166,6 +166,12 @@ export interface BusinessSnapshot {
 export interface ComplianceDossier {
   /** RFC 3339 timestamp of when this dossier was assembled */
   assembledAt:       string;
+  /**
+   * Alias for `assembledAt`, populated with the same value. The assemble()
+   * implementation has always emitted it; declaring it here makes the type
+   * match what is actually returned.
+   */
+  generatedAt:       string;
   assembledBy:       string;
   tenantId:          string;
   businessId:        string;
