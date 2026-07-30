@@ -7,9 +7,14 @@ interface Props {
   className?: string;
   /** For the not_configured variant — links the action button directly */
   setupHref?: string;
+  /**
+   * Surface theme. Defaults to 'light' so existing call sites are unchanged;
+   * the platform and portal pages render on a dark background.
+   */
+  variant?: 'light' | 'dark';
 }
 
-export function DashboardErrorState({ error, onRetry, className, setupHref }: Props) {
+export function DashboardErrorState({ error, onRetry, className, setupHref, variant = 'light' }: Props) {
   // Log raw error for debugging
   if (typeof window !== 'undefined') console.error('[DashboardErrorState]', error);
 
@@ -21,6 +26,20 @@ export function DashboardErrorState({ error, onRetry, className, setupHref }: Pr
   };
 
   const config = configs[error.type];
+
+  const theme = variant === 'dark'
+    ? {
+        panel: 'border-gray-700 bg-gray-900',
+        title: 'text-gray-100',
+        desc: 'text-gray-400',
+        action: 'text-[#C9A84C] focus:ring-offset-gray-900',
+      }
+    : {
+        panel: 'border-surface-border bg-white',
+        title: 'text-gray-700',
+        desc: 'text-gray-500',
+        action: 'text-brand-navy focus:ring-offset-2',
+      };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -35,7 +54,7 @@ export function DashboardErrorState({ error, onRetry, className, setupHref }: Pr
       return (
         <a
           href={setupHref}
-          className="mt-3 inline-block text-xs font-semibold text-brand-navy hover:underline focus:outline-none focus:ring-2 focus:ring-brand-navy focus:ring-offset-2 rounded"
+          className={`mt-3 inline-block text-xs font-semibold hover:underline focus:outline-none focus:ring-2 rounded ${theme.action}`}
           tabIndex={0}
         >
           {config.action}
@@ -49,7 +68,7 @@ export function DashboardErrorState({ error, onRetry, className, setupHref }: Pr
           type="button"
           onClick={onRetry}
           onKeyDown={handleKeyDown}
-          className="mt-3 text-xs font-semibold text-brand-navy hover:underline focus:outline-none focus:ring-2 focus:ring-brand-navy focus:ring-offset-2 rounded"
+          className={`mt-3 text-xs font-semibold hover:underline focus:outline-none focus:ring-2 rounded ${theme.action}`}
           tabIndex={0}
         >
           {config.action}
@@ -61,10 +80,10 @@ export function DashboardErrorState({ error, onRetry, className, setupHref }: Pr
   };
 
   return (
-    <div className={`rounded-xl border border-surface-border bg-white p-6 text-center ${className ?? ''}`}>
+    <div role="alert" className={`rounded-xl border p-6 text-center ${theme.panel} ${className ?? ''}`}>
       <div className="text-2xl mb-2" aria-hidden="true">{config.icon}</div>
-      <p className="text-sm font-medium text-gray-700">{config.title}</p>
-      <p className="text-xs text-gray-500 mt-1">{config.desc}</p>
+      <p className={`text-sm font-medium ${theme.title}`}>{config.title}</p>
+      <p className={`text-xs mt-1 ${theme.desc}`}>{config.desc}</p>
       {renderAction()}
     </div>
   );

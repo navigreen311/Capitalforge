@@ -109,7 +109,7 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
 
 // ─── Token refresh helper ────────────────────────────────────────────────────
 
-async function attemptTokenRefresh(): Promise<boolean> {
+export async function attemptTokenRefresh(): Promise<boolean> {
   try {
     const refreshToken = typeof window !== 'undefined'
       ? localStorage.getItem('cf_refresh_token')
