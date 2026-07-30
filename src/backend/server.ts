@@ -17,6 +17,33 @@ import { csrfProtection } from './middleware/csrf-protection.js';
 import { timeoutMiddleware } from './middleware/timeout.js';
 import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.js';
 import { apiRouter } from './api/routes/index.js';
+import { eventBus } from './events/event-bus.js';
+import { LedgerService } from './events/ledger.service.js';
+
+// ── Canonical audit ledger ────────────────────────────────────
+/**
+ * Attach the LedgerService to the event bus so `publishAndPersist`
+ * actually writes to `ledger_events`.
+ *
+ * Without this, every one of the ~55 `publishAndPersist` call sites
+ * across the services layer logs "called without a LedgerWriter" and
+ * silently drops the event — the chain of custody is never recorded.
+ *
+ * config/database.ts is loaded lazily rather than imported at module
+ * scope: it builds a PrismaClient as a side effect of being imported,
+ * and server.ts is imported by unit tests that stub @prisma/client with
+ * a client that has no `$on`. Deferring the load keeps `createApp()`
+ * free of database side effects.
+ *
+ * Exported so tests (and any alternate entry point) can attach a real
+ * or mock writer explicitly.
+ */
+export function attachLedgerWriter(): void {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { prisma } = require('./config/database.js') as typeof import('./config/database.js');
+  eventBus.setLedgerWriter(new LedgerService(prisma));
+  logger.info('Canonical audit ledger attached to event bus');
+}
 
 // ── App factory (exported for testing) ───────────────────────
 export function createApp(): express.Application {
@@ -99,6 +126,8 @@ export function createApp(): express.Application {
 
 // ── Start server (skipped when module is imported in tests) ──
 if (process.env.VITEST !== 'true') {
+  attachLedgerWriter();
+
   const app = createApp();
 
   const server = app.listen(config.port, () => {
