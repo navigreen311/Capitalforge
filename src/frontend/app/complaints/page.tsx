@@ -23,6 +23,9 @@ import {
   type ComplaintSource,
   type ComplaintSeverity,
   type RootCauseSlice,
+  toAttachableDocuments,
+  formatFileSize,
+  type AttachableDocument,
   type ComplaintStatus as ComplaintStatusValue,
 } from '@/lib/complaint-view';
 
@@ -619,14 +622,204 @@ const ROOT_CAUSE_MAP: Record<string, string> = {
   'Partner Integration': 'partner|consent flag|integration',
 };
 
+/**
+ * Choose one of the client's documents to attach as evidence.
+ *
+ * Evidence is attached by reference, so this offers what exists rather than
+ * letting a name be typed. The panel used to mint one — evidence_lx8f2k.pdf —
+ * and add it to the list, naming a file that was nowhere and could never be
+ * retrieved.
+ */
+function AttachEvidenceModal({
+  complaint,
+  onClose,
+  onAttached,
+}: {
+  complaint: ComplaintView;
+  onClose: () => void;
+  onAttached: () => void;
+}) {
+  const [documents, setDocuments] = useState<AttachableDocument[]>([]);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // A complaint not tied to a client has no document library to draw on.
+    if (complaint.businessId === null) {
+      setDocuments([]);
+      setState('ready');
+      return;
+    }
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+    fetch(`/api/businesses/${complaint.businessId}/documents`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        const json = (await res.json()) as { success?: boolean; data?: unknown };
+        if (json.success !== true) throw new Error('unsuccessful');
+        setDocuments(toAttachableDocuments(json.data));
+        setState('ready');
+      })
+      .catch(() => setState('error'));
+  }, [complaint.businessId]);
+
+  // Already-attached documents are shown as attached rather than offered
+  // again, so the same reference is not added twice.
+  const attached = new Set(complaint.evidenceDocIds);
+  const selectable = documents.filter((d) => !attached.has(d.id));
+
+  async function handleAttach() {
+    if (selected.length === 0 || saving) return;
+    setSaving(true);
+    setError(null);
+
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch(`/api/complaints/${complaint.id}/evidence`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          evidenceItems: selected.map((id) => {
+            const doc = documents.find((d) => d.id === id);
+            return {
+              type: 'document',
+              referenceId: id,
+              // The endpoint requires a title; it is the document's own.
+              title: doc?.title ?? id,
+            };
+          }),
+        }),
+      });
+
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        setError(json.error?.message ?? `Nothing was attached (HTTP ${res.status}).`);
+        return;
+      }
+
+      onAttached();
+      onClose();
+    } catch {
+      setError('Could not reach the server; nothing was attached.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Attach Evidence"
+        className="w-full max-w-lg rounded-2xl border border-gray-700 bg-gray-900 p-6 space-y-4 max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-bold text-white">Attach Evidence</h3>
+
+        {state === 'loading' && (
+          <p className="text-xs text-gray-500 py-6 text-center">Loading documents...</p>
+        )}
+
+        {state === 'error' && (
+          <p role="alert" className="text-xs text-red-300 bg-red-950/40 border border-red-800 rounded-lg px-3 py-2">
+            Could not load this client&apos;s documents.
+          </p>
+        )}
+
+        {state === 'ready' && complaint.businessId === null && (
+          <p className="text-xs text-gray-500 py-4">
+            This complaint is not attributed to a client, so there are no client
+            documents to attach.
+          </p>
+        )}
+
+        {state === 'ready' && complaint.businessId !== null && selectable.length === 0 && (
+          <p className="text-xs text-gray-500 py-4">
+            {documents.length === 0
+              ? 'This client has no documents on file.'
+              : 'Every document on file is already attached to this complaint.'}
+          </p>
+        )}
+
+        {state === 'ready' && selectable.length > 0 && (
+          <ul className="space-y-2">
+            {selectable.map((doc) => (
+              <li key={doc.id}>
+                <label className="flex items-start gap-3 px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-750 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(doc.id)}
+                    onChange={(e) =>
+                      setSelected((prev) =>
+                        e.target.checked ? [...prev, doc.id] : prev.filter((x) => x !== doc.id),
+                      )
+                    }
+                    className="mt-0.5 rounded border-gray-600 bg-gray-800 text-[#C9A84C]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm text-gray-100 truncate">{doc.title}</span>
+                    <span className="block text-[11px] text-gray-500">
+                      {doc.documentType}
+                      {formatFileSize(doc.sizeBytes) && ` · ${formatFileSize(doc.sizeBytes)}`}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {error && (
+          <p role="alert" className="text-xs text-red-400 bg-red-950/40 border border-red-800 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleAttach}
+            disabled={selected.length === 0 || saving}
+            className="px-4 py-2 rounded-lg bg-[#C9A84C] text-[#0A1628] text-sm font-semibold
+              disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Attaching...' : `Attach ${selected.length || ''}`.trim()}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface EvidencePanelProps {
   complaint: Complaint | null;
   onUpdateComplaint: (updated: Complaint) => void;
   onShowToast: (msg: string) => void;
+  /** Reloads the register so the attached ids come back from the server. */
+  onEvidenceAttached: () => void;
 }
 
-function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePanelProps) {
+function EvidencePanel({ complaint, onUpdateComplaint, onShowToast, onEvidenceAttached }: EvidencePanelProps) {
   const [showResponseGen, setShowResponseGen] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
 
   if (!complaint) {
     return (
@@ -721,14 +914,10 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
             <p className="text-xs text-gray-500 font-medium">
               Evidence Files ({complaint.evidenceDocIds.length})
             </p>
-            {/* This used to mint a filename — evidence_lx8f2k.pdf — and add it
-                to the list. Attaching for real needs a document to attach,
-                which this panel has no way to choose yet. */}
             <button
               type="button"
-              disabled
-              title="Attaching evidence needs a document picker, which is not built yet"
-              className="text-[10px] px-2 py-1 rounded bg-gray-800 text-gray-600 cursor-not-allowed"
+              onClick={() => setShowAttach(true)}
+              className="text-[10px] px-2 py-1 rounded bg-[#C9A84C]/20 text-[#C9A84C] font-medium hover:bg-[#C9A84C]/30 transition-colors"
             >
               + Attach Evidence
             </button>
@@ -805,6 +994,17 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
 
       {showResponseGen && (
         <RegulatoryResponseGenerator complaint={complaint} onClose={() => setShowResponseGen(false)} />
+      )}
+
+      {showAttach && (
+        <AttachEvidenceModal
+          complaint={complaint}
+          onClose={() => setShowAttach(false)}
+          onAttached={() => {
+            onShowToast('Evidence attached');
+            onEvidenceAttached();
+          }}
+        />
       )}
     </>
   );
@@ -1459,6 +1659,7 @@ export default function ComplaintsPage() {
           <EvidencePanel
             complaint={selectedComplaint}
             onUpdateComplaint={handleUpdateComplaint}
+            onEvidenceAttached={() => void load()}
             onShowToast={setToastMsg}
           />
         </section>

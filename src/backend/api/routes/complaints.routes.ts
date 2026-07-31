@@ -91,8 +91,14 @@ function requirePermission(permission: string) {
 
 // ── Input validation schemas ───────────────────────────────────────
 
+// Business ids are plain strings elsewhere in this API — funding rounds,
+// docusign and compliance all take z.string().min(1) — and Business.id only
+// defaults to a uuid, it is not constrained to one. Requiring a uuid here
+// meant no complaint or inquiry could be filed against any seeded client:
+// the request failed with "Invalid uuid" while every other endpoint accepted
+// the same id.
 const CreateComplaintSchema = z.object({
-  businessId:           z.string().uuid().optional(),
+  businessId:           z.string().min(1).max(255).optional(),
   category:             z.enum(['billing', 'service', 'unauthorized_debit', 'compliance', 'other']),
   subcategory:          z.string().max(100).optional(),
   source:               z.enum(['portal', 'email', 'phone', 'regulator_referral', 'legal', 'other']),
@@ -126,7 +132,7 @@ const AttachEvidenceSchema = z.object({
 });
 
 const ComplaintListQuerySchema = z.object({
-  businessId: z.string().uuid().optional(),
+  businessId: z.string().min(1).max(255).optional(),
   category:   z.enum(['billing', 'service', 'unauthorized_debit', 'compliance', 'other']).optional(),
   status:     z.enum(['open', 'investigating', 'resolved', 'closed']).optional(),
   severity:   z.enum(['low', 'medium', 'high', 'critical']).optional(),
@@ -135,7 +141,7 @@ const ComplaintListQuerySchema = z.object({
 });
 
 const CreateInquirySchema = z.object({
-  businessId:      z.string().uuid().optional(),
+  businessId:      z.string().min(1).max(255).optional(),
   matterType:      z.enum(['FTC', 'CFPB', 'state_AG', 'audit']),
   referenceNumber: z.string().max(100).optional(),
   agencyName:      z.string().min(2).max(255),

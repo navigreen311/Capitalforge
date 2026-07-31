@@ -156,3 +156,114 @@ test.describe('Complaints register', () => {
     );
   });
 });
+
+test.describe('Attach evidence', () => {
+  test('a complaint can be filed against a seeded client', async ({ signedInPage: page }) => {
+    // The create schema required a uuid while every seeded business uses a
+    // readable id, so the log form's own client list produced "Invalid uuid".
+    await page.goto('/complaints');
+    const headers = await authHeaders(page);
+
+    const res = await fetch(`${API}/complaints`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        businessId: 'seed-biz-001',
+        category: 'service',
+        source: 'portal',
+        severity: 'low',
+        description: 'E2E complaint filed against a seeded client id.',
+      }),
+    });
+    expect(res.status).toBe(201);
+
+    const id = ((await res.json()) as { data?: { id?: string } }).data?.id;
+    await page.reload();
+
+    // Scoped to the row: the name also appears in the client filter's hidden
+    // <option> list, which is not evidence that the row rendered.
+    const row = page.getByRole('row').filter({ hasText: id as string });
+    await expect(row).toBeVisible({ timeout: 15000 });
+    await expect(row).toContainText('Apex Digital Solutions LLC');
+  });
+
+  test('offers the client documents and persists the attachment', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/complaints');
+    const headers = await authHeaders(page);
+
+    // Its own complaint against Apex Digital, which has two seeded documents.
+    // Attaching to a seeded complaint would pass once and then fail, because
+    // an already-attached document is no longer offered.
+    const created = (await fetch(`${API}/complaints`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        businessId: 'seed-biz-001',
+        category: 'billing',
+        source: 'portal',
+        severity: 'low',
+        description: 'E2E evidence attachment probe.',
+      }),
+    }).then((r) => r.json())) as { data?: { id?: string } };
+
+    const id = created.data?.id;
+    expect(id, 'the probe complaint was not created').toBeTruthy();
+
+    await page.reload();
+    await page.getByText(id as string).first().click();
+    await page.getByRole('button', { name: '+ Attach Evidence' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Attach Evidence' });
+    await expect(dialog).toBeVisible();
+
+    // A real document belonging to that client, not a typed filename.
+    const doc = dialog.getByText('Chase Ink — March 2026 statement.pdf');
+    await expect(doc).toBeVisible({ timeout: 10000 });
+
+    await doc.click();
+    await dialog.getByRole('button', { name: /^Attach/ }).click();
+    await expect(dialog).toBeHidden({ timeout: 10000 });
+
+    // Read back from the API: the reference is stored against the complaint.
+    await expect
+      .poll(
+        async () => {
+          const listed = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
+            r.json(),
+          )) as { data?: { complaints?: { id: string; evidenceDocIds: string[] }[] } };
+          return (listed.data?.complaints ?? []).find((c) => c.id === id)?.evidenceDocIds;
+        },
+        { timeout: 10000 },
+      )
+      .toContain('seed-doc-001');
+  });
+
+  test('says so when the complaint has no client to draw documents from', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/complaints');
+    const headers = await authHeaders(page);
+
+    // No businessId, so there is no document library behind it.
+    const created = (await fetch(`${API}/complaints`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        category: 'other',
+        source: 'other',
+        severity: 'low',
+        description: 'E2E unattributed complaint for the evidence picker.',
+      }),
+    }).then((r) => r.json())) as { data?: { id?: string } };
+
+    await page.reload();
+    await page.getByText(created.data?.id as string).first().click();
+    await page.getByRole('button', { name: '+ Attach Evidence' }).click();
+
+    await expect(
+      page.getByText(/not attributed to a client/i),
+    ).toBeVisible({ timeout: 10000 });
+  });
+});

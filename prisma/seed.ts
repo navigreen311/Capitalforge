@@ -768,6 +768,72 @@ const SEED_PHONES = {
   });
   console.log('  ✓ Ledger events created');
 
+  // ── Documents ─────────────────────────────────────────────
+  //
+  // The complaint evidence picker attaches documents belonging to the
+  // complaint's client, and there were none in the database at all — so the
+  // picker had nothing to offer and could not be exercised.
+  const documents: Array<{
+    id: string;
+    businessId: string;
+    documentType: string;
+    title: string;
+    mimeType: string;
+    sizeBytes: number;
+  }> = [
+    {
+      id: 'seed-doc-001',
+      businessId: biz1.id,
+      documentType: 'statement',
+      title: 'Chase Ink — March 2026 statement.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 184_320,
+    },
+    {
+      id: 'seed-doc-002',
+      businessId: biz1.id,
+      documentType: 'disclosure',
+      title: 'Fee schedule acknowledgment (signed).pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 96_100,
+    },
+    {
+      id: 'seed-doc-003',
+      businessId: biz2.id,
+      documentType: 'correspondence',
+      title: 'Client email thread — APR disclosure.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 42_880,
+    },
+    {
+      id: 'seed-doc-004',
+      businessId: biz3.id,
+      documentType: 'call_recording',
+      title: 'Advisor call transcript 2026-07-14.txt',
+      mimeType: 'text/plain',
+      sizeBytes: 12_400,
+    },
+  ];
+
+  for (const doc of documents) {
+    await prisma.document.upsert({
+      where: { id: doc.id },
+      update: {},
+      create: {
+        id: doc.id,
+        tenantId: tenant.id,
+        businessId: doc.businessId,
+        documentType: doc.documentType,
+        title: doc.title,
+        storageKey: `seed/${doc.id}`,
+        mimeType: doc.mimeType,
+        sizeBytes: doc.sizeBytes,
+        uploadedBy: 'seed',
+      },
+    });
+  }
+  console.log(`  ✓ Documents: ${documents.length}`);
+
   // ── Complaints ────────────────────────────────────────────
   //
   // The complaints register reads /api/complaints, which starts empty. A few

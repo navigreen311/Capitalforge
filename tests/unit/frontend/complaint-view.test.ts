@@ -18,6 +18,8 @@ import {
   isEscalated,
   openCount,
   SLA_DAYS,
+  toAttachableDocuments,
+  formatFileSize,
 } from '../../../src/frontend/lib/complaint-view';
 
 const NOW = new Date('2026-08-01T00:00:00.000Z');
@@ -204,5 +206,64 @@ describe('toAnalyticsView', () => {
     expect(view.totalComplaints).toBe(0);
     expect(view.topRootCauses).toEqual([]);
     expect(openCount(view)).toBe(0);
+  });
+});
+
+describe('toAttachableDocuments', () => {
+  const ENVELOPE = {
+    documents: [
+      {
+        id: 'seed-doc-001',
+        title: 'Chase Ink — March 2026 statement.pdf',
+        documentType: 'statement',
+        mimeType: 'application/pdf',
+        sizeBytes: 184320,
+      },
+      { id: 'seed-doc-002', title: 'Fee schedule.pdf', documentType: 'disclosure' },
+    ],
+    total: 2,
+    page: 1,
+    pageSize: 20,
+  };
+
+  it('reads the endpoint envelope', () => {
+    expect(toAttachableDocuments(ENVELOPE)).toHaveLength(2);
+  });
+
+  it('keeps the fields the picker shows', () => {
+    expect(toAttachableDocuments(ENVELOPE)[0]).toEqual({
+      id: 'seed-doc-001',
+      title: 'Chase Ink — March 2026 statement.pdf',
+      documentType: 'statement',
+      mimeType: 'application/pdf',
+      sizeBytes: 184320,
+    });
+  });
+
+  it('leaves an absent size null rather than zero', () => {
+    // "0 B" would read as an empty file rather than an unrecorded size.
+    expect(toAttachableDocuments(ENVELOPE)[1].sizeBytes).toBeNull();
+  });
+
+  it('drops a document with no id, which could not be referenced', () => {
+    expect(toAttachableDocuments({ documents: [{ title: 'No id.pdf' }] })).toEqual([]);
+  });
+
+  it('returns an empty list for junk', () => {
+    expect(toAttachableDocuments(null)).toEqual([]);
+    expect(toAttachableDocuments({})).toEqual([]);
+  });
+});
+
+describe('formatFileSize', () => {
+  it('scales the unit', () => {
+    expect(formatFileSize(512)).toBe('512 B');
+    expect(formatFileSize(96100)).toBe('94 KB');
+    expect(formatFileSize(184320)).toBe('180 KB');
+    expect(formatFileSize(5_242_880)).toBe('5.0 MB');
+  });
+
+  it('renders nothing for an unknown size', () => {
+    expect(formatFileSize(null)).toBe('');
   });
 });

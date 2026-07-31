@@ -278,3 +278,53 @@ export function resolvedWithin(complaints: ComplaintView[], days: number, now: D
     return !Number.isNaN(at) && at >= cutoff;
   }).length;
 }
+
+// ── Attachable documents ────────────────────────────────────
+
+export interface AttachableDocument {
+  id: string;
+  title: string;
+  documentType: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+}
+
+/**
+ * Documents belonging to a client, from GET /businesses/:id/documents.
+ *
+ * Evidence is attached by reference, so the picker offers what exists rather
+ * than letting a filename be typed. The panel used to mint one —
+ * evidence_lx8f2k.pdf — and add it to the list, which named a file that was
+ * nowhere and could never be retrieved.
+ */
+export function toAttachableDocuments(data: unknown): AttachableDocument[] {
+  const d = asRecord(data);
+  const rows = Array.isArray(d['documents'])
+    ? d['documents']
+    : Array.isArray(data)
+      ? data
+      : [];
+
+  return rows
+    .map(asRecord)
+    .map((r) => {
+      const id = str(r['id']);
+      if (id === null) return null;
+      return {
+        id,
+        title: str(r['title']) ?? 'Untitled document',
+        documentType: str(r['documentType']) ?? 'other',
+        mimeType: str(r['mimeType']),
+        sizeBytes: typeof r['sizeBytes'] === 'number' ? r['sizeBytes'] : null,
+      };
+    })
+    .filter((doc): doc is AttachableDocument => doc !== null);
+}
+
+/** Human-readable size, or an empty string when the size is unknown. */
+export function formatFileSize(bytes: number | null): string {
+  if (bytes === null) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
