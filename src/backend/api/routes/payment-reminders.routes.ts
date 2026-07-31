@@ -19,9 +19,6 @@ import logger from '../../config/logger.js';
 import {
   dispatchSmsCampaign,
   smsConfigStatus,
-  withinQuietHours,
-  QUIET_HOURS_START,
-  QUIET_HOURS_END,
 } from '../../services/sms-dispatch.service.js';
 
 const prisma = new PrismaClient();
@@ -209,20 +206,6 @@ smsCampaignRouter.post(
         return;
       }
 
-      // Quiet hours are checked once up front so a whole campaign outside the
-      // window is refused rather than recorded as N blocked messages.
-      if (!withinQuietHours()) {
-        res.status(409).json({
-          success: false,
-          error: {
-            code: 'OUTSIDE_CONTACT_WINDOW',
-            message:
-              `Outside the ${QUIET_HOURS_START}:00-${QUIET_HOURS_END}:00 contact window; nothing was sent.`,
-          },
-        } satisfies ApiResponse);
-        return;
-      }
-
       const businesses = await prisma.business.findMany({
         where: { id: { in: client_ids }, tenantId },
         select: { id: true, legalName: true },
@@ -283,6 +266,11 @@ smsCampaignRouter.post(
             blocked_reason: r.blockedReason ?? null,
             detail: r.detail ?? null,
             message_id: r.messageId,
+            // Quiet hours are judged per recipient, so which zone was used —
+            // and whether it was stored or inferred from the area code — is
+            // part of the record.
+            timezone: r.timezone ?? null,
+            timezone_source: r.timezoneSource ?? null,
           })),
         },
         meta: { requested: client_ids.length, matched: businesses.length },

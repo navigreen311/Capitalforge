@@ -29,6 +29,31 @@ import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { ComplianceService } from '../../services/compliance.service.js';
 import { emailService } from '../../services/email.service.js';
+import { isValidTimezone } from '../../services/timezone.js';
+
+/**
+ * Business columns a client-detail PATCH may write.
+ *
+ * tenantId is absent by design: it decides which tenant owns the record.
+ */
+const UPDATABLE_BUSINESS_FIELDS = new Set([
+  'legalName',
+  'dba',
+  'ein',
+  'entityType',
+  'stateOfFormation',
+  'dateOfFormation',
+  'industry',
+  'naicsCode',
+  'mcc',
+  'annualRevenue',
+  'monthlyRevenue',
+  'phoneNumber',
+  'timezone',
+  'status',
+  'advisorId',
+  'fundingReadinessScore',
+]);
 import type { ComplianceCheckType } from '../../../shared/types/index.js';
 
 const complianceService = new ComplianceService();
@@ -621,9 +646,49 @@ clientDetailRouter.patch('/', async (req: Request, res: Response, _next: NextFun
     return;
   }
 
+  const fields = Object.keys(updates);
+  const rejected = fields.filter((f) => !UPDATABLE_BUSINESS_FIELDS.has(f));
+  if (rejected.length > 0) {
+    // Unfiltered, this wrote any column on Business — including tenantId,
+    // which would have moved the client into another tenant.
+    err(
+      res,
+      400,
+      'FIELD_NOT_UPDATABLE',
+      `These fields cannot be updated: ${rejected.join(', ')}.`,
+    );
+    return;
+  }
+
+  if (updates.timezone !== undefined && updates.timezone !== null) {
+    if (typeof updates.timezone !== 'string' || !isValidTimezone(updates.timezone)) {
+      err(
+        res,
+        422,
+        'INVALID_TIMEZONE',
+        'timezone must be an IANA name such as "America/Chicago". '
+          + 'It decides whether outreach reaches this client inside their local contact window.',
+      );
+      return;
+    }
+  }
+
   try {
-    logger.debug('PATCH client profile', { clientId, tenantId, fields: Object.keys(updates) });
-    const updated = await prisma.business.update({ where: { id: clientId }, data: updates });
+    logger.debug('PATCH client profile', { clientId, tenantId, fields });
+
+    // Scoped to the tenant. This matched on id alone, so a caller could
+    // update any business in any tenant by guessing or reusing an id.
+    const result = await prisma.business.updateMany({
+      where: { id: clientId, tenantId },
+      data: updates,
+    });
+
+    if (result.count === 0) {
+      err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
+      return;
+    }
+
+    const updated = await prisma.business.findFirst({ where: { id: clientId, tenantId } });
     ok(res, updated);
   } catch (error) {
     if (isNotFound(error)) {

@@ -16,9 +16,8 @@ import {
   isOptOutKeyword,
   withinQuietHours,
   smsConfigStatus,
-  QUIET_HOURS_START,
-  QUIET_HOURS_END,
 } from '../../../src/backend/services/sms-dispatch.service.js';
+import { resolveTimezone } from '../../../src/backend/services/timezone.js';
 
 // ── Phone normalisation ─────────────────────────────────────────────────────
 
@@ -74,43 +73,91 @@ describe('isOptOutKeyword', () => {
 // ── Quiet hours ─────────────────────────────────────────────────────────────
 
 describe('withinQuietHours', () => {
-  const original = process.env['SMS_TIMEZONE_OFFSET_HOURS'];
+  // 18:00 UTC is 13:00 in Chicago (inside the window) and 10:00 in Los
+  // Angeles (also inside); 02:00 UTC is 20:00 the previous day in Chicago
+  // (inside) but 18:00 in LA (inside) — so the discriminating case is one
+  // that lands on opposite sides, which is the whole reason this is per-zone.
+  it('judges the same instant differently in different zones', () => {
+    // 04:00 UTC = 23:00 in New York (outside) and 20:00 in Los Angeles (inside).
+    const instant = new Date('2026-01-15T04:00:00Z');
 
-  afterEach(() => {
-    if (original === undefined) delete process.env['SMS_TIMEZONE_OFFSET_HOURS'];
-    else process.env['SMS_TIMEZONE_OFFSET_HOURS'] = original;
+    expect(withinQuietHours(instant, 'America/New_York')).toBe(false);
+    expect(withinQuietHours(instant, 'America/Los_Angeles')).toBe(true);
   });
 
   it('permits contact inside the window', () => {
-    delete process.env['SMS_TIMEZONE_OFFSET_HOURS'];
-    expect(withinQuietHours(new Date(2026, 0, 1, QUIET_HOURS_START, 0))).toBe(true);
-    expect(withinQuietHours(new Date(2026, 0, 1, 14, 0))).toBe(true);
-    expect(withinQuietHours(new Date(2026, 0, 1, QUIET_HOURS_END - 1, 59))).toBe(true);
+    const midday = new Date('2026-01-15T18:00:00Z'); // 12:00 Chicago
+    expect(withinQuietHours(midday, 'America/Chicago')).toBe(true);
   });
 
   it('refuses contact outside it', () => {
-    delete process.env['SMS_TIMEZONE_OFFSET_HOURS'];
-    expect(withinQuietHours(new Date(2026, 0, 1, 3, 0))).toBe(false);
-    expect(withinQuietHours(new Date(2026, 0, 1, 23, 30))).toBe(false);
-    // The boundaries themselves: start is inclusive, end is not.
-    expect(withinQuietHours(new Date(2026, 0, 1, QUIET_HOURS_START - 1, 59))).toBe(false);
-    expect(withinQuietHours(new Date(2026, 0, 1, QUIET_HOURS_END, 0))).toBe(false);
+    const smallHours = new Date('2026-01-15T09:00:00Z'); // 03:00 Chicago
+    expect(withinQuietHours(smallHours, 'America/Chicago')).toBe(false);
   });
 
-  it('shifts the window by the configured offset', () => {
-    // 22:00 on a server running 3 hours behind the recipients is 01:00 for
-    // them, which must be refused.
-    process.env['SMS_TIMEZONE_OFFSET_HOURS'] = '3';
-    expect(withinQuietHours(new Date(2026, 0, 1, 22, 0))).toBe(false);
-
-    // 06:00 server time is 09:00 for them, which is inside the window.
-    expect(withinQuietHours(new Date(2026, 0, 1, 6, 0))).toBe(true);
+  it('respects the window boundaries', () => {
+    // 08:00 local is permitted; 21:00 local is not.
+    expect(withinQuietHours(new Date('2026-01-15T14:00:00Z'), 'America/Chicago')).toBe(true);
+    expect(withinQuietHours(new Date('2026-01-16T03:00:00Z'), 'America/Chicago')).toBe(false);
   });
 
-  it('ignores a malformed offset rather than shifting by NaN', () => {
-    process.env['SMS_TIMEZONE_OFFSET_HOURS'] = 'not-a-number';
-    expect(withinQuietHours(new Date(2026, 0, 1, 14, 0))).toBe(true);
-    expect(withinQuietHours(new Date(2026, 0, 1, 3, 0))).toBe(false);
+  it('follows daylight saving rather than a fixed offset', () => {
+    // 01:30 UTC is 20:30 in Chicago during CDT (inside the window) but 19:30
+    // during CST (also inside) — so compare a case that actually flips:
+    // 02:30 UTC is 21:30 CDT (outside) and 20:30 CST (inside).
+    const summer = new Date('2026-07-15T02:30:00Z');
+    const winter = new Date('2026-01-15T02:30:00Z');
+
+    expect(withinQuietHours(summer, 'America/Chicago')).toBe(false);
+    expect(withinQuietHours(winter, 'America/Chicago')).toBe(true);
+  });
+
+  it('treats Arizona as distinct from Mountain time in summer', () => {
+    // Arizona does not observe DST. In July, 03:30 UTC is 20:30 in Phoenix
+    // (inside) but 21:30 in Denver (outside).
+    const instant = new Date('2026-07-16T03:30:00Z');
+
+    expect(withinQuietHours(instant, 'America/Phoenix')).toBe(true);
+    expect(withinQuietHours(instant, 'America/Denver')).toBe(false);
+  });
+});
+
+// ── Timezone resolution ─────────────────────────────────────────────────────
+
+describe('resolveTimezone', () => {
+  it('prefers the stored timezone', () => {
+    // A client who moved keeps their old area code; only the stored value can
+    // be right, so it must win.
+    expect(resolveTimezone('America/Denver', '+12125550123')).toEqual({
+      zone: 'America/Denver',
+      source: 'business',
+    });
+  });
+
+  it('falls back to the area code when nothing is stored', () => {
+    expect(resolveTimezone(null, '+12125550123')).toEqual({
+      zone: 'America/New_York',
+      source: 'area_code',
+    });
+    expect(resolveTimezone(null, '+13125550123').zone).toBe('America/Chicago');
+    expect(resolveTimezone(null, '+16025550123').zone).toBe('America/Phoenix');
+    expect(resolveTimezone(null, '+19075550123').zone).toBe('America/Anchorage');
+  });
+
+  it('ignores an invalid stored timezone rather than trusting it', () => {
+    // A typo in one record should not stop a campaign, but must not be used.
+    expect(resolveTimezone('Mars/Olympus_Mons', '+13125550123')).toEqual({
+      zone: 'America/Chicago',
+      source: 'area_code',
+    });
+  });
+
+  it('resolves to nothing when neither source can answer', () => {
+    expect(resolveTimezone(null, null)).toEqual({ zone: null, source: 'none' });
+    expect(resolveTimezone(null, '+442071234567')).toEqual({ zone: null, source: 'none' });
+    // An unassigned NANP area code resolves to nothing rather than to a
+    // neighbouring zone.
+    expect(resolveTimezone(null, '+19995550123')).toEqual({ zone: null, source: 'none' });
   });
 });
 

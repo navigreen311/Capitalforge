@@ -154,6 +154,14 @@ model Business {
   industry            String?
   annualRevenue       Decimal?
   monthlyRevenue      Decimal?
+  /**
+   * IANA timezone for this client, e.g. "America/Chicago".
+   *
+   * Quiet-hours rules are stated in the recipient's local time, so outreach
+   * needs to know it. When null the dispatcher derives one from the phone
+   * number's area code and refuses to send if it cannot.
+   */
+  timezone            String?
   /** Primary contact number used by VoiceForge outreach campaigns */
   phoneNumber         String?
   fundingReadinessScore Int?

@@ -19,6 +19,7 @@ import { v4 as uuidv4 } from 'uuid';
 import logger from '../config/logger.js';
 import { consentGate } from './consent-gate.js';
 import { getTwilioClient } from '../integrations/twilio/twilio-client.js';
+import { resolveTimezone, hourInZone, type TimezoneSource } from './timezone.js';
 
 const prisma = new PrismaClient();
 
@@ -28,7 +29,12 @@ const prisma = new PrismaClient();
 export const QUIET_HOURS_START = 8;
 export const QUIET_HOURS_END = 21;
 
-export type BlockedReason = 'no_phone' | 'dnc' | 'no_consent' | 'quiet_hours';
+export type BlockedReason =
+  | 'no_phone'
+  | 'dnc'
+  | 'no_consent'
+  | 'quiet_hours'
+  | 'unknown_timezone';
 
 export interface SmsRecipientResult {
   businessId: string;
@@ -37,6 +43,9 @@ export interface SmsRecipientResult {
   detail?: string;
   providerSid?: string;
   messageId: string;
+  /** Where the recipient's timezone came from, for audit. */
+  timezone?: string | null;
+  timezoneSource?: TimezoneSource;
 }
 
 export interface SmsCampaignOutcome {
@@ -104,17 +113,15 @@ export function normalisePhone(raw: string | null | undefined): string | null {
 // ── Quiet hours ──────────────────────────────────────────────
 
 /**
- * Whether the given instant falls inside the permitted contact window.
+ * Whether `asOf` falls inside the permitted contact window in `zone`.
  *
- * Evaluated in the server's timezone. Recipient-local evaluation would need
- * a timezone per recipient, which is not on the schema — so this is a
- * deliberate approximation and is documented as one rather than presented as
- * per-recipient compliance. Set SMS_TIMEZONE_OFFSET_HOURS to shift the
- * window if the server does not run in the recipients' zone.
+ * Judged in the recipient's own timezone via Intl, so daylight saving is
+ * handled. This previously used the server's clock with an optional fixed
+ * offset, which was wrong for any recipient in another zone and wrong for
+ * everyone for half the year.
  */
-export function withinQuietHours(asOf: Date = new Date()): boolean {
-  const offset = Number(process.env['SMS_TIMEZONE_OFFSET_HOURS'] ?? '0');
-  const hour = (asOf.getHours() + (Number.isFinite(offset) ? offset : 0) + 24) % 24;
+export function withinQuietHours(asOf: Date, zone: string): boolean {
+  const hour = hourInZone(asOf, zone);
   return hour >= QUIET_HOURS_START && hour < QUIET_HOURS_END;
 }
 
@@ -138,7 +145,7 @@ export async function dispatchSmsCampaign(input: DispatchInput): Promise<SmsCamp
 
   const businesses = await prisma.business.findMany({
     where: { id: { in: businessIds }, tenantId },
-    select: { id: true, legalName: true, phoneNumber: true },
+    select: { id: true, legalName: true, phoneNumber: true, timezone: true },
   });
   const byId = new Map(businesses.map((b) => [b.id, b]));
 
@@ -149,7 +156,6 @@ export async function dispatchSmsCampaign(input: DispatchInput): Promise<SmsCamp
   });
   const dnc = new Set(dncRows.map((d) => d.phoneNumber));
 
-  const quietHoursOk = withinQuietHours(asOf);
   const results: SmsRecipientResult[] = [];
 
   for (const businessId of businessIds) {
@@ -234,13 +240,37 @@ export async function dispatchSmsCampaign(input: DispatchInput): Promise<SmsCamp
       continue;
     }
 
-    // ── 4. Quiet hours ──────────────────────────────────────
-    if (!quietHoursOk) {
+    // ── 4. Quiet hours, in the recipient's own timezone ─────
+    const { zone, source } = resolveTimezone(business?.timezone, to);
+
+    if (!zone) {
+      // No stored zone and an area code outside the table. Refusing is the
+      // only safe answer: sending anyway would be a guess, and the guess that
+      // matters lands at 3am.
+      results.push({
+        businessId,
+        status: 'blocked',
+        blockedReason: 'unknown_timezone',
+        detail:
+          'No timezone on record and none derivable from the number. '
+          + 'Set Business.timezone to enable outreach.',
+        timezone: null,
+        timezoneSource: 'none',
+        messageId: await record('blocked', { blockedReason: 'unknown_timezone' }),
+      });
+      continue;
+    }
+
+    if (!withinQuietHours(asOf, zone)) {
       results.push({
         businessId,
         status: 'blocked',
         blockedReason: 'quiet_hours',
-        detail: `Outside the ${QUIET_HOURS_START}:00–${QUIET_HOURS_END}:00 contact window`,
+        detail:
+          `Local time in ${zone} is outside the `
+          + `${QUIET_HOURS_START}:00–${QUIET_HOURS_END}:00 contact window`,
+        timezone: zone,
+        timezoneSource: source,
         messageId: await record('blocked', { blockedReason: 'quiet_hours' }),
       });
       continue;
@@ -260,6 +290,8 @@ export async function dispatchSmsCampaign(input: DispatchInput): Promise<SmsCamp
         businessId,
         status: 'sent',
         providerSid: sent.messageSid,
+        timezone: zone,
+        timezoneSource: source,
         messageId: await record(sent.status || 'sent', { providerSid: sent.messageSid }),
       });
     } catch (error) {
@@ -269,6 +301,8 @@ export async function dispatchSmsCampaign(input: DispatchInput): Promise<SmsCamp
         businessId,
         status: 'failed',
         detail,
+        timezone: zone,
+        timezoneSource: source,
         messageId: await record('failed', { errorCode: detail.slice(0, 100) }),
       });
     }
