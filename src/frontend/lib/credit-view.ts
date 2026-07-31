@@ -185,3 +185,133 @@ export function toRecommendations(data: unknown): RecommendationView[] {
     }))
     .filter((r) => r.id !== '');
 }
+
+// ── Business credit builder ─────────────────────────────────────────────────
+
+export interface BusinessScoreSet {
+  paydex: number | null;
+  paydexDate: string | null;
+  experianBusiness: number | null;
+  experianDate: string | null;
+  sbss: number | null;
+  sbssDate: string | null;
+}
+
+/** scoreType values that map onto each panel slot. */
+const PAYDEX_TYPES = new Set(['paydex']);
+const EXPERIAN_TYPES = new Set(['intelliscore', 'experian_business']);
+const SBSS_TYPES = new Set(['sbss', 'fico_sbss']);
+
+/**
+ * Reduce the credit-builder scores response to the three the panel shows.
+ *
+ * A bureau with no pull on record stays null, which the panel renders as
+ * absent. The page previously hardcoded all three — paydex 72, experian 54,
+ * sbss 148 — identically for every client.
+ */
+export function toBusinessScoreSet(data: unknown): BusinessScoreSet {
+  const empty: BusinessScoreSet = {
+    paydex: null,
+    paydexDate: null,
+    experianBusiness: null,
+    experianDate: null,
+    sbss: null,
+    sbssDate: null,
+  };
+
+  const scores = toScoreCards(data);
+  return scores.reduce<BusinessScoreSet>((acc, s) => {
+    const type = s.scoreType?.toLowerCase() ?? '';
+    if (PAYDEX_TYPES.has(type)) {
+      acc.paydex = s.score;
+      acc.paydexDate = s.pullDate;
+    } else if (EXPERIAN_TYPES.has(type)) {
+      acc.experianBusiness = s.score;
+      acc.experianDate = s.pullDate;
+    } else if (SBSS_TYPES.has(type)) {
+      acc.sbss = s.score;
+      acc.sbssDate = s.pullDate;
+    }
+    return acc;
+  }, empty);
+}
+
+/** Tradelines from the credit-builder response; accepts the wrapper or a bare array. */
+export function toTradelineCount(data: unknown): number {
+  if (Array.isArray(data)) return data.length;
+  const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  return Array.isArray(record['tradelines']) ? (record['tradelines'] as unknown[]).length : 0;
+}
+
+// ── Vendor tradelines ───────────────────────────────────────────────────────
+
+export interface TradelineView {
+  id: string;
+  vendor: string;
+  applied_date: string;
+  approved: boolean;
+  credit_limit: number;
+  balance: number;
+  payments_made: number;
+  payments_total: number;
+  status: 'Applied' | 'Approved' | 'Reporting' | 'Late';
+  reportsTo: string[];
+  disputeCount: number;
+}
+
+/** Bureaus a vendor reports to, when the record lists any. */
+function reportsToList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === 'string');
+}
+
+/**
+ * Status the UI shows, derived from the stored status and whether the vendor
+ * reports to any bureau.
+ *
+ * A tradeline that reports nowhere does not build credit, so "open" alone is
+ * not "Reporting" — the distinction is the entire point of the feature.
+ */
+function tradelineStatus(status: string, reportsTo: string[]): TradelineView['status'] {
+  if (status === 'delinquent') return 'Late';
+  if (status === 'closed') return 'Applied';
+  return reportsTo.length > 0 ? 'Reporting' : 'Approved';
+}
+
+export function toTradelines(data: unknown): TradelineView[] {
+  const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  const rows = Array.isArray(data)
+    ? data
+    : Array.isArray(record['tradelines'])
+      ? (record['tradelines'] as unknown[])
+      : [];
+
+  return rows
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && 'id' in r)
+    .map((r) => {
+      const reportsTo = reportsToList(r['reportsTo']);
+      const status = typeof r['status'] === 'string' ? r['status'] : 'open';
+      const disputes = Array.isArray(r['disputes']) ? (r['disputes'] as unknown[]).length : 0;
+
+      return {
+        id: String(r['id']),
+        vendor: typeof r['vendor'] === 'string' ? r['vendor'] : 'Unknown vendor',
+        applied_date: typeof r['openedDate'] === 'string' ? r['openedDate'] : '',
+        approved: status !== 'closed',
+        credit_limit: typeof r['creditLimit'] === 'number' ? r['creditLimit'] : 0,
+        balance: typeof r['balance'] === 'number' ? r['balance'] : 0,
+        // Payment history is not modelled, so no counts are asserted. The
+        // component renders 0/0 as "no payment history on record".
+        payments_made: 0,
+        payments_total: 0,
+        status: tradelineStatus(status, reportsTo),
+        reportsTo,
+        disputeCount: disputes,
+      };
+    });
+}
+
+/** How many tradelines are actually reporting to a bureau. */
+export function reportingCount(tradelines: TradelineView[]): number {
+  return tradelines.filter((t) => t.status === 'Reporting').length;
+}

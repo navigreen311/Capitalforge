@@ -8,8 +8,9 @@
 // "Add Tradeline" modal for manual entry.
 // ============================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { toTradelines, reportingCount, type TradelineView } from '@/lib/credit-view';
 import { useToast } from '@/components/global/ToastProvider';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
@@ -581,12 +582,15 @@ function LogPaymentModal({
 // ── Main Export ──────────────────────────────────────────────────────────────
 
 export function TradelineTracker({ clientId, clientName, prefillVendor, showAddModal: externalShowAdd, onCloseAddModal }: TradelineTrackerProps) {
-  const apiPath = clientId ? `/api/v1/clients/${clientId}/tradelines` : null;
   const toast = useToast();
 
-  const { data, isLoading, error, refetch } = useAuthFetch<TradelinesResponse>(
-    apiPath ?? '/api/v1/clients/null/tradelines',
+  // The tradelines live under /credit-builder, not /v1/clients — the previous
+  // path 404'd, and the placeholder fallback below made that invisible.
+  const { data, isLoading, error, refetch } = useAuthFetch<unknown>(
+    `/api/credit-builder/${clientId}/tradelines`,
   );
+
+  const apiTradelines = useMemo(() => toTradelines(data), [data]);
 
   const [internalShowAdd, setInternalShowAdd] = useState(false);
   const showAddModal = externalShowAdd ?? internalShowAdd;
@@ -601,7 +605,7 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
   const handleCloseModal = useCallback(() => setShowAddModal(false), [setShowAddModal]);
 
   const handleRowAction = useCallback((tradelineId: string, action: RowAction) => {
-    const allTradelines = [...(data?.tradelines ?? PLACEHOLDER_DATA.tradelines), ...localTradelines];
+    const allTradelines = [...apiTradelines, ...localTradelines];
     const target = allTradelines.find(t => t.id === tradelineId);
     if (!target) return;
 
@@ -619,15 +623,21 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
         setLocalTradelines(prev => prev.map(t => t.id === tradelineId ? { ...t, status: 'Applied' as TradelineStatus } : t));
         break;
     }
-  }, [data, localTradelines]);
+  }, [apiTradelines, localTradelines]);
 
-  // Resolve the display data: API response or placeholder fallback
-  const resolved = data ?? (clientId ? null : PLACEHOLDER_DATA);
-  const tradelines = resolved ? [...resolved.tradelines, ...localTradelines] : localTradelines;
-  const reportingCount = (resolved?.reporting_count ?? 0) +
-    localTradelines.filter((t) => t.status === 'Reporting').length;
-  const reportingTarget = resolved?.reporting_target ?? 5;
-  const avgPayment = resolved?.avg_payment_status ?? 'On Time';
+  // No placeholder fallback: a client with no tradelines has none, and the
+  // sample rows this used to show made an empty account look established.
+  const tradelines = [...apiTradelines, ...localTradelines];
+
+  // Derived from the rows themselves rather than read off the response — the
+  // API reports the tradelines, not a summary, and a count that disagreed
+  // with the list beneath it would be worse than none.
+  const reportingTotal =
+    reportingCount(apiTradelines) + localTradelines.filter((t) => t.status === 'Reporting').length;
+  const reportingTarget = 5;
+
+  // Payment history is not modelled, so no average is asserted.
+  const avgPayment = 'Not tracked';
 
   function handleSave(form: NewTradelineForm) {
     const vendorName = form.vendor === 'Custom...' ? form.customVendor : form.vendor;
@@ -765,8 +775,8 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
         <div className="mt-4 pt-3 border-t border-gray-700 flex items-center justify-between text-sm">
           <span className="text-gray-400">
             Tradelines reporting to D&amp;B:{' '}
-            <span className={reportingCount >= reportingTarget ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
-              {reportingCount} of {reportingTarget} needed
+            <span className={reportingTotal >= reportingTarget ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
+              {reportingTotal} of {reportingTarget} needed
             </span>
           </span>
           <span className="text-gray-400">

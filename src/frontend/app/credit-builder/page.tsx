@@ -7,7 +7,9 @@
 // tradeline tracker, sub-progress, timeline, graduation banner
 // ============================================================
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { toBusinessScoreSet, toTradelineCount } from '@/lib/credit-view';
 import { useRouter } from 'next/navigation';
 import {
   CreditBuilderClientSelector,
@@ -155,7 +157,6 @@ const STACKING_CRITERIA: StackingCriteria[] = [
 ];
 
 // Scores placeholder
-const SCORES = { paydex: 72, paydexDate: '2026-03-14', experianBusiness: 54, experianDate: '2026-03-14', sbss: 148, sbssDate: '2026-03-14' };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -212,11 +213,25 @@ export default function CreditBuilderPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [prefillVendor, setPrefillVendor] = useState<string | null>(null);
 
+  // useAuthFetch skips a path containing "undefined", so these stay idle
+  // until a client is chosen.
+  const { data: scoresRaw } = useAuthFetch<unknown>(
+    `/api/credit-builder/${selectedClient?.id}/scores`,
+  );
+  const { data: tradelinesRaw } = useAuthFetch<unknown>(
+    `/api/credit-builder/${selectedClient?.id}/tradelines`,
+  );
+
+  const scores = useMemo(() => toBusinessScoreSet(scoresRaw), [scoresRaw]);
+  const tradelineCount = useMemo(() => toTradelineCount(tradelinesRaw), [tradelinesRaw]);
+
   const completedCount = dunsSteps.filter((s) => s.completed).length;
   const overallProgress = Math.round((completedCount / dunsSteps.length) * 100);
   const metCount = STACKING_CRITERIA.filter((c) => c.status === 'met').length;
-  const tradelineCount = 2; // placeholder
-  const tier1Unlocked = SCORES.paydex >= 80 && tradelineCount >= 5 && completedCount >= 3;
+  // A missing PAYDEX must not unlock a tier. `null >= 80` is false in JS, but
+  // relying on that would be accidental — the absence is checked explicitly.
+  const tier1Unlocked =
+    scores.paydex !== null && scores.paydex >= 80 && tradelineCount >= 5 && completedCount >= 3;
 
   const toggleStep = useCallback((id: number) => {
     setDunsSteps((prev) =>
@@ -281,9 +296,9 @@ export default function CreditBuilderPage() {
       {/* ── Business Credit Scores ───────────────────────────────── */}
       <BusinessCreditScoresPanel
         clientName={selectedClient?.legal_name ?? null}
-        paydex={SCORES.paydex} paydexDate={SCORES.paydexDate}
-        experianBusiness={SCORES.experianBusiness} experianDate={SCORES.experianDate}
-        sbss={SCORES.sbss} sbssDate={SCORES.sbssDate}
+        paydex={scores.paydex} paydexDate={scores.paydexDate}
+        experianBusiness={scores.experianBusiness} experianDate={scores.experianDate}
+        sbss={scores.sbss} sbssDate={scores.sbssDate}
       />
 
       {/* ── DUNS Registration Steps ──────────────────────────────── */}
@@ -316,7 +331,7 @@ export default function CreditBuilderPage() {
                   <p className="text-xs text-green-500 mt-1">Completed {formatDate(step.completedDate)}</p>
                 )}
                 {step.id === 4 && !step.completed && <div className="mt-2"><TradelineSubProgress current={tradelineCount} target={5} /></div>}
-                {step.id === 5 && !step.completed && <div className="mt-2"><PaydexSubProgress currentScore={SCORES.paydex} targetScore={80} /></div>}
+                {step.id === 5 && !step.completed && <div className="mt-2"><PaydexSubProgress currentScore={scores.paydex ?? 0} targetScore={80} /></div>}
               </div>
               <div className="flex-shrink-0 text-right">
                 <p className="text-xs text-gray-500 whitespace-nowrap">{step.estimatedDays}</p>
@@ -555,10 +570,10 @@ export default function CreditBuilderPage() {
 
       {/* ── Estimated Progress Timeline ──────────────────────────── */}
       <EstimatedProgressTimeline
-        paydex={SCORES.paydex}
+        paydex={scores.paydex ?? 0}
         tradelineCount={tradelineCount}
-        experianBusiness={SCORES.experianBusiness}
-        sbss={SCORES.sbss}
+        experianBusiness={scores.experianBusiness ?? 0}
+        sbss={scores.sbss ?? 0}
         businessAgeMonths={36}
       />
 
