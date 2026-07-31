@@ -269,9 +269,72 @@ See [`docs/all-modules.md`](docs/all-modules.md) for the complete module registr
 | `npm run db:push` | Push schema changes to DB (no migration file) |
 | `npm run db:seed` | Seed reference and test data |
 | `npm run db:studio` | Open Prisma Studio GUI |
+| `npm run walk` | Drive one client through the whole funnel against a running server ([details](#development-workflow-scripts)) |
+| `npm run clean:dev-data` | Remove non-seeded businesses and orphaned ledger events ([details](#development-workflow-scripts)) |
+| `npm run backfill:timezone` | Fill `Business.timezone` from data already on record ([details](#development-workflow-scripts)) |
 | `npm run docker:up` | Start Docker infrastructure (PostgreSQL + Redis) |
 | `npm run docker:down` | Stop Docker infrastructure |
 | `npm run setup` | Full bootstrap: install + generate + migrate |
+
+
+### Development workflow scripts
+
+Three scripts operate on a live database rather than a test fixture. Each is
+read-only until told otherwise, so running one to see what it would do is safe.
+
+#### `npm run walk` — end-to-end lifecycle check
+
+Drives one client through the entire funnel against a running server: intake →
+KYB/KYC → consent → acknowledgments → suitability → funding round → application
+create/submit → round completion. 22 steps, each reported with its status.
+
+It exits non-zero if any step fails, so it works as a check and not only as a
+report:
+
+```bash
+npm run dev:backend        # in another terminal
+npm run walk               # run, then delete everything it created
+npm run walk -- --keep     # leave the records behind for inspection
+```
+
+It creates a client every run and removes it afterwards, including the ledger
+events, in a `finally` block so a failed run still tidies up. Without that the
+database accumulates one orphaned client per run.
+
+#### `npm run clean:dev-data` — remove accumulated debris
+
+Deletes businesses that are **not** seeded, everything belonging to them, and
+any ledger event whose aggregate no longer exists. For debris the walk cannot
+reach: an interrupted run, or clients created by hand while exercising the API.
+
+```bash
+npm run clean:dev-data              # dry run — lists what would go
+npm run clean:dev-data -- --apply   # delete
+npm run clean:dev-data -- --orphans-only --apply   # leave businesses alone
+```
+
+Seeded rows are identified positively by their `seed-biz-` ids, so an
+unfamiliar record is kept rather than removed. The script refuses to run with
+`NODE_ENV=production`, and refuses `--apply` unless `DATABASE_URL` points at a
+local host — a dry run against a remote database is still allowed, being
+read-only.
+
+#### `npm run backfill:timezone` — fill in recipient timezones
+
+Quiet-hours checks are evaluated in the recipient's timezone, and a client with
+none on record is **not** messaged at all. This fills the gap from data already
+held: the phone number's area code first, then a beneficial owner's postal
+address.
+
+```bash
+npm run backfill:timezone              # dry run — lists each row and its evidence
+npm run backfill:timezone -- --apply   # write
+```
+
+`stateOfFormation` is deliberately not used. It records where an entity was
+incorporated, not where it operates — Delaware and Nevada formations are
+routine for businesses trading elsewhere. Rows it cannot resolve are left null,
+which the dispatcher treats as "do not send".
 
 ---
 
