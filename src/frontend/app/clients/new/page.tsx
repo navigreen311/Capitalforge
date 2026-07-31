@@ -502,7 +502,7 @@ export default function NewClientPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Legal Name" required error={bizErrors.legalName}>
-          <input className={inputClass} value={biz.legalName} onChange={(e) => updateBiz('legalName', e.target.value)} placeholder="Acme Holdings LLC" />
+          <input name="legalName" className={inputClass} value={biz.legalName} onChange={(e) => updateBiz('legalName', e.target.value)} placeholder="Acme Holdings LLC" />
         </Field>
         <Field label="DBA (Doing Business As)">
           <input className={inputClass} value={biz.dba} onChange={(e) => updateBiz('dba', e.target.value)} placeholder="Acme" />
@@ -511,7 +511,7 @@ export default function NewClientPage() {
           <input className={inputClass} value={biz.ein} onChange={(e) => updateBiz('ein', e.target.value)} placeholder="12-3456789" />
         </Field>
         <Field label="Entity Type" required error={bizErrors.entityType}>
-          <select className={selectClass} value={biz.entityType} onChange={(e) => updateBiz('entityType', e.target.value)}>
+          <select name="entityType" className={selectClass} value={biz.entityType} onChange={(e) => updateBiz('entityType', e.target.value)}>
             <option value="">Select entity type</option>
             {ENTITY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -555,7 +555,7 @@ export default function NewClientPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
             <Field label="Address Line 1" required error={bizErrors.addressLine1}>
-              <input className={inputClass} value={biz.addressLine1} onChange={(e) => updateBiz('addressLine1', e.target.value)} placeholder="123 Main St" />
+              <input name="addressLine1" className={inputClass} value={biz.addressLine1} onChange={(e) => updateBiz('addressLine1', e.target.value)} placeholder="123 Main St" />
             </Field>
           </div>
           <div className="md:col-span-2">
@@ -564,11 +564,11 @@ export default function NewClientPage() {
             </Field>
           </div>
           <Field label="City" required error={bizErrors.city}>
-            <input className={inputClass} value={biz.city} onChange={(e) => updateBiz('city', e.target.value)} placeholder="New York" />
+            <input name="city" className={inputClass} value={biz.city} onChange={(e) => updateBiz('city', e.target.value)} placeholder="New York" />
           </Field>
           <div className="grid grid-cols-2 gap-4">
             <Field label="State" required error={bizErrors.state}>
-              <select className={selectClass} value={biz.state} onChange={(e) => updateBiz('state', e.target.value)}>
+              <select name="state" className={selectClass} value={biz.state} onChange={(e) => updateBiz('state', e.target.value)}>
                 <option value="">Select</option>
                 {US_STATES.map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -576,7 +576,7 @@ export default function NewClientPage() {
               </select>
             </Field>
             <Field label="ZIP Code" required error={bizErrors.zip}>
-              <input className={inputClass} value={biz.zip} onChange={(e) => updateBiz('zip', e.target.value)} placeholder="10001" maxLength={10} />
+              <input name="zip" className={inputClass} value={biz.zip} onChange={(e) => updateBiz('zip', e.target.value)} placeholder="10001" maxLength={10} />
             </Field>
           </div>
         </div>
@@ -641,13 +641,13 @@ export default function NewClientPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="First Name" required>
-              <input className={inputClass} value={owner.firstName} onChange={(e) => updateOwner(owner.id, 'firstName', e.target.value)} placeholder="John" />
+              <input name="firstName" className={inputClass} value={owner.firstName} onChange={(e) => updateOwner(owner.id, 'firstName', e.target.value)} placeholder="John" />
             </Field>
             <Field label="Last Name" required>
-              <input className={inputClass} value={owner.lastName} onChange={(e) => updateOwner(owner.id, 'lastName', e.target.value)} placeholder="Smith" />
+              <input name="lastName" className={inputClass} value={owner.lastName} onChange={(e) => updateOwner(owner.id, 'lastName', e.target.value)} placeholder="Smith" />
             </Field>
             <Field label="Ownership %" required>
-              <input type="number" className={inputClass} value={owner.ownershipPercent} onChange={(e) => updateOwner(owner.id, 'ownershipPercent', e.target.value)} placeholder="51" min={0.01} max={100} step={0.01} />
+              <input name="ownershipPercent" type="number" className={inputClass} value={owner.ownershipPercent} onChange={(e) => updateOwner(owner.id, 'ownershipPercent', e.target.value)} placeholder="51" min={0.01} max={100} step={0.01} />
             </Field>
             <Field label="Date of Birth">
               <input type="date" className={inputClass} value={owner.dateOfBirth} onChange={(e) => updateOwner(owner.id, 'dateOfBirth', e.target.value)} />

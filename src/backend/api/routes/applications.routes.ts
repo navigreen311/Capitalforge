@@ -81,7 +81,15 @@ router.get(
         prisma.cardApplication.findMany({
           where,
           include: {
-            business: { select: { id: true, legalName: true, tenantId: true } },
+            business: {
+              select: {
+                id: true,
+                legalName: true,
+                tenantId: true,
+                // The pipeline board shows who owns each application.
+                advisor: { select: { firstName: true, lastName: true } },
+              },
+            },
             fundingRound: { select: { id: true, roundNumber: true, status: true } },
           },
           orderBy: { createdAt: 'desc' },
@@ -103,6 +111,16 @@ router.get(
         approvedLimit: app.status === 'approved' && app.creditLimit ? Number(app.creditLimit) : undefined,
         fundingRoundId: app.fundingRoundId,
         roundNumber: app.fundingRound?.roundNumber,
+        // Null when no advisor is assigned, rather than a placeholder name.
+        // The pipeline board renders it as unassigned.
+        advisorName: app.business.advisor
+          ? `${app.business.advisor.firstName} ${app.business.advisor.lastName}`.trim()
+          : null,
+        // Whether consent was captured before this application was filed.
+        // Surfaced because the board shows a consent chip per card, and it was
+        // previously drawn from sample data — a fabricated "complete" against a
+        // real application is the wrong way round for a compliance signal.
+        consentCapturedAt: app.consentCapturedAt ? app.consentCapturedAt.toISOString() : null,
         submittedAt: app.submittedAt,
         decidedAt: app.decidedAt,
         createdAt: app.createdAt.toISOString(),

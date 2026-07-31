@@ -8,6 +8,12 @@
 // Drag-and-drop between columns to update status.
 // ============================================================
 
+import {
+  toApplicationCards,
+  advisorInitials,
+  type ApplicationCardView,
+  type ConsentStatus,
+} from '@/lib/application-card-view';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { applicationsApi } from '../../lib/api-client';
 import { ApplicationDetailDrawer } from '../../components/applications/ApplicationDetailDrawer';
@@ -22,97 +28,11 @@ import type { ApplicationStatus } from '../../../shared/types';
 // Types
 // ---------------------------------------------------------------------------
 
-interface ApplicationCard {
-  id: string;
-  businessId: string;
-  businessName: string;
-  issuer: string;
-  cardProduct: string;
-  status: ApplicationStatus;
-  requestedLimit: number;
-  approvedLimit?: number;
-  createdAt: string;
-  updatedAt: string;
-  /** Funding round number (1, 2, 3 ...) */
-  roundNumber: number | null;
-  /** Days the application has been in current status */
-  daysInStatus: number;
-  /** Consent status: 'complete' | 'pending' | 'missing' */
-  consentStatus: 'complete' | 'pending' | 'missing';
-  /** Assigned advisor full name */
-  advisor: string;
-  /** Issuer type: bank or credit union */
-  issuer_type?: 'bank' | 'credit_union';
-}
-
-// ---------------------------------------------------------------------------
-// Placeholder data
-// ---------------------------------------------------------------------------
-
-const PLACEHOLDER_APPS: ApplicationCard[] = [
-  {
-    id: 'APP-0091', businessId: 'biz_001', businessName: 'Apex Ventures LLC',
-    issuer: 'Chase', cardProduct: 'Ink Business Cash', status: 'draft',
-    requestedLimit: 25000, createdAt: '2026-03-28T10:00:00Z', updatedAt: '2026-03-28T10:00:00Z',
-    roundNumber: 1, daysInStatus: 3, consentStatus: 'pending', advisor: 'Sarah Chen',
-  },
-  {
-    id: 'APP-0090', businessId: 'biz_002', businessName: 'NovaTech Solutions Inc.',
-    issuer: 'American Express', cardProduct: 'Business Gold', status: 'pending_consent',
-    requestedLimit: 30000, createdAt: '2026-03-27T09:00:00Z', updatedAt: '2026-03-29T11:00:00Z',
-    roundNumber: 1, daysInStatus: 5, consentStatus: 'missing', advisor: 'Marcus Reid',
-  },
-  {
-    id: 'APP-0089', businessId: 'biz_003', businessName: 'Blue Ridge Consulting',
-    issuer: 'Capital One', cardProduct: 'Spark Cash Plus', status: 'submitted',
-    requestedLimit: 20000, createdAt: '2026-03-26T14:00:00Z', updatedAt: '2026-03-30T08:00:00Z',
-    roundNumber: 2, daysInStatus: 7, consentStatus: 'complete', advisor: 'Olivia Torres',
-  },
-  {
-    id: 'APP-0088', businessId: 'biz_004', businessName: 'Summit Capital Group',
-    issuer: 'Chase', cardProduct: 'Ink Business Preferred', status: 'approved',
-    requestedLimit: 50000, approvedLimit: 45000, createdAt: '2026-03-20T10:00:00Z', updatedAt: '2026-03-28T15:00:00Z',
-    roundNumber: 2, daysInStatus: 0, consentStatus: 'complete', advisor: 'Sarah Chen',
-  },
-  {
-    id: 'APP-0087', businessId: 'biz_005', businessName: 'Horizon Retail Partners',
-    issuer: 'Citi', cardProduct: 'Citi Business Platinum', status: 'declined',
-    requestedLimit: 15000, createdAt: '2026-03-22T11:00:00Z', updatedAt: '2026-03-25T09:00:00Z',
-    roundNumber: 1, daysInStatus: 0, consentStatus: 'complete', advisor: 'James Park',
-  },
-  {
-    id: 'APP-0086', businessId: 'biz_006', businessName: 'Crestline Medical LLC',
-    issuer: 'American Express', cardProduct: 'Plum Card', status: 'draft',
-    requestedLimit: 40000, createdAt: '2026-03-30T07:00:00Z', updatedAt: '2026-03-30T07:00:00Z',
-    roundNumber: 3, daysInStatus: 1, consentStatus: 'pending', advisor: 'Olivia Torres',
-  },
-  {
-    id: 'APP-0085', businessId: 'biz_001', businessName: 'Apex Ventures LLC',
-    issuer: 'Bank of America', cardProduct: 'Business Advantage Cash Rewards', status: 'submitted',
-    requestedLimit: 18000, createdAt: '2026-03-29T08:00:00Z', updatedAt: '2026-03-30T10:00:00Z',
-    roundNumber: 1, daysInStatus: 4, consentStatus: 'complete', advisor: 'Marcus Reid',
-  },
-  {
-    id: 'APP-0084', businessId: 'biz_007', businessName: 'Pinnacle Freight Corp',
-    issuer: 'US Bank', cardProduct: 'Business Altitude Connect', status: 'approved',
-    requestedLimit: 60000, approvedLimit: 60000, createdAt: '2026-03-15T12:00:00Z', updatedAt: '2026-03-22T14:00:00Z',
-    roundNumber: 1, daysInStatus: 0, consentStatus: 'complete', advisor: 'Sarah Chen',
-  },
-  {
-    id: 'APP-0083', businessId: 'biz_008', businessName: 'Greenfield Logistics',
-    issuer: 'Alliant', cardProduct: 'Alliant Visa Business', status: 'submitted',
-    requestedLimit: 15000, createdAt: '2026-03-29T09:00:00Z', updatedAt: '2026-03-31T10:00:00Z',
-    roundNumber: 2, daysInStatus: 3, consentStatus: 'complete', advisor: 'Sarah Chen',
-    issuer_type: 'credit_union',
-  },
-  {
-    id: 'APP-0082', businessId: 'biz_009', businessName: 'Coastal Wellness Group',
-    issuer: 'PenFed', cardProduct: 'PenFed Platinum Business', status: 'approved',
-    requestedLimit: 25000, approvedLimit: 25000, createdAt: '2026-03-20T08:00:00Z', updatedAt: '2026-03-27T14:00:00Z',
-    roundNumber: 3, daysInStatus: 0, consentStatus: 'complete', advisor: 'Marcus Reid',
-    issuer_type: 'credit_union',
-  },
-];
+// The board's card shape and its mapping now live in lib/application-card-view,
+// which builds every field from what the API returns and leaves the rest null.
+// This file used to declare the type locally and seed state with ten sample
+// applications, then cast the real response onto that shape unchecked.
+export type ApplicationCard = ApplicationCardView;
 
 // ---------------------------------------------------------------------------
 // Column definitions
@@ -143,27 +63,26 @@ const STATUS_CHIP: Record<string, string> = {
   reconsideration: 'bg-orange-50 text-orange-700 border-orange-200',
 };
 
-const CONSENT_DOT: Record<string, { color: string; title: string }> = {
+// Typed by ConsentStatus rather than `string`, so a state without an entry is
+// a compile error. As a plain Record<string, …> the lookup below returned
+// undefined for an unhandled state and threw on the first property read.
+const CONSENT_DOT: Record<ConsentStatus, { color: string; title: string }> = {
   complete: { color: 'bg-emerald-500', title: 'Consent complete' },
-  pending:  { color: 'bg-amber-400',   title: 'Consent pending' },
   missing:  { color: 'bg-red-500',     title: 'Consent missing' },
+  // Not "pending": nothing has been checked, so no claim is made either way.
+  unknown:  { color: 'bg-gray-300',    title: 'Consent not recorded' },
 };
 
-function advisorInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-}
 
-function daysLabel(days: number, status: string): string {
+function daysLabel(days: number | null, status: string): string {
   const label = status.replace(/_/g, ' ');
-  return `${days}d in ${label}`;
+  // No usable timestamp on the record, so the age is unknown rather than 0 —
+  // "0d in draft" would read as filed today.
+  return days === null ? `in ${label}` : `${days}d in ${label}`;
 }
 
-function daysInStatusClasses(days: number): string {
+function daysInStatusClasses(days: number | null): string {
+  if (days === null) return 'text-gray-500 italic';
   if (days > 14) return 'text-red-500 font-semibold';
   if (days > 7)  return 'text-amber-500 font-semibold';
   return 'text-gray-400';
@@ -182,7 +101,9 @@ function AppCard({
   const mouseDown = useRef({ x: 0, y: 0 });
   const dragged = useRef(false);
 
-  const consent = CONSENT_DOT[card.consentStatus] ?? CONSENT_DOT.missing;
+  // An unrecognised value falls through to 'unknown', not to 'missing':
+  // asserting a compliance failure we have not established is its own error.
+  const consent = CONSENT_DOT[card.consentStatus];
 
   return (
     <div
@@ -236,10 +157,12 @@ function AppCard({
       <div className="mt-2 text-xs text-gray-500">
         {card.approvedLimit != null ? (
           <span className="text-emerald-600 font-semibold">
-            Approved: {formatCurrency(card.approvedLimit)}
+            Approved: {card.approvedLimit === null ? '—' : formatCurrency(card.approvedLimit)}
           </span>
         ) : (
-          <span>Requested: {formatCurrency(card.requestedLimit)}</span>
+          <span>
+            Requested: {card.requestedLimit === null ? '—' : formatCurrency(card.requestedLimit)}
+          </span>
         )}
       </div>
 
@@ -248,12 +171,23 @@ function AppCard({
         <span className={`text-2xs ${daysInStatusClasses(card.daysInStatus)}`}>
           {daysLabel(card.daysInStatus, card.status)}
         </span>
-        <span
-          className="w-6 h-6 rounded-full bg-brand-navy text-white text-2xs font-bold flex items-center justify-center shrink-0"
-          title={card.advisor}
-        >
-          {advisorInitials(card.advisor)}
-        </span>
+        {advisorInitials(card.advisor) === null ? (
+          <span
+            className="w-6 h-6 rounded-full border border-dashed border-gray-300 text-gray-400
+              text-2xs flex items-center justify-center shrink-0"
+            title="No advisor assigned"
+          >
+            —
+          </span>
+        ) : (
+          <span
+            className="w-6 h-6 rounded-full bg-brand-navy text-white text-2xs font-bold
+              flex items-center justify-center shrink-0"
+            title={card.advisor ?? undefined}
+          >
+            {advisorInitials(card.advisor)}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -285,13 +219,13 @@ function cardToRow(card: ApplicationCard): ApplicationRow {
     issuer: card.issuer,
     round_number: null,
     round_id: null,
-    requested: card.requestedLimit,
+    requested: card.requestedLimit ?? 0,
     approved: card.approvedLimit ?? null,
     status: card.status,
     apr_days_remaining: null,
-    submitted_date: card.createdAt,
-    advisor: '',
-    consent_status: card.status === 'pending_consent' ? 'pending' : 'none',
+    submitted_date: card.createdAt ?? '',
+    advisor: card.advisor ?? '',
+    consent_status: card.consentStatus === 'complete' ? 'complete' : 'none',
     acknowledgment_status: 'none',
   };
 }
@@ -309,8 +243,10 @@ type PipelineFilter =
   | null;
 
 export default function ApplicationsPage() {
-  const [apps, setApps] = useState<ApplicationCard[]>(PLACEHOLDER_APPS);
-  const [loading, setLoading] = useState(false);
+  const [apps, setApps] = useState<ApplicationCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  // Distinct from an empty pipeline: a failed load must not look like no work.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeChip, setActiveChip] = useState<PipelineFilter>(null);
   const dragId = useRef<string | null>(null);
@@ -347,13 +283,22 @@ export default function ApplicationsPage() {
 
   const fetchApps = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await applicationsApi.list();
-      if (res.success && Array.isArray(res.data)) {
-        setApps(res.data as ApplicationCard[]);
+      if (res.success) {
+        // Mapped rather than cast. `res.data as ApplicationCard[]` compiled
+        // fine and then threw on the first render, because the real rows do
+        // not carry the fields the sample data did.
+        setApps(toApplicationCards(res.data));
+      } else {
+        setLoadError('The applications list could not be loaded.');
       }
-    } catch { /* use placeholder */ }
-    finally { setLoading(false); }
+    } catch {
+      setLoadError('Could not reach the server. The pipeline is not shown.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -386,14 +331,15 @@ export default function ApplicationsPage() {
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
 
   // ── Computed stats ──────────────────────────────────────────
+  // A card carrying neither an approved nor a requested figure contributes
+  // nothing, rather than a zero that quietly drags the totals down.
+  const amountOf = (a: ApplicationCard): number | null => a.approvedLimit ?? a.requestedLimit;
+
   const totalApproved = apps
     .filter((a) => a.status === 'approved')
-    .reduce((s, a) => s + (a.approvedLimit ?? a.requestedLimit), 0);
+    .reduce((sum, a) => sum + (amountOf(a) ?? 0), 0);
 
-  const pipelineValue = apps.reduce(
-    (s, a) => s + (a.approvedLimit ?? a.requestedLimit),
-    0,
-  );
+  const pipelineValue = apps.reduce((sum, a) => sum + (amountOf(a) ?? 0), 0);
 
   const decidedApps = apps.filter(
     (a) => a.status === 'approved' || a.status === 'declined',
@@ -403,10 +349,14 @@ export default function ApplicationsPage() {
       ? ((apps.filter((a) => a.status === 'approved').length / decidedApps.length) * 100)
       : 0;
 
+  // Averaged over the cards whose age is known. Counting an unknown age as 0
+  // would pull the headline average towards "same day" for records that simply
+  // carry no timestamp; null instead, rendered as a dash.
+  const agedCards = apps.filter((a) => a.daysInStatus !== null);
   const avgTime =
-    apps.length > 0
-      ? (apps.reduce((s, a) => s + a.daysInStatus, 0) / apps.length)
-      : 0;
+    agedCards.length > 0
+      ? agedCards.reduce((sum, a) => sum + (a.daysInStatus ?? 0), 0) / agedCards.length
+      : null;
 
   // ── Chip-based filtering ──────────────────────────────────
   function chipFilter(a: ApplicationCard): boolean {
@@ -417,7 +367,7 @@ export default function ApplicationsPage() {
       case 'approval_rate':
         return a.status === 'approved' || a.status === 'declined';
       case 'avg_time':
-        return a.daysInStatus > 0;
+        return a.daysInStatus !== null && a.daysInStatus > 0;
       case 'pipeline_value':
       case 'total':
       default:
@@ -457,7 +407,7 @@ export default function ApplicationsPage() {
     { key: 'total',          label: 'Total',          value: `${apps.length}` },
     { key: 'pipeline_value', label: 'Pipeline Value', value: formatCurrency(pipelineValue) },
     { key: 'approved_value', label: 'Approved',       value: formatCurrency(totalApproved) },
-    { key: 'avg_time',       label: 'Avg Time',       value: `${avgTime.toFixed(1)}d` },
+    { key: 'avg_time',       label: 'Avg Time',       value: avgTime === null ? '—' : `${avgTime.toFixed(1)}d` },
     { key: 'approval_rate',  label: 'Approval Rate',  value: `${approvalRate.toFixed(0)}%` },
   ];
 
@@ -532,8 +482,24 @@ export default function ApplicationsPage() {
         <p className="text-center text-gray-400 py-12">Loading pipeline...</p>
       )}
 
+      {/* A failed load is not an empty pipeline. Without this the board would
+          render five empty columns and read as "no applications". */}
+      {!loading && loadError !== null && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-6 text-center">
+          <p className="text-sm font-semibold text-red-800">{loadError}</p>
+          <button
+            type="button"
+            onClick={fetchApps}
+            className="mt-3 px-4 py-2 rounded-lg border border-red-300 bg-white text-sm
+              font-semibold text-red-700 hover:bg-red-100 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Table view */}
-      {!loading && viewMode === 'table' && (
+      {!loading && loadError === null && viewMode === 'table' && (
         <>
           {/* Status filter pills */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -570,7 +536,7 @@ export default function ApplicationsPage() {
       )}
 
       {/* Kanban board */}
-      {!loading && viewMode === 'kanban' && (
+      {!loading && loadError === null && viewMode === 'kanban' && (
         <>
           <div className="flex gap-4 overflow-x-auto pb-4">
             {COLUMNS.map((col) => {
