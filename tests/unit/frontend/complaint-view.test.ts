@@ -267,3 +267,27 @@ describe('formatFileSize', () => {
     expect(formatFileSize(null)).toBe('');
   });
 });
+
+describe('resolvedWithin — window bounds', () => {
+  const at = (iso: string) =>
+    toComplaintView({ ...REAL_ROW, status: 'resolved', resolvedAt: iso })!;
+
+  it('excludes a resolution dated after now', () => {
+    // With only a lower bound this counted, so the figure was "everything
+    // since the cutoff" rather than a trailing 30 days — and a clock running
+    // behind widened the window instead of narrowing it.
+    const future = at(new Date(NOW.getTime() + 5 * 86_400_000).toISOString());
+    expect(resolvedWithin([future], 30, NOW)).toBe(0);
+  });
+
+  it('includes a resolution exactly at each edge', () => {
+    const start = at(new Date(NOW.getTime() - 30 * 86_400_000).toISOString());
+    const end = at(NOW.toISOString());
+    expect(resolvedWithin([start, end], 30, NOW)).toBe(2);
+  });
+
+  it('excludes a resolution just outside the window', () => {
+    const tooOld = at(new Date(NOW.getTime() - 31 * 86_400_000).toISOString());
+    expect(resolvedWithin([tooOld], 30, NOW)).toBe(0);
+  });
+});

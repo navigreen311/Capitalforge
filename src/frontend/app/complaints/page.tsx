@@ -114,7 +114,23 @@ const MOCK_ACTIVITIES: Record<string, ActivityEvent[]> = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const TODAY = new Date('2026-04-01');
+/**
+ * The current time, read per render.
+ *
+ * This was `new Date('2026-04-01')` — a fixed date chosen to make the sample
+ * complaints' SLA countdowns look sensible. Once the register showed real
+ * rows it meant every deadline was measured from four months ago, and
+ * "Resolved (30d)" counted a window that had already closed: a complaint
+ * resolved last week fell outside it, so the figure sat at zero while
+ * resolutions were happening.
+ *
+ * Called at the top of each render rather than captured at module load, so a
+ * tab left open overnight does not keep yesterday's date. Each caller takes a
+ * single instant and uses it for every row, so a table cannot straddle two.
+ */
+function currentTime(): Date {
+  return new Date();
+}
 
 function severityBadge(s: Severity): string {
   if (s === 'critical') return 'bg-red-900/60 text-red-300 border border-red-700';
@@ -136,11 +152,6 @@ function regStatusBadge(status: InquiryStatus): string {
   if (status === 'response_drafted')   return 'bg-yellow-900/50 text-yellow-300';
   if (status === 'response_submitted') return 'bg-blue-900/50 text-blue-300';
   return 'bg-gray-800 text-gray-400';
-}
-
-function daysUntil(dateStr: string): number {
-  const target = new Date(dateStr);
-  return Math.ceil((target.getTime() - TODAY.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 function deadlineColor(days: number): string {
@@ -459,6 +470,10 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
     });
   }, [complaints, filterSev, filterStatus, search, rootCauseFilter]);
 
+  // One instant for the whole table, so two rows cannot be measured against
+  // different "nows".
+  const now = currentTime();
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
@@ -511,7 +526,7 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
           <tbody className="divide-y divide-gray-800">
             {filtered.map((c) => {
               const dueDate = getSLADueDate(c);
-              const daysLeft = dueDate ? daysBetween(TODAY, dueDate) : null;
+              const daysLeft = dueDate ? daysBetween(now, dueDate) : null;
               const overdue = daysLeft !== null && daysLeft < 0;
               const isSelected = selectedId === c.id;
               return (
@@ -830,7 +845,7 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast, onEvidenceAt
   }
 
   const dueDate = getSLADueDate(complaint);
-  const daysLeft = dueDate ? daysBetween(TODAY, dueDate) : null;
+  const daysLeft = dueDate ? daysBetween(currentTime(), dueDate) : null;
   const overdue = daysLeft !== null && daysLeft < 0;
   const filedOnLabel = complaint.createdAt ? formatDate(new Date(complaint.createdAt)) : '—';
   const activities = MOCK_ACTIVITIES[complaint.id] || [
@@ -1376,6 +1391,7 @@ export default function ComplaintsPage() {
   const [analytics, setAnalytics] = useState<ComplaintAnalyticsView | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
+  const [totalOnServer, setTotalOnServer] = useState<number | null>(null);
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [showLogModal, setShowLogModal] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -1400,7 +1416,7 @@ export default function ComplaintsPage() {
   // Resolved in the trailing 30 days, from resolvedAt. This was a hard-coded
   // 12 that never moved.
   const resolved30d =
-    loadState === 'ready' ? resolvedWithin(clientFiltered, 30, TODAY) : null;
+    loadState === 'ready' ? resolvedWithin(clientFiltered, 30, currentTime()) : null;
   // Reported by the inquiries panel once it has loaded, rather than counted
   // from a constant. Null until then: "0 open matters" is a claim, and it was
   // previously a fixed 3 regardless of what the tenant actually had.
@@ -1417,11 +1433,20 @@ export default function ComplaintsPage() {
         fetch('/api/complaints/analytics', { headers: auth }),
       ]);
 
-      const listJson = (await listRes.json()) as { success?: boolean; data?: unknown };
+      const listJson = (await listRes.json()) as {
+        success?: boolean;
+        data?: { total?: number } | unknown;
+      };
       if (!listRes.ok || listJson.success !== true) {
         setLoadState('error');
         return;
       }
+
+      // The endpoint caps a page at 100. Every figure on this screen is
+      // counted from the rows that loaded, so beyond that they describe a
+      // subset — which would otherwise read as the whole register.
+      const reported = (listJson.data as { total?: number } | undefined)?.total;
+      setTotalOnServer(typeof reported === 'number' ? reported : null);
       setComplaints(toComplaintViews(listJson.data));
 
       // Analytics failing on its own leaves the register usable rather than
@@ -1487,7 +1512,7 @@ export default function ComplaintsPage() {
       ];
     });
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    downloadBlob(csv, `complaints_export_${formatDate(TODAY)}.csv`, 'text/csv');
+    downloadBlob(csv, `complaints_export_${formatDate(currentTime())}.csv`, 'text/csv');
     setToastMsg('CSV report downloaded');
   };
 
@@ -1515,12 +1540,27 @@ export default function ComplaintsPage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        // Only what changed. The API validates status transitions, so
+        // resending the current status on an unrelated edit — changing a root
+        // cause, say — puts a no-op transition through that validator for no
+        // reason. It also keeps the audit trail to the fields actually touched.
         body: JSON.stringify({
-          status: updated.status,
-          severity: updated.severity,
-          ...(updated.rootCause ? { rootCause: updated.rootCause } : {}),
-          ...(updated.resolution ? { resolution: updated.resolution } : {}),
-          ...(updated.assignedTo ? { assignedTo: updated.assignedTo } : {}),
+          ...(previous && updated.status !== previous.status ? { status: updated.status } : {}),
+          ...(previous && updated.severity !== previous.severity
+            ? { severity: updated.severity }
+            : {}),
+          ...(previous && updated.rootCause !== previous.rootCause && updated.rootCause
+            ? { rootCause: updated.rootCause }
+            : {}),
+          ...(previous && updated.resolution !== previous.resolution && updated.resolution
+            ? { resolution: updated.resolution }
+            : {}),
+          ...(previous && updated.assignedTo !== previous.assignedTo && updated.assignedTo
+            ? { assignedTo: updated.assignedTo }
+            : {}),
+          ...(previous && updated.escalatedTo !== previous.escalatedTo && updated.escalatedTo
+            ? { escalatedTo: updated.escalatedTo }
+            : {}),
         }),
       });
 
@@ -1620,6 +1660,13 @@ export default function ComplaintsPage() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <section className="xl:col-span-2" aria-label="Complaints Table">
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">All Complaints</h2>
+
+          {loadState === 'ready' && totalOnServer !== null && totalOnServer > complaints.length && (
+            <p className="mb-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Showing the {complaints.length} most recent of {totalOnServer} complaints. The
+              figures above count these only.
+            </p>
+          )}
 
           {loadState === 'loading' && (
             <p className="text-xs text-gray-500 py-10 text-center">Loading complaints...</p>

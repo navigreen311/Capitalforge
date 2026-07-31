@@ -269,13 +269,22 @@ export function openCount(analytics: ComplaintAnalyticsView): number {
   return (analytics.byStatus['open'] ?? 0) + (analytics.byStatus['investigating'] ?? 0);
 }
 
-/** Resolved within the trailing window, or null when nothing is resolved. */
+/**
+ * Complaints resolved inside the trailing window.
+ *
+ * Bounded at both ends. With only a lower bound this counted anything
+ * resolved after the cutoff including dates ahead of `now`, so the figure was
+ * not a trailing window at all — it silently widened to "everything since",
+ * and a clock that was behind made it wider still rather than narrower.
+ */
 export function resolvedWithin(complaints: ComplaintView[], days: number, now: Date): number {
-  const cutoff = now.getTime() - days * 86_400_000;
+  const end = now.getTime();
+  const start = end - days * 86_400_000;
+
   return complaints.filter((c) => {
     if (c.resolvedAt === null) return false;
     const at = new Date(c.resolvedAt).getTime();
-    return !Number.isNaN(at) && at >= cutoff;
+    return !Number.isNaN(at) && at >= start && at <= end;
   }).length;
 }
 

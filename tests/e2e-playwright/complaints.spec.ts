@@ -11,6 +11,22 @@ import { test, expect } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
+/**
+ * The number rendered inside a KPI card.
+ *
+ * Asserting `toContainText('3')` against the whole card is unsound: the label
+ * "Resolved (30d)" contains a 3 and a 0, so the assertion passes on the label
+ * alone. This targets the value element and compares it exactly.
+ */
+function kpiValue(page: import('@playwright/test').Page, label: string) {
+  return page
+    .locator('div')
+    .filter({ has: page.getByText(label, { exact: true }) })
+    .last()
+    .locator('p')
+    .nth(1);
+}
+
 async function authHeaders(page: import('@playwright/test').Page) {
   const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -148,12 +164,10 @@ test.describe('Complaints register', () => {
 
     // Previously "Open / Escalated" counted a fixed array and "Resolved (30d)"
     // was the literal 12.
-    await expect(page.getByText('Open / Escalated').locator('..')).toContainText(String(open), {
+    await expect(kpiValue(page, 'Open / Escalated')).toHaveText(String(open), {
       timeout: 15000,
     });
-    await expect(page.getByText('Critical Severity').locator('..')).toContainText(
-      String(critical),
-    );
+    await expect(kpiValue(page, 'Critical Severity')).toHaveText(String(critical));
   });
 });
 
@@ -265,5 +279,56 @@ test.describe('Attach evidence', () => {
     await expect(
       page.getByText(/not attributed to a client/i),
     ).toBeVisible({ timeout: 10000 });
+  });
+});
+
+test.describe('Resolved (30d)', () => {
+  test('counts a resolution from the last 30 days', async ({ signedInPage: page }) => {
+    await page.goto('/complaints');
+    const headers = await authHeaders(page);
+
+    const before = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
+      r.json(),
+    )) as { data?: { complaints?: { resolvedAt: string | null }[] } };
+
+    const cutoff = Date.now() - 30 * 86_400_000;
+    const baseline = (before.data?.complaints ?? []).filter(
+      (c) => c.resolvedAt !== null && new Date(c.resolvedAt).getTime() >= cutoff,
+    ).length;
+
+    // Resolve one now. Against the old frozen clock — a window ending
+    // 2026-04-01 — this would not have moved the figure at all.
+    const created = (await fetch(`${API}/complaints`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        category: 'service',
+        source: 'phone',
+        severity: 'low',
+        description: 'E2E resolved-window probe.',
+      }),
+    }).then((r) => r.json())) as { data?: { id?: string } };
+
+    // The API enforces a workflow: open goes to investigating or closed, and
+    // only investigating goes to resolved. A direct jump is a 400.
+    const toInvestigating = await fetch(`${API}/complaints/${created.data?.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ status: 'investigating' }),
+    });
+    expect(toInvestigating.status).toBe(200);
+
+    const res = await fetch(`${API}/complaints/${created.data?.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ status: 'resolved', resolution: 'Closed during the E2E run.' }),
+    });
+    expect(res.status).toBe(200);
+
+    await page.reload();
+
+    await expect(kpiValue(page, 'Resolved (30d)')).toHaveText(String(baseline + 1), {
+      timeout: 15000,
+    });
   });
 });
