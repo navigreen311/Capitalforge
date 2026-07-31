@@ -173,6 +173,7 @@ model Business {
   repaymentPlans      RepaymentPlan[]
   acknowledgments     ProductAcknowledgment[]
   achAuthorizations   AchAuthorization[]
+  vendorTradelines    VendorTradeline[]
   costCalculations    CostCalculation[]
 
   @@index([tenantId, status])
@@ -1403,4 +1404,48 @@ model CallQaScore {
   @@index([tenantId, advisorId])
   @@index([tenantId, callId])
   @@map("call_qa_scores")
+}
+
+// ── Business credit builder ──────────────────────────────────
+// Vendor tradelines opened to build business credit, and disputes raised
+// against them. These were previously held in a process-memory object, so a
+// tradeline a client "added" vanished on the next restart.
+
+model VendorTradeline {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  vendor              String
+  creditLimit         Decimal?
+  balance             Decimal  @default(0)
+  status              String   @default("open") // open | closed | delinquent
+  /** Bureaus this vendor reports to, e.g. ["D&B","Experian"] */
+  reportsTo           Json?
+  openedDate          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business            Business @relation(fields: [businessId], references: [id])
+  disputes            TradelineDispute[]
+
+  @@index([businessId, status])
+  @@index([tenantId])
+  @@map("vendor_tradelines")
+}
+
+model TradelineDispute {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  tradelineId         String
+  reason              String
+  status              String   @default("pending") // pending | submitted | resolved | rejected
+  resolutionNote      String?
+  filedAt             DateTime @default(now())
+  resolvedAt          DateTime?
+
+  tradeline           VendorTradeline @relation(fields: [tradelineId], references: [id], onDelete: Cascade)
+
+  @@index([tradelineId, status])
+  @@index([tenantId])
+  @@map("tradeline_disputes")
 }

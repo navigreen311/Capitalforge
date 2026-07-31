@@ -5,25 +5,28 @@
 //   GET  /api/v1/dashboard/payment-reminder-eligible
 //   POST /api/v1/voiceforge/sms-campaign
 //
-// Returns mock eligible/ineligible lists based on TCPA consent
-// and accepts SMS campaign dispatch requests.
+// Eligibility is computed from real payment schedules and real consent
+// records. The consent gate is the whole point of this feature — contacting a
+// client on a channel they have not consented to is a TCPA violation — so it
+// is evaluated against ConsentRecord rather than asserted.
 // ============================================================
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import type { ApiResponse } from '@shared/types/index.js';
+import { PrismaClient } from '@prisma/client';
 import logger from '../../config/logger.js';
-import { okStub, registerStub } from './_stub-response.js';
+import { registerStub } from './_stub-response.js';
 
-registerStub(
-  'paymentReminders.eligibility',
-  'Eligibility is a hardcoded list; no consent records are consulted.',
-);
+const prisma = new PrismaClient();
+
+// The dispatch half of this feature has no provider behind it. Eligibility is
+// real; sending is not, and the send endpoint refuses rather than pretending.
 registerStub(
   'voiceforge.smsCampaign',
-  'Dispatches nothing — no SMS provider is wired. The returned sent_count '
-  + 'describes a send that did not happen.',
-)
+  'No SMS provider is configured, so campaigns are refused rather than '
+  + 'reported as sent. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to enable.',
+);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,41 +50,23 @@ interface SmsCampaignRequest {
   channel: 'sms' | 'email' | 'voice';
 }
 
-interface SmsCampaignResponse {
-  sent_count: number;
-  skipped_count: number;
-  campaign_id: string;
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function getTenantId(req: Request): string {
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    throw new Error('Tenant context is missing — authentication middleware did not run.');
+  }
+  return tenantId;
 }
 
-// ── Mock data ────────────────────────────────────────────────────────────────
+/** How far ahead a payment counts as worth reminding about. */
+const REMINDER_WINDOW_DAYS = 7;
 
-const MOCK_ELIGIBLE: ReminderClient[] = [
-  {
-    client_id: 'cli_apex_001',
-    client_name: 'Apex Ventures Inc.',
-    amount_due: 12500.0,
-    due_date: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10),
-    tcpa_sms_consent: true,
-  },
-  {
-    client_id: 'cli_bright_002',
-    client_name: 'Brightline Corp',
-    amount_due: 8750.0,
-    due_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
-    tcpa_sms_consent: true,
-  },
-];
-
-const MOCK_INELIGIBLE: ReminderClient[] = [
-  {
-    client_id: 'cli_meridian_003',
-    client_name: 'Meridian Holdings LLC',
-    amount_due: 15300.0,
-    due_date: new Date(Date.now() + 1 * 86400000).toISOString().slice(0, 10),
-    tcpa_sms_consent: false,
-    reason: 'TCPA SMS consent not recorded',
-  },
-];
+/** Whether an SMS provider is configured. */
+function smsProviderConfigured(): boolean {
+  return Boolean(process.env['TWILIO_ACCOUNT_SID'] && process.env['TWILIO_AUTH_TOKEN']);
+}
 
 // ── Routers ──────────────────────────────────────────────────────────────────
 
@@ -90,20 +75,76 @@ export const paymentReminderEligibleRouter = Router();
 
 paymentReminderEligibleRouter.get(
   '/',
-  async (_req: Request, res: Response): Promise<void> => {
-    try {
-      const data: ReminderEligibilityResponse = {
-        eligible: MOCK_ELIGIBLE,
-        ineligible: MOCK_INELIGIBLE,
-      };
+  async (req: Request, res: Response): Promise<void> => {
+    const tenantId = getTenantId(req);
 
-      okStub(res, data, 'paymentReminders.eligibility');
+    try {
+      const windowEnd = new Date(Date.now() + REMINDER_WINDOW_DAYS * 86_400_000);
+
+      const schedules = await prisma.paymentSchedule.findMany({
+        where: {
+          status: { not: 'paid' },
+          dueDate: { lte: windowEnd },
+          repaymentPlan: { tenantId },
+        },
+        include: {
+          repaymentPlan: {
+            include: { business: { select: { id: true, legalName: true } } },
+          },
+        },
+        orderBy: { dueDate: 'asc' },
+      });
+
+      const businessIds = [...new Set(schedules.map((s) => s.repaymentPlan.businessId))];
+
+      // One query for the consent that gates the whole feature.
+      const consents = await prisma.consentRecord.findMany({
+        where: {
+          tenantId,
+          businessId: { in: businessIds },
+          channel: 'sms',
+          consentType: 'tcpa',
+          status: 'active',
+        },
+        select: { businessId: true },
+      });
+      const consented = new Set(consents.map((c) => c.businessId));
+
+      const eligible: ReminderClient[] = [];
+      const ineligible: ReminderClient[] = [];
+
+      for (const schedule of schedules) {
+        const businessId = schedule.repaymentPlan.businessId;
+        const hasConsent = consented.has(businessId);
+
+        const entry: ReminderClient = {
+          client_id: businessId,
+          client_name: schedule.repaymentPlan.business.legalName,
+          amount_due: Number(schedule.minimumPayment),
+          due_date: schedule.dueDate.toISOString().slice(0, 10),
+          tcpa_sms_consent: hasConsent,
+          ...(hasConsent ? {} : { reason: 'No active TCPA SMS consent on record' }),
+        };
+
+        (hasConsent ? eligible : ineligible).push(entry);
+      }
+
+      const body: ApiResponse<ReminderEligibilityResponse> = {
+        success: true,
+        data: { eligible, ineligible },
+        meta: {
+          windowDays: REMINDER_WINDOW_DAYS,
+          total: schedules.length,
+          smsProviderConfigured: smsProviderConfigured(),
+        },
+      };
+      res.status(200).json(body);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      logger.error('Payment reminder eligibility check failed', { error: message });
+      logger.error('Payment reminder eligibility check failed', { tenantId, error: message });
       const body: ApiResponse = {
         success: false,
-        error: { code: 'REMINDER_ELIGIBILITY_FAILED', message },
+        error: { code: 'REMINDER_ELIGIBILITY_FAILED', message: 'Unable to determine eligibility.' },
       };
       res.status(500).json(body);
     }
@@ -116,6 +157,8 @@ export const smsCampaignRouter = Router();
 smsCampaignRouter.post(
   '/',
   async (req: Request, res: Response): Promise<void> => {
+    const tenantId = getTenantId(req);
+
     try {
       const { client_ids, template, channel } = req.body as SmsCampaignRequest;
 
@@ -127,31 +170,70 @@ smsCampaignRouter.post(
         return;
       }
 
-      // Filter against mock eligible list — only send to consented clients
-      const eligibleIds = new Set(MOCK_ELIGIBLE.map((c) => c.client_id));
-      const sentIds = client_ids.filter((id) => eligibleIds.has(id));
-      const skippedCount = client_ids.length - sentIds.length;
-
-      logger.info('SMS campaign requested against stub endpoint (nothing sent)', {
-        channel: channel ?? 'sms',
-        template: template ?? 'payment_reminder',
-        sent: sentIds.length,
-        skipped: skippedCount,
+      // Consent is resolved first, so the response can always say who was
+      // blocked for consent regardless of provider state.
+      const consents = await prisma.consentRecord.findMany({
+        where: {
+          tenantId,
+          businessId: { in: client_ids },
+          channel: channel ?? 'sms',
+          consentType: 'tcpa',
+          status: 'active',
+        },
+        select: { businessId: true },
       });
+      const consented = new Set(consents.map((c) => c.businessId));
+      const wouldSendTo = client_ids.filter((id) => consented.has(id));
+      const blockedForConsent = client_ids.filter((id) => !consented.has(id));
 
-      const data: SmsCampaignResponse = {
-        sent_count: sentIds.length,
-        skipped_count: skippedCount,
-        campaign_id: `camp_${Date.now()}`,
-      };
+      if (!smsProviderConfigured()) {
+        // Nothing can be sent, so nothing is claimed. This used to log
+        // "SMS campaign dispatched" and return a sent_count for a dispatch
+        // that never happened — in a product whose selling point is
+        // consent-gated outreach.
+        logger.warn('SMS campaign requested with no provider configured', {
+          tenantId,
+          requested: client_ids.length,
+          wouldSendTo: wouldSendTo.length,
+        });
 
-      okStub(res, data, 'voiceforge.smsCampaign', { dispatched: false });
+        res.status(503).json({
+          success: false,
+          error: {
+            code: 'SMS_PROVIDER_NOT_CONFIGURED',
+            message:
+              'No SMS provider is configured, so nothing was sent. '
+              + 'Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to enable dispatch.',
+          },
+          meta: {
+            wouldSendTo,
+            blockedForConsent,
+            template: template ?? 'payment_reminder',
+            channel: channel ?? 'sms',
+          },
+        } satisfies ApiResponse);
+        return;
+      }
+
+      // Credentials are present but no dispatch client is wired. Failing
+      // loudly is the only honest option: returning a success here would
+      // recreate exactly the defect this replaced.
+      logger.error('SMS provider configured but no dispatch client is implemented', { tenantId });
+      res.status(501).json({
+        success: false,
+        error: {
+          code: 'SMS_DISPATCH_NOT_IMPLEMENTED',
+          message:
+            'SMS credentials are present but no dispatch client is wired. Nothing was sent.',
+        },
+        meta: { wouldSendTo, blockedForConsent },
+      } satisfies ApiResponse);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      logger.error('SMS campaign dispatch failed', { error: message });
+      logger.error('SMS campaign dispatch failed', { tenantId, error: message });
       const body: ApiResponse = {
         success: false,
-        error: { code: 'SMS_CAMPAIGN_FAILED', message },
+        error: { code: 'SMS_CAMPAIGN_FAILED', message: 'Unable to process the campaign request.' },
       };
       res.status(500).json(body);
     }
