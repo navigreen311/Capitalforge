@@ -8,7 +8,8 @@
 // GET  /api/businesses/:id/credit/roadmap   — optimization roadmap
 // ============================================================
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Response, type NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import { ZodError } from 'zod';
 import logger from '../../config/logger.js';
@@ -26,7 +27,7 @@ const creditService = new CreditIntelligenceService(prisma);
 // validates the JWT and attaches the decoded context.
 
 function getTenantContext(req: Request): TenantContext {
-  const ctx = (req as Request & { tenantContext?: TenantContext }).tenantContext;
+  const ctx = req.tenant;
   if (!ctx) {
     throw Object.assign(new Error('Unauthorized: missing tenant context'), { statusCode: 401 });
   }

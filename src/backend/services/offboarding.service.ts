@@ -11,7 +11,7 @@
 //   5. Exit interview capture
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import { eventBus } from '../events/event-bus.js';
@@ -213,7 +213,7 @@ export class OffboardingService {
       },
     });
 
-    await eventBus.publish({
+    await eventBus.publish(input.tenantId, {
       eventType:     EVENT_TYPES.OFFBOARDING_INITIATED,
       aggregateType: AGGREGATE_TYPES.TENANT,
       aggregateId:   input.tenantId,
@@ -392,7 +392,7 @@ export class OffboardingService {
       },
     });
 
-    await eventBus.publish({
+    await eventBus.publish(tenantId, {
       eventType:     EVENT_TYPES.OFFBOARDING_COMPLETED,
       aggregateType: AGGREGATE_TYPES.TENANT,
       aggregateId:   tenantId,
@@ -543,7 +543,7 @@ export class OffboardingService {
     for (const owner of owners) {
       await this.prisma.businessOwner.update({
         where: { id: owner.id },
-        data:  { ssn: null, dateOfBirth: null, address: null },
+        data:  { ssn: null, dateOfBirth: null, address: Prisma.DbNull },
       });
     }
     counts['business_owners(pii_scrubbed)'] = owners.length;
@@ -569,7 +569,7 @@ export class OffboardingService {
       for (const flr of flRecords) {
         await this.prisma.fairLendingRecord.update({
           where: { id: flr.id },
-          data:  { demographicData: null },
+          data:  { demographicData: Prisma.DbNull },
         });
       }
       counts['fair_lending_records(demographic_scrubbed)'] = flRecords.length;

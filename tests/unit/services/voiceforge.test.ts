@@ -98,7 +98,7 @@ function makePrismaMock() {
     fundingRound: {
       findMany: vi.fn().mockResolvedValue([]),
     },
-    repaymentSchedule: {
+    paymentSchedule: {
       findMany: vi.fn().mockResolvedValue([]),
     },
     business: {
@@ -139,7 +139,7 @@ describe('VoiceForgeService.initiateCall — TCPA gate', () => {
     vi.clearAllMocks();
     prisma = makePrismaMock();
     svc    = new VoiceForgeService(
-      prisma as unknown as Parameters<typeof VoiceForgeService.prototype.initiateCall>[never],
+      prisma as unknown as import('@prisma/client').PrismaClient,
       makeDocumentVaultMock() as never,
     );
   });
@@ -155,8 +155,11 @@ describe('VoiceForgeService.initiateCall — TCPA gate', () => {
   it('throws TcpaConsentError when consent is denied', async () => {
     vi.mocked(consentGate.check).mockResolvedValue({
       allowed: false,
-      reason:  'no_consent_on_file',
-      message: 'No voice consent on file.',
+      channel:     'voice',
+      consentType: 'tcpa',
+      businessId:  'biz-001',
+      reason:      'CONSENT_MISSING',
+      message:     'No voice consent on file.',
     });
 
     await expect(svc.initiateCall(baseInput)).rejects.toThrow();
@@ -165,8 +168,11 @@ describe('VoiceForgeService.initiateCall — TCPA gate', () => {
   it('does not place a call when TCPA gate is denied', async () => {
     vi.mocked(consentGate.check).mockResolvedValue({
       allowed: false,
-      reason:  'no_consent_on_file',
-      message: 'No voice consent on file.',
+      channel:     'voice',
+      consentType: 'tcpa',
+      businessId:  'biz-001',
+      reason:      'CONSENT_MISSING',
+      message:     'No voice consent on file.',
     });
 
     try {
@@ -179,7 +185,12 @@ describe('VoiceForgeService.initiateCall — TCPA gate', () => {
   });
 
   it('places the call when consent is granted', async () => {
-    vi.mocked(consentGate.check).mockResolvedValue({ allowed: true });
+    vi.mocked(consentGate.check).mockResolvedValue({
+      allowed: true,
+      channel: 'voice',
+      consentType: 'tcpa',
+      businessId: 'biz-001',
+    });
 
     const result = await svc.initiateCall(baseInput);
 
@@ -188,7 +199,12 @@ describe('VoiceForgeService.initiateCall — TCPA gate', () => {
   });
 
   it('persists correct tenantId and businessId on call record', async () => {
-    vi.mocked(consentGate.check).mockResolvedValue({ allowed: true });
+    vi.mocked(consentGate.check).mockResolvedValue({
+      allowed: true,
+      channel: 'voice',
+      consentType: 'tcpa',
+      businessId: 'biz-001',
+    });
 
     await svc.initiateCall(baseInput);
 
@@ -198,7 +214,12 @@ describe('VoiceForgeService.initiateCall — TCPA gate', () => {
   });
 
   it('persists direction as "outbound"', async () => {
-    vi.mocked(consentGate.check).mockResolvedValue({ allowed: true });
+    vi.mocked(consentGate.check).mockResolvedValue({
+      allowed: true,
+      channel: 'voice',
+      consentType: 'tcpa',
+      businessId: 'biz-001',
+    });
 
     await svc.initiateCall(baseInput);
 
@@ -207,7 +228,12 @@ describe('VoiceForgeService.initiateCall — TCPA gate', () => {
   });
 
   it('persists campaignType when supplied', async () => {
-    vi.mocked(consentGate.check).mockResolvedValue({ allowed: true });
+    vi.mocked(consentGate.check).mockResolvedValue({
+      allowed: true,
+      channel: 'voice',
+      consentType: 'tcpa',
+      businessId: 'biz-001',
+    });
 
     await svc.initiateCall({ ...baseInput, campaignType: 'apr_expiry' });
 
@@ -216,7 +242,12 @@ describe('VoiceForgeService.initiateCall — TCPA gate', () => {
   });
 
   it('sets campaignType to null when not supplied', async () => {
-    vi.mocked(consentGate.check).mockResolvedValue({ allowed: true });
+    vi.mocked(consentGate.check).mockResolvedValue({
+      allowed: true,
+      channel: 'voice',
+      consentType: 'tcpa',
+      businessId: 'biz-001',
+    });
 
     await svc.initiateCall(baseInput);
 

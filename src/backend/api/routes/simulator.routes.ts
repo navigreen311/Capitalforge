@@ -28,7 +28,8 @@
 // All routes require a valid JWT (req.tenant set upstream).
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, type ZodError } from 'zod';
 import {
   FundingSimulatorService,
@@ -487,16 +488,16 @@ simulatorRouter.post(
         `  FICO Score:        ${baselineProfile.ficoScore}`,
         `  Annual Revenue:    $${baselineProfile.annualRevenue.toLocaleString()}`,
         `  Target Credit:     $${baselineProfile.targetCreditLimit.toLocaleString()}`,
-        `  Approval Prob:     ${(comparison.baseline?.approvalProbability ?? 0).toFixed(1)}%`,
+        `  Approval Prob:     ${(comparison.baseline?.approvalProbabilityReport?.overallStackApprovalRate ?? 0).toFixed(1)}%`,
         ``,
         `── Alternative Summary ──`,
         `  FICO Score:        ${alternativeProfile.ficoScore}`,
         `  Annual Revenue:    $${alternativeProfile.annualRevenue.toLocaleString()}`,
         `  Target Credit:     $${alternativeProfile.targetCreditLimit.toLocaleString()}`,
-        `  Approval Prob:     ${(comparison.alternative?.approvalProbability ?? 0).toFixed(1)}%`,
+        `  Approval Prob:     ${(comparison.alternative?.approvalProbabilityReport?.overallStackApprovalRate ?? 0).toFixed(1)}%`,
         ``,
         `── Delta ──`,
-        `  Approval Delta:    ${comparison.delta?.approvalProbability ?? 'N/A'}`,
+        `  Approval Delta:    ${comparison.delta?.approvalRateDelta ?? 'N/A'}`,
         ``,
         `=== End of Report ===`,
       ];

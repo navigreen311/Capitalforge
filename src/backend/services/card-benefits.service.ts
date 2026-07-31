@@ -114,7 +114,12 @@ export interface CardRenewalRecommendation {
 // ── Input for benefit utilization ────────────────────────────
 
 export interface UtilizeBenefitInput {
-  benefitId: string;
+  /**
+   * Optional. utilizeBenefit() takes the benefit id as its own positional
+   * argument and never reads this field — it is only here because the HTTP
+   * request body may carry it. Requiring it made every call site an error.
+   */
+  benefitId?: string;
   utilizedDate?: string;  // ISO string; defaults to now
 }
 

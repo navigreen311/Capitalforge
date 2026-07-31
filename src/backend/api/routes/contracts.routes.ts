@@ -24,7 +24,8 @@
 //   POST   /api/disclosures/seed                       — seed default templates
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import type { ApiResponse } from '../../../shared/types/index.js';
@@ -809,10 +810,7 @@ contractsRouter.post(
       );
 
       if (rendered.missingVariables.length > 0) {
-        logger.warn(
-          { templateId, missing: rendered.missingVariables },
-          'Disclosure rendered with missing variables',
-        );
+        logger.warn('Disclosure rendered with missing variables', { templateId, missing: rendered.missingVariables });
       }
 
       const response: ApiResponse<typeof rendered> = {
@@ -893,7 +891,7 @@ contractsRouter.post(
 contractsRouter.post(
   '/disclosures/seed',
   tenantMiddleware,
-  requirePermission(PERMISSIONS.ADMIN ?? 'ADMIN'),
+  requirePermission(PERMISSIONS.ADMIN_TENANT),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { autoApprove, approverId } = req.body ?? {};

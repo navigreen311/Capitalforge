@@ -739,7 +739,11 @@ describe('DisclosureCmsService — Approval Workflow', () => {
     const { eventBus } = await import('../../../src/backend/events/event-bus.js');
     const template = await svc.submitForApproval(TENANT_ID, 'tpl-001');
 
+    // publish() takes (tenantId, envelope). This previously asserted the
+    // single-object form the service used to pass, which bound the whole
+    // object to tenantId and left the envelope undefined.
     expect(eventBus.publish).toHaveBeenCalledWith(
+      TENANT_ID,
       expect.objectContaining({
         eventType: 'DISCLOSURE_TEMPLATE_SUBMITTED_FOR_APPROVAL',
         aggregateId: 'tpl-001',

@@ -17,7 +17,8 @@
 // req.tenant (set by the upstream tenantMiddleware).
 // ============================================================
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Response, type NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, type ZodError } from 'zod';
 import {
   StackingOptimizerService,

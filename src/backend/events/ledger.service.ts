@@ -9,7 +9,7 @@
 // EventBus.setLedgerWriter().
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import type { LedgerWriter } from './event-bus.js';
 import type { LedgerEnvelope, PersistedEvent } from './event-types.js';
 
@@ -66,8 +66,8 @@ export class LedgerService implements LedgerWriter {
         eventType: envelope.eventType,
         aggregateType: envelope.aggregateType,
         aggregateId: envelope.aggregateId,
-        payload: envelope.payload,
-        metadata: envelope.metadata ?? {},
+        payload: envelope.payload as Prisma.InputJsonValue,
+        metadata: (envelope.metadata ?? {}) as Prisma.InputJsonValue,
         version: envelope.version ?? 1,
         // publishedAt and id are set by Prisma defaults
       },

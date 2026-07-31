@@ -314,7 +314,11 @@ export class CrmService {
       by:    ['advisorId'],
       where: { tenantId, advisorId: { in: advisorIds } },
       _count: { id: true },
-    }) as Array<{ advisorId: string | null; _count: { id: number } }>;
+      orderBy: { advisorId: 'asc' },
+    } as Parameters<typeof this.db.business.groupBy>[0]) as unknown as Array<{
+      advisorId: string | null;
+      _count: { id: number };
+    }>;
     const clientCountMap = new Map(
       advisorClientCounts.map((r) => [r.advisorId, r._count.id]),
     );

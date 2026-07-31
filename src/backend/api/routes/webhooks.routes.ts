@@ -9,7 +9,8 @@
 // ============================================================
 
 import { Router } from 'express';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import {
   webhookDeliveryService,
@@ -212,7 +213,7 @@ webhooksRouter.get(
 
     const result = webhookDeliveryService.listDeliveries(tenantId, {
       subscriptionId,
-      status:  status as Parameters<typeof webhookDeliveryService.listDeliveries>[1]['status'],
+      status:  status as NonNullable<Parameters<typeof webhookDeliveryService.listDeliveries>[1]>['status'],
       limit,
       offset,
     });

@@ -149,6 +149,7 @@ describe('E2E: Compliance Flow', () => {
 
   it('returns California SB 1235 requirements for CA-registered businesses', () => {
     const profile = getStateLawProfile('CA');
+    if (!profile) throw new Error('expected a CA state-law profile');
 
     expect(profile.stateCode).toBe('CA');
     expect(profile.hasSpecificStateLaw).toBe(true);
@@ -161,6 +162,7 @@ describe('E2E: Compliance Flow', () => {
 
   it('returns New York commercial financing requirements for NY businesses', () => {
     const profile = getStateLawProfile('NY');
+    if (!profile) throw new Error('expected a NY state-law profile');
 
     expect(profile.stateCode).toBe('NY');
     expect(profile.hasSpecificStateLaw).toBe(true);
@@ -172,6 +174,7 @@ describe('E2E: Compliance Flow', () => {
 
   it('returns federal baseline for states without specific commercial law (TX)', () => {
     const profile = getStateLawProfile('TX');
+    if (!profile) throw new Error('expected a TX state-law profile');
 
     expect(profile.stateCode).toBe('TX');
     expect(profile.regulatoryBody).toMatch(/FTC|federal/i);
@@ -191,7 +194,9 @@ describe('E2E: Compliance Flow', () => {
       svc,
     );
 
+    // GateResult is a discriminated union; expect() does not narrow it.
     expect(result.allowed).toBe(false);
+    if (result.allowed) throw new Error('expected the consent gate to deny');
     expect(['CONSENT_MISSING', 'TCPA_HARD_BLOCK']).toContain(result.reason);
   });
 
@@ -252,6 +257,9 @@ describe('E2E: Compliance Flow', () => {
       signedByUserId: graph.advisorUser.id,
       input: {
         acknowledgmentType: 'product_reality',
+        // Required by CreateAcknowledgmentSchema — the whole point of the
+        // acknowledgment is the explicit agreement, so it has no default.
+        agreedToCurrentVersion: true,
         signerName:         'Jane Doe',
       },
       signerIp: '10.0.0.1',

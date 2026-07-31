@@ -17,7 +17,8 @@
 //   POST /api/compliance/disclosures/bulk-file      — file multiple disclosures
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import type { ApiResponse } from '../../../shared/types/index.js';
@@ -328,7 +329,7 @@ complianceRouter.get(
         where: { tenantId },
         orderBy: { createdAt: 'desc' },
         take: 200,
-        include: { business: { select: { id: true, businessName: true } } },
+        include: { business: { select: { id: true, legalName: true } } },
       });
 
       const total = checks.length;
@@ -373,7 +374,7 @@ complianceRouter.get(
         checks: checks.slice(0, 50).map((c) => ({
           id: c.id,
           checkType: c.checkType,
-          businessName: c.business?.businessName ?? 'Unknown',
+          businessName: c.business?.legalName ?? 'Unknown',
           riskLevel: c.riskLevel ?? 'low',
           passed: c.riskLevel === 'low' || c.riskLevel === 'medium',
           findings: typeof c.findings === 'string' ? c.findings : JSON.stringify(c.findings ?? ''),
@@ -406,7 +407,7 @@ complianceRouter.post(
 
       const businesses = await prismaClient.business.findMany({
         where: { tenantId },
-        select: { id: true, businessName: true },
+        select: { id: true, legalName: true },
       });
 
       const service = getService();
@@ -423,7 +424,7 @@ complianceRouter.post(
             });
             results.push({
               businessId: biz.id,
-              businessName: biz.businessName ?? biz.id,
+              businessName: biz.legalName ?? biz.id,
               riskLevel: result.riskLevel,
             });
           }
@@ -472,13 +473,13 @@ complianceRouter.get(
         where: { tenantId },
         orderBy: { createdAt: 'desc' },
         take: 200,
-        include: { business: { select: { id: true, businessName: true } } },
+        include: { business: { select: { id: true, legalName: true } } },
       });
 
       const data = docs.map((d) => ({
         id: d.id,
         businessId: d.businessId,
-        businessName: d.business?.businessName ?? 'Unknown',
+        businessName: d.business?.legalName ?? 'Unknown',
         type: d.documentType,
         fileName: d.title,
         fileSizeBytes: d.sizeBytes ?? 0,

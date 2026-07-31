@@ -15,7 +15,8 @@
 // request body or path params to prevent cross-tenant manipulation.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { ConsentService } from '../../services/consent.service.js';
 import {

@@ -11,7 +11,8 @@
 // the verified JWT (req.tenant).
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
@@ -230,10 +231,8 @@ dashboardActionQueueRouter.get('/', async (req: Request, res: Response) => {
         tenantId,
         status: { in: ['pending', 'escalated', 'in_review'] },
       },
-      include: {
-        // DealCommitteeReview has businessId but no explicit relation in schema,
-        // so we manually look up the business
-      },
+      // DealCommitteeReview has businessId but no explicit relation in the
+      // schema, so the business is looked up separately below.
     });
 
     // Batch-fetch business names for deal reviews
@@ -283,7 +282,7 @@ dashboardActionQueueRouter.get('/', async (req: Request, res: Response) => {
 
     res.json(body);
   } catch (err) {
-    logger.error({ err }, 'Failed to build action queue');
+    logger.error('Failed to build action queue', { err });
     const body: ApiResponse = {
       success: false,
       error: {

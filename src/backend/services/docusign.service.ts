@@ -365,13 +365,13 @@ export class DocuSignService {
     const ts = timestamp ?? new Date().toISOString();
 
     try {
-      // Update the Document records linked to this envelope
+      // Update the Document records linked to this envelope. The envelope is
+      // matched with a JSONB path filter, so this is a single statement rather
+      // than a read of every contract document followed by an update by id.
       const updatedCount = await this.prisma.document.updateMany({
         where: {
-          metadata: {
-            path: ['envelopeId'],
-            equals: envelopeId,
-          },
+          documentType: 'contract',
+          metadata: { path: ['envelopeId'], equals: envelopeId },
         },
         data: {
           metadata: {

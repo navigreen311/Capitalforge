@@ -8,7 +8,8 @@
 // GET    /api/businesses/:id/readiness — get readiness score details
 // ============================================================
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Response, type NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import {
   createBusiness,
   getBusinessById,
@@ -27,16 +28,15 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 
 /**
  * Extract tenantId from the authenticated request context.
- * In production this comes from JWT middleware (req.tenantContext).
- * We fall back to an X-Tenant-Id header for dev / test convenience.
+ * Populated by requireAuth as req.tenant (middleware/auth.middleware.ts).
+ *
+ * There is deliberately no X-Tenant-Id fallback: it allowed a caller
+ * authenticated for one tenant to read and write another tenant's data simply
+ * by setting a header.
  */
 function resolveTenantId(req: Request): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ctx = (req as any).tenantContext;
+  const ctx = req.tenant;
   if (ctx?.tenantId) return ctx.tenantId;
-
-  const header = req.headers['x-tenant-id'];
-  if (typeof header === 'string' && header.length > 0) return header;
 
   throw new Error('Tenant context is missing — ensure authentication middleware is applied.');
 }
@@ -221,10 +221,14 @@ onboardingRouter.get(
   }),
 );
 
-// ── 404 fallback (within this router) ─────────────────────────
-
-onboardingRouter.use((_req: Request, res: Response) => {
-  fail(res, 'NOT_FOUND', 'Endpoint not found', 404);
-});
+// NOTE: no router-level 404 fallback here.
+//
+// This router is mounted FIRST on /api/businesses (see routes/index.ts), and
+// several sibling routers mount deeper paths under that same prefix — KYB/KYC,
+// acknowledgments, consent, suitability, cost, optimizer, and the per-business
+// application list. A catch-all `onboardingRouter.use(...)` swallowed every one
+// of those requests and returned 404 before Express reached the later routers.
+// Unmatched /api/businesses/* paths now fall through to the global
+// notFoundHandler in server.ts, which is where the 404 belongs.
 
 export default onboardingRouter;

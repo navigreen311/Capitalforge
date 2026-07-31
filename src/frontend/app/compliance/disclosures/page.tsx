@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { authHeaders } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,7 +106,7 @@ export default function DisclosuresPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/compliance/disclosures');
+        const res = await fetch('/api/compliance/disclosures', { headers: authHeaders() });
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.data?.length) setDisclosures(data.data);
@@ -132,7 +133,7 @@ export default function DisclosuresPage() {
     const disc = disclosures.find((d) => d.id === id);
     if (disc) {
       setToast(`${disc.regulation} filed for ${disc.businessName}`);
-      fetch(`/api/compliance/disclosures/${id}/file`, { method: 'POST' }).catch(() => {});
+      fetch(`/api/compliance/disclosures/${id}/file`, { method: 'POST', headers: authHeaders() }).catch(() => {});
     }
   }, [disclosures]);
 
@@ -140,7 +141,7 @@ export default function DisclosuresPage() {
     const disc = disclosures.find((d) => d.id === id);
     if (disc) {
       setToast('Priority task created in Action Queue');
-      fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'priority', disclosureId: id }) }).catch(() => {});
+      fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ type: 'priority', disclosureId: id }) }).catch(() => {});
     }
   }, [disclosures]);
 
@@ -172,7 +173,7 @@ export default function DisclosuresPage() {
       setDisclosures((prev) =>
         prev.map((d) => d.id === id ? { ...d, status: 'Filed' as DisclosureStatus, filedAt: new Date().toISOString(), filedBy: 'Current Advisor', confirmationRef: `CF-${new Date().getFullYear()}-${d.state}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`, documentUrl: `/documents/disclosures/${id}.pdf` } : d)
       );
-      fetch(`/api/compliance/disclosures/${id}/file`, { method: 'POST' }).catch(() => {});
+      fetch(`/api/compliance/disclosures/${id}/file`, { method: 'POST', headers: authHeaders() }).catch(() => {});
       setBulkProgress(i + 1);
       // Small delay for visual feedback
       await new Promise((r) => setTimeout(r, 300));

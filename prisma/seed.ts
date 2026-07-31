@@ -62,7 +62,7 @@ async function main(): Promise<void> {
       passwordHash,
       firstName: 'Alexandra',
       lastName: 'Torres',
-      role: 'admin',
+      role: 'tenant_admin',
       mfaEnabled: true,
       isActive: true,
     },

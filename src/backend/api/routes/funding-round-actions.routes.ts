@@ -8,12 +8,20 @@
 // All routes require a valid tenant JWT via tenantMiddleware.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
+import { okStub, registerStub } from './_stub-response.js';
+
+registerStub(
+  'fundingRound.exportDossier',
+  'Dossier cards, costs and APR timeline are fabricated constants — only the '
+  + 'round status/number/businessId come from the database.',
+)
 
 // ── Lazy Prisma singleton ────────────────────────────────────
 
@@ -81,14 +89,20 @@ fundingRoundActionsRouter.post(
     try {
       const prisma = getPrisma();
 
-      // Attempt to find the round in DB; fall back to mock if not found
+      // Only the summary fields below come from the database. Everything
+      // else in this dossier is a fabricated constant, which is why the
+      // response is flagged as a stub — an exported dossier reads as a
+      // client-facing financial record.
       let round: Record<string, unknown> | null = null;
       try {
         round = await prisma.fundingRound.findFirst({
           where: { id: roundId },
         });
-      } catch {
-        // Table may not exist yet — proceed with mock
+      } catch (lookupError) {
+        logger.warn('[FundingRoundActionsRoutes] Round lookup failed for dossier', {
+          roundId,
+          error: lookupError instanceof Error ? lookupError.message : String(lookupError),
+        });
       }
 
       const dossier = {
@@ -142,10 +156,9 @@ fundingRoundActionsRouter.post(
         ],
       };
 
-      logger.info('[FundingRoundActionsRoutes] Dossier exported', { roundId, tenantId });
+      logger.info('[FundingRoundActionsRoutes] Stub dossier exported', { roundId, tenantId });
 
-      const body: ApiResponse<typeof dossier> = { success: true, data: dossier };
-      res.status(200).json(body);
+      okStub(res, dossier, 'fundingRound.exportDossier');
     } catch (err) {
       handleUnexpected(err, res, 'POST /funding-rounds/:id/export-dossier');
     }

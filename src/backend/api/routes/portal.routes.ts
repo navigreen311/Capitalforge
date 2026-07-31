@@ -6,10 +6,17 @@
 //       APR countdowns, upcoming payments, and unsigned documents
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import logger from '../../config/logger.js';
+import { okStub, registerStub } from './_stub-response.js';
 
 export const portalRouter = Router({ mergeParams: true });
+
+registerStub(
+  'portal.summary',
+  'Entirely sample data keyed to one hardcoded client id; no database access.',
+);
 
 /** Safely extract a single string param (Express 5 params may be string | string[]). */
 function param(req: Request, name: string): string {
@@ -127,11 +134,12 @@ portalRouter.get(
 
     if (!summary) {
       res.status(404).json({
+        success: false,
         error: { code: 'CLIENT_NOT_FOUND', message: `No client found with ID "${clientId}".` },
       });
       return;
     }
 
-    res.json({ data: summary });
+    okStub(res, summary, 'portal.summary');
   },
 );

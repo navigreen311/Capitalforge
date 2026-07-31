@@ -24,7 +24,8 @@
 // All routes require a valid tenant JWT via tenantMiddleware.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';

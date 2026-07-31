@@ -7,7 +7,8 @@
 // completions) for audit trail and analytics.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import logger from '../../config/logger.js';

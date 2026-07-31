@@ -10,8 +10,15 @@
 // Includes a "Request All Pending" bulk action button.
 // ============================================================
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import {
+  buildAcknowledgmentList,
+  missingCount,
+  type AckStatus,
+  type AcknowledgmentItem,
+  type DocuSignStatus,
+} from '@/lib/acknowledgments-view';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard } from '../ui/card';
 
@@ -21,41 +28,20 @@ interface AcknowledgmentsTabProps {
   clientId: string;
 }
 
-type AckStatus = 'signed' | 'pending' | 'not_sent';
-
-/** DocuSign signature workflow status */
-type DocuSignStatus = 'none' | 'sent' | 'delivered' | 'signed' | 'declined';
-
-interface AcknowledgmentItem {
-  id: string;
-  type: string;
-  name: string;
-  description: string;
-  status: AckStatus;
-  signed_date: string | null;
-  signed_by: string | null;
-  document_url: string | null;
-  /** DocuSign envelope tracking */
-  docusign_envelope_id?: string | null;
-  docusign_status?: DocuSignStatus;
-}
-
-interface AcknowledgmentsData {
-  acknowledgments: AcknowledgmentItem[];
-}
 
 // ── Status display config ───────────────────────────────────────────────────
 
+// Only two states are real: the table stores signed acknowledgments, so an
+// entry is either on file or it is not. "Pending" would assert that a request
+// is in flight, which nothing in the record supports.
 const STATUS_CONFIG: Record<AckStatus, { icon: string; label: string }> = {
-  signed:   { icon: '✅', label: 'Signed' },
-  pending:  { icon: '⏳', label: 'Pending' },
-  not_sent: { icon: '❌', label: 'Not Sent' },
+  signed:  { icon: '✅', label: 'Signed' },
+  missing: { icon: '❌', label: 'No signed record' },
 };
 
 const ROW_STYLES: Record<AckStatus, string> = {
-  signed:   'bg-green-50 border-l-green-500',
-  pending:  'bg-amber-50 border-l-amber-500',
-  not_sent: 'bg-gray-50 border-l-gray-300',
+  signed:  'bg-green-50 border-l-green-500',
+  missing: 'bg-gray-50 border-l-gray-300',
 };
 
 // ── DocuSign Status Badge Config ────────────────────────────────────────────
@@ -75,73 +61,6 @@ const DOCUSIGN_STATUS_LABELS: Record<DocuSignStatus, string> = {
   signed:    'Signed via DocuSign',
   declined:  'Declined',
 };
-
-// ── Placeholder data ────────────────────────────────────────────────────────
-
-function buildPlaceholderAcknowledgments(): AcknowledgmentItem[] {
-  return [
-    {
-      id: 'ack-1',
-      type: 'product_reality',
-      name: 'Product-Reality Acknowledgment',
-      description: 'You are receiving credit-card-based funding.',
-      status: 'signed',
-      signed_date: '2026-03-15T14:30:00Z',
-      signed_by: 'James Thornton',
-      document_url: '/documents/ack-product-reality-signed.pdf',
-      docusign_envelope_id: 'env-abc123',
-      docusign_status: 'signed',
-    },
-    {
-      id: 'ack-2',
-      type: 'fee_refund',
-      name: 'Fee & Refund Acknowledgment',
-      description: 'Itemized fee schedule including all origination, servicing, and early-termination fees.',
-      status: 'signed',
-      signed_date: '2026-03-15T14:32:00Z',
-      signed_by: 'James Thornton',
-      document_url: '/documents/ack-fee-refund-signed.pdf',
-      docusign_envelope_id: 'env-def456',
-      docusign_status: 'signed',
-    },
-    {
-      id: 'ack-3',
-      type: 'personal_guarantee',
-      name: 'Personal Guarantee Acknowledgment',
-      description: 'Personal guarantee obligations and liability scope for business funding.',
-      status: 'signed',
-      signed_date: '2026-03-15T14:35:00Z',
-      signed_by: 'James Thornton',
-      document_url: '/documents/ack-personal-guarantee-signed.pdf',
-      docusign_envelope_id: 'env-ghi789',
-      docusign_status: 'signed',
-    },
-    {
-      id: 'ack-4',
-      type: 'cash_advance_restriction',
-      name: 'Cash-Advance Restriction Acknowledgment',
-      description: 'Restrictions on cash advance usage, prohibited transactions, and compliance requirements.',
-      status: 'pending',
-      signed_date: null,
-      signed_by: null,
-      document_url: null,
-      docusign_envelope_id: 'env-jkl012',
-      docusign_status: 'delivered',
-    },
-    {
-      id: 'ack-5',
-      type: 'data_sharing_privacy',
-      name: 'Data Sharing & Privacy Consent',
-      description: 'Consent for data sharing with funding partners, credit bureaus, and affiliated service providers.',
-      status: 'not_sent',
-      signed_date: null,
-      signed_by: null,
-      document_url: null,
-      docusign_envelope_id: null,
-      docusign_status: 'none',
-    },
-  ];
-}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -186,10 +105,12 @@ function AcknowledgmentsSkeleton() {
 
 export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
   const { data, isLoading, error, refetch } =
-    useAuthFetch<AcknowledgmentsData>(`/api/v1/clients/${clientId}/acknowledgments`);
+    useAuthFetch<unknown>(`/api/v1/clients/${clientId}/acknowledgments`);
 
-  // Use placeholder data when API returns nothing (mock mode or dev)
-  const acknowledgments = data?.acknowledgments ?? buildPlaceholderAcknowledgments();
+  // The required catalogue, each entry either signed or missing. Previously a
+  // client with no acknowledgments on file rendered a sample list showing
+  // three of them already signed.
+  const acknowledgments = useMemo(() => buildAcknowledgmentList(data), [data]);
 
   const [requestingType, setRequestingType] = useState<string | null>(null);
   const [sendingDocuSign, setSendingDocuSign] = useState<string | null>(null);
@@ -197,7 +118,7 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const hasUnsigned = acknowledgments.some((a) => a.status !== 'signed');
+  const hasUnsigned = missingCount(acknowledgments) > 0;
 
   // ── Send for Signature via DocuSign ─────────────────────────
 

@@ -314,8 +314,7 @@ export class WorkflowEngineService {
     };
 
     // Emit ledger event
-    await eventBus.publishAndPersist({
-      tenantId:      context.tenantId,
+    await eventBus.publishAndPersist(context.tenantId, {
       eventType:     EVENT_TYPES.WORKFLOW_EVALUATED ?? 'WORKFLOW_EVALUATED',
       aggregateType: AGGREGATE_TYPES.BUSINESS ?? 'business',
       aggregateId:   context.businessId,

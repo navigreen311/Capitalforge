@@ -192,15 +192,12 @@ export class SupportOpsService {
 
     incidentStore.push(incident);
 
-    logger.info(
-      {
+    logger.info('incident created', {
         incidentId: incident.id,
         severity: incident.severity,
         tenantId: incident.tenantId,
         team: incident.assignedTeam,
-      },
-      'incident created',
-    );
+      });
 
     // Stub: in production, dispatch PagerDuty / Slack / email via sla.notifyChannels
     this._sendNotificationStub(incident);
@@ -220,7 +217,7 @@ export class SupportOpsService {
       // Check SLA breach on first response
       if (now > incident.slaFirstResponseDeadline) {
         incident.slaBreached = true;
-        logger.warn({ incidentId: incident.id }, 'SLA first-response deadline breached');
+        logger.warn('SLA first-response deadline breached', { incidentId: incident.id });
       }
     }
 
@@ -230,7 +227,7 @@ export class SupportOpsService {
         incident.resolvedAt = now;
         if (now > incident.slaResolutionDeadline) {
           incident.slaBreached = true;
-          logger.warn({ incidentId: incident.id }, 'SLA resolution deadline breached');
+          logger.warn('SLA resolution deadline breached', { incidentId: incident.id });
         }
       }
       if (input.status === 'closed') {
@@ -248,7 +245,7 @@ export class SupportOpsService {
       message: input.message,
     });
 
-    logger.info({ incidentId: incident.id, status: incident.status, actor: input.actor }, 'incident updated');
+    logger.info('incident updated', { incidentId: incident.id, status: incident.status, actor: input.actor });
     return incident;
   }
 
@@ -321,7 +318,7 @@ export class SupportOpsService {
 
       if (newBreach && !incident.slaBreached) {
         incident.slaBreached = true;
-        logger.warn({ incidentId: incident.id, severity: incident.severity }, 'SLA breach detected');
+        logger.warn('SLA breach detected', { incidentId: incident.id, severity: incident.severity });
         breached.push(incident);
       }
     }
@@ -333,14 +330,11 @@ export class SupportOpsService {
 
   private _sendNotificationStub(incident: Incident): void {
     const sla = SLA_POLICIES[incident.severity];
-    logger.info(
-      {
+    logger.info('[STUB] support notification dispatched', {
         incidentId: incident.id,
         channels: sla.notifyChannels,
         assignedTeam: incident.assignedTeam,
-      },
-      '[STUB] support notification dispatched',
-    );
+      });
     // TODO: integrate PagerDuty, Slack, and email notifiers
   }
 

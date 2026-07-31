@@ -245,10 +245,10 @@ describe('generateReconsiderationLetter', () => {
 // ── createDeclineRecovery ─────────────────────────────────────
 
 describe('createDeclineRecovery', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });
@@ -296,10 +296,10 @@ describe('createDeclineRecovery', () => {
 // ── listDeclinesByBusiness ────────────────────────────────────
 
 describe('listDeclinesByBusiness', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });
@@ -328,10 +328,10 @@ describe('listDeclinesByBusiness', () => {
 // ── getDeclineRecovery ────────────────────────────────────────
 
 describe('getDeclineRecovery', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });
@@ -360,10 +360,10 @@ describe('getDeclineRecovery', () => {
 // ── generateAndStoreReconsiderationLetter ────────────────────
 
 describe('generateAndStoreReconsiderationLetter', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });
@@ -497,10 +497,10 @@ describe('parseAdverseActionNotice', () => {
 // ── routeAdverseAction ────────────────────────────────────────
 
 describe('routeAdverseAction', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });
@@ -569,10 +569,10 @@ describe('routeAdverseAction', () => {
 // ── parseAndRouteAdverseAction (convenience) ──────────────────
 
 describe('parseAndRouteAdverseAction', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });

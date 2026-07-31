@@ -8,6 +8,12 @@ export interface TenantContext {
   userId: string;
   role: string;
   permissions: string[];
+  /**
+   * Optional. Not populated by requireAuth (the access token carries no email
+   * claim) — present only where a caller attaches it. Consumers must handle
+   * its absence.
+   */
+  email?: string;
 }
 
 // Event Bus
@@ -76,10 +82,19 @@ export interface ApiResponse<T = unknown> {
     message: string;
     details?: unknown;
   };
+  /**
+   * Pagination envelope, plus any endpoint-specific summary values.
+   *
+   * Routes across the API already return extra keys here (aggregate counts,
+   * risk-score rollups, status messages), so the shape allows additional
+   * entries alongside the three well-known pagination fields rather than
+   * rejecting every one of those responses.
+   */
   meta?: {
     page?: number;
     pageSize?: number;
     total?: number;
+    [key: string]: unknown;
   };
 }
 

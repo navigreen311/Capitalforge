@@ -11,6 +11,13 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import {
+  getEventConfig,
+  formatRelativeTime,
+  toTimelineEvents,
+  type EventCategory,
+  type TimelineEvent,
+} from '@/lib/timeline-view';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard } from '../ui/card';
 
@@ -18,31 +25,6 @@ import { SectionCard } from '../ui/card';
 
 interface TimelineTabProps {
   clientId: string;
-}
-
-type EventCategory =
-  | 'all'
-  | 'application'
-  | 'payment'
-  | 'consent'
-  | 'call'
-  | 'compliance'
-  | 'document'
-  | 'credit'
-  | 'note';
-
-interface TimelineEvent {
-  id: string;
-  event_type: string;
-  title: string;
-  detail: string;
-  actor: string;
-  timestamp: string;
-  link?: string;
-}
-
-interface TimelineData {
-  events: TimelineEvent[];
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -57,67 +39,7 @@ const FILTER_TABS: { key: EventCategory; label: string }[] = [
   { key: 'document', label: 'Documents' },
 ];
 
-interface EventTypeConfig {
-  monogram: string;
-  bgClass: string;
-  textClass: string;
-  category: EventCategory;
-}
-
-const EVENT_TYPE_MAP: Record<string, EventTypeConfig> = {
-  'client.application_submitted': { monogram: 'AP', bgClass: 'bg-blue-100', textClass: 'text-blue-700', category: 'application' },
-  'client.application_approved': { monogram: 'AP', bgClass: 'bg-blue-100', textClass: 'text-blue-700', category: 'application' },
-  'client.application_declined': { monogram: 'AP', bgClass: 'bg-blue-100', textClass: 'text-blue-700', category: 'application' },
-  'client.payment_processed': { monogram: 'PY', bgClass: 'bg-emerald-100', textClass: 'text-emerald-700', category: 'payment' },
-  'client.payment_failed': { monogram: 'PY', bgClass: 'bg-emerald-100', textClass: 'text-emerald-700', category: 'payment' },
-  'client.consent_granted': { monogram: 'CN', bgClass: 'bg-amber-100', textClass: 'text-amber-700', category: 'consent' },
-  'client.consent_revoked': { monogram: 'CN', bgClass: 'bg-amber-100', textClass: 'text-amber-700', category: 'consent' },
-  'client.voiceforge_call_completed': { monogram: 'CL', bgClass: 'bg-purple-100', textClass: 'text-purple-700', category: 'call' },
-  'client.compliance_check_passed': { monogram: 'CO', bgClass: 'bg-rose-100', textClass: 'text-rose-700', category: 'compliance' },
-  'client.compliance_check_failed': { monogram: 'CO', bgClass: 'bg-rose-100', textClass: 'text-rose-700', category: 'compliance' },
-  'client.compliance_check_run': { monogram: 'CO', bgClass: 'bg-rose-100', textClass: 'text-rose-700', category: 'compliance' },
-  'client.document_uploaded': { monogram: 'DC', bgClass: 'bg-indigo-100', textClass: 'text-indigo-700', category: 'document' },
-  'client.document_held': { monogram: 'DC', bgClass: 'bg-indigo-100', textClass: 'text-indigo-700', category: 'document' },
-  'client.document_released': { monogram: 'DC', bgClass: 'bg-indigo-100', textClass: 'text-indigo-700', category: 'document' },
-  'client.credit_bureau_pulled': { monogram: 'CR', bgClass: 'bg-teal-100', textClass: 'text-teal-700', category: 'credit' },
-  'client.advisor_note_added': { monogram: 'NT', bgClass: 'bg-gray-100', textClass: 'text-gray-700', category: 'note' },
-  'client.apr_expiry_alert': { monogram: 'AP', bgClass: 'bg-blue-100', textClass: 'text-blue-700', category: 'application' },
-};
-
-const DEFAULT_CONFIG: EventTypeConfig = {
-  monogram: '??',
-  bgClass: 'bg-gray-100',
-  textClass: 'text-gray-700',
-  category: 'all',
-};
-
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function getEventConfig(eventType: string): EventTypeConfig {
-  return EVENT_TYPE_MAP[eventType] ?? DEFAULT_CONFIG;
-}
-
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString();
-}
-
-function formatRelativeTime(isoDate: string): string {
-  const now = new Date();
-  const date = new Date(isoDate);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return '1 day ago';
-  if (diffDays < 30) return `${diffDays} days ago`;
-  const diffMonths = Math.floor(diffDays / 30);
-  return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
-}
 
 function formatAbsoluteTime(isoDate: string): string {
   const date = new Date(isoDate);
@@ -128,171 +50,6 @@ function formatAbsoluteTime(isoDate: string): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-// ── Placeholder data ────────────────────────────────────────────────────────
-
-function buildPlaceholderEvents(): TimelineEvent[] {
-  return [
-    {
-      id: 'evt-01',
-      event_type: 'client.application_submitted',
-      title: 'Application submitted',
-      detail: 'Ink Business Preferred — Chase',
-      actor: 'Sarah Chen',
-      timestamp: daysAgo(2),
-      link: '/applications/app-2847',
-    },
-    {
-      id: 'evt-02',
-      event_type: 'client.credit_bureau_pulled',
-      title: 'Credit bureau pulled',
-      detail: 'Experian, Equifax, TransUnion — tri-merge report',
-      actor: 'System',
-      timestamp: daysAgo(3),
-      link: '/credit/reports/rpt-1192',
-    },
-    {
-      id: 'evt-03',
-      event_type: 'client.consent_granted',
-      title: 'Consent granted',
-      detail: 'Voice channel TCPA consent — recorded via VoiceForge',
-      actor: 'Client',
-      timestamp: daysAgo(5),
-    },
-    {
-      id: 'evt-04',
-      event_type: 'client.compliance_check_passed',
-      title: 'Compliance check passed',
-      detail: 'UDAP/UDAAP review — all marketing materials cleared',
-      actor: 'System',
-      timestamp: daysAgo(7),
-      link: '/compliance/checks/chk-0891',
-    },
-    {
-      id: 'evt-05',
-      event_type: 'client.document_uploaded',
-      title: 'Document uploaded',
-      detail: 'Bank statement — Feb 2026 (Chase Business Checking)',
-      actor: 'Sarah Chen',
-      timestamp: daysAgo(8),
-      link: '/documents/doc-3341',
-    },
-    {
-      id: 'evt-06',
-      event_type: 'client.payment_processed',
-      title: 'Payment processed',
-      detail: 'Chase autopay — $1,200.00 minimum payment',
-      actor: 'System',
-      timestamp: daysAgo(10),
-      link: '/payments/pay-7723',
-    },
-    {
-      id: 'evt-07',
-      event_type: 'client.application_approved',
-      title: 'Application approved',
-      detail: 'Chase Ink Business Preferred — $45,000 credit line',
-      actor: 'System',
-      timestamp: daysAgo(12),
-      link: '/applications/app-2844',
-    },
-    {
-      id: 'evt-08',
-      event_type: 'client.voiceforge_call_completed',
-      title: 'VoiceForge call completed',
-      detail: 'Duration: 4m 32s — QA score: 88/100',
-      actor: 'Sarah Chen',
-      timestamp: daysAgo(14),
-      link: '/voiceforge/calls/call-0192',
-    },
-    {
-      id: 'evt-09',
-      event_type: 'client.apr_expiry_alert',
-      title: 'APR expiry alert triggered',
-      detail: 'Chase card — 0% APR expires in 49 days',
-      actor: 'System',
-      timestamp: daysAgo(15),
-      link: '/alerts/alert-4417',
-    },
-    {
-      id: 'evt-10',
-      event_type: 'client.advisor_note_added',
-      title: 'Advisor note added',
-      detail: 'Client confirmed business expansion plans for Q3. Considering additional credit lines for equipment purchase.',
-      actor: 'Sarah Chen',
-      timestamp: daysAgo(18),
-    },
-    {
-      id: 'evt-11',
-      event_type: 'client.consent_revoked',
-      title: 'Consent revoked',
-      detail: 'Direct mail channel — client opted out of physical mailings',
-      actor: 'Client',
-      timestamp: daysAgo(20),
-    },
-    {
-      id: 'evt-12',
-      event_type: 'client.document_uploaded',
-      title: 'Document uploaded',
-      detail: 'Tax return — 2025 Schedule C (business income)',
-      actor: 'Sarah Chen',
-      timestamp: daysAgo(22),
-      link: '/documents/doc-3298',
-    },
-    {
-      id: 'evt-13',
-      event_type: 'client.payment_failed',
-      title: 'Payment failed',
-      detail: 'Amex Business Gold — autopay returned (NSF)',
-      actor: 'System',
-      timestamp: daysAgo(24),
-      link: '/payments/pay-7701',
-    },
-    {
-      id: 'evt-14',
-      event_type: 'client.compliance_check_run',
-      title: 'Compliance check run',
-      detail: 'AML/KYC verification — all beneficial owners cleared',
-      actor: 'System',
-      timestamp: daysAgo(26),
-      link: '/compliance/checks/chk-0872',
-    },
-    {
-      id: 'evt-15',
-      event_type: 'client.application_submitted',
-      title: 'Application submitted',
-      detail: 'Amex Business Gold — American Express',
-      actor: 'Sarah Chen',
-      timestamp: daysAgo(27),
-      link: '/applications/app-2831',
-    },
-    {
-      id: 'evt-16',
-      event_type: 'client.voiceforge_call_completed',
-      title: 'VoiceForge call completed',
-      detail: 'Duration: 6m 15s — QA score: 92/100, intro call',
-      actor: 'Sarah Chen',
-      timestamp: daysAgo(28),
-      link: '/voiceforge/calls/call-0178',
-    },
-    {
-      id: 'evt-17',
-      event_type: 'client.credit_bureau_pulled',
-      title: 'Credit bureau pulled',
-      detail: 'Experian single-bureau pull — initial assessment',
-      actor: 'System',
-      timestamp: daysAgo(29),
-      link: '/credit/reports/rpt-1180',
-    },
-    {
-      id: 'evt-18',
-      event_type: 'client.advisor_note_added',
-      title: 'Advisor note added',
-      detail: 'Initial intake completed. Client has strong revenue ($480K/yr) and clean credit history. Good candidate for premium card stack.',
-      actor: 'Sarah Chen',
-      timestamp: daysAgo(30),
-    },
-  ];
 }
 
 // ── Loading skeleton ────────────────────────────────────────────────────────
@@ -427,7 +184,7 @@ function AddNoteModal({ isOpen, onClose, onSave, isSaving }: AddNoteModalProps) 
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function TimelineTab({ clientId }: TimelineTabProps) {
-  const { data, isLoading, error, refetch } = useAuthFetch<TimelineData>(
+  const { data, isLoading, error, refetch } = useAuthFetch<unknown>(
     `/api/v1/clients/${clientId}/timeline`,
   );
 
@@ -437,11 +194,13 @@ export function TimelineTab({ clientId }: TimelineTabProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [optimisticEvents, setOptimisticEvents] = useState<TimelineEvent[]>([]);
 
-  // Merge API events with optimistic ones (optimistic on top)
-  const allEvents = useMemo(() => {
-    const apiEvents = data?.events ?? buildPlaceholderEvents();
-    return [...optimisticEvents, ...apiEvents];
-  }, [data, optimisticEvents]);
+  // Merge API events with optimistic ones (optimistic on top). An empty
+  // ledger yields an empty timeline — it previously yielded a set of sample
+  // events, so a client with no recorded activity looked active.
+  const allEvents = useMemo(
+    () => [...optimisticEvents, ...toTimelineEvents(data)],
+    [data, optimisticEvents],
+  );
 
   // Filter + search
   const filteredEvents = useMemo(() => {
@@ -601,7 +360,16 @@ export function TimelineTab({ clientId }: TimelineTabProps) {
         {/* Event list */}
         {filteredEvents.length === 0 ? (
           <div className="py-12 text-center">
-            <p className="text-sm text-gray-500">No events match your filters.</p>
+            {allEvents.length === 0 ? (
+              <>
+                <p className="text-sm font-medium text-gray-700">No recorded activity</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Nothing has been logged against this client yet.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">No events match your filters.</p>
+            )}
           </div>
         ) : (
           <div className="relative">

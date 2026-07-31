@@ -138,7 +138,7 @@ export class ReleaseManagementService {
       existing.description       = input.description;
       existing.updatedAt         = new Date();
       existing.updatedBy         = input.createdBy;
-      logger.info({ featureKey: input.featureKey, tenantId: input.tenantId, state: input.state }, 'feature flag updated');
+      logger.info('feature flag updated', { featureKey: input.featureKey, tenantId: input.tenantId, state: input.state });
       return existing;
     }
 
@@ -157,7 +157,7 @@ export class ReleaseManagementService {
     };
 
     flagStore.push(flag);
-    logger.info({ featureKey: input.featureKey, tenantId: input.tenantId, state: input.state }, 'feature flag created');
+    logger.info('feature flag created', { featureKey: input.featureKey, tenantId: input.tenantId, state: input.state });
     return flag;
   }
 
@@ -171,7 +171,7 @@ export class ReleaseManagementService {
     flag.updatedAt = new Date();
     flag.updatedBy = input.updatedBy;
 
-    logger.info({ flagId: input.flagId, updatedBy: input.updatedBy }, 'feature flag patched');
+    logger.info('feature flag patched', { flagId: input.flagId, updatedBy: input.updatedBy });
     return flag;
   }
 
@@ -264,7 +264,7 @@ export class ReleaseManagementService {
     };
 
     previewStore.push(preview);
-    logger.info({ previewId: preview.id, breakingChanges: breakingChanges.length }, 'migration preview generated');
+    logger.info('migration preview generated', { previewId: preview.id, breakingChanges: breakingChanges.length });
     return preview;
   }
 
@@ -293,7 +293,7 @@ export class ReleaseManagementService {
     });
 
     releaseStore.push(release);
-    logger.info({ releaseId: release.id, releaseTag: input.releaseTag }, 'release created');
+    logger.info('release created', { releaseId: release.id, releaseTag: input.releaseTag });
     return release;
   }
 
@@ -327,17 +327,14 @@ export class ReleaseManagementService {
       detail: `Stage advanced from ${prevStage} → ${release.stage}`,
     });
 
-    await eventBus.publishAndPersist({
-      id: uuidv4(),
-      type: EVENT_TYPES.RULE_UPDATED,
+    await eventBus.publishAndPersist(release.tenantId, {
+      eventType: EVENT_TYPES.RULE_UPDATED,
       aggregateType: AGGREGATE_TYPES.RULE,
       aggregateId: release.id,
-      tenantId: release.tenantId,
       payload: { releaseTag: release.releaseTag, stage: release.stage, actor },
-      occurredAt: new Date(),
     });
 
-    logger.info({ releaseId, stage: release.stage }, 'release stage advanced');
+    logger.info('release stage advanced', { releaseId, stage: release.stage });
     return release;
   }
 
@@ -359,17 +356,14 @@ export class ReleaseManagementService {
       detail: `Rolled back — reason: ${reason}`,
     });
 
-    await eventBus.publishAndPersist({
-      id: uuidv4(),
-      type: EVENT_TYPES.RULE_UPDATED,
+    await eventBus.publishAndPersist(release.tenantId, {
+      eventType: EVENT_TYPES.RULE_UPDATED,
       aggregateType: AGGREGATE_TYPES.RULE,
       aggregateId: release.id,
-      tenantId: release.tenantId,
       payload: { releaseTag: release.releaseTag, rollbackBy, reason },
-      occurredAt: new Date(),
     });
 
-    logger.info({ releaseId, rollbackBy, reason }, 'release rolled back');
+    logger.info('release rolled back', { releaseId, rollbackBy, reason });
     return release;
   }
 

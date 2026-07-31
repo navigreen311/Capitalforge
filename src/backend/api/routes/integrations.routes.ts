@@ -18,7 +18,8 @@
 // DELETE /api/webhooks/:id
 // ============================================================
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../../types/http.js';
 import {
   integrationLayerService,
   type IntegrationProvider,

@@ -12,9 +12,18 @@
 //   - Kebab actions menu (View / Download)
 // ============================================================
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { SectionCard } from '../ui/card';
 import { FocusTrap } from '@/components/ui/focus-trap';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
+import {
+  toDocumentRecords,
+  buildRequiredChecklist,
+  type DocumentRecord,
+  type DocumentType,
+  type SignatureStatus,
+} from '@/lib/documents-view';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -22,91 +31,9 @@ interface DocumentsTabProps {
   clientId: string;
 }
 
-type SignatureStatus = 'signed' | 'pending' | 'not_required' | 'sent' | 'delivered';
-type DocumentType = 'consent' | 'contract' | 'bank_statement' | 'id' | 'compliance' | 'other';
 type FilterType = 'all' | DocumentType;
 
-interface DocumentRecord {
-  id: string;
-  name: string;
-  type: DocumentType;
-  typeLabel: string;
-  size: string;
-  uploadedAt: string;
-  signatureStatus: SignatureStatus;
-  legalHold: boolean;
-  /** DocuSign envelope tracking */
-  docusignEnvelopeId?: string | null;
-}
-
-interface RequiredDoc {
-  label: string;
-  uploaded: boolean;
-  fileName?: string;
-}
-
 // ── Placeholder Data ────────────────────────────────────────────────────────
-
-const REQUIRED_DOCUMENTS: RequiredDoc[] = [
-  { label: 'Bank Statement (3 months)', uploaded: true,  fileName: 'apex_bank_stmt_feb2026.pdf' },
-  { label: 'Advisor Agreement',         uploaded: true,  fileName: 'apex_advisor_agreement.pdf' },
-  { label: 'TCPA Consent Record',       uploaded: true,  fileName: 'apex_tcpa_consent_voice.json' },
-  { label: 'Product-Reality Acknowledgment', uploaded: false },
-  { label: 'Government ID (Owner)',     uploaded: false },
-];
-
-const PLACEHOLDER_DOCUMENTS: DocumentRecord[] = [
-  {
-    id: 'doc-001',
-    name: 'apex_bank_stmt_feb2026.pdf',
-    type: 'bank_statement',
-    typeLabel: 'Bank Statement',
-    size: '1.2 MB',
-    uploadedAt: '2026-02-14',
-    signatureStatus: 'not_required',
-    legalHold: false,
-  },
-  {
-    id: 'doc-002',
-    name: 'apex_advisor_agreement.pdf',
-    type: 'contract',
-    typeLabel: 'Contract',
-    size: '420 KB',
-    uploadedAt: '2026-01-20',
-    signatureStatus: 'signed',
-    legalHold: false,
-  },
-  {
-    id: 'doc-003',
-    name: 'apex_tcpa_consent_voice.json',
-    type: 'consent',
-    typeLabel: 'Consent',
-    size: '8 KB',
-    uploadedAt: '2026-01-18',
-    signatureStatus: 'signed',
-    legalHold: true,
-  },
-  {
-    id: 'doc-004',
-    name: 'apex_compliance_disclosure_2026.pdf',
-    type: 'compliance',
-    typeLabel: 'Compliance',
-    size: '310 KB',
-    uploadedAt: '2026-03-01',
-    signatureStatus: 'pending',
-    legalHold: false,
-  },
-  {
-    id: 'doc-005',
-    name: 'apex_owner_dl_scan.png',
-    type: 'id',
-    typeLabel: 'ID',
-    size: '2.8 MB',
-    uploadedAt: '2026-03-10',
-    signatureStatus: 'not_required',
-    legalHold: true,
-  },
-];
 
 const DOCUMENT_TYPE_OPTIONS = [
   'Bank Statement',
@@ -456,7 +383,19 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [holdModalDoc, setHoldModalDoc] = useState<DocumentRecord | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [documents, setDocuments] = useState<DocumentRecord[]>(PLACEHOLDER_DOCUMENTS);
+  const { data, isLoading, error, refetch } = useAuthFetch<unknown>(
+    `/api/v1/clients/${clientId}/documents`,
+  );
+
+  // Seeded from the vault. This used to be initialised from a hardcoded array,
+  // so every client showed the same four documents — including a signed
+  // contract and an active legal hold — whatever was actually on file.
+  const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  useEffect(() => {
+    setDocuments(toDocumentRecords(data));
+  }, [data]);
+
+  const REQUIRED_DOCUMENTS = useMemo(() => buildRequiredChecklist(documents), [documents]);
 
   const filteredDocs = filter === 'all'
     ? documents
@@ -528,6 +467,23 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
   const handleRequestDoc = useCallback((label: string) => {
     setRequestModalOpen(true);
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <SectionCard title="Required Documents">
+          <div className="h-32 animate-pulse rounded-lg bg-gray-50" aria-busy="true" />
+        </SectionCard>
+        <SectionCard title="Documents">
+          <div className="h-48 animate-pulse rounded-lg bg-gray-50" aria-busy="true" />
+        </SectionCard>
+      </div>
+    );
+  }
+
+  if (error) {
+    return <DashboardErrorState error={error} onRetry={refetch} />;
+  }
 
   return (
     <div className="space-y-6">

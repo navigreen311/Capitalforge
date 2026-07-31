@@ -423,7 +423,7 @@ export class DisclosureCmsService {
   async createTemplate(input: CreateTemplateInput): Promise<DisclosureTemplateRecord> {
     const { tenantId, state, category, name, content, effectiveDate, variables } = input;
 
-    logger.info({ tenantId, state, category }, 'DisclosureCMS: creating template');
+    logger.info('DisclosureCMS: creating template', { tenantId, state, category });
 
     const record = await this.prisma.disclosureTemplate.create({
       data: {
@@ -440,9 +440,7 @@ export class DisclosureCmsService {
       },
     });
 
-    await eventBus.publish({
-      id: uuidv4(),
-      tenantId,
+    await eventBus.publish(tenantId, {
       eventType: 'DISCLOSURE_TEMPLATE_CREATED',
       aggregateType: 'disclosure_template',
       aggregateId: record.id,
@@ -492,10 +490,7 @@ export class DisclosureCmsService {
       },
     });
 
-    logger.info(
-      { templateId, newVersion, tenantId },
-      'DisclosureCMS: template updated, requires re-approval',
-    );
+    logger.info('DisclosureCMS: template updated, requires re-approval', { templateId, newVersion, tenantId });
 
     return this.mapRecord(updated, input.variables ?? CATEGORY_VARIABLES[existing.category as DisclosureCategory] ?? []);
   }
@@ -513,9 +508,7 @@ export class DisclosureCmsService {
 
     // For now status is tracked via approvedBy/approvedAt nullability
     // Log event to signal pending review
-    await eventBus.publish({
-      id: uuidv4(),
-      tenantId,
+    await eventBus.publish(tenantId, {
       eventType: 'DISCLOSURE_TEMPLATE_SUBMITTED_FOR_APPROVAL',
       aggregateType: 'disclosure_template',
       aggregateId: templateId,
@@ -523,7 +516,7 @@ export class DisclosureCmsService {
       version: 1,
     });
 
-    logger.info({ templateId, tenantId }, 'DisclosureCMS: template submitted for approval');
+    logger.info('DisclosureCMS: template submitted for approval', { templateId, tenantId });
 
     return this.mapRecord(existing, CATEGORY_VARIABLES[existing.category as DisclosureCategory] ?? []);
   }
@@ -564,9 +557,7 @@ export class DisclosureCmsService {
       },
     });
 
-    await eventBus.publish({
-      id: uuidv4(),
-      tenantId,
+    await eventBus.publish(tenantId, {
       eventType: 'DISCLOSURE_TEMPLATE_APPROVED',
       aggregateType: 'disclosure_template',
       aggregateId: templateId,
@@ -580,10 +571,7 @@ export class DisclosureCmsService {
       version: 1,
     });
 
-    logger.info(
-      { templateId, approvedBy: input.approverId, tenantId },
-      'DisclosureCMS: template approved and activated',
-    );
+    logger.info('DisclosureCMS: template approved and activated', { templateId, approvedBy: input.approverId, tenantId });
 
     return this.mapRecord(approved, CATEGORY_VARIABLES[approved.category as DisclosureCategory] ?? []);
   }
@@ -678,10 +666,7 @@ export class DisclosureCmsService {
     const { rendered, missing } = renderTemplate(record.content, enrichedContext);
 
     if (missing.length > 0) {
-      logger.warn(
-        { templateId, missing },
-        'DisclosureCMS: rendered with missing variables',
-      );
+      logger.warn('DisclosureCMS: rendered with missing variables', { templateId, missing });
     }
 
     return {
@@ -779,7 +764,7 @@ export class DisclosureCmsService {
       seeded++;
     }
 
-    logger.info({ tenantId, seeded }, 'DisclosureCMS: seeded default templates');
+    logger.info('DisclosureCMS: seeded default templates', { tenantId, seeded });
     return seeded;
   }
 

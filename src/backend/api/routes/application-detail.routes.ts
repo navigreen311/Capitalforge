@@ -9,9 +9,16 @@
 // PATCH  /                — update application fields
 // ============================================================
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Response, type NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
+import { okStub, registerStub } from './_stub-response.js';
+
+registerStub(
+  'application.detail',
+  'Application detail, timeline and updates are sample data; no persistence.',
+);
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -27,9 +34,13 @@ function dateOnly(offsetDays: number): string {
   return d.toISOString().split('T')[0];
 }
 
+/**
+ * Every endpoint in this module returns hardcoded sample data — there is no
+ * persistence behind application detail yet — so the module's success helper
+ * marks all of them as stubs rather than letting them pass for real records.
+ */
 function ok(res: Response, data: unknown, meta?: Record<string, unknown>): void {
-  const body: ApiResponse = { success: true, data, ...(meta ? { meta } : {}) };
-  res.status(200).json(body);
+  okStub(res, data, 'application.detail', meta);
 }
 
 function err(res: Response, status: number, code: string, message: string): void {

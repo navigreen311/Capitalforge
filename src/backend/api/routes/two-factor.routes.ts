@@ -5,7 +5,8 @@
 // POST /api/auth/2fa/disable  — disable 2FA for user
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { requireAuth } from '../../middleware/auth.middleware.js';
 import crypto from 'crypto';
@@ -21,8 +22,11 @@ let authenticator: {
 
 let QRCode: { toDataURL: (text: string) => Promise<string> } | null = null;
 
+// NOTE: loaded with require() rather than `await import()` — this backend compiles
+// to CommonJS (tsconfig "module": "NodeNext" with no "type": "module" in
+// package.json), where top-level await is not valid.
 try {
-  const otplib = await import('otplib');
+  const otplib = require('otplib');
   authenticator = otplib.authenticator;
   otplibAvailable = true;
 } catch {
@@ -30,7 +34,7 @@ try {
 }
 
 try {
-  const qr = await import('qrcode');
+  const qr = require('qrcode');
   QRCode = qr.default ?? qr;
 } catch {
   // qrcode not installed — use placeholder

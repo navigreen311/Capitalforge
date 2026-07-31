@@ -43,15 +43,17 @@ vi.mock('@backend/middleware/metrics.js', () => ({
   metricsEndpoint: (_req: any, res: any) => res.status(200).send(''),
 }));
 
-// ── Import app after mocks are set up ─────────────────────────
-// We import createApp lazily so vitest mocks take effect first.
-const { createApp } = await import('@backend/server.js');
-
 // ── Test server bootstrap ─────────────────────────────────────
 let server: Server;
 let baseUrl: string;
 
-beforeAll(() => {
+beforeAll(async () => {
+  // createApp is imported lazily so the vitest mocks above take effect first.
+  // The import lives inside beforeAll rather than at module scope because this
+  // file compiles to CommonJS (tsconfig "module": "NodeNext" with no "type":
+  // "module" in package.json), where top-level await is not valid.
+  const { createApp } = await import('@backend/server.js');
+
   const app = createApp();
   server = app.listen(0); // random port
   const addr = server.address() as { port: number };
@@ -62,9 +64,20 @@ afterAll(() => {
   server.close();
 });
 
-// ── Helper ────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────
 async function get(path: string, headers: Record<string, string> = {}) {
   return fetch(`${baseUrl}${path}`, { headers });
+}
+
+/**
+ * `Response.json()` is typed `unknown`, so every `body.data.x` assertion
+ * below would be an error. These tests assert against the API's standard
+ * `{ success, data | error }` envelope; this reads it as an indexable object.
+ */
+type JsonBody = Record<string, any>;
+
+async function readJson(res: Response): Promise<JsonBody> {
+  return (await res.json()) as JsonBody;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -75,14 +88,14 @@ describe('GET /api/health', () => {
     const res = await get('/api/health');
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = await readJson(res);
     expect(body.success).toBe(true);
     expect(body.data.status).toBe('ok');
   });
 
   it('includes timestamp and uptime fields', async () => {
     const res = await get('/api/health');
-    const body = await res.json();
+    const body = await readJson(res);
     expect(typeof body.data.timestamp).toBe('string');
     expect(typeof body.data.uptime).toBe('number');
     expect(body.data.uptime).toBeGreaterThanOrEqual(0);
@@ -108,7 +121,7 @@ describe('GET /api/health/ready', () => {
     const res = await get('/api/health/ready');
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = await readJson(res);
     expect(body.success).toBe(true);
     expect(body.data.status).toBe('ok');
     expect(body.data.checks.database.status).toBe('ok');
@@ -125,7 +138,7 @@ describe('GET /api/health/ready', () => {
     const res = await get('/api/health/ready');
     expect(res.status).toBe(503);
 
-    const body = await res.json();
+    const body = await readJson(res);
     expect(body.success).toBe(false);
     expect(body.data.status).toBe('unhealthy');
     expect(body.data.checks.database.status).toBe('error');
@@ -158,25 +171,37 @@ describe('Request ID middleware', () => {
 // Error handling
 // ─────────────────────────────────────────────────────────────
 describe('Error handling', () => {
-  it('returns 404 for unknown routes', async () => {
-    const res = await get('/api/does-not-exist');
+  it('returns 404 for unknown routes outside the API surface', async () => {
+    const res = await get('/does-not-exist');
     expect(res.status).toBe(404);
 
-    const body = await res.json();
+    const body = await readJson(res);
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('answers 401, not 404, for an unknown /api route without credentials', async () => {
+    // Deliberate: /api is default-deny, and the auth gate runs before the
+    // not-found handler. Answering 404 here would tell an unauthenticated
+    // caller which API paths exist and which do not, which is a path
+    // enumeration oracle. Callers learn nothing until they authenticate.
+    const res = await get('/api/does-not-exist');
+    expect(res.status).toBe(401);
+
+    const body = await readJson(res);
+    expect(body.success).toBe(false);
   });
 
   it('returns 404 for completely unknown path', async () => {
     const res = await get('/totally-unknown');
     expect(res.status).toBe(404);
-    const body = await res.json();
+    const body = await readJson(res);
     expect(body.success).toBe(false);
   });
 
   it('responds with ApiResponse shape on errors', async () => {
     const res = await get('/api/missing');
-    const body = await res.json();
+    const body = await readJson(res);
     // Shape check
     expect(typeof body.success).toBe('boolean');
     expect(body.error).toBeDefined();

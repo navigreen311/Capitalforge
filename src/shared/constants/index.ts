@@ -9,6 +9,7 @@ export const EVENT_TYPES = {
   CONSENT_REVOKED: 'consent.revoked',
 
   // Application
+  APPLICATION_CREATED: 'application.created',
   APPLICATION_SUBMITTED: 'application.submitted',
   APPLICATION_APPROVED: 'application.approved',
   APPLICATION_DECLINED: 'card.declined',
@@ -23,6 +24,16 @@ export const EVENT_TYPES = {
   RISK_ALERT_RAISED: 'risk.alert.raised',
   SUITABILITY_ASSESSED: 'suitability.assessed',
   NOGO_TRIGGERED: 'nogo.triggered',
+
+  // Rules / reference data / release governance
+  RULE_CREATED: 'rule.created',
+  RULE_UPDATED: 'rule.updated',
+  RULE_VERSION_DEPLOYED: 'rule.version.deployed',
+  RULE_VERSION_ROLLED_BACK: 'rule.version.rolled_back',
+
+  // Policy & workflow orchestration
+  POLICY_EVALUATED: 'policy.evaluated',
+  WORKFLOW_EVALUATED: 'workflow.evaluated',
 
   // ACH
   DEBIT_AUTHORIZED: 'debit.authorized',
@@ -65,6 +76,10 @@ export const AGGREGATE_TYPES = {
   ACH: 'ach_authorization',
   USER: 'user',
   TENANT: 'tenant',
+  /** Versioned reference data and release/feature-flag governance. */
+  RULE: 'rule',
+  /** Platform/tenant administration actions. */
+  ADMIN: 'admin',
 } as const;
 
 // Risk Thresholds

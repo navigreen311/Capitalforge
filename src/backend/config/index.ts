@@ -43,6 +43,22 @@ export const REDIS_URL = optional('REDIS_URL', 'redis://localhost:6379');
 export const JWT_SECRET = IS_PRODUCTION
   ? required('JWT_SECRET')
   : optional('JWT_SECRET', 'dev-secret-change-in-production');
+
+/**
+ * JWT_ACCESS_SECRET is deliberately NOT exported here.
+ *
+ * This module snapshots process.env once, at import time, and substitutes a
+ * hardcoded default when a variable is absent at that instant. For a signing
+ * secret both properties are hazards: any verifier reading the snapshot can
+ * silently end up on the dev default while config/auth.ts — which reads the
+ * variable lazily on each call — uses the real one. The two then disagree,
+ * and every token this server issues is rejected by whichever component read
+ * the snapshot.
+ *
+ * config/auth.ts owns access-token signing and verification. Route both
+ * through it (generateAccessToken / verifyAccessToken) rather than
+ * re-deriving the secret anywhere else.
+ */
 export const JWT_EXPIRY = optional('JWT_EXPIRY', '15m');
 export const REFRESH_TOKEN_EXPIRY = optional('REFRESH_TOKEN_EXPIRY', '7d');
 

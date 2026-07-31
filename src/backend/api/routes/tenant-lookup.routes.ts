@@ -4,7 +4,8 @@
 // GET /api/tenants
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 
 const router = Router();

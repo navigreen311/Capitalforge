@@ -15,7 +15,8 @@
 // req.tenant (set by upstream auth middleware).
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import {
   runSuitabilityCheck,
@@ -24,21 +25,21 @@ import {
   type SuitabilityInput,
 } from '../../services/suitability.service.js';
 import { ROLES } from '@shared/constants/index.js';
-import type { ApiResponse } from '@shared/types/index.js';
+import type { ApiResponse, TenantContext } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
 
 // ── Augment Express Request with TenantContext ───────────────
 // The auth middleware upstream should attach this.
 
+// `req.tenant` is already declared as `TenantContext | undefined` in
+// middleware/auth.middleware.ts and middleware/tenant.middleware.ts.
+// Re-declaring it here with a structurally-equal inline type is a conflicting
+// declaration (TS2717) — interface merging requires the *same* type, not a
+// compatible one. Reuse the shared type instead.
 declare global {
   namespace Express {
     interface Request {
-      tenant?: {
-        tenantId:    string;
-        userId:      string;
-        role:        string;
-        permissions: string[];
-      };
+      tenant?: TenantContext;
     }
   }
 }

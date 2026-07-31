@@ -149,10 +149,7 @@ export class GovernanceCadenceService {
     };
 
     reviewStore.push(review);
-    logger.info(
-      { reviewId: review.id, type: input.reviewType, dueDate: input.dueDate },
-      'governance review scheduled',
-    );
+    logger.info('governance review scheduled', { reviewId: review.id, type: input.reviewType, dueDate: input.dueDate });
 
     // Send initial scheduling notification
     this._sendEmailStub(review, `Governance review scheduled: ${input.title}`, input.notifyEmails);
@@ -300,13 +297,10 @@ export class GovernanceCadenceService {
     // Schedule next recurrence if applicable
     if (review.recurrenceMonths) {
       review.nextReviewDate = addMonths(review.dueDate, review.recurrenceMonths);
-      logger.info(
-        { reviewId: review.id, nextReviewDate: review.nextReviewDate },
-        'next recurrence date set',
-      );
+      logger.info('next recurrence date set', { reviewId: review.id, nextReviewDate: review.nextReviewDate });
     }
 
-    logger.info({ reviewId: review.id, completedBy: input.completedBy }, 'governance review completed');
+    logger.info('governance review completed', { reviewId: review.id, completedBy: input.completedBy });
 
     this._sendEmailStub(
       review,
@@ -385,7 +379,7 @@ export class GovernanceCadenceService {
     }
 
     if (sent.length > 0) {
-      logger.info({ count: sent.length }, 'governance reminders dispatched');
+      logger.info('governance reminders dispatched', { count: sent.length });
     }
 
     return sent;
@@ -412,7 +406,7 @@ export class GovernanceCadenceService {
     }
 
     if (updated.length > 0) {
-      logger.warn({ count: updated.length }, 'governance items marked overdue');
+      logger.warn('governance items marked overdue', { count: updated.length });
     }
 
     return updated;
@@ -425,15 +419,12 @@ export class GovernanceCadenceService {
     subject: string,
     recipients: string[],
   ): void {
-    logger.info(
-      {
+    logger.info('[STUB] governance email notification dispatched', {
         reviewId: review.id,
         reviewType: review.reviewType,
         subject,
         recipients,
-      },
-      '[STUB] governance email notification dispatched',
-    );
+      });
     // TODO: integrate SendGrid / AWS SES:
     // await emailProvider.send({ to: recipients, subject, body: buildEmailBody(review) });
   }

@@ -6,8 +6,8 @@
 // POST /api/notifications/read-all — mark all as read
 // ============================================================
 
-import { Router, Request, Response } from 'express';
-
+import { Router, Response } from 'express';
+import type { Request } from '../../types/http.js';
 export const notificationsRouter = Router();
 
 // ─── Types ──────────────────────────────────────────────────────────────────

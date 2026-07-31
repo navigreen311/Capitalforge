@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { authHeaders } from '@/lib/api-client';
 import { SectionCard, StatCard } from '@/components/ui/card';
 
 // Next.js metadata cannot be exported from 'use client' files — kept as a
@@ -915,7 +916,7 @@ export default function CardBenefitsPage() {
     // Mock POST to backend
     fetch('/api/v1/card-benefits/cancel', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ cardId, cancelledAt: new Date().toISOString() }),
     }).catch(() => { /* mock — ignore network errors */ });
 

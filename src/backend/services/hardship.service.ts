@@ -10,7 +10,7 @@
 //   6. Emit HARDSHIP_OPENED / HARDSHIP_RESOLVED events
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES, RISK_THRESHOLDS } from '@shared/constants/index.js';
@@ -330,7 +330,7 @@ export async function attachPaymentPlan(
     where: { id: caseId },
     data:  {
       status:      'payment_plan',
-      paymentPlan: plan as unknown as Record<string, unknown>,
+      paymentPlan: plan as unknown as Prisma.InputJsonValue,
       updatedAt:   new Date(),
     },
   });
@@ -390,7 +390,7 @@ export async function attachSettlementOffer(
     where: { id: caseId },
     data:  {
       status:          'settlement',
-      settlementOffer: offer as unknown as Record<string, unknown>,
+      settlementOffer: offer as unknown as Prisma.InputJsonValue,
       updatedAt:       new Date(),
     },
   });
@@ -472,7 +472,7 @@ export async function attachCardClosureSequence(
   await prisma.hardshipCase.update({
     where: { id: caseId },
     data:  {
-      cardClosureSequence: sequence as unknown as Record<string, unknown>,
+      cardClosureSequence: sequence as unknown as Prisma.InputJsonValue,
       updatedAt:           new Date(),
     },
   });

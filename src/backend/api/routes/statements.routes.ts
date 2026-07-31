@@ -16,7 +16,8 @@
 // POST   /api/statements/disputes                   — log dispute
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import {
   StatementReconciliationService,
 } from '../../services/statement-reconciliation.service.js';

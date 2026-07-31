@@ -40,7 +40,8 @@
 // All routes require a valid JWT (req.tenant set by auth middleware).
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';

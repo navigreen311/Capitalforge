@@ -132,7 +132,7 @@ describe('Banned claims library', () => {
 // ─────────────────────────────────────────────────────────────────
 
 describe('CommComplianceService.scoreCommunication — clean text', () => {
-  const svc = new CommComplianceService(makePrismaMock() as unknown as Parameters<typeof CommComplianceService.prototype.scoreCommunication>[never]);
+  const svc = new CommComplianceService(makePrismaMock() as unknown as import('@prisma/client').PrismaClient);
 
   it('returns riskScore 0 for compliant text', () => {
     const result = svc.scoreCommunication(CLEAN_TEXT);
@@ -159,7 +159,7 @@ describe('CommComplianceService.scoreCommunication — banned claims detection',
   let svc: CommComplianceService;
 
   beforeEach(() => {
-    svc = new CommComplianceService(makePrismaMock() as unknown as Parameters<typeof CommComplianceService.prototype.scoreCommunication>[never]);
+    svc = new CommComplianceService(makePrismaMock() as unknown as import('@prisma/client').PrismaClient);
   });
 
   it('detects guaranteed_approval violations', () => {
@@ -255,7 +255,7 @@ describe('CommComplianceService.scanCommunication', () => {
 
   beforeEach(() => {
     prismaMock = makePrismaMock();
-    svc = new CommComplianceService(prismaMock as unknown as Parameters<typeof CommComplianceService.prototype.scoreCommunication>[never]);
+    svc = new CommComplianceService(prismaMock as unknown as import('@prisma/client').PrismaClient);
   });
 
   it('persists a CommComplianceRecord on scan', async () => {
@@ -302,7 +302,7 @@ describe('Disclosure insertion engine', () => {
   let svc: CommComplianceService;
 
   beforeEach(() => {
-    svc = new CommComplianceService(makePrismaMock() as unknown as Parameters<typeof CommComplianceService.prototype.scoreCommunication>[never]);
+    svc = new CommComplianceService(makePrismaMock() as unknown as import('@prisma/client').PrismaClient);
   });
 
   it('required disclosures library contains at least 5 entries', () => {
@@ -362,7 +362,7 @@ describe('Script management', () => {
 
   beforeEach(() => {
     prismaMock = makePrismaMock();
-    svc = new CommComplianceService(prismaMock as unknown as Parameters<typeof CommComplianceService.prototype.scoreCommunication>[never]);
+    svc = new CommComplianceService(prismaMock as unknown as import('@prisma/client').PrismaClient);
   });
 
   it('createScript persists a record', async () => {
@@ -444,7 +444,7 @@ describe('QA call scoring', () => {
 
   beforeEach(() => {
     prismaMock = makePrismaMock();
-    svc = new CommComplianceService(prismaMock as unknown as Parameters<typeof CommComplianceService.prototype.scoreCommunication>[never]);
+    svc = new CommComplianceService(prismaMock as unknown as import('@prisma/client').PrismaClient);
   });
 
   it('recordQaScore persists a record', async () => {
@@ -539,7 +539,7 @@ describe('TrainingService certification management', () => {
 
   beforeEach(() => {
     prismaMock = makePrismaMock();
-    svc = new TrainingService(prismaMock as unknown as Parameters<typeof TrainingService.prototype.enrolUser>[never]);
+    svc = new TrainingService(prismaMock as unknown as import('@prisma/client').PrismaClient);
   });
 
   it('enrolUser creates a not_started record', async () => {
@@ -618,7 +618,7 @@ describe('Training gap identification', () => {
 
   beforeEach(() => {
     prismaMock = makePrismaMock();
-    svc = new TrainingService(prismaMock as unknown as Parameters<typeof TrainingService.prototype.enrolUser>[never]);
+    svc = new TrainingService(prismaMock as unknown as import('@prisma/client').PrismaClient);
   });
 
   it('identifies critical gap when onboarding certification is missing', async () => {
@@ -695,7 +695,7 @@ describe('Regulation training triggers', () => {
   let svc: TrainingService;
 
   beforeEach(() => {
-    svc = new TrainingService(makePrismaMock() as unknown as Parameters<typeof TrainingService.prototype.enrolUser>[never]);
+    svc = new TrainingService(makePrismaMock() as unknown as import('@prisma/client').PrismaClient);
   });
 
   it('triggerRegulationTraining returns a trigger object', async () => {

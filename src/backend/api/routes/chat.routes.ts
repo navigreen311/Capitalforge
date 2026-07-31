@@ -8,7 +8,8 @@
 // Falls back to a mock response when ANTHROPIC_API_KEY is unset.
 // ============================================================
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import { z, ZodError } from 'zod';
 import { requireAuth } from '../../middleware/auth.middleware.js';

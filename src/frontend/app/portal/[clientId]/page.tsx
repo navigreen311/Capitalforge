@@ -7,7 +7,9 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { loadJsonWithMeta, toLoadError, isStubResponse, type AuthFetchError } from '@/lib/load-json';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -81,37 +83,6 @@ function severityBadge(s: AprCountdown['severity']): { text: string; cls: string
   return { text: 'OK', cls: 'bg-emerald-700 text-emerald-100' };
 }
 
-// ── Mock data fallback (used when API is unreachable) ────────
-
-const FALLBACK: PortalSummary = {
-  clientId:     'client-apex-001',
-  businessName: 'Apex Ventures LLC',
-  contactEmail: 'ops@apexventures.com',
-  fundingStatus: {
-    totalFunded:      185000,
-    activeCards:       4,
-    nextPaymentDue:    '2026-04-12',
-    nextPaymentAmount: 2750,
-    utilizationPct:    42,
-  },
-  aprCountdowns: [
-    { cardName: 'Chase Ink Business Unlimited', issuer: 'Chase',            introAprExpiry: '2026-05-15', daysRemaining: 38, currentApr: '0.00%', regularApr: '18.49%', creditLimit: 50000, balance: 21000, severity: 'warning' },
-    { cardName: 'Amex Blue Business Plus',      issuer: 'American Express', introAprExpiry: '2026-09-01', daysRemaining: 147, currentApr: '0.00%', regularApr: '17.99%', creditLimit: 40000, balance: 15500, severity: 'ok' },
-    { cardName: 'Capital One Spark Cash Plus',  issuer: 'Capital One',      introAprExpiry: '2026-04-20', daysRemaining: 13, currentApr: '0.00%', regularApr: '22.49%', creditLimit: 55000, balance: 32000, severity: 'critical' },
-    { cardName: 'US Bank Business Triple Cash', issuer: 'US Bank',          introAprExpiry: '2026-12-10', daysRemaining: 247, currentApr: '0.00%', regularApr: '19.99%', creditLimit: 40000, balance: 8500, severity: 'ok' },
-  ],
-  upcomingPayments: [
-    { id: 'pmt-1', cardName: 'Capital One Spark Cash Plus',  dueDate: '2026-04-08', amount: 850,  status: 'due' },
-    { id: 'pmt-2', cardName: 'Chase Ink Business Unlimited',  dueDate: '2026-04-10', amount: 1200, status: 'due' },
-    { id: 'pmt-3', cardName: 'Amex Blue Business Plus',       dueDate: '2026-04-12', amount: 700,  status: 'upcoming' },
-  ],
-  unsignedDocuments: [
-    { id: 'doc-1', title: 'Annual Fee Disclosure — Chase Ink',  type: 'disclosure',     createdAt: '2026-04-01', urgent: true },
-    { id: 'doc-2', title: 'Balance Transfer Consent',           type: 'consent',        createdAt: '2026-04-03', urgent: false },
-    { id: 'doc-3', title: 'Repayment Acknowledgment — Q2 2026', type: 'acknowledgment', createdAt: '2026-04-05', urgent: true },
-    { id: 'doc-4', title: 'Auto-Pay Authorization — US Bank',   type: 'consent',        createdAt: '2026-04-06', urgent: false },
-  ],
-};
 
 // ── Page ─────────────────────────────────────────────────────
 
@@ -121,27 +92,29 @@ export default function ClientPortalPage() {
 
   const [data, setData]       = useState<PortalSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState<AuthFetchError | null>(null);
+  const [isSample, setIsSample] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const res = await fetch(`/api/portal/${clientId}/summary`);
-        if (!res.ok) throw new Error('API unavailable');
-        const json = await res.json();
-        if (!cancelled) setData(json.data);
-      } catch {
-        // Fallback to embedded mock data
-        if (!cancelled) setData(FALLBACK);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data: summary, meta } = await loadJsonWithMeta<PortalSummary>(
+        `/api/portal/${clientId}/summary`,
+      );
+      setData(summary);
+      setIsSample(isStubResponse(meta));
+    } catch (e) {
+      // Previously this fell back to an embedded sample portal, so a client
+      // could be shown another business's funding totals, APR countdowns and
+      // payment schedule as if they were their own.
+      setError(toLoadError(e));
+    } finally {
+      setLoading(false);
     }
-
-    load();
-    return () => { cancelled = true; };
   }, [clientId]);
+
+  useEffect(() => { void load(); }, [load]);
 
   if (loading) {
     return (
@@ -157,10 +130,15 @@ export default function ClientPortalPage() {
     );
   }
 
-  if (!data) {
+  if (error || !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-red-400">Client not found.</p>
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <DashboardErrorState
+          variant="dark"
+          className="max-w-md w-full"
+          error={error ?? { type: 'server_error', message: 'This portal is unavailable.' }}
+          onRetry={() => void load()}
+        />
       </div>
     );
   }
@@ -169,6 +147,19 @@ export default function ClientPortalPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* The portal endpoint is still a stub. Say so on the page rather than
+          letting a client read sample balances as their own account. */}
+      {isSample && (
+        <div
+          role="status"
+          className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+        >
+          <strong className="font-semibold">Sample data.</strong>{' '}
+          This portal is not yet connected to live account records — the figures
+          below are illustrative and are not your balances.
+        </div>
+      )}
+
       {/* ── Header ─────────────────────────────────────────── */}
       <header className="mb-10">
         <div className="flex items-center gap-3 mb-2">

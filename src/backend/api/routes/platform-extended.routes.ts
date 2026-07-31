@@ -13,7 +13,8 @@
 //   GET    /api/platform/data-lineage/:businessId — ledger events
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import logger from '../../config/logger.js';

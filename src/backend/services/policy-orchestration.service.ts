@@ -220,8 +220,7 @@ export class PolicyOrchestrationService {
       evaluatedAt: new Date(),
     };
 
-    await eventBus.publishAndPersist({
-      tenantId:      context.tenantId,
+    await eventBus.publishAndPersist(context.tenantId, {
       eventType:     EVENT_TYPES.POLICY_EVALUATED ?? 'POLICY_EVALUATED',
       aggregateType: AGGREGATE_TYPES.BUSINESS ?? 'business',
       aggregateId:   context.businessId,

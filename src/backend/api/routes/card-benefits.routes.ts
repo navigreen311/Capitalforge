@@ -6,7 +6,8 @@
 // POST /api/card-benefits/:clientId/export   — export mock report text
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 

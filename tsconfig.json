@@ -21,6 +21,16 @@
       "@frontend/*": ["src/frontend/*"]
     }
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "prisma/**/*.ts"],
-  "exclude": ["node_modules", "dist", ".next"]
+  // src/frontend is deliberately NOT included. It has its own tsconfig
+  // (src/frontend/tsconfig.json) with "jsx": "preserve" and the DOM libs,
+  // and `next build` type-checks it. Compiling it here — with lib ES2022
+  // and no jsx — produced 174 spurious errors: "'--jsx' is not set" for
+  // every .tsx import and "Cannot find name 'window'".
+  "include": [
+    "src/backend/**/*.ts",
+    "src/shared/**/*.ts",
+    "tests/**/*.ts",
+    "prisma/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".next", "src/frontend"]
 }

@@ -342,7 +342,7 @@ export class ChatService {
 
   async chat(tenantId: string, request: ChatRequest): Promise<ChatResponse> {
     let fullMessage = '';
-    let result: ChatResponse | void;
+    let result: ChatResponse | undefined;
 
     for await (const chunk of this.streamChat(tenantId, request)) {
       fullMessage += chunk;

@@ -16,7 +16,8 @@
 // BUSINESS_READ (for the status query).
 // ============================================================
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Response, type NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { ZodError } from 'zod';
 import {
   KybVerificationRequestSchema,
@@ -40,12 +41,12 @@ export const kybKycRouter = Router();
  * In production this is injected by the auth middleware into res.locals.
  * We fall back to a header for development / testing convenience.
  */
-function resolveTenantId(req: Request, res: Response): string | null {
-  // Auth middleware should inject res.locals.tenantId
-  if (res.locals.tenantId) return res.locals.tenantId as string;
-  // Fallback: X-Tenant-Id header (development only)
-  const header = req.headers['x-tenant-id'];
-  return typeof header === 'string' ? header : null;
+function resolveTenantId(req: Request, _res: Response): string | null {
+  // Taken from the verified access token. This previously read
+  // res.locals.tenantId, which nothing assigns, and then fell back to a
+  // caller-supplied X-Tenant-Id header — so the header was in practice the
+  // only source, and any caller could name any tenant.
+  return req.tenant?.tenantId ?? null;
 }
 
 function sendSuccess<T>(res: Response, data: T, statusCode = 200): void {

@@ -193,7 +193,7 @@ export function resetPrismaMock(): void {
   ] as const;
 
   for (const name of delegates) {
-    const delegate = (prismaMock as Record<string, unknown>)[name] as Record<string, MockFn>;
+    const delegate = (prismaMock as unknown as Record<string, unknown>)[name] as Record<string, MockFn>;
     for (const method of Object.values(delegate)) {
       if (typeof method?.mockReset === 'function') {
         method.mockReset();

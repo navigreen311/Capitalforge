@@ -26,7 +26,7 @@ const PII_PATTERNS: Array<[RegExp, string]> = [
   // Routing numbers (exactly 9 digits)
   [/\b\d{9}\b/g, '[ROUTING REDACTED]'],
   // Emails
-  [/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g, '[EMAIL REDACTED]'],
+  [/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL REDACTED]'],
 ];
 
 /** Sensitive top-level and nested object key names to scrub. */

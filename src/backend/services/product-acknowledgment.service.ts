@@ -17,7 +17,7 @@
 // ============================================================
 
 import { createHash, randomBytes } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 
 import { eventBus } from '../events/event-bus.js';
@@ -209,7 +209,7 @@ export class ProductAcknowledgmentService {
           cryptoTimestamp,
           legalHold:       true,   // acknowledgments can never be purged
           uploadedBy:      signedByUserId,
-          metadata,
+          metadata: metadata as Prisma.InputJsonValue,
         },
         select: { id: true },
       }),
@@ -223,7 +223,7 @@ export class ProductAcknowledgmentService {
           signedAt,
           signatureRef,
           documentVaultId:    documentId,
-          metadata,
+          metadata: metadata as Prisma.InputJsonValue,
         },
       }),
     ]);

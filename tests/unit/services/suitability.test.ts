@@ -330,10 +330,10 @@ describe('Alternative product recommendations', () => {
 // ── runSuitabilityCheck (persists + events) ───────────────────
 
 describe('runSuitabilityCheck', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });
@@ -421,10 +421,10 @@ describe('runSuitabilityCheck', () => {
 // ── getLatestSuitabilityCheck ─────────────────────────────────
 
 describe('getLatestSuitabilityCheck', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });
@@ -465,7 +465,7 @@ describe('getLatestSuitabilityCheck', () => {
 // ── applyOverride ─────────────────────────────────────────────
 
 describe('applyOverride', () => {
-  let prismaInstance: ReturnType<typeof PrismaClient.prototype.constructor>;
+  let prismaInstance: PrismaClient;
 
   const baseOverrideReq = {
     checkId:       'check-100',
@@ -476,7 +476,7 @@ describe('applyOverride', () => {
   };
 
   beforeEach(() => {
-    prismaInstance = new PrismaClient() as unknown as ReturnType<typeof PrismaClient.prototype.constructor>;
+    prismaInstance = new PrismaClient();
     setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
     vi.clearAllMocks();
   });

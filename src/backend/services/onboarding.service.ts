@@ -9,7 +9,7 @@
 //   - Funding readiness score calculation & persistence
 // ============================================================
 
-import { PrismaClient, type Business, type BusinessOwner } from '@prisma/client';
+import { PrismaClient, Prisma, type Business, type BusinessOwner } from '@prisma/client';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import { eventBus } from '../events/event-bus.js';
 import {
@@ -363,7 +363,7 @@ export async function addOwner(
       ownershipPercent: input.ownershipPercent,
       ssn:              input.ssn,
       dateOfBirth:      input.dateOfBirth,
-      address:          input.address as Record<string, unknown> | undefined,
+      address:          input.address as Prisma.InputJsonValue | undefined,
       isBeneficialOwner: input.isBeneficialOwner,
       kycStatus:        'pending',
     },

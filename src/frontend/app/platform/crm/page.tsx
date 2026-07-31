@@ -7,6 +7,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { loadJson, toLoadError, type AuthFetchError } from '@/lib/load-json';
+import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import {
   LineChart,
   Line,
@@ -220,6 +222,7 @@ export default function PlatformCrmPage() {
   const [pipeline, setPipeline] = useState<PipelineData | null>(null);
   const [revenue, setRevenue] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<AuthFetchError | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -227,68 +230,44 @@ export default function PlatformCrmPage() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  // ── Fallback mock data (shown when API unavailable) ─────────
-  const FALLBACK_PIPELINE: PipelineData = {
-    stages: [
-      { key: 'intake', label: 'Intake', count: 12, color: '#6B7280' },
-      { key: 'onboarding', label: 'Onboarding', count: 8, color: '#3B82F6' },
-      { key: 'active', label: 'Active', count: 34, color: '#22C55E' },
-      { key: 'graduated', label: 'Graduated', count: 15, color: '#C9A84C' },
-    ],
-    totalBusinesses: 69,
-    conversionRate: 71.2,
-  };
-
-  const FALLBACK_REVENUE: RevenueData = {
-    mrr: 78200,
-    arr: 938400,
-    revenueByAdvisor: [
-      { advisor: 'Sarah Chen', revenue: 32400, clients: 14 },
-      { advisor: 'Marcus Williams', revenue: 24800, clients: 11 },
-      { advisor: 'Olivia Torres', revenue: 21000, clients: 9 },
-    ],
-    avgClientLifetimeValue: 18500,
-    feeCollectionStatus: [
-      { period: 'Mar 2026', collected: 62400, pending: 12800, overdue: 3000, rate: 79.9 },
-      { period: 'Feb 2026', collected: 58200, pending: 8400, overdue: 1200, rate: 85.8 },
-      { period: 'Jan 2026', collected: 54800, pending: 6200, overdue: 800, rate: 88.7 },
-    ],
-    cohortAnalysis: [
-      { cohort: 'Q1 2026', funded: 18, active: 16, graduated: 0, churned: 2, avgRevenue: 14200 },
-      { cohort: 'Q4 2025', funded: 22, active: 15, graduated: 5, churned: 2, avgRevenue: 16800 },
-      { cohort: 'Q3 2025', funded: 14, active: 8, graduated: 4, churned: 2, avgRevenue: 19400 },
-    ],
-  };
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const [pRes, rRes] = await Promise.all([
-          fetch('/api/platform/crm/pipeline', { headers }),
-          fetch('/api/platform/crm/revenue', { headers }),
-        ]);
-        const pJson = await pRes.json();
-        const rJson = await rRes.json();
-        setPipeline(pJson.success ? pJson.data : FALLBACK_PIPELINE);
-        setRevenue(rJson.success ? rJson.data : FALLBACK_REVENUE);
-      } catch {
-        // Use mock data when API is unavailable
-        setPipeline(FALLBACK_PIPELINE);
-        setRevenue(FALLBACK_REVENUE);
-      } finally {
-        setLoading(false);
-      }
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [pipelineData, revenueData] = await Promise.all([
+        loadJson<PipelineData>('/api/platform/crm/pipeline'),
+        loadJson<RevenueData>('/api/platform/crm/revenue'),
+      ]);
+      setPipeline(pipelineData);
+      setRevenue(revenueData);
+    } catch (e) {
+      // Previously this substituted a hardcoded pipeline and revenue set, so
+      // an expired session or a down API rendered as a healthy business.
+      setError(toLoadError(e));
+    } finally {
+      setLoading(false);
     }
-    load();
   }, []);
+
+  useEffect(() => { void load(); }, [load]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0A1628] flex items-center justify-center">
         <div className="animate-pulse text-gray-500 text-sm">Loading CRM data...</div>
+      </div>
+    );
+  }
+
+  if (error || !pipeline || !revenue) {
+    return (
+      <div className="min-h-screen bg-[#0A1628] flex items-center justify-center p-6">
+        <DashboardErrorState
+          variant="dark"
+          className="max-w-md w-full"
+          error={error ?? { type: 'server_error', message: 'CRM data is unavailable.' }}
+          onRetry={() => void load()}
+        />
       </div>
     );
   }

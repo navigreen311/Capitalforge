@@ -181,12 +181,14 @@ export class DebitMonitor {
       );
     }
 
-    // Check whether an authorization exists for this processor
+    // Check whether an authorization exists for this processor. The match is
+    // case-insensitive so a processor name that differs only in casing is not
+    // treated as an unknown processor.
     const existingAuth = await this.prisma.achAuthorization.findFirst({
       where: {
         businessId: input.businessId,
-        processorName: { equals: input.processorName, mode: 'insensitive' },
         status: 'active',
+        processorName: { equals: input.processorName, mode: 'insensitive' },
       },
     });
 

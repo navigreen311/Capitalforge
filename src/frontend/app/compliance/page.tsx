@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { complianceApi } from '../../lib/api-client';
+import { complianceApi, authHeaders } from '../../lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -399,7 +399,7 @@ export default function ComplianceCenterPage() {
 
     try {
       // Try real API
-      await fetch('/api/compliance/run-all', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      await fetch('/api/compliance/run-all', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() } });
     } catch { /* ignore */ }
 
     // Simulate completion after 2 seconds total

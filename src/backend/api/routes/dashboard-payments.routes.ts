@@ -10,7 +10,8 @@
 // groups by day, and returns a week summary with per-day detail.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import type { ApiResponse } from '@shared/types/index.js';
 

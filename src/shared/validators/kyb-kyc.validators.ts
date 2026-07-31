@@ -29,6 +29,19 @@ const isoDateString = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format')
   .refine((d) => !isNaN(new Date(d).getTime()), 'Invalid date');
 
+/**
+ * An instant rather than a calendar date: accepts `YYYY-MM-DD` or a full ISO
+ * timestamp, because a data-pull time is naturally recorded as the latter
+ * (`new Date().toISOString()`) and truncating it would be busywork for the
+ * caller.
+ */
+const isoInstantString = z
+  .string()
+  .refine(
+    (d) => /^\d{4}-\d{2}-\d{2}(T.*)?$/.test(d) && !isNaN(new Date(d).getTime()),
+    'Must be an ISO date (YYYY-MM-DD) or ISO timestamp',
+  );
+
 const ownershipPercent = z
   .number()
   .min(0, 'Ownership percent cannot be negative')
@@ -114,6 +127,13 @@ export const KycVerificationRequestSchema = z.object({
       highestCreditLimit: z.number().min(0).optional(),
       totalUtilization: z.number().min(0).max(1).optional(),
       inquiriesLast6Mo: z.number().int().min(0).optional(),
+      /**
+       * When this pull was taken. The ages above are snapshots measured at
+       * that moment, and fraud detection compares them against ages derived
+       * from absolute dates, so it needs the same reference point. Omitting
+       * this treats the pull as current, which is only true if it is.
+       */
+      pulledAt: isoInstantString.optional(),
     })
     .optional(),
   /**

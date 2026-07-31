@@ -15,7 +15,8 @@
 //   GET  /api/voiceforge/compliance/qa/:advisorId     — get advisor QA summary
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import type { ApiResponse } from '../../../shared/types/index.js';
@@ -140,7 +141,7 @@ voiceForgeRouter.post(
           error: {
             code:    'TCPA_CONSENT_BLOCKED',
             message: err.message,
-            reason:  err.reason,
+            details: { reason: err.reason },
           },
         } satisfies ApiResponse<never>);
         return;

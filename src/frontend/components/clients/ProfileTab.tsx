@@ -6,7 +6,7 @@
 // suitability, consent, acknowledgments, ACH auth (right).
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import SuitabilityIndicator from '@/components/modules/suitability-indicator';
@@ -66,27 +66,6 @@ interface AchAuthorization {
   bankLast4: string;
   authorizedAt: string;
 }
-
-// ---------------------------------------------------------------------------
-// Placeholder data
-// ---------------------------------------------------------------------------
-
-const PLACEHOLDER_SUITABILITY: SuitabilityResult = {
-  score: 72,
-  maxSafeLeverage: 3,
-  noGoTriggered: false,
-  noGoReasons: [],
-  recommendation:
-    'Client is suitable for moderate stacking (2-3 cards). Prioritise 0% intro APR products with 12-15 month windows.',
-  alternativeProducts: ['SBA Microloan', 'Revenue-based financing', 'Business line of credit'],
-};
-
-const PLACEHOLDER_CONSENT: ConsentRecord[] = [
-  { channel: 'voice', status: 'active', consentType: 'tcpa', grantedAt: '2026-01-10T00:00:00Z', expiresAt: '2027-01-10T00:00:00Z' },
-  { channel: 'sms', status: 'active', consentType: 'tcpa', grantedAt: '2026-01-10T00:00:00Z', expiresAt: '2027-01-10T00:00:00Z' },
-  { channel: 'email', status: 'active', consentType: 'data_sharing', grantedAt: '2026-01-10T00:00:00Z' },
-  { channel: 'partner', status: 'revoked', consentType: 'referral', grantedAt: '2025-06-01T00:00:00Z', revokedAt: '2026-02-20T00:00:00Z' },
-];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -452,32 +431,114 @@ function AchAuthorizationCard({ clientId }: { clientId: string }) {
 /** Consent section with re-consent request */
 function ConsentSection({ clientId }: { clientId: string }) {
   const [requesting, setRequesting] = useState<ConsentChannel | null>(null);
+  const [requestNotice, setRequestNotice] = useState<string | null>(null);
+
+  const { data, isLoading, error, refetch } = useAuthFetch<ConsentRecord[]>(
+    `/api/businesses/${clientId}/consent`,
+  );
+  const records = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   const handleRequestConsent = useCallback(async (channel: ConsentChannel) => {
     setRequesting(channel);
+    setRequestNotice(null);
     try {
-      await apiClient.post(`/v1/clients/${clientId}/consent/request`, { channel });
+      const response = await apiClient.post<unknown>(
+        `/v1/clients/${clientId}/consent/request`,
+        { channel },
+      );
+      // This endpoint is a stub — it dispatches nothing. Reporting a silent
+      // success would suggest the client had been contacted for re-consent.
+      const meta = (response as { meta?: { stub?: boolean } }).meta;
+      setRequestNotice(
+        meta?.stub
+          ? 'Re-consent requests are not wired up yet — nothing was sent.'
+          : 'Re-consent request sent.',
+      );
+      refetch();
     } catch (err) {
       console.error('[ConsentSection] re-consent request failed:', err);
+      setRequestNotice('Could not send the re-consent request.');
     } finally {
       setRequesting(null);
     }
-  }, [clientId]);
+  }, [clientId, refetch]);
+
+  if (isLoading) return <SkeletonCard lines={4} title="consent status" />;
+
+  if (error) {
+    return (
+      <SectionCard title="Consent Status">
+        <DashboardErrorState error={error} onRetry={refetch} />
+      </SectionCard>
+    );
+  }
 
   return (
     <SectionCard title="Consent Status">
-      <ConsentStatusGrid
-        records={PLACEHOLDER_CONSENT}
-        onRequestConsent={(ch) => {
-          if (requesting) return; // prevent double-click
-          handleRequestConsent(ch);
-        }}
-      />
+      {records.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-surface-border bg-gray-50 p-5 text-center">
+          <p className="text-sm font-medium text-gray-700">No consent on record</p>
+          <p className="mt-1 text-xs text-gray-500">
+            No channel may be contacted until consent is captured.
+          </p>
+        </div>
+      ) : (
+        <ConsentStatusGrid
+          records={records}
+          onRequestConsent={(ch) => {
+            if (requesting) return; // prevent double-click
+            handleRequestConsent(ch);
+          }}
+        />
+      )}
       {requesting && (
         <p className="text-xs text-blue-500 mt-2 animate-pulse">Requesting re-consent for {requesting}...</p>
       )}
+      {requestNotice && (
+        <p className="text-xs text-amber-700 mt-2">{requestNotice}</p>
+      )}
     </SectionCard>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Suitability
+// ---------------------------------------------------------------------------
+
+function SuitabilitySection({ clientId }: { clientId: string }) {
+  const { data, isLoading, error, refetch } = useAuthFetch<SuitabilityResult>(
+    `/api/businesses/${clientId}/suitability/latest`,
+  );
+
+  if (isLoading) return <SkeletonCard lines={4} title="suitability" />;
+
+  // The endpoint answers 404 when no assessment has been run. That is a real
+  // state, and showing it matters: this panel previously rendered a fixed
+  // score of 72 with a "suitable for moderate stacking" recommendation for
+  // every client, assessed or not.
+  const notAssessed = error?.type === 'server_error' && error.status === 404;
+  if (notAssessed || (!error && !data)) {
+    return (
+      <SectionCard title="Suitability">
+        <div className="rounded-lg border border-dashed border-surface-border bg-gray-50 p-5 text-center">
+          <p className="text-sm font-medium text-gray-700">Not assessed</p>
+          <p className="mt-1 text-xs text-gray-500">
+            No suitability check has been run for this client.
+          </p>
+        </div>
+      </SectionCard>
+    );
+  }
+
+  if (error) {
+    return (
+      <SectionCard title="Suitability">
+        <DashboardErrorState error={error} onRetry={refetch} />
+      </SectionCard>
+    );
+  }
+
+  return <SuitabilityIndicator result={data as SuitabilityResult} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +557,7 @@ export default function ProfileTab({ clientId, client }: ProfileTabProps) {
 
       {/* ── Right column (1/3) ── */}
       <div className="space-y-6">
-        <SuitabilityIndicator result={PLACEHOLDER_SUITABILITY} />
+        <SuitabilitySection clientId={clientId} />
         <ConsentSection clientId={clientId} />
         <AcknowledgmentCard clientId={clientId} />
         <AchAuthorizationCard clientId={clientId} />

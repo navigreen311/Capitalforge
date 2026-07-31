@@ -55,6 +55,8 @@ function createPathTraversalRegex(): RegExp {
 /**
  * Null-byte injection (\x00).
  */
+// Matching the control character is the entire point of this sanitiser.
+// eslint-disable-next-line no-control-regex
 const NULL_BYTE_RE = /\x00/g;
 
 // ── Whitelist validators ──────────────────────────────────────

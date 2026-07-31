@@ -568,7 +568,7 @@ export class ContractIntelligenceService {
   async analyzeContract(input: ContractAnalysisInput): Promise<ContractAnalysisResult> {
     const { tenantId, contractType, documentText, documentId, partnerId } = input;
 
-    logger.info({ tenantId, contractType }, 'ContractIntelligence: analyzing contract');
+    logger.info('ContractIntelligence: analyzing contract', { tenantId, contractType });
 
     const extractedClauses = extractClausesFromText(documentText);
     const redFlags = detectRedFlags(documentText, extractedClauses);
@@ -592,9 +592,7 @@ export class ContractIntelligenceService {
     });
 
     // Emit event
-    await eventBus.publish({
-      id: uuidv4(),
-      tenantId,
+    await eventBus.publish(tenantId, {
       eventType: EVENT_TYPES.COMPLIANCE_CHECK_COMPLETED ?? 'CONTRACT_ANALYZED',
       aggregateType: AGGREGATE_TYPES.COMPLIANCE ?? 'contract_analysis',
       aggregateId: record.id,
@@ -609,10 +607,7 @@ export class ContractIntelligenceService {
       version: 1,
     });
 
-    logger.info(
-      { id: record.id, riskScore, riskLevel, flagCount: redFlags.length },
-      'ContractIntelligence: analysis complete',
-    );
+    logger.info('ContractIntelligence: analysis complete', { id: record.id, riskScore, riskLevel, flagCount: redFlags.length });
 
     return {
       id: record.id,

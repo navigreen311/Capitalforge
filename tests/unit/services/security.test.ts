@@ -682,8 +682,8 @@ describe('Security Headers Middleware', () => {
     const req = { path: '/dashboard', headers: {} } as unknown as Request;
     const res = buildRes();
     applySecurityHeaders(req, res, vi.fn() as unknown as NextFunction);
-    const ppCall = (res.setHeader as ReturnType<typeof vi.fn>).mock.calls.find(
-      (c: [string, string]) => c[0] === 'Permissions-Policy',
+    const ppCall = ((res.setHeader as ReturnType<typeof vi.fn>).mock.calls as [string, string][]).find(
+      (c) => c[0] === 'Permissions-Policy',
     );
     expect(ppCall).toBeTruthy();
     expect(ppCall![1]).toContain('camera=()');
@@ -695,8 +695,8 @@ describe('Security Headers Middleware', () => {
     const req = { path: '/api/documents/capture', headers: {} } as unknown as Request;
     const res = buildRes();
     applySecurityHeaders(req, res, vi.fn() as unknown as NextFunction);
-    const ppCall = (res.setHeader as ReturnType<typeof vi.fn>).mock.calls.find(
-      (c: [string, string]) => c[0] === 'Permissions-Policy',
+    const ppCall = ((res.setHeader as ReturnType<typeof vi.fn>).mock.calls as [string, string][]).find(
+      (c) => c[0] === 'Permissions-Policy',
     );
     expect(ppCall![1]).toContain('camera=(self)');
     expect(ppCall![1]).toContain('microphone=(self)');

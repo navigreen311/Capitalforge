@@ -21,7 +21,7 @@
 //   Discover, Wells Fargo, Barclays, Synchrony
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { EventBus } from '../events/event-bus.js';
 import { AGGREGATE_TYPES } from '../events/event-types.js';
 import logger from '../config/logger.js';
@@ -128,8 +128,8 @@ export interface EmailStatementParseResult {
 const EMAIL_PATTERNS: Record<string, RegExp> = {
   closingBalance: /(?:new balance|closing balance|balance due)[:\s]+\$?([\d,]+\.?\d*)/i,
   minimumPayment: /(?:minimum payment|min.*?due|minimum.*?due)[:\s]+\$?([\d,]+\.?\d*)/i,
-  dueDate: /(?:payment due date|due date)[:\s]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})/i,
-  statementDate: /(?:statement date|statement closing date|closing date)[:\s]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})/i,
+  dueDate: /(?:payment due date|due date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i,
+  statementDate: /(?:statement date|statement closing date|closing date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i,
   creditLimit: /(?:credit limit|total credit line)[:\s]+\$?([\d,]+\.?\d*)/i,
   availableCredit: /(?:available credit)[:\s]+\$?([\d,]+\.?\d*)/i,
 };
@@ -232,8 +232,8 @@ export class StatementReconciliationService {
         interestCharged: normalized.interestCharged ?? null,
         feesCharged: normalized.feesCharged ?? null,
         sourceDocumentId: input.sourceDocumentId ?? null,
-        normalizedData: normalized as unknown as Record<string, unknown>,
-        anomalies: anomalies as unknown as Record<string, unknown>[],
+        normalizedData: normalized as unknown as Prisma.InputJsonValue,
+        anomalies: anomalies as unknown as Prisma.InputJsonValue,
         reconciled: false,
       },
     });
@@ -398,7 +398,7 @@ export class StatementReconciliationService {
         tenantId,
         businessId,
         // Only fetch records that have anomalies (non-empty JSON array)
-        NOT: { anomalies: { equals: null } },
+        NOT: { anomalies: { equals: Prisma.DbNull } },
       },
       orderBy: { statementDate: 'desc' },
       select: { id: true, issuer: true, statementDate: true, anomalies: true },

@@ -13,7 +13,8 @@
 // Dossier export requires COMPLIANCE_READ.
 // ============================================================
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../../middleware/auth.middleware.js';
 import { requirePermissions } from '../../middleware/rbac.middleware.js';
@@ -121,12 +122,12 @@ documentRouter.post(
   async (req: Request, res: Response): Promise<void> => {
     const reqLog = logger.child({
       requestId:  req.requestId,
-      tenantId:   req.tenantContext?.tenantId,
+      tenantId:   req.tenant?.tenantId,
       route:      'POST /businesses/:id/documents',
     });
 
     const businessId = req.params['id'];
-    const ctx        = req.tenantContext!;
+    const ctx        = req.tenant!;
 
     const { documentType, title, content, mimeType, metadata } = req.body as {
       documentType?: unknown;
@@ -199,7 +200,7 @@ documentRouter.get(
   requirePermissions(PERMISSIONS.DOCUMENT_READ),
   async (req: Request, res: Response): Promise<void> => {
     const businessId = req.params['id'];
-    const ctx        = req.tenantContext!;
+    const ctx        = req.tenant!;
 
     const {
       documentType,
@@ -265,7 +266,7 @@ documentRouter.get(
   requirePermissions(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response): Promise<void> => {
     const businessId = req.params['businessId'];
-    const ctx        = req.tenantContext!;
+    const ctx        = req.tenant!;
 
     const { since, until } = req.query as { since?: string; until?: string };
 
@@ -314,7 +315,7 @@ documentRouter.get(
   requirePermissions(PERMISSIONS.DOCUMENT_READ),
   async (req: Request, res: Response): Promise<void> => {
     const documentId = req.params['id'];
-    const ctx        = req.tenantContext!;
+    const ctx        = req.tenant!;
 
     try {
       const result = await getVaultService().retrieve(documentId, ctx.tenantId);
@@ -349,7 +350,7 @@ documentRouter.put(
   requirePermissions(PERMISSIONS.COMPLIANCE_WRITE),
   async (req: Request, res: Response): Promise<void> => {
     const documentId = req.params['id'];
-    const ctx        = req.tenantContext!;
+    const ctx        = req.tenant!;
 
     const { hold } = req.body as { hold?: unknown };
 
@@ -399,7 +400,7 @@ documentRouter.post(
   requireAuth,
   requirePermissions(PERMISSIONS.DOCUMENT_WRITE),
   async (req: Request, res: Response): Promise<void> => {
-    const ctx = req.tenantContext!;
+    const ctx = req.tenant!;
 
     const { filename, documentType, businessId, description } = req.body as {
       filename?: string;
@@ -458,7 +459,7 @@ documentRouter.patch(
   requirePermissions(PERMISSIONS.COMPLIANCE_WRITE),
   async (req: Request, res: Response): Promise<void> => {
     const documentId = req.params['id'];
-    const ctx = req.tenantContext!;
+    const ctx = req.tenant!;
 
     const { legalHold } = req.body as { legalHold?: unknown };
 
@@ -509,7 +510,7 @@ documentRouter.delete(
   requirePermissions(PERMISSIONS.DOCUMENT_WRITE),
   async (req: Request, res: Response): Promise<void> => {
     const documentId = req.params['id'];
-    const ctx        = req.tenantContext!;
+    const ctx        = req.tenant!;
 
     try {
       await getVaultService().delete(documentId, ctx.tenantId, ctx.userId);

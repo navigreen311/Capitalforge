@@ -255,12 +255,81 @@ describe('fraud-detection', () => {
         inquiriesLast6Mo: 1,
         einVerified: true,
         einAgeMonths: 48,
-        entityFormationDate: '2022-01-01', // ~50 months ago, gap with EIN of 48 months is ~2 (<6 tolerance)
+        entityFormationDate: '2022-01-01',
+        // Pinned so this stays a clean input. `einAgeMonths` is a snapshot,
+        // so the entity age it is compared against has to be measured from
+        // the same instant: 2022-01-01 is ~50 months before this date, giving
+        // a ~2-month gap, inside the 6-month grace window. Without the pin
+        // the gap grew with the calendar and this input became "fraudulent"
+        // on its own.
+        asOf: '2026-03-01T00:00:00Z',
       });
       expect(result.riskScore).toBeLessThan(30);
       expect(result.disposition).toBe('low');
       expect(result.requiresManualReview).toBe(false);
       expect(result.signals).toHaveLength(0);
+    });
+
+    it('scores a pull the same however long after it the evaluation runs', async () => {
+      // The regression this guards: entity age was derived from Date.now()
+      // while einAgeMonths was a caller-supplied snapshot, so the gap between
+      // them widened every day the evaluation was deferred. The same pull,
+      // re-scored later, eventually tripped EIN_ENTITY_AGE_MISMATCH with
+      // nothing about the applicant having changed.
+      const pull = {
+        einVerified: true,
+        einAgeMonths: 48,
+        entityFormationDate: '2022-01-01',
+        asOf: '2026-03-01T00:00:00Z',
+      };
+
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-03-01T00:00:00Z'));
+        const scoredImmediately = await detectFraud(pull);
+
+        vi.setSystemTime(new Date('2031-03-01T00:00:00Z'));
+        const scoredFiveYearsLater = await detectFraud(pull);
+
+        expect(scoredImmediately.signals).toHaveLength(0);
+        expect(scoredFiveYearsLater.signals).toHaveLength(0);
+        expect(scoredFiveYearsLater.riskScore).toBe(scoredImmediately.riskScore);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('still widens the gap when the data itself is older', async () => {
+      // asOf is not a way to suppress the signal: a pull taken later, still
+      // reporting a 48-month-old EIN, describes an entity/EIN mismatch that
+      // has genuinely grown, and must flag.
+      const stale = await detectFraud({
+        einVerified: true,
+        einAgeMonths: 48,
+        entityFormationDate: '2022-01-01',
+        asOf: '2029-03-01T00:00:00Z',
+      });
+
+      expect(stale.signals.map((s) => s.code)).toContain('EIN_ENTITY_AGE_MISMATCH');
+    });
+
+    it('still flags an EIN genuinely younger than the entity', async () => {
+      // The check must keep working — the fix is about the reference instant,
+      // not about relaxing the rule.
+      const result = await detectFraud({
+        einVerified: true,
+        einAgeMonths: 3,
+        entityFormationDate: '2019-01-01',
+        asOf: '2026-03-01T00:00:00Z',
+      });
+
+      const signal = result.signals.find((s) => s.code === 'EIN_ENTITY_AGE_MISMATCH');
+      expect(signal).toBeDefined();
+      expect(signal?.flagForReview).toBe(true);
+      // The reported discrepancy must be one that would actually trigger the
+      // rule; it used to be floored, so a 6.9-month gap printed as "6" —
+      // a value inside the grace window.
+      expect(signal?.description).toMatch(/grace window 6 months/);
     });
 
     it('detects SSN_AGE_MISMATCH when adult has thin credit file', async () => {

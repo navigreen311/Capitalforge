@@ -12,7 +12,7 @@
 //   6. Emit DEAL_COMMITTEE_* ledger events
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES, RISK_THRESHOLDS, ROLES } from '@shared/constants/index.js';
@@ -301,10 +301,10 @@ export async function createDealReview(
       status,
       redFlagChecklist: checklist as unknown as object,
       committeeNotes:  input.initiatorNote ?? null,
-      conditions:      null,
+      conditions:      Prisma.DbNull,
       counselSignoff:  false,
       accountantSignoff: false,
-      reviewedBy:      null,
+      reviewedBy:      Prisma.DbNull,
       decidedAt:       null,
     },
   });

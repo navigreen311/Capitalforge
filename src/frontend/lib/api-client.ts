@@ -57,6 +57,22 @@ export function clearAuthToken(): void {
   if (typeof window !== 'undefined') localStorage.removeItem(TOKEN_KEY);
 }
 
+/**
+ * Authorization header for imperative `fetch()` calls.
+ *
+ * `apiClient` and `useAuthFetch` inject the token themselves; this is for the
+ * places that call `fetch('/api/...')` directly — typically inside event
+ * handlers, where a hook cannot be used. Every /api route except a small
+ * public allowlist now requires a bearer token, so a direct fetch without
+ * these headers gets a 401.
+ *
+ * Returns an empty object when there is no token, so it can always be spread.
+ */
+export function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // ─── Request options ──────────────────────────────────────────────────────────
 
 export interface RequestOptions extends Omit<RequestInit, 'body'> {

@@ -285,7 +285,7 @@ describe('SuitabilityIndicator — alternative products', () => {
 
   it('alternatives hidden when list is empty', () => {
     const result = makeSuitabilityResult({ alternativeProducts: [] });
-    const shouldShow = true && result.alternativeProducts.length > 0;
+    const shouldShow = result.alternativeProducts.length > 0;
     expect(shouldShow).toBe(false);
   });
 });

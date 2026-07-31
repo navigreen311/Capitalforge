@@ -10,7 +10,8 @@
 // All routes require a valid JWT (req.tenant set by auth middleware).
 // ============================================================
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';

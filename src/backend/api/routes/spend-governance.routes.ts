@@ -12,7 +12,8 @@
 // GET    /api/businesses/:id/business-purpose/violations      — network-rule violations
 // ============================================================
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
+import type { Request } from '../../types/http.js';
 import { SpendGovernanceService } from '../../services/spend-governance.service.js';
 import { BusinessPurposeEvidenceService } from '../../services/business-purpose-evidence.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
@@ -47,7 +48,7 @@ export function configureSpendGovernanceRouter(
 // ── Helpers ───────────────────────────────────────────────────
 
 function tenantId(req: Request): string {
-  return req.tenantContext?.tenantId ?? 'unknown';
+  return req.tenant?.tenantId ?? 'unknown';
 }
 
 function handleError(res: Response, err: unknown, context: string): void {

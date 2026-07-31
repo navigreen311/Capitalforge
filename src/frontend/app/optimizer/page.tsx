@@ -12,6 +12,7 @@
 // ============================================================
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { authHeaders } from '@/lib/api-client';
 import { useRouter } from 'next/navigation';
 import { SectionCard } from '@/components/ui/card';
 import {
@@ -584,7 +585,7 @@ export default function OptimizerPage() {
   // Load clients on mount
   useEffect(() => {
     setClientsLoading(true);
-    fetch('/api/v1/clients')
+    fetch('/api/v1/clients', { headers: authHeaders() })
       .then((res) => res.json())
       .then((json) => {
         if (json.success && Array.isArray(json.data)) {
@@ -648,7 +649,7 @@ export default function OptimizerPage() {
       try {
         const res = await fetch('/api/optimizer/run', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({
             businessId: form.selectedBusinessId,
             targetAmount: form.targetFunding ? Number(form.targetFunding) : 100000,
@@ -664,14 +665,19 @@ export default function OptimizerPage() {
         if (json.success && json.data) {
           setStackingPlan(json.data as ApiStackingPlan);
           setHasResults(true);
+        } else if (res.status === 401 || res.status === 403) {
+          setApiError('Your session has expired. Sign in again to run the optimizer.');
+          setHasResults(false);
         } else {
           setApiError(json.error?.message || 'Optimizer failed. Please try again.');
-          // Fall back to mock results
-          setHasResults(true);
+          // Deliberately no results: this previously set hasResults(true) with
+          // no plan, which rendered the sample card stack as though it were a
+          // recommendation generated for the selected business.
+          setHasResults(false);
         }
       } catch {
-        setApiError('Unable to reach the optimizer API. Showing mock data.');
-        setHasResults(true);
+        setApiError('Unable to reach the optimizer API.');
+        setHasResults(false);
       }
     } else {
       // No business selected — use mock data (existing behavior)
@@ -694,7 +700,7 @@ export default function OptimizerPage() {
     try {
       const res = await fetch('/api/optimizer/save-strategy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           clientId: form.selectedBusinessId || 'mock-client',
           results: stackingPlan ?? { mock: true, cards: MOCK_RESULTS.length },
@@ -722,7 +728,7 @@ export default function OptimizerPage() {
     try {
       const res = await fetch('/api/optimizer/create-round', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           clientId: form.selectedBusinessId || 'mock-client',
           roundNumber,

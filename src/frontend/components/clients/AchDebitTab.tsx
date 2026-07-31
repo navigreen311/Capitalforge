@@ -79,30 +79,6 @@ function formatCurrency(amount: number): string {
 
 // ── Placeholder data (used when mock layer provides null) ───────────────────
 
-function buildPlaceholderData(clientId: string): AchAuthorization {
-  void clientId;
-  return {
-    status: 'authorized',
-    clientName: 'Rapid Growth Capital LLC',
-    authorizedAmount: 5000,
-    authorizedFrequency: 'Monthly',
-    authorizationDate: 'Jan 15, 2026',
-    bankAccountLast4: '4521',
-    bankName: 'Chase',
-    accountType: 'Business Checking',
-    debits: [
-      { id: 'dbt-1', date: 'Mar 28, 2026', amount: 4200.0, status: 'processed', referenceNumber: 'ACH-20260328-001' },
-      { id: 'dbt-2', date: 'Mar 15, 2026', amount: 3800.0, status: 'processed', referenceNumber: 'ACH-20260315-001' },
-      { id: 'dbt-3', date: 'Feb 28, 2026', amount: 4500.0, status: 'processed', referenceNumber: 'ACH-20260228-001' },
-      { id: 'dbt-4', date: 'Feb 15, 2026', amount: 4100.0, status: 'failed', referenceNumber: 'ACH-20260215-001' },
-      { id: 'dbt-5', date: 'Jan 28, 2026', amount: 3950.0, status: 'processed', referenceNumber: 'ACH-20260128-001' },
-      { id: 'dbt-6', date: 'Jan 15, 2026', amount: 4000.0, status: 'processed', referenceNumber: 'ACH-20260115-001' },
-      { id: 'dbt-7', date: 'Jan 05, 2026', amount: 3600.0, status: 'processed', referenceNumber: 'ACH-20260105-001' },
-    ],
-    toleranceAlerts: [],
-  };
-}
-
 // ── Loading Skeleton ────────────────────────────────────────────────────────
 
 function SectionSkeleton({ lines = 4 }: { lines?: number }) {
@@ -175,8 +151,13 @@ export function AchDebitTab({ clientId }: AchDebitTabProps) {
     `/api/v1/clients/${clientId}/ach-authorization`,
   );
 
-  // Fall back to placeholder when no API / mock data is available
-  const data = fetchedData ?? (isLoading ? null : buildPlaceholderData(clientId));
+  // No placeholder: an absent authorization is rendered as absent below.
+  const data = fetchedData;
+
+  // The API answers 404 when the client has no ACH authorization on file.
+  // That is a real, expected state — not an error — and it must not be shown
+  // as one, nor filled in with a sample authorization as it was before.
+  const notOnFile = error?.type === 'server_error' && error.status === 404;
 
   const [authStatus, setAuthStatus] = useState<AuthorizationStatus | null>(null);
   const [showRevokeModal, setShowRevokeModal] = useState(false);
@@ -194,7 +175,7 @@ export function AchDebitTab({ clientId }: AchDebitTabProps) {
           ? localStorage.getItem('cf_access_token')
           : null;
 
-      await fetch(`/api/v1/clients/${clientId}/ach-authorization/revoke`, {
+      const response = await fetch(`/api/v1/clients/${clientId}/ach-authorization/revoke`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -202,18 +183,47 @@ export function AchDebitTab({ clientId }: AchDebitTabProps) {
         },
       });
 
+      if (!response.ok) {
+        // Revoking an ACH authorization is a consumer-protection action. This
+        // previously reported success unconditionally — including against an
+        // endpoint that does not exist yet — so an advisor could believe a
+        // client's debits had been stopped when nothing had changed.
+        setToastMessage(
+          response.status === 404
+            ? 'Revocation is not available yet — the authorization is unchanged.'
+            : 'Could not revoke the authorization. It is unchanged.',
+        );
+        setTimeout(() => setToastMessage(null), 6000);
+        return;
+      }
+
       setAuthStatus('revoked');
       setShowRevokeModal(false);
-      setToastMessage('ACH authorization has been revoked successfully.');
+      setToastMessage('ACH authorization has been revoked.');
+      refetch();
 
-      // Auto-dismiss toast after 4 seconds
       setTimeout(() => setToastMessage(null), 4000);
     } catch {
-      // Silently handle — production would show an error toast
+      setToastMessage('Could not reach the server. The authorization is unchanged.');
+      setTimeout(() => setToastMessage(null), 6000);
     } finally {
       setIsRevoking(false);
     }
-  }, [clientId]);
+  }, [clientId, refetch]);
+
+  // ── No authorization on file ─────────────────────────────────
+  if (notOnFile) {
+    return (
+      <SectionCard title="Authorization Status">
+        <div className="rounded-lg border border-dashed border-surface-border bg-gray-50 p-6 text-center">
+          <p className="text-sm font-medium text-gray-700">No ACH authorization on file</p>
+          <p className="mt-1 text-xs text-gray-500">
+            This client has not authorised ACH debits. No debits may be taken.
+          </p>
+        </div>
+      </SectionCard>
+    );
+  }
 
   // ── Error state ──────────────────────────────────────────────
   if (error) {

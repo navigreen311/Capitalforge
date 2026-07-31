@@ -509,6 +509,10 @@ export async function verifyKyc(
     highestCreditLimit: request.creditData?.highestCreditLimit,
     totalUtilization: request.creditData?.totalUtilization,
     inquiriesLast6Mo: request.creditData?.inquiriesLast6Mo,
+    // The figures above are a snapshot from the bureau pull, so the ages
+    // fraud detection derives from dates of birth and formation dates have to
+    // be measured from the same instant.
+    asOf: request.creditData?.pulledAt,
   });
 
   // ── 5. Determine KYC status ─────────────────────────────────
@@ -671,9 +675,23 @@ export async function getVerificationStatus(
   const kybVerifiedAt: Date | null =
     kybStatus === 'verified' ? (latestKybCheck?.createdAt ?? null) : null;
 
-  // Map owners
+  // Map owners.
+  //
+  // `'owners' in business` narrows on the key's presence, not its type, so the
+  // property stays `unknown` and the callback parameter is implicitly `any`.
+  // This describes the columns actually read below.
+  type OwnerRow = {
+    id: string;
+    firstName: string;
+    lastName: string;
+    ownershipPercent: { toString(): string };
+    isBeneficialOwner: boolean;
+    kycStatus: string;
+    kycVerifiedAt: Date | null;
+  };
+
   const owners = includeOwners && 'owners' in business
-    ? business.owners.map((o) => ({
+    ? (business.owners as OwnerRow[]).map((o) => ({
         ownerId: o.id,
         fullName: buildOwnerFullName(o.firstName, o.lastName),
         ownershipPercent: o.ownershipPercent.toString(),

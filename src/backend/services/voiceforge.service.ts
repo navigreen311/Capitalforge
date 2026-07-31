@@ -285,7 +285,7 @@ export class VoiceForgeService {
 
     // ── Log to Document Vault ──────────────────────────────────────
     try {
-      const vaultDoc = await this.documentVault.uploadDocument({
+      const vaultDoc = await this.documentVault.upload({
         tenantId: input.tenantId,
         businessId: input.businessId,
         documentType: 'receipt',
@@ -559,7 +559,7 @@ export class VoiceForgeService {
     // Query rounds with approaching APR expiry
     const rounds = await this.prisma.fundingRound.findMany({
       where: {
-        tenantId,
+        business: { tenantId },
         status: 'in_progress',
         aprExpiryDate: {
           gte: now,
@@ -608,15 +608,17 @@ export class VoiceForgeService {
       tenantId,
     });
 
-    const schedules = await this.prisma.repaymentSchedule.findMany({
+    const schedules = await this.prisma.paymentSchedule.findMany({
       where: {
-        tenantId,
+        repaymentPlan: { tenantId },
         status: 'pending',
         dueDate: { gte: now, lte: upcoming },
       },
       include: {
-        business: {
-          select: { id: true, phoneNumber: true },
+        repaymentPlan: {
+          include: {
+            business: { select: { id: true, phoneNumber: true } },
+          },
         },
       },
     });
@@ -628,10 +630,10 @@ export class VoiceForgeService {
       fromPhoneNumber,
       advisorId,
       targets: schedules
-        .filter((s) => s.business?.phoneNumber)
+        .filter((s) => s.repaymentPlan?.business?.phoneNumber)
         .map((s) => ({
-          businessId: s.business!.id,
-          toPhoneNumber: s.business!.phoneNumber!,
+          businessId: s.repaymentPlan.business.id,
+          toPhoneNumber: s.repaymentPlan.business.phoneNumber!,
           purpose: `Repayment reminder — payment due ${s.dueDate?.toDateString() ?? 'soon'}`,
         })),
     });
