@@ -8,6 +8,7 @@
 // Drag-and-drop between columns to update status.
 // ============================================================
 
+import { fetchAllPages } from '@/lib/fetch-all-pages';
 import {
   toApplicationCards,
   advisorInitials,
@@ -247,6 +248,9 @@ export default function ApplicationsPage() {
   const [loading, setLoading] = useState(true);
   // Distinct from an empty pipeline: a failed load must not look like no work.
   const [loadError, setLoadError] = useState<string | null>(null);
+  // True when the register is larger than this page pulls, so the figures
+  // below describe a subset rather than the pipeline.
+  const [truncated, setTruncated] = useState(false);
   const [search, setSearch] = useState('');
   const [activeChip, setActiveChip] = useState<PipelineFilter>(null);
   const dragId = useRef<string | null>(null);
@@ -285,15 +289,20 @@ export default function ApplicationsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await applicationsApi.list();
-      if (res.success) {
+      // Every page. The endpoint returns 50 at a time and reports the total
+      // in meta, so a single call gave 50 rows — and the figures above the
+      // board (pipeline value, approval rate, average time) were computed
+      // from those 50 and presented as the pipeline.
+      const { rows, truncated } = await fetchAllPages('/api/applications', (json) => {
+        const body = json as { success?: boolean; data?: unknown };
         // Mapped rather than cast. `res.data as ApplicationCard[]` compiled
         // fine and then threw on the first render, because the real rows do
         // not carry the fields the sample data did.
-        setApps(toApplicationCards(res.data));
-      } else {
-        setLoadError('The applications list could not be loaded.');
-      }
+        return body.success === true ? toApplicationCards(body.data) : [];
+      });
+
+      setApps(rows);
+      setTruncated(truncated);
     } catch {
       setLoadError('Could not reach the server. The pipeline is not shown.');
     } finally {
@@ -480,6 +489,13 @@ export default function ApplicationsPage() {
 
       {loading && (
         <p className="text-center text-gray-400 py-12">Loading pipeline...</p>
+      )}
+
+      {!loading && truncated && (
+        <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Showing the {apps.length} most recent applications — the pipeline is
+          larger than this page loads, and the figures above count these only.
+        </p>
       )}
 
       {/* A failed load is not an empty pipeline. Without this the board would

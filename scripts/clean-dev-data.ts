@@ -102,6 +102,23 @@ async function main(): Promise<void> {
 
   console.log(`\nledger events total      : ${allEvents.length}`);
 
+  // ── Applications left by the browser suite ──────────────
+  //
+  // The pipeline-size spec files applications against a seeded business, so
+  // the non-seeded-business sweep never reaches them and they accumulate one
+  // batch per run — inflating the very pipeline figures that spec checks.
+  const e2eApplications = await prisma.cardApplication.findMany({
+    where: { cardProduct: { startsWith: 'E2E' } },
+    select: { id: true, cardProduct: true },
+  });
+
+  if (e2eApplications.length > 0) {
+    console.log(`
+e2e applications           : ${e2eApplications.length}`);
+    for (const a of e2eApplications.slice(0, 3)) console.log(`   drop  ${a.cardProduct.slice(0, 60)}`);
+    if (e2eApplications.length > 3) console.log(`   ...and ${e2eApplications.length - 3} more`);
+  }
+
   // ── Complaints left by the browser suite ────────────────
   //
   // The complaints spec writes real rows tagged "E2E" in the description.
@@ -211,6 +228,12 @@ e2e regulator inquiries    : ${e2eInquiries.length}`);
     })).count);
 
     note('businesses', (await prisma.business.deleteMany({ where: { id: { in: ids } } })).count);
+  }
+
+  if (e2eApplications.length > 0) {
+    note('e2eApplications', (await prisma.cardApplication.deleteMany({
+      where: { id: { in: e2eApplications.map((a) => a.id) } },
+    })).count);
   }
 
   if (e2eComplaints.length > 0) {

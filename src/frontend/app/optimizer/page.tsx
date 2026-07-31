@@ -12,6 +12,7 @@
 // ============================================================
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { fetchAllPages } from '@/lib/fetch-all-pages';
 import { authHeaders } from '@/lib/api-client';
 import { useRouter } from 'next/navigation';
 import { SectionCard } from '@/components/ui/card';
@@ -585,19 +586,23 @@ export default function OptimizerPage() {
   // Load clients on mount
   useEffect(() => {
     setClientsLoading(true);
-    fetch('/api/v1/clients', { headers: authHeaders() })
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.success && Array.isArray(json.data)) {
-          setClients(json.data.map((c: Record<string, unknown>) => ({
-            id: c.id as string,
-            businessName: (c.businessName || c.legalName || 'Unknown') as string,
-            status: (c.status || 'unknown') as string,
-          })));
-        }
-      })
+    // Every page: the endpoint returns 25 at a time, so this offered the
+    // first 25 clients and no way to select any of the others.
+    fetchAllPages('/api/v1/clients', (json) => {
+      const body = json as { success?: boolean; data?: unknown };
+      if (body.success !== true || !Array.isArray(body.data)) return [];
+      return body.data.map((row) => {
+        const c = row as Record<string, unknown>;
+        return {
+          id: c.id as string,
+          businessName: (c.businessName || c.legalName || 'Unknown') as string,
+          status: (c.status || 'unknown') as string,
+        };
+      });
+    })
+      .then(({ rows }) => setClients(rows))
       .catch(() => {
-        // Silently fall back — clients list is optional
+        // The list is optional here; the form still works without it.
       })
       .finally(() => setClientsLoading(false));
   }, []);

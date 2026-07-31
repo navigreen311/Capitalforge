@@ -380,14 +380,20 @@ test.describe('Pagination', () => {
       return first.data?.total ?? 0;
     };
 
-    // Push the register past a single server page of 100.
+    // Push the register past a single server page of 100 — but only if it is
+    // not already there. Creating a fixed number every run grew the register
+    // by 110 each time, which eventually makes every complaints test slower
+    // and flakier. Topping up is both deterministic and bounded.
     const existing = await countAll();
-    const toCreate = Math.max(0, 105 - existing);
+    const toCreate = existing > 100 ? 0 : 110;
 
     const stamp = Date.now();
-    for (let batch = 0; batch < Math.ceil(toCreate / 15); batch++) {
-      await Promise.all(
-        Array.from({ length: Math.min(15, toCreate - batch * 15) }, (_, i) =>
+    // Five at a time, and every response checked — see the applications spec
+    // for why. An ignored failure here surfaces as a confusing count later.
+    const BATCH = 5;
+    for (let batch = 0; batch * BATCH < toCreate; batch++) {
+      const responses = await Promise.all(
+        Array.from({ length: Math.min(BATCH, toCreate - batch * BATCH) }, (_, i) =>
           fetch(`${API}/complaints`, {
             method: 'POST',
             headers,
@@ -400,6 +406,13 @@ test.describe('Pagination', () => {
           }),
         ),
       );
+
+      for (const res of responses) {
+        if (res.status !== 201) {
+          const body = await res.text();
+          throw new Error(`Creating a filler complaint failed (${res.status}): ${body.slice(0, 200)}`);
+        }
+      }
     }
 
     const total = await countAll();

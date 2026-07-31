@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { fetchAllPages } from '@/lib/fetch-all-pages';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,28 +75,23 @@ export function RepaymentClientSelector({
 
     async function load() {
       try {
-        const token =
-          typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-        const res = await fetch('/api/v1/clients', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        const json = (await res.json()) as { success?: boolean; data?: unknown };
-        if (cancelled) return;
-
-        if (!res.ok || json.success !== true || !Array.isArray(json.data)) {
-          // An empty combobox that silently shows nothing is indistinguishable
-          // from a tenant with no clients, so the failure is kept distinct.
-          setLoadState('error');
-          return;
-        }
-
-        setClients(
-          json.data
+        // Every page. /api/v1/clients returns 25 at a time, so a single fetch
+        // silently offered the first 25 of however many the tenant has, with
+        // no way to reach the rest and no sign they existed.
+        const { rows } = await fetchAllPages('/api/v1/clients', (json) => {
+          const body = json as { success?: boolean; data?: unknown };
+          if (body.success !== true || !Array.isArray(body.data)) return [];
+          return body.data
             .map((row) => toRepaymentClient(row as Record<string, unknown>))
-            .filter((c): c is RepaymentClient => c !== null),
-        );
+            .filter((c): c is RepaymentClient => c !== null);
+        });
+
+        if (cancelled) return;
+        setClients(rows);
         setLoadState('ready');
       } catch {
+        // An empty combobox that silently shows nothing is indistinguishable
+        // from a tenant with no clients, so the failure is kept distinct.
         if (!cancelled) setLoadState('error');
       }
     }

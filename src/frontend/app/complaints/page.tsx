@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useMemo, useCallback, type FormEvent } from 'react';
+import { fetchAllPages } from '@/lib/fetch-all-pages';
 import {
   toComplaintView,
   toComplaintViews,
@@ -738,15 +739,14 @@ function AttachEvidenceModal({
       return;
     }
 
-    const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-    fetch(`/api/businesses/${complaint.businessId}/documents`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    // Every page: documents come back 20 at a time, so a client with more
+    // than that had the rest simply absent from the picker.
+    fetchAllPages(`/api/businesses/${complaint.businessId}/documents`, (json) => {
+      const body = json as { success?: boolean; data?: unknown };
+      return body.success === true ? toAttachableDocuments(body.data) : [];
     })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        const json = (await res.json()) as { success?: boolean; data?: unknown };
-        if (json.success !== true) throw new Error('unsuccessful');
-        setDocuments(toAttachableDocuments(json.data));
+      .then(({ rows }) => {
+        setDocuments(rows);
         setState('ready');
       })
       .catch(() => setState('error'));
@@ -1333,18 +1333,16 @@ function RegulatoryInquiries({
     try {
       const token =
         typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/regulator/inquiries', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      // Every page: this endpoint returns 20 at a time, and the open count
+      // below feeds the "Active Reg. Inquiries" figure on the page — so a
+      // tenant with more than 20 matters had that figure capped at 20.
+      const { rows } = await fetchAllPages('/api/regulator/inquiries', (json) => {
+        const body = json as { success?: boolean; data?: unknown };
+        return body.success === true ? toInquiryViews(body.data) : [];
       });
-      const json = (await res.json()) as { success?: boolean; data?: unknown };
 
-      if (!res.ok || json.success !== true) {
-        setState('error');
-        return;
-      }
-      const loaded = toInquiryViews(json.data);
-      setInquiries(loaded);
-      onOpenCountChange?.(loaded.filter((i) => i.status !== 'closed').length);
+      setInquiries(rows);
+      onOpenCountChange?.(rows.filter((i) => i.status !== 'closed').length);
       setState('ready');
     } catch {
       setState('error');
@@ -1498,53 +1496,22 @@ export default function ComplaintsPage() {
     const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
     try {
-      const [firstRes, analyticsRes] = await Promise.all([
-        fetch(`/api/complaints?pageSize=${SERVER_PAGE_SIZE}`, { headers: auth }),
+      // The walk that was inline here now lives in lib/fetch-all-pages,
+      // because every list endpoint in this app has the same shape of problem.
+      const [listed, analyticsRes] = await Promise.all([
+        fetchAllPages(
+          '/api/complaints',
+          (json) => {
+            const body = json as { success?: boolean; data?: unknown };
+            return body.success === true ? toComplaintViews(body.data) : [];
+          },
+          { pageSize: SERVER_PAGE_SIZE, maxPages: MAX_PAGES, headers: auth },
+        ),
         fetch('/api/complaints/analytics', { headers: auth }),
       ]);
 
-      const firstJson = (await firstRes.json()) as {
-        success?: boolean;
-        data?: { total?: number } | unknown;
-      };
-      if (!firstRes.ok || firstJson.success !== true) {
-        setLoadState('error');
-        return;
-      }
-
-      const reported = (firstJson.data as { total?: number } | undefined)?.total;
-      const total = typeof reported === 'number' ? reported : null;
-      setTotalOnServer(total);
-
-      let rows = toComplaintViews(firstJson.data);
-
-      // The endpoint caps a page at 100, and every figure above the table is
-      // counted from the rows that loaded — so paginating the view alone
-      // would leave the KPIs describing whichever page happened to be open.
-      // The remaining pages are fetched here and the table paginates locally.
-      if (total !== null && total > rows.length) {
-        const pagesNeeded = Math.ceil(total / SERVER_PAGE_SIZE);
-        // Bounded: a tenant with a very large register should not fire an
-        // unbounded burst of requests on page load.
-        const lastPage = Math.min(pagesNeeded, MAX_PAGES);
-
-        const rest = await Promise.all(
-          Array.from({ length: lastPage - 1 }, (_, i) =>
-            fetch(`/api/complaints?pageSize=${SERVER_PAGE_SIZE}&page=${i + 2}`, { headers: auth })
-              .then(async (res) => {
-                if (!res.ok) return [];
-                const json = (await res.json()) as { success?: boolean; data?: unknown };
-                return json.success === true ? toComplaintViews(json.data) : [];
-              })
-              // One failed page must not discard the pages that did load.
-              .catch(() => []),
-          ),
-        );
-
-        rows = [...rows, ...rest.flat()];
-      }
-
-      setComplaints(rows);
+      setTotalOnServer(listed.total);
+      setComplaints(listed.rows);
 
       // Analytics failing on its own leaves the register usable rather than
       // taking the whole page down with it.
@@ -1569,23 +1536,23 @@ export default function ComplaintsPage() {
   // exists rather than to a name typed into a list.
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-    fetch('/api/v1/clients', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then((r) => r.json())
-      .then((j: { success?: boolean; data?: unknown }) => {
-        if (j.success !== true || !Array.isArray(j.data)) return;
-        setClients(
-          j.data
-            .map((row) => row as Record<string, unknown>)
-            .filter((row) => typeof row['id'] === 'string')
-            .map((row) => ({
-              id: row['id'] as string,
-              name:
-                (typeof row['businessName'] === 'string' && row['businessName']) ||
-                (typeof row['legalName'] === 'string' && row['legalName']) ||
-                'Unnamed business',
-            })),
-        );
-      })
+    // Every page: 25 at a time, so the log form offered the first 25 clients
+    // and a complaint could not be filed against any of the others.
+    fetchAllPages('/api/v1/clients', (json) => {
+      const body = json as { success?: boolean; data?: unknown };
+      if (body.success !== true || !Array.isArray(body.data)) return [];
+      return body.data
+        .map((row) => row as Record<string, unknown>)
+        .filter((row) => typeof row['id'] === 'string')
+        .map((row) => ({
+          id: row['id'] as string,
+          name:
+            (typeof row['businessName'] === 'string' && row['businessName']) ||
+            (typeof row['legalName'] === 'string' && row['legalName']) ||
+            'Unnamed business',
+        }));
+    })
+      .then(({ rows }) => setClients(rows))
       .catch(() => undefined);
   }, []);
 

@@ -26,6 +26,20 @@ export const BASE_URL = `http://127.0.0.1:${PORT}`;
 export default defineConfig({
   testDir: './tests/e2e-playwright',
   timeout: 30000,
+  /**
+   * One worker.
+   *
+   * Both servers under test are development servers — tsx for the API, Next
+   * compiling routes on demand — and they are the bottleneck, not the browser.
+   * Three workers made the API return 500s under load, which surfaced as data
+   * setup "failing" in whichever spec happened to be running: a real-looking
+   * failure with no real cause.
+   *
+   * It costs little. The full suite runs in about 3 minutes serially against
+   * 2.6 minutes across three workers, because the contention was wasting most
+   * of what the parallelism gained.
+   */
+  workers: 1,
   globalSetup: './tests/e2e-playwright/global-setup.ts',
   use: {
     baseURL: BASE_URL,
