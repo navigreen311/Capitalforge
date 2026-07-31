@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { toTradelines, reportingCount, type TradelineView } from '@/lib/credit-view';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import { useToast } from '@/components/global/ToastProvider';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
@@ -598,15 +599,14 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
     setInternalShowAdd(val);
     if (!val && onCloseAddModal) onCloseAddModal();
   }, [onCloseAddModal]);
-  const [localTradelines, setLocalTradelines] = useState<Tradeline[]>([]);
   const [disputeTarget, setDisputeTarget] = useState<Tradeline | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<Tradeline | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const handleCloseModal = useCallback(() => setShowAddModal(false), [setShowAddModal]);
 
   const handleRowAction = useCallback((tradelineId: string, action: RowAction) => {
-    const allTradelines = [...apiTradelines, ...localTradelines];
-    const target = allTradelines.find(t => t.id === tradelineId);
+    const target = apiTradelines.find((t) => t.id === tradelineId);
     if (!target) return;
 
     switch (action) {
@@ -620,48 +620,96 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
         setDisputeTarget(target);
         break;
       case 'mark_inactive':
-        setLocalTradelines(prev => prev.map(t => t.id === tradelineId ? { ...t, status: 'Applied' as TradelineStatus } : t));
+        // No endpoint updates a tradeline's status. This used to rewrite
+        // local state, which after the add path began persisting meant it
+        // silently did nothing at all.
+        toast.error('Changing a tradeline status is not available yet — nothing was changed.');
         break;
     }
-  }, [apiTradelines, localTradelines]);
+  }, [apiTradelines, toast]);
 
   // No placeholder fallback: a client with no tradelines has none, and the
   // sample rows this used to show made an empty account look established.
-  const tradelines = [...apiTradelines, ...localTradelines];
+  const tradelines = apiTradelines;
 
   // Derived from the rows themselves rather than read off the response — the
   // API reports the tradelines, not a summary, and a count that disagreed
   // with the list beneath it would be worse than none.
-  const reportingTotal =
-    reportingCount(apiTradelines) + localTradelines.filter((t) => t.status === 'Reporting').length;
+  const reportingTotal = reportingCount(apiTradelines);
   const reportingTarget = 5;
 
   // Payment history is not modelled, so no average is asserted.
   const avgPayment = 'Not tracked';
 
-  function handleSave(form: NewTradelineForm) {
+  async function handleSave(form: NewTradelineForm) {
     const vendorName = form.vendor === 'Custom...' ? form.customVendor : form.vendor;
     const limit = parseInt(form.creditLimit, 10) || 0;
     const isApproved = form.approvalStatus === 'Yes';
 
-    let status: TradelineStatus = 'Applied';
-    if (form.approvalStatus === 'Yes') status = 'Approved';
+    if (!clientId) {
+      toast.error('Select a client before adding a tradeline.');
+      return;
+    }
 
-    const newTradeline: Tradeline = {
-      id: `local-${Date.now()}`,
-      vendor: vendorName,
-      applied_date: form.appliedDate,
-      approved: isApproved,
-      credit_limit: isApproved ? limit : 0,
-      balance: 0,
-      payments_made: 0,
-      payments_total: 0,
-      status,
-    };
+    setSaving(true);
+    try {
+      // Persisted rather than held in component state. A tradeline added here
+      // used to be announced as added and then vanish on the next refresh.
+      await loadJson(`/api/credit-builder/${clientId}/tradelines`, {
+        method: 'POST',
+        body: {
+          vendor: vendorName,
+          creditLimit: isApproved ? limit : 0,
+          reportsTo: form.reportingBureaus ?? [],
+          openedDate: form.appliedDate || undefined,
+          status: isApproved ? 'open' : 'closed',
+        },
+      });
 
-    setLocalTradelines((prev) => [...prev, newTradeline]);
-    setShowAddModal(false);
-    toast.success('Tradeline added \u2014 reporting may take 30\u201360 days');
+      await refetch();
+      setShowAddModal(false);
+      toast.success('Tradeline added \u2014 reporting may take 30\u201360 days');
+    } catch (err) {
+      const info = toLoadError(err);
+      toast.error(
+        info.type === 'auth_required'
+          ? 'Your session has expired. Sign in again to add a tradeline.'
+          : 'Could not add the tradeline. Nothing was saved.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDispute(form: DisputeForm) {
+    if (!clientId || !disputeTarget) return;
+
+    // The dispute modal collected a reason and then discarded it: its onSubmit
+    // only closed the dialog, so nothing was ever filed.
+    const reason = [form.actualStatus, form.bureauAffected, form.notes]
+      .filter((part) => part && part.trim())
+      .join(' — ');
+
+    setSaving(true);
+    try {
+      await loadJson(`/api/credit-builder/${clientId}/tradeline-disputes`, {
+        method: 'POST',
+        body: { tradelineId: disputeTarget.id, reason: reason || 'No reason given' },
+      });
+
+      await refetch();
+      setDisputeTarget(null);
+      toast.success('Dispute filed');
+    } catch (err) {
+      const info = toLoadError(err);
+      toast.error(
+        info.type === 'auth_required'
+          ? 'Your session has expired. Sign in again to file a dispute.'
+          : 'Could not file the dispute. Nothing was saved.',
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   // ── Loading ───────────────────────────────────────────────────
@@ -795,7 +843,7 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
           <DisputeModal
             vendorName={disputeTarget.vendor}
             onClose={() => setDisputeTarget(null)}
-            onSubmit={() => { setDisputeTarget(null); }}
+            onSubmit={(form) => { void handleDispute(form); }}
           />
         )}
 
@@ -804,15 +852,13 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
           <LogPaymentModal
             vendorName={paymentTarget.vendor}
             onClose={() => setPaymentTarget(null)}
-            onSubmit={(form) => {
-              // Update payments_made count for the tradeline
-              const amount = parseFloat(form.amount) || 0;
-              setLocalTradelines(prev => prev.map(t =>
-                t.id === paymentTarget.id
-                  ? { ...t, payments_made: t.payments_made + 1, payments_total: t.payments_total + 1, balance: Math.max(0, t.balance - amount) }
-                  : t
-              ));
+            onSubmit={() => {
+              // There is no endpoint for logging a payment against a
+              // tradeline, so nothing can be recorded. Updating local state
+              // would show a payment that is not on the account and would
+              // disappear on the next refresh.
               setPaymentTarget(null);
+              toast.error('Logging payments is not available yet — nothing was recorded.');
             }}
           />
         )}

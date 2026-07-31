@@ -273,6 +273,33 @@ describe('InputSanitizer — sanitizeString', () => {
     expect(() => sanitizeString("'; DROP TABLE users; --")).toThrow(SanitizationError);
   });
 
+  it('accepts ordinary words that are also T-SQL cursor statements', async () => {
+    const { sanitizeString } = await import('../../../src/backend/middleware/input-sanitizer.js');
+
+    // These were rejected outright, which meant a tradeline whose status is
+    // "open" could not be created and a note mentioning a closed account was
+    // refused. None can form an injection alone, and every query runs through
+    // Prisma's parameterised client, so a bare keyword in a value is inert.
+    for (const value of ['open', 'closed', 'close', 'fetch', 'cursor', 'declare', 'cast', 'convert']) {
+      expect(sanitizeString(value)).toBe(value);
+    }
+  });
+
+  it('still rejects the statement verbs that begin an injection', async () => {
+    const { sanitizeString, SanitizationError } = await import('../../../src/backend/middleware/input-sanitizer.js');
+
+    for (const value of [
+      'x UNION SELECT password FROM users',
+      'DELETE FROM tenants',
+      'a DROP TABLE businesses',
+      'b UPDATE users SET role',
+      'c INSERT INTO audit',
+      'admin--',
+    ]) {
+      expect(() => sanitizeString(value)).toThrow(SanitizationError);
+    }
+  });
+
   it('throws SanitizationError for path traversal sequence', async () => {
     const { sanitizeString, SanitizationError } = await import('../../../src/backend/middleware/input-sanitizer.js');
     expect(() => sanitizeString('../../etc/passwd')).toThrow(SanitizationError);

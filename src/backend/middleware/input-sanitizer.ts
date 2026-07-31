@@ -25,8 +25,22 @@ const HTML_ENTITY_RE = /&(?:#\d+|#x[\da-f]+|[a-z]+);/gi;
  * Pattern is intentionally broad; it will reject strings that
  * look like injected SQL rather than trying to be exhaustive.
  */
+/**
+ * Statement keywords rejected outright.
+ *
+ * OPEN, CLOSE, FETCH, KILL, CURSOR, CAST, CONVERT, DECLARE and DEALLOCATE
+ * were removed. They are T-SQL cursor and conversion statements, but they are
+ * also ordinary English and legitimate field values — a tradeline whose status
+ * is "open" could never be created, because the bare word tripped this filter.
+ * None can form an injection on its own, and every query in this codebase goes
+ * through Prisma's parameterised client, so a keyword sitting in a value is
+ * inert.
+ *
+ * What remains are the verbs that begin a destructive or exfiltrating
+ * statement, plus comment markers and a trailing statement separator.
+ */
 const SQL_INJECTION_SOURCE =
-  String.raw`(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE|UNION|CAST|CONVERT|DECLARE|CURSOR|FETCH|KILL|OPEN|CLOSE|DEALLOCATE)\b)|(-{2})|\/\*[\s\S]*?\*\/|(;\s*$)`;
+  String.raw`(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE|UNION)\b)|(-{2})|\/\*[\s\S]*?\*\/|(;\s*$)`;
 
 function createSQLRegex(): RegExp {
   return new RegExp(SQL_INJECTION_SOURCE, 'gi');
