@@ -53,6 +53,12 @@ const PUBLIC_API_PATHS: readonly RegExp[] = [
   /^\/stripe\/webhook$/,
   /^\/docusign\/webhook$/,
   /^\/integrations\/[^/]+\/webhook$/,
+
+  // Twilio delivery receipts and inbound messages. Twilio cannot present a
+  // bearer token; these verify an HMAC signature in the handler instead.
+  // The inbound one carries STOP replies, so it must stay reachable — an
+  // opt-out that 401s is an opt-out that is not honoured.
+  /^\/voiceforge\/webhooks\/sms-(?:inbound|status)$/,
 ];
 
 apiRouter.use((req, res, next) => {
@@ -117,6 +123,10 @@ apiRouter.use('/', applicationRouter);
 // -- Applications Wizard API (new endpoints for wizard flow) --
 import applicationsWizardRouter from './applications.routes.js';
 apiRouter.use('/', applicationsWizardRouter);
+
+// -- Inbound SMS webhooks (Twilio HMAC-authenticated, no bearer token) --
+import { smsWebhookRouter } from './sms-webhooks.routes.js';
+apiRouter.use('/voiceforge/webhooks', smsWebhookRouter);
 
 // -- Application Detail (per-application sub-routes) --
 import { applicationDetailRouter } from './application-detail.routes.js';

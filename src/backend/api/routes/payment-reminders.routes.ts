@@ -16,17 +16,15 @@ import type { Request } from '../../types/http.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import { PrismaClient } from '@prisma/client';
 import logger from '../../config/logger.js';
-import { registerStub } from './_stub-response.js';
+import {
+  dispatchSmsCampaign,
+  smsConfigStatus,
+  withinQuietHours,
+  QUIET_HOURS_START,
+  QUIET_HOURS_END,
+} from '../../services/sms-dispatch.service.js';
 
 const prisma = new PrismaClient();
-
-// The dispatch half of this feature has no provider behind it. Eligibility is
-// real; sending is not, and the send endpoint refuses rather than pretending.
-registerStub(
-  'voiceforge.smsCampaign',
-  'No SMS provider is configured, so campaigns are refused rather than '
-  + 'reported as sent. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to enable.',
-);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,9 +61,21 @@ function getTenantId(req: Request): string {
 /** How far ahead a payment counts as worth reminding about. */
 const REMINDER_WINDOW_DAYS = 7;
 
-/** Whether an SMS provider is configured. */
-function smsProviderConfigured(): boolean {
-  return Boolean(process.env['TWILIO_ACCOUNT_SID'] && process.env['TWILIO_AUTH_TOKEN']);
+/** Message body per template. Kept short: one SMS segment is 160 characters. */
+const TEMPLATES: Record<string, (clientName: string) => string> = {
+  payment_reminder: (name) =>
+    `${name}: a card payment is due within 7 days. Log in to CapitalForge for details. Reply STOP to opt out.`,
+  apr_expiry: (name) =>
+    `${name}: an introductory APR is ending soon. Log in to CapitalForge to review. Reply STOP to opt out.`,
+};
+
+/**
+ * Every message carries opt-out instructions, which carriers require and
+ * which is the mechanism the inbound webhook enforces.
+ */
+function renderTemplate(template: string | undefined, clientName: string): string | null {
+  const render = TEMPLATES[template ?? 'payment_reminder'];
+  return render ? render(clientName) : null;
 }
 
 // ── Routers ──────────────────────────────────────────────────────────────────
@@ -135,7 +145,7 @@ paymentReminderEligibleRouter.get(
         meta: {
           windowDays: REMINDER_WINDOW_DAYS,
           total: schedules.length,
-          smsProviderConfigured: smsProviderConfigured(),
+          smsProviderConfigured: smsConfigStatus().configured,
         },
       };
       res.status(200).json(body);
@@ -170,63 +180,112 @@ smsCampaignRouter.post(
         return;
       }
 
-      // Consent is resolved first, so the response can always say who was
-      // blocked for consent regardless of provider state.
-      const consents = await prisma.consentRecord.findMany({
-        where: {
-          tenantId,
-          businessId: { in: client_ids },
-          channel: channel ?? 'sms',
-          consentType: 'tcpa',
-          status: 'active',
-        },
-        select: { businessId: true },
-      });
-      const consented = new Set(consents.map((c) => c.businessId));
-      const wouldSendTo = client_ids.filter((id) => consented.has(id));
-      const blockedForConsent = client_ids.filter((id) => !consented.has(id));
-
-      if (!smsProviderConfigured()) {
-        // Nothing can be sent, so nothing is claimed. This used to log
-        // "SMS campaign dispatched" and return a sent_count for a dispatch
-        // that never happened — in a product whose selling point is
-        // consent-gated outreach.
-        logger.warn('SMS campaign requested with no provider configured', {
-          tenantId,
-          requested: client_ids.length,
-          wouldSendTo: wouldSendTo.length,
-        });
-
-        res.status(503).json({
+      if ((channel ?? 'sms') !== 'sms') {
+        res.status(400).json({
           success: false,
           error: {
-            code: 'SMS_PROVIDER_NOT_CONFIGURED',
-            message:
-              'No SMS provider is configured, so nothing was sent. '
-              + 'Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to enable dispatch.',
-          },
-          meta: {
-            wouldSendTo,
-            blockedForConsent,
-            template: template ?? 'payment_reminder',
-            channel: channel ?? 'sms',
+            code: 'UNSUPPORTED_CHANNEL',
+            message: `Only the sms channel is dispatched here; received "${channel}".`,
           },
         } satisfies ApiResponse);
         return;
       }
 
-      // Credentials are present but no dispatch client is wired. Failing
-      // loudly is the only honest option: returning a success here would
-      // recreate exactly the defect this replaced.
-      logger.error('SMS provider configured but no dispatch client is implemented', { tenantId });
-      res.status(501).json({
-        success: false,
-        error: {
-          code: 'SMS_DISPATCH_NOT_IMPLEMENTED',
-          message:
-            'SMS credentials are present but no dispatch client is wired. Nothing was sent.',
+      const config = smsConfigStatus();
+      if (!config.configured) {
+        // Nothing can be sent, so nothing is claimed.
+        logger.warn('SMS campaign requested with incomplete configuration', {
+          tenantId,
+          missing: config.missing,
+        });
+        res.status(503).json({
+          success: false,
+          error: {
+            code: 'SMS_PROVIDER_NOT_CONFIGURED',
+            message: `SMS is not configured; nothing was sent. Missing: ${config.missing.join(', ')}.`,
+          },
+          meta: { missing: config.missing },
+        } satisfies ApiResponse);
+        return;
+      }
+
+      // Quiet hours are checked once up front so a whole campaign outside the
+      // window is refused rather than recorded as N blocked messages.
+      if (!withinQuietHours()) {
+        res.status(409).json({
+          success: false,
+          error: {
+            code: 'OUTSIDE_CONTACT_WINDOW',
+            message:
+              `Outside the ${QUIET_HOURS_START}:00-${QUIET_HOURS_END}:00 contact window; nothing was sent.`,
+          },
+        } satisfies ApiResponse);
+        return;
+      }
+
+      const businesses = await prisma.business.findMany({
+        where: { id: { in: client_ids }, tenantId },
+        select: { id: true, legalName: true },
+      });
+
+      if (businesses.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NO_MATCHING_CLIENTS', message: 'No clients matched for this tenant.' },
+        } satisfies ApiResponse);
+        return;
+      }
+
+      // One body per recipient so the client's own name appears. Templates are
+      // a fixed set: a caller-supplied body would let arbitrary text be sent
+      // to consented consumers under the product's name.
+      const unknownTemplate = renderTemplate(template, 'x') === null;
+      if (unknownTemplate) {
+        res.status(422).json({
+          success: false,
+          error: {
+            code: 'UNKNOWN_TEMPLATE',
+            message: `Unknown template "${template}". Available: ${Object.keys(TEMPLATES).join(', ')}.`,
+          },
+        } satisfies ApiResponse);
+        return;
+      }
+
+      const outcomes = [];
+      for (const business of businesses) {
+        const body = renderTemplate(template, business.legalName)!;
+        const outcome = await dispatchSmsCampaign({
+          tenantId,
+          businessIds: [business.id],
+          body,
+          purpose: template ?? 'payment_reminder',
+        });
+        outcomes.push(outcome);
+      }
+
+      const results = outcomes.flatMap((o) => o.results);
+      const sent = results.filter((r) => r.status === 'sent').length;
+      const blocked = results.filter((r) => r.status === 'blocked').length;
+      const failed = results.filter((r) => r.status === 'failed').length;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          campaign_ids: outcomes.map((o) => o.campaignId),
+          sent_count: sent,
+          blocked_count: blocked,
+          failed_count: failed,
+          // Per recipient, with the reason anything was withheld. The previous
+          // version reported only a sent_count, for messages never sent.
+          results: results.map((r) => ({
+            client_id: r.businessId,
+            status: r.status,
+            blocked_reason: r.blockedReason ?? null,
+            detail: r.detail ?? null,
+            message_id: r.messageId,
+          })),
         },
-        meta: { wouldSendTo, blockedForConsent },
+        meta: { requested: client_ids.length, matched: businesses.length },
       } satisfies ApiResponse);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';

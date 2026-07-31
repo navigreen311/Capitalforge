@@ -92,16 +92,19 @@ describe('stub response markers', () => {
 
   it('exposes every module-level stub declaration with a usable reason', async () => {
     // Deliberately not a snapshot of which modules are stubbed: that list
-    // shrinks as features are implemented, and a test that enumerates it would
-    // have to be edited every time one lands — turning a green suite into a
-    // chore rather than a signal. What must hold is that anything still
-    // declaring itself a stub explains why, so the boot inventory stays
+    // shrinks as features are implemented, and a test enumerating it would
+    // need editing every time one lands. What must hold is that anything
+    // still declaring itself a stub explains why, so the boot inventory stays
     // actionable.
+    //
+    // As of the route implementation work the set is empty — every stub was
+    // either implemented or turned into an explicit refusal. Zero is a valid
+    // and desirable state, so this asserts the contract over whatever is
+    // registered rather than requiring that something still is.
     await import('../../../src/backend/api/routes/credit-builder.routes.js');
     await import('../../../src/backend/api/routes/payment-reminders.routes.js');
 
     const shipped = listStubs().filter((s) => !s.feature.endsWith('.feature'));
-    expect(shipped.length).toBeGreaterThan(0);
 
     for (const stub of shipped) {
       expect(stub.feature).toMatch(/^[a-zA-Z][\w.]*$/);

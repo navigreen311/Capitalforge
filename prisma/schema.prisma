@@ -31,6 +31,8 @@ model Tenant {
   voiceCalls      VoiceCall[]
   callComplianceScans CallComplianceScan[]
   callQaScores    CallQaScore[]
+  doNotCallList   DoNotCallList[]
+  smsMessages     SmsMessage[]
 
   @@map("tenants")
 }
@@ -174,6 +176,7 @@ model Business {
   acknowledgments     ProductAcknowledgment[]
   achAuthorizations   AchAuthorization[]
   vendorTradelines    VendorTradeline[]
+  smsMessages         SmsMessage[]
   costCalculations    CostCalculation[]
 
   @@index([tenantId, status])
@@ -1448,4 +1451,56 @@ model TradelineDispute {
   @@index([tradelineId, status])
   @@index([tenantId])
   @@map("tradeline_disputes")
+}
+
+// ── Outbound messaging safety ────────────────────────────────
+// TCPA infrastructure for SMS and voice outreach. The campaign code already
+// queried a do-not-call table defensively (`.catch(() => null)`), but no such
+// model existed — so the DNC check silently passed for every recipient.
+
+model DoNotCallList {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  /** E.164 number. Stored normalised so lookups cannot miss on formatting. */
+  phoneNumber         String
+  businessId          String?
+  /** opt_out | manual | litigation | bounce */
+  source              String   @default("opt_out")
+  reason              String?
+  addedAt             DateTime @default(now())
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, phoneNumber])
+  @@index([phoneNumber])
+  @@map("do_not_call_list")
+}
+
+model SmsMessage {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String?
+  /** Provider message id; null when the send never reached the provider. */
+  providerSid         String?
+  direction           String   @default("outbound") // outbound | inbound
+  toPhoneNumber       String
+  fromPhoneNumber     String
+  body                String
+  /** queued | sent | delivered | failed | undelivered | blocked | received */
+  status              String   @default("queued")
+  /** Why a message was not sent: dnc | no_consent | quiet_hours | no_phone */
+  blockedReason       String?
+  errorCode           String?
+  campaignId          String?
+  purpose             String?
+  sentAt              DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  business            Business? @relation(fields: [businessId], references: [id])
+
+  @@index([tenantId, campaignId])
+  @@index([businessId, sentAt])
+  @@index([providerSid])
+  @@map("sms_messages")
 }
