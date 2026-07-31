@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd src/backend && tsx watch server.ts",
-    "dev:frontend": "cd src/frontend && next dev -p 3000",
+    "dev:frontend": "cd src/frontend && next dev",
     "build": "npm run build:backend && npm run build:frontend",
     "build:backend": "cd src/backend && tsc",
     "build:frontend": "cd src/frontend && next build",
@@ -16,6 +16,7 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "vitest run tests/e2e",
+    "test:playwright": "playwright test",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
