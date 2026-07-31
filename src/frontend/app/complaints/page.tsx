@@ -6,7 +6,17 @@
 // regulator inquiry section with deadline countdown.
 // ============================================================
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, type FormEvent } from 'react';
+import {
+  toInquiryViews,
+  deadlineLabel,
+  MATTER_TYPE_LABELS,
+  STATUS_LABELS,
+  type InquiryView,
+  type InquiryStatus,
+  type InquirySeverity,
+  type MatterType,
+} from '@/lib/regulator-inquiry-view';
 
 // ─── Types & Mock data ────────────────────────────────────────────────────────
 
@@ -96,12 +106,6 @@ const INITIAL_COMPLAINTS: Complaint[] = [
   { id: 'CMP-008', clientName: 'Fatima Al-Hassan',    category: 'Billing',          severity: 'Low',      status: 'Open',      submittedAt: '2026-03-05', description: 'Double-charged for program fee in February.', evidence: ['invoice_feb26.pdf'], rootCause: 'Duplicate webhook event triggered billing system twice.', assignee: 'Michael Torres' },
 ];
 
-const REGULATORY_INQUIRIES: RegulatoryInquiry[] = [
-  { id: 'REG-001', regulator: 'CFPB',  caseRef: 'CFPB-2026-00341', subject: 'Fair Lending Practices Review', deadlineDate: '2026-04-15', status: 'Pending Response', attachments: 4 },
-  { id: 'REG-002', regulator: 'FTC',   caseRef: 'FTC-26-8812',      subject: 'Disclosure Adequacy — Digital Consent', deadlineDate: '2026-04-28', status: 'Under Review', attachments: 7 },
-  { id: 'REG-003', regulator: 'FDIC',  caseRef: 'FDIC-EX-2026-19',  subject: 'Bank Partner Compliance Exam',  deadlineDate: '2026-05-10', status: 'Pending Response', attachments: 2 },
-  { id: 'REG-004', regulator: 'State AG', caseRef: 'CA-AG-26-004',  subject: 'Data Privacy — CCPA Complaint', deadlineDate: '2026-04-08', status: 'Responded',      attachments: 9 },
-];
 
 const ROOT_CAUSE_ANALYTICS = [
   { category: 'Disclosure Gaps',       count: 14, pct: 32, color: '#ef4444' },
@@ -130,10 +134,11 @@ function statusBadge(s: ComplaintStatus): string {
   return 'bg-gray-800 text-gray-400';
 }
 
-function regStatusBadge(s: RegulatoryInquiry['status']): string {
-  if (s === 'Pending Response') return 'bg-red-900/50 text-red-300';
-  if (s === 'Under Review')     return 'bg-yellow-900/50 text-yellow-300';
-  if (s === 'Responded')        return 'bg-blue-900/50 text-blue-300';
+function regStatusBadge(status: InquiryStatus): string {
+  if (status === 'open')               return 'bg-red-900/50 text-red-300';
+  if (status === 'legal_hold')         return 'bg-orange-900/50 text-orange-300';
+  if (status === 'response_drafted')   return 'bg-yellow-900/50 text-yellow-300';
+  if (status === 'response_submitted') return 'bg-blue-900/50 text-blue-300';
   return 'bg-gray-800 text-gray-400';
 }
 
@@ -667,7 +672,266 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
   );
 }
 
-function RegulatoryInquiries() {
+function LogInquiryModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [matterType, setMatterType] = useState<MatterType>('CFPB');
+  const [agencyName, setAgencyName] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [description, setDescription] = useState('');
+  const [severity, setSeverity] = useState<InquirySeverity>('routine');
+  const [responseDueDate, setResponseDueDate] = useState('');
+  const [assignedCounsel, setAssignedCounsel] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Mirrors the server's own validation, so the form does not let a request
+  // leave that is already known to fail.
+  const agencyOk = agencyName.trim().length >= 2;
+  const descriptionOk = description.trim().length >= 10;
+  const canSubmit = agencyOk && descriptionOk && !saving;
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const token =
+        typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch('/api/regulator/inquiries', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          matterType,
+          agencyName: agencyName.trim(),
+          description: description.trim(),
+          severity,
+          // Omitted rather than sent empty: the server treats these as absent,
+          // and an empty string is a different claim from "not provided".
+          ...(referenceNumber.trim() ? { referenceNumber: referenceNumber.trim() } : {}),
+          ...(responseDueDate ? { responseDueDate } : {}),
+          ...(assignedCounsel.trim() ? { assignedCounsel: assignedCounsel.trim() } : {}),
+        }),
+      });
+
+      const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: { message?: string };
+      };
+
+      if (!res.ok || json.success !== true) {
+        setError(json.error?.message ?? `The inquiry was not saved (HTTP ${res.status}).`);
+        return;
+      }
+
+      onCreated();
+      onClose();
+    } catch {
+      // Not a success toast: nothing reached the server.
+      setError('Could not reach the server; the inquiry was not saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Log Regulator Inquiry"
+        className="w-full max-w-lg rounded-2xl border border-gray-700 bg-gray-900 p-6 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-bold text-white mb-4">Log Regulator Inquiry</h3>
+
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="inquiry-matter-type" className="block text-xs text-gray-400 mb-1">
+                Matter type
+              </label>
+              <select
+                id="inquiry-matter-type"
+                value={matterType}
+                onChange={(e) => setMatterType(e.target.value as MatterType)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100"
+              >
+                {(Object.keys(MATTER_TYPE_LABELS) as MatterType[]).map((t) => (
+                  <option key={t} value={t}>{MATTER_TYPE_LABELS[t]}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="inquiry-severity" className="block text-xs text-gray-400 mb-1">
+                Severity
+              </label>
+              <select
+                id="inquiry-severity"
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value as InquirySeverity)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100"
+              >
+                <option value="routine">Routine</option>
+                <option value="elevated">Elevated</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="inquiry-agency" className="block text-xs text-gray-400 mb-1">
+              Agency name
+            </label>
+            <input
+              id="inquiry-agency"
+              value={agencyName}
+              onChange={(e) => setAgencyName(e.target.value)}
+              aria-required="true"
+              aria-invalid={agencyName !== '' && !agencyOk ? true : undefined}
+              placeholder="Consumer Financial Protection Bureau"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="inquiry-reference" className="block text-xs text-gray-400 mb-1">
+                Reference number
+              </label>
+              <input
+                id="inquiry-reference"
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                placeholder="CFPB-2026-00341"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="inquiry-due" className="block text-xs text-gray-400 mb-1">
+                Response due
+              </label>
+              <input
+                id="inquiry-due"
+                type="date"
+                value={responseDueDate}
+                onChange={(e) => setResponseDueDate(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="inquiry-counsel" className="block text-xs text-gray-400 mb-1">
+              Assigned counsel
+            </label>
+            <input
+              id="inquiry-counsel"
+              value={assignedCounsel}
+              onChange={(e) => setAssignedCounsel(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="inquiry-description" className="block text-xs text-gray-400 mb-1">
+              What is the agency asking for?
+            </label>
+            <textarea
+              id="inquiry-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              aria-required="true"
+              aria-invalid={description !== '' && !descriptionOk ? true : undefined}
+              aria-describedby="inquiry-description-hint"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100"
+            />
+            <p id="inquiry-description-hint" className="text-[11px] text-gray-500 mt-1">
+              At least 10 characters. This is the record of what was asked, so keep it specific.
+            </p>
+          </div>
+
+          {error && (
+            <p role="alert" className="text-xs text-red-400 bg-red-950/40 border border-red-800 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="px-4 py-2 rounded-lg bg-[#C9A84C] text-[#0A1628] text-sm font-semibold
+                disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Saving...' : 'Log inquiry'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function RegulatoryInquiries({
+  onOpenCountChange,
+}: {
+  onOpenCountChange?: (count: number) => void;
+}) {
+  const [inquiries, setInquiries] = useState<InquiryView[]>([]);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [showLog, setShowLog] = useState(false);
+
+  const load = useCallback(async () => {
+    setState('loading');
+    try {
+      const token =
+        typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch('/api/regulator/inquiries', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const json = (await res.json()) as { success?: boolean; data?: unknown };
+
+      if (!res.ok || json.success !== true) {
+        setState('error');
+        return;
+      }
+      const loaded = toInquiryViews(json.data);
+      setInquiries(loaded);
+      onOpenCountChange?.(loaded.filter((i) => i.status !== 'closed').length);
+      setState('ready');
+    } catch {
+      setState('error');
+    }
+  }, [onOpenCountChange]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -675,82 +939,99 @@ function RegulatoryInquiries() {
           <h3 className="text-sm font-semibold text-gray-200">Regulator Inquiries</h3>
           <p className="text-xs text-gray-500 mt-0.5">Active regulatory matters requiring response.</p>
         </div>
-        {/* No handler exists for this yet. Disabled rather than left looking
-            operable: a button that silently does nothing is worse than one
-            that says it cannot. */}
         <button
           type="button"
-          disabled
-          title="Logging a regulator inquiry is not implemented yet"
-          className="px-4 py-1.5 rounded-lg bg-[#C9A84C] text-[#0A1628] text-xs font-semibold
-            opacity-40 cursor-not-allowed"
+          onClick={() => setShowLog(true)}
+          className="px-4 py-1.5 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-xs font-semibold transition-colors"
         >
           + Log Inquiry
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {REGULATORY_INQUIRIES.map((inq) => {
-          const days = daysUntil(inq.deadlineDate);
-          return (
+      {state === 'loading' && (
+        <p className="text-xs text-gray-500 py-6 text-center">Loading regulator inquiries...</p>
+      )}
+
+      {state === 'error' && (
+        <div className="rounded-xl border border-red-900 bg-red-950/30 px-4 py-5 text-center">
+          <p className="text-xs text-red-300">Could not load regulator inquiries.</p>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="mt-2 px-3 py-1.5 rounded-lg border border-red-800 text-xs text-red-200 hover:bg-red-900/40"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {state === 'ready' && inquiries.length === 0 && (
+        <p className="text-xs text-gray-500 py-6 text-center">
+          No regulator inquiries on record.
+        </p>
+      )}
+
+      {state === 'ready' && inquiries.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {inquiries.map((inq) => (
             <div key={inq.id} className="rounded-xl border border-gray-800 bg-gray-900 p-4 space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white px-2 py-0.5 rounded bg-[#0A1628] border border-[#C9A84C]/40 text-[#C9A84C]">
-                      {inq.regulator}
+                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-[#0A1628] border border-[#C9A84C]/40 text-[#C9A84C]">
+                      {MATTER_TYPE_LABELS[inq.matterType]}
                     </span>
-                    <span className="font-mono text-[10px] text-gray-500">{inq.caseRef}</span>
+                    {/* Absent rather than faked when the agency issued none. */}
+                    <span className="font-mono text-[10px] text-gray-500">
+                      {inq.referenceNumber ?? 'No reference number'}
+                    </span>
                   </div>
-                  <p className="text-sm font-medium text-gray-100 mt-1">{inq.subject}</p>
+                  <p className="text-sm font-medium text-gray-100 mt-1">{inq.agencyName}</p>
                 </div>
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${regStatusBadge(inq.status)}`}>
-                  {inq.status}
+                  {STATUS_LABELS[inq.status]}
                 </span>
               </div>
+
+              <p className="text-xs text-gray-400 line-clamp-2">{inq.description}</p>
 
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[10px] text-gray-500">Deadline</p>
-                  <p className="text-sm font-semibold text-gray-200 tabular-nums">{inq.deadlineDate}</p>
+                  <p className="text-sm font-semibold text-gray-200 tabular-nums">
+                    {inq.responseDueDate ? inq.responseDueDate.slice(0, 10) : '—'}
+                  </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] text-gray-500">Days remaining</p>
-                  <p className={`text-xl font-black tabular-nums ${deadlineColor(days)}`}>{days}</p>
+                  <p className="text-[10px] text-gray-500">Status</p>
+                  <p
+                    className={`text-xs font-bold ${
+                      inq.isOverdue
+                        ? 'text-red-400'
+                        : inq.daysUntilDeadline === null
+                          ? 'text-gray-500'
+                          : deadlineColor(inq.daysUntilDeadline)
+                    }`}
+                  >
+                    {deadlineLabel(inq)}
+                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>{inq.attachments} attachments</span>
-                <div className="flex gap-2">
-                  {/* Same: neither action is wired to anything. */}
-                  <button
-                    type="button"
-                    disabled
-                    title="Uploading inquiry attachments is not implemented yet"
-                    className="text-gray-600 cursor-not-allowed"
-                  >
-                    Upload
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    title="Responding to an inquiry is not implemented yet"
-                    className="text-gray-600 cursor-not-allowed"
-                  >
-                    Respond
-                  </button>
-                </div>
-              </div>
+              {inq.assignedCounsel && (
+                <p className="text-[11px] text-gray-500">Counsel: {inq.assignedCounsel}</p>
+              )}
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {showLog && (
+        <LogInquiryModal onClose={() => setShowLog(false)} onCreated={() => void load()} />
+      )}
     </div>
   );
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ComplaintsPage() {
   const [complaints, setComplaints] = useState<Complaint[]>(INITIAL_COMPLAINTS);
@@ -769,7 +1050,10 @@ export default function ComplaintsPage() {
 
   const open       = clientFiltered.filter((c) => c.status === 'Open' || c.status === 'Escalated').length;
   const critical   = clientFiltered.filter((c) => c.severity === 'Critical').length;
-  const regulatory = REGULATORY_INQUIRIES.filter((r) => r.status !== 'Closed').length;
+  // Reported by the inquiries panel once it has loaded, rather than counted
+  // from a constant. Null until then: "0 open matters" is a claim, and it was
+  // previously a fixed 3 regardless of what the tenant actually had.
+  const [regulatory, setRegulatory] = useState<number | null>(null);
 
   const handleExportCSV = () => {
     const headers = ['ID', 'Client', 'Category', 'Severity', 'Status', 'Submitted', 'SLA Due', 'Description', 'Root Cause', 'Assignee'];
@@ -847,7 +1131,12 @@ export default function ComplaintsPage() {
         ].map((c) => (
           <div key={c.label} className="rounded-xl border border-gray-800 bg-gray-900 p-4 space-y-1">
             <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">{c.label}</p>
-            <p className={`text-3xl font-black tabular-nums ${c.color}`}>{c.value}</p>
+            {/* A null count renders as an em dash, not as blank space: the
+                inquiries panel reports its figure once loaded, and an empty
+                slot where a number belongs reads as a rendering fault. */}
+            <p className={`text-3xl font-black tabular-nums ${c.color}`}>
+              {c.value === null ? '—' : c.value}
+            </p>
           </div>
         ))}
       </div>
@@ -887,7 +1176,7 @@ export default function ComplaintsPage() {
 
       {/* ── Regulatory Inquiries ────────────────────────────────── */}
       <section aria-label="Regulatory Inquiries">
-        <RegulatoryInquiries />
+        <RegulatoryInquiries onOpenCountChange={setRegulatory} />
       </section>
 
       {/* ── Log Complaint Modal ─────────────────────────────────── */}

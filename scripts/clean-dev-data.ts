@@ -102,6 +102,25 @@ async function main(): Promise<void> {
 
   console.log(`\nledger events total      : ${allEvents.length}`);
 
+  // ── Regulator inquiries left by the browser suite ───────
+  //
+  // The log-inquiry spec writes a real inquiry every run, tagged with an
+  // E2E- reference in its title. They have no businessId, so the
+  // non-seeded-business sweep above never reaches them and they accumulate
+  // one per run — which then inflates the "Active Reg. Inquiries" figure on
+  // the complaints page.
+  const e2eInquiries = await prisma.regulatoryAlert.findMany({
+    where: { title: { contains: 'Inquiry — E2E-' } },
+    select: { id: true, title: true },
+  });
+
+  if (e2eInquiries.length > 0) {
+    console.log(`
+e2e regulator inquiries    : ${e2eInquiries.length}`);
+    for (const inq of e2eInquiries.slice(0, 5)) console.log(`   drop  ${inq.title}`);
+    if (e2eInquiries.length > 5) console.log(`   ...and ${e2eInquiries.length - 5} more`);
+  }
+
   if (!apply) {
     // In a dry run the child rows still exist, so orphan detection would
     // under-report. Report only what can be counted honestly.
@@ -175,6 +194,12 @@ async function main(): Promise<void> {
     })).count);
 
     note('businesses', (await prisma.business.deleteMany({ where: { id: { in: ids } } })).count);
+  }
+
+  if (e2eInquiries.length > 0) {
+    note('e2eRegulatorInquiries', (await prisma.regulatoryAlert.deleteMany({
+      where: { id: { in: e2eInquiries.map((i) => i.id) } },
+    })).count);
   }
 
   // ── Sweep whatever is still orphaned ────────────────────
