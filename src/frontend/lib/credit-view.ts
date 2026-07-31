@@ -300,10 +300,12 @@ export function toTradelines(data: unknown): TradelineView[] {
         approved: status !== 'closed',
         credit_limit: typeof r['creditLimit'] === 'number' ? r['creditLimit'] : 0,
         balance: typeof r['balance'] === 'number' ? r['balance'] : 0,
-        // Payment history is not modelled, so no counts are asserted. The
-        // component renders 0/0 as "no payment history on record".
-        payments_made: 0,
-        payments_total: 0,
+        // Real payment history. `payments_made` counts those confirmed paid by
+        // their due date; the total counts every payment logged. A payment
+        // with no known due date is in the total but not the on-time count,
+        // because an unknown must not be presented as paid on time.
+        payments_made: typeof r['onTimeCount'] === 'number' ? r['onTimeCount'] : 0,
+        payments_total: typeof r['paymentCount'] === 'number' ? r['paymentCount'] : 0,
         status: tradelineStatus(status, reportsTo),
         reportsTo,
         disputeCount: disputes,

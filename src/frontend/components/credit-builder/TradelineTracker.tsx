@@ -662,6 +662,9 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
           creditLimit: isApproved ? limit : 0,
           reportsTo: form.reportingBureaus ?? [],
           openedDate: form.appliedDate || undefined,
+          // Collected by the form and previously dropped; it is what makes
+          // an on-time determination possible for later payments.
+          paymentTerms: form.paymentTerms ? form.paymentTerms.toLowerCase().replace('-', '_') : undefined,
           status: isApproved ? 'open' : 'closed',
         },
       });
@@ -675,6 +678,45 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
         info.type === 'auth_required'
           ? 'Your session has expired. Sign in again to add a tradeline.'
           : 'Could not add the tradeline. Nothing was saved.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleLogPayment(form: LogPaymentForm) {
+    if (!clientId || !paymentTarget) return;
+
+    const amount = parseFloat(form.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a payment amount greater than zero.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Persisted against the tradeline, which also reduces its balance.
+      // This used to update local state only, showing a payment that was not
+      // on the account and vanished on the next refresh.
+      await loadJson(`/api/credit-builder/${clientId}/tradeline-payments`, {
+        method: 'POST',
+        body: {
+          tradelineId: paymentTarget.id,
+          amount,
+          paidOn: form.date || undefined,
+          method: form.paymentMethod || undefined,
+        },
+      });
+
+      await refetch();
+      setPaymentTarget(null);
+      toast.success('Payment logged');
+    } catch (err) {
+      const info = toLoadError(err);
+      toast.error(
+        info.type === 'auth_required'
+          ? 'Your session has expired. Sign in again to log a payment.'
+          : 'Could not log the payment. Nothing was saved.',
       );
     } finally {
       setSaving(false);
@@ -852,14 +894,7 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
           <LogPaymentModal
             vendorName={paymentTarget.vendor}
             onClose={() => setPaymentTarget(null)}
-            onSubmit={() => {
-              // There is no endpoint for logging a payment against a
-              // tradeline, so nothing can be recorded. Updating local state
-              // would show a payment that is not on the account and would
-              // disappear on the next refresh.
-              setPaymentTarget(null);
-              toast.error('Logging payments is not available yet — nothing was recorded.');
-            }}
+            onSubmit={(form) => { void handleLogPayment(form); }}
           />
         )}
       </div>

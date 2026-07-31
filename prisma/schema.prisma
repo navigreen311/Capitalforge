@@ -1429,6 +1429,8 @@ model VendorTradeline {
   vendor              String
   creditLimit         Decimal?
   balance             Decimal  @default(0)
+  /** net_30 | net_60 | net_90 — how long after a charge payment is due. */
+  paymentTerms        String?
   status              String   @default("open") // open | closed | delinquent
   /** Bureaus this vendor reports to, e.g. ["D&B","Experian"] */
   reportsTo           Json?
@@ -1438,6 +1440,7 @@ model VendorTradeline {
 
   business            Business @relation(fields: [businessId], references: [id])
   disputes            TradelineDispute[]
+  payments            TradelinePayment[]
 
   @@index([businessId, status])
   @@index([tenantId])
@@ -1511,4 +1514,31 @@ model SmsMessage {
   @@index([businessId, sentAt])
   @@index([providerSid])
   @@map("sms_messages")
+}
+
+model TradelinePayment {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  tradelineId         String
+  amount              Decimal
+  paidOn              DateTime
+  /** When it was due. Null when the caller could not say. */
+  dueOn               DateTime?
+  /**
+   * Whether it was paid by the due date.
+   *
+   * Null when no due date was known — for a vendor tradeline the whole point
+   * is the on-time record that builds PAYDEX, so an unknown must not be
+   * recorded as on time.
+   */
+  onTime              Boolean?
+  method              String?
+  note                String?
+  createdAt           DateTime @default(now())
+
+  tradeline           VendorTradeline @relation(fields: [tradelineId], references: [id], onDelete: Cascade)
+
+  @@index([tradelineId, paidOn])
+  @@index([tenantId])
+  @@map("tradeline_payments")
 }

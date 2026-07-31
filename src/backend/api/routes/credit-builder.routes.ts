@@ -7,6 +7,7 @@
 //   GET  /api/credit-builder/:clientId/tradelines         — vendor tradelines
 //   POST /api/credit-builder/:clientId/tradelines         — open a tradeline
 //   POST /api/credit-builder/:clientId/tradeline-disputes — dispute a tradeline
+//   POST /api/credit-builder/:clientId/tradeline-payments  — log a payment
 //
 // Tradelines and disputes are persisted. They previously lived in two
 // process-memory objects, so anything a client added disappeared on the next
@@ -94,6 +95,13 @@ function rangeFor(scoreType: string | null): string | null {
 }
 
 const TRADELINE_STATUSES = new Set(['open', 'closed', 'delinquent']);
+
+/** Vendor terms, and the days each allows before a charge is due. */
+const PAYMENT_TERMS: Record<string, number> = {
+  net_30: 30,
+  net_60: 60,
+  net_90: 90,
+};
 
 // ── GET /scores ──────────────────────────────────────────────
 
@@ -197,7 +205,10 @@ creditBuilderRouter.get(
 
       const tradelines = await prisma.vendorTradeline.findMany({
         where: { businessId: clientId, tenantId },
-        include: { disputes: { orderBy: { filedAt: 'desc' } } },
+        include: {
+          disputes: { orderBy: { filedAt: 'desc' } },
+          payments: { orderBy: { paidOn: 'desc' } },
+        },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -211,8 +222,24 @@ creditBuilderRouter.get(
             creditLimit: num(t.creditLimit),
             balance: Number(t.balance),
             status: t.status,
+            paymentTerms: t.paymentTerms,
             reportsTo: t.reportsTo ?? [],
             openedDate: t.openedDate?.toISOString() ?? null,
+            // Payment history is what a vendor tradeline exists to build, so
+            // it is reported alongside the line rather than summarised away.
+            payments: t.payments.map((p) => ({
+              id: p.id,
+              amount: Number(p.amount),
+              paidOn: p.paidOn.toISOString(),
+              dueOn: p.dueOn?.toISOString() ?? null,
+              onTime: p.onTime,
+              method: p.method,
+            })),
+            paymentCount: t.payments.length,
+            // Counted only where a due date was known: an unknown must not be
+            // added to an on-time record.
+            onTimeCount: t.payments.filter((p) => p.onTime === true).length,
+            latePaymentCount: t.payments.filter((p) => p.onTime === false).length,
             disputes: t.disputes.map((d) => ({
               id: d.id,
               reason: d.reason,
@@ -238,7 +265,8 @@ creditBuilderRouter.post(
   async (req: Request, res: Response): Promise<void> => {
     const clientId = param(req, 'clientId');
     const tenantId = getTenantId(req);
-    const { vendor, creditLimit, reportsTo, openedDate, status } = req.body as Record<string, unknown>;
+    const { vendor, creditLimit, reportsTo, openedDate, status, paymentTerms } =
+      req.body as Record<string, unknown>;
 
     if (!vendor || typeof vendor !== 'string' || !vendor.trim()) {
       err(res, 422, 'VALIDATION_ERROR', 'vendor (string) is required.');
@@ -247,6 +275,20 @@ creditBuilderRouter.post(
 
     if (status !== undefined && (typeof status !== 'string' || !TRADELINE_STATUSES.has(status))) {
       err(res, 422, 'VALIDATION_ERROR', `status must be one of: ${[...TRADELINE_STATUSES].join(', ')}.`);
+      return;
+    }
+
+    if (
+      paymentTerms !== undefined &&
+      paymentTerms !== null &&
+      (typeof paymentTerms !== 'string' || !(paymentTerms in PAYMENT_TERMS))
+    ) {
+      err(
+        res,
+        422,
+        'VALIDATION_ERROR',
+        `paymentTerms must be one of: ${Object.keys(PAYMENT_TERMS).join(', ')}.`,
+      );
       return;
     }
 
@@ -262,6 +304,7 @@ creditBuilderRouter.post(
           businessId: clientId,
           vendor: vendor.trim(),
           creditLimit: typeof creditLimit === 'number' ? new Prisma.Decimal(creditLimit) : null,
+          paymentTerms: typeof paymentTerms === 'string' ? paymentTerms : null,
           status: typeof status === 'string' ? status : 'open',
           reportsTo: Array.isArray(reportsTo)
             ? (reportsTo as Prisma.InputJsonValue)
@@ -278,6 +321,7 @@ creditBuilderRouter.post(
         creditLimit: num(tradeline.creditLimit),
         balance: Number(tradeline.balance),
         status: tradeline.status,
+        paymentTerms: tradeline.paymentTerms,
         reportsTo: tradeline.reportsTo ?? [],
         openedDate: tradeline.openedDate?.toISOString() ?? null,
       });
@@ -335,6 +379,116 @@ creditBuilderRouter.post(
     } catch (error) {
       logger.error('Failed to file tradeline dispute', { clientId, tenantId, error });
       err(res, 500, 'DISPUTE_CREATE_FAILED', 'Unable to file the dispute.');
+    }
+  },
+);
+
+// ── POST /tradeline-payments ─────────────────────────────────
+
+creditBuilderRouter.post(
+  '/:clientId/tradeline-payments',
+  async (req: Request, res: Response): Promise<void> => {
+    const clientId = param(req, 'clientId');
+    const tenantId = getTenantId(req);
+    const { tradelineId, amount, paidOn, dueOn, method, note } = req.body as Record<string, unknown>;
+
+    if (!tradelineId || typeof tradelineId !== 'string') {
+      err(res, 422, 'VALIDATION_ERROR', 'tradelineId (string) is required.');
+      return;
+    }
+
+    const parsedAmount = typeof amount === 'number' ? amount : Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      err(res, 422, 'VALIDATION_ERROR', 'amount must be a positive number.');
+      return;
+    }
+
+    const paidDate = paidOn ? new Date(paidOn as string) : new Date();
+    if (isNaN(paidDate.getTime())) {
+      err(res, 422, 'VALIDATION_ERROR', 'paidOn must be a valid date.');
+      return;
+    }
+
+    let dueDate: Date | null = null;
+    if (dueOn) {
+      dueDate = new Date(dueOn as string);
+      if (isNaN(dueDate.getTime())) {
+        err(res, 422, 'VALIDATION_ERROR', 'dueOn must be a valid date.');
+        return;
+      }
+    }
+
+    try {
+      // Scoped to the caller's client, or a payment could be logged against
+      // another tenant's tradeline by id.
+      const tradeline = await prisma.vendorTradeline.findFirst({
+        where: { id: tradelineId, businessId: clientId, tenantId },
+      });
+
+      if (!tradeline) {
+        err(res, 404, 'TRADELINE_NOT_FOUND', `No tradeline "${tradelineId}" for this client.`);
+        return;
+      }
+
+      // Fall back to the vendor's terms when no due date was supplied: net-30
+      // means the charge was due 30 days after the line was opened.
+      if (!dueDate && tradeline.paymentTerms && tradeline.openedDate) {
+        const days = PAYMENT_TERMS[tradeline.paymentTerms];
+        if (days !== undefined) {
+          dueDate = new Date(tradeline.openedDate.getTime() + days * 86_400_000);
+        }
+      }
+
+      // Null rather than true when nothing says when it was due. On-time
+      // history is the entire value of a vendor tradeline, so an unknown must
+      // not be recorded as a payment made on time.
+      const onTime = dueDate ? paidDate.getTime() <= dueDate.getTime() : null;
+
+      const [payment, updated] = await prisma.$transaction([
+        prisma.tradelinePayment.create({
+          data: {
+            tenantId,
+            tradelineId,
+            amount: new Prisma.Decimal(parsedAmount),
+            paidOn: paidDate,
+            dueOn: dueDate,
+            onTime,
+            method: typeof method === 'string' ? method : null,
+            note: typeof note === 'string' ? note : null,
+          },
+        }),
+        prisma.vendorTradeline.update({
+          where: { id: tradelineId },
+          data: {
+            // Never below zero: an overpayment is not a negative balance.
+            balance: new Prisma.Decimal(
+              Math.max(0, Number(tradeline.balance) - parsedAmount),
+            ),
+          },
+        }),
+      ]);
+
+      logger.info('Tradeline payment logged', {
+        clientId,
+        tenantId,
+        tradelineId,
+        paymentId: payment.id,
+        onTime,
+      });
+
+      created(res, {
+        id: payment.id,
+        tradelineId: payment.tradelineId,
+        amount: Number(payment.amount),
+        paidOn: payment.paidOn.toISOString(),
+        dueOn: payment.dueOn?.toISOString() ?? null,
+        onTime: payment.onTime,
+        method: payment.method,
+        balanceAfter: Number(updated.balance),
+      });
+    } catch (error) {
+      logger.error('Failed to log tradeline payment', { clientId, tenantId, error });
+      err(res, 500, 'PAYMENT_CREATE_FAILED', 'Unable to log the payment.');
     }
   },
 );
