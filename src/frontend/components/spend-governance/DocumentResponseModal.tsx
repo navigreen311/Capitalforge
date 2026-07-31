@@ -263,7 +263,7 @@ export function DocumentResponseModal({
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {isEditing ? (
-            <textarea
+            <textarea aria-label="Response letter text"
               ref={textareaRef}
               value={editableText}
               onChange={(e) => setEditableText(e.target.value)}

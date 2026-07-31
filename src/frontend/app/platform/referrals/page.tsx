@@ -314,8 +314,8 @@ export default function PlatformReferralsPage() {
 
             {/* Business Name */}
             <div>
-              <label className="text-xs text-gray-400 block mb-1">Business Name</label>
-              <input
+              <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-referrals-business-name">Business Name</label>
+              <input id="platform-referrals-business-name"
                 value={formBusinessName}
                 onChange={(e) => setFormBusinessName(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
@@ -326,8 +326,8 @@ export default function PlatformReferralsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Referring Advisor */}
               <div>
-                <label className="text-xs text-gray-400 block mb-1">Referring Advisor</label>
-                <select
+                <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-referrals-referring-advisor">Referring Advisor</label>
+                <select id="platform-referrals-referring-advisor"
                   value={formAdvisor}
                   onChange={(e) => setFormAdvisor(e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#C9A84C]"
@@ -341,8 +341,8 @@ export default function PlatformReferralsPage() {
 
               {/* Source */}
               <div>
-                <label className="text-xs text-gray-400 block mb-1">Source</label>
-                <select
+                <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-referrals-source">Source</label>
+                <select id="platform-referrals-source"
                   value={formSource}
                   onChange={(e) => setFormSource(e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#C9A84C]"
@@ -357,8 +357,8 @@ export default function PlatformReferralsPage() {
 
             {/* Referral Date */}
             <div>
-              <label className="text-xs text-gray-400 block mb-1">Referral Date</label>
-              <input
+              <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-referrals-referral-date">Referral Date</label>
+              <input id="platform-referrals-referral-date"
                 type="date"
                 value={formDate}
                 onChange={(e) => setFormDate(e.target.value)}
@@ -368,8 +368,8 @@ export default function PlatformReferralsPage() {
 
             {/* Notes */}
             <div>
-              <label className="text-xs text-gray-400 block mb-1">Notes</label>
-              <textarea
+              <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-referrals-notes">Notes</label>
+              <textarea id="platform-referrals-notes"
                 value={formNotes}
                 onChange={(e) => setFormNotes(e.target.value)}
                 rows={3}

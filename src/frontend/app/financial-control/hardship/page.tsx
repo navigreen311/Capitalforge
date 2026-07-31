@@ -1030,7 +1030,7 @@ export default function FinancialControlHardshipPage() {
               {/* Workout notes */}
               <div>
                 <p className="text-xs text-gray-500 uppercase mb-2 font-semibold">Workout Notes</p>
-                <textarea
+                <textarea aria-label="Enter workout proposal details, negotiation notes, or resolution plan"
                   value={editingNotes}
                   onChange={(e) => setEditingNotes(e.target.value)}
                   rows={4}
@@ -1092,10 +1092,10 @@ export default function FinancialControlHardshipPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-hardship-at-risk-client">
                   At-Risk Client
                 </label>
-                <select
+                <select id="financial-control-hardship-at-risk-client"
                   value={newCaseClient}
                   onChange={(e) => setNewCaseClient(e.target.value)}
                   className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
@@ -1110,10 +1110,10 @@ export default function FinancialControlHardshipPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-hardship-hardship-flag-type">
                   Hardship Flag Type
                 </label>
-                <select
+                <select id="financial-control-hardship-hardship-flag-type"
                   value={newCaseFlag}
                   onChange={(e) => setNewCaseFlag(e.target.value as HardshipFlag)}
                   className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
@@ -1125,10 +1125,10 @@ export default function FinancialControlHardshipPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-hardship-total-debt-at-risk">
                   Total Debt at Risk ($)
                 </label>
-                <input
+                <input id="financial-control-hardship-total-debt-at-risk"
                   type="number"
                   min={0}
                   value={newCaseDebtAtRisk}
@@ -1167,10 +1167,10 @@ export default function FinancialControlHardshipPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-hardship-initial-proposed-resolution">
                   Initial Proposed Resolution
                 </label>
-                <select
+                <select id="financial-control-hardship-initial-proposed-resolution"
                   value={newCaseResolution}
                   onChange={(e) => setNewCaseResolution(e.target.value as ProposedResolution)}
                   className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
@@ -1182,10 +1182,10 @@ export default function FinancialControlHardshipPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+                <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-hardship-initial-notes">
                   Initial Notes
                 </label>
-                <textarea
+                <textarea id="financial-control-hardship-initial-notes"
                   value={newCaseNotes}
                   onChange={(e) => setNewCaseNotes(e.target.value)}
                   rows={4}
@@ -1249,7 +1249,7 @@ export default function FinancialControlHardshipPage() {
             {/* Proposal content — read-only during generation, editable after */}
             <div className="flex-1 overflow-hidden mb-4">
               {proposalDone ? (
-                <textarea
+                <textarea aria-label="Workout proposal text"
                   value={proposalDisplayed}
                   onChange={(e) => setProposalDisplayed(e.target.value)}
                   className="w-full h-full min-h-[350px] rounded-lg bg-gray-800 border border-gray-700 px-4 py-3 text-sm text-gray-100 font-mono leading-relaxed placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] resize-none"

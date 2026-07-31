@@ -152,7 +152,7 @@ export function OptimizerClientSelector({
       {/* Search combobox (hidden when a client is selected) */}
       {!selectedClient && (
         <div className="relative">
-          <input
+          <input aria-label="Search client to auto-populate"
             ref={inputRef}
             type="text"
             value={query}

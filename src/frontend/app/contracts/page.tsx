@@ -670,7 +670,7 @@ export default function ContractsPage() {
 
       {/* Client selector */}
       <div className="mb-4">
-        <select
+        <select aria-label="Select client"
           value={selectedClient}
           onChange={(e) => setSelectedClient(e.target.value)}
           className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -863,8 +863,8 @@ export default function ContractsPage() {
           {/* Contract selectors + Compare button */}
           <div className="flex flex-wrap gap-4 mb-5 p-4 rounded-xl border border-gray-800 bg-gray-900 items-end">
             <div className="flex-1 min-w-[200px]">
-              <label className="block text-2xs text-gray-400 uppercase tracking-wide mb-1 font-semibold">Contract A</label>
-              <select
+              <label className="block text-2xs text-gray-400 uppercase tracking-wide mb-1 font-semibold" htmlFor="contracts-contract-a">Contract A</label>
+              <select id="contracts-contract-a"
                 value={compareA}
                 onChange={(e) => { setCompareA(e.target.value); setComparisonActive(false); }}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -875,8 +875,8 @@ export default function ContractsPage() {
               </select>
             </div>
             <div className="flex-1 min-w-[200px]">
-              <label className="block text-2xs text-gray-400 uppercase tracking-wide mb-1 font-semibold">Contract B</label>
-              <select
+              <label className="block text-2xs text-gray-400 uppercase tracking-wide mb-1 font-semibold" htmlFor="contracts-contract-b">Contract B</label>
+              <select id="contracts-contract-b"
                 value={compareB}
                 onChange={(e) => { setCompareB(e.target.value); setComparisonActive(false); }}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"

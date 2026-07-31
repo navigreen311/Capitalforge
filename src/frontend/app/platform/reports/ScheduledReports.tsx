@@ -5,7 +5,7 @@
 // delivery schedules with add/edit modal, active toggle, delete.
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useId } from 'react';
 import { useToast } from '@/components/global/ToastProvider';
 
 // ── Types ────────────────────────────────────────────────────
@@ -179,12 +179,17 @@ export default function ScheduledReports() {
     onChange: (v: T) => void;
     options: { value: T; label: string }[];
   }) {
+    const selectId = useId();
     return (
       <div>
-        <label className="block text-xs text-gray-400 font-medium mb-1.5 uppercase tracking-wide">
+        <label
+          htmlFor={selectId}
+          className="block text-xs text-gray-400 font-medium mb-1.5 uppercase tracking-wide"
+        >
           {label}
         </label>
         <select
+          id={selectId}
           value={value}
           onChange={(e) => onChange(e.target.value as T)}
           className="w-full bg-[#111c33] border border-gray-700/50 rounded-lg px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-[#C9A84C] appearance-none"
@@ -412,10 +417,10 @@ export default function ScheduledReports() {
 
               {/* Recipients */}
               <div>
-                <label className="block text-xs text-gray-400 font-medium mb-1.5 uppercase tracking-wide">
+                <label className="block text-xs text-gray-400 font-medium mb-1.5 uppercase tracking-wide" htmlFor="platform-reports-scheduledreports-recipients">
                   Recipients
                 </label>
-                <input
+                <input id="platform-reports-scheduledreports-recipients"
                   type="text"
                   value={formRecipients}
                   onChange={(e) => setFormRecipients(e.target.value)}

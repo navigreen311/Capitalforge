@@ -184,10 +184,10 @@ export default function PlatformDataLineagePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Business Selector */}
           <div>
-            <label className="block text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">
+            <label className="block text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide" htmlFor="platform-data-lineage-business-client">
               Business / Client
             </label>
-            <select
+            <select id="platform-data-lineage-business-client"
               value={selectedBizId}
               onChange={(e) => {
                 setSelectedBizId(e.target.value);
@@ -206,10 +206,10 @@ export default function PlatformDataLineagePage() {
 
           {/* Event Type Filter */}
           <div>
-            <label className="block text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">
+            <label className="block text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide" htmlFor="platform-data-lineage-filter-by-event-type">
               Filter by Event Type
             </label>
-            <select
+            <select id="platform-data-lineage-filter-by-event-type"
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
               disabled={!selectedBizId}

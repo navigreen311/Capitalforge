@@ -213,8 +213,8 @@ export default function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: 
         <div className="space-y-4">
           {/* Client */}
           <div>
-            <label className={labelBase}>Client Name</label>
-            <select
+            <label className={labelBase} htmlFor="components-billing-generateinvoicemodal-client-name">Client Name</label>
+            <select id="components-billing-generateinvoicemodal-client-name"
               value={form.client}
               onChange={(e) => handleClientChange(e.target.value)}
               className={`${inputBase} ${errors.client ? 'border-red-500' : 'border-gray-700'}`}
@@ -229,8 +229,8 @@ export default function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: 
 
           {/* Deal Structure */}
           <div>
-            <label className={labelBase}>Deal Structure</label>
-            <select
+            <label className={labelBase} htmlFor="components-billing-generateinvoicemodal-deal-structure">Deal Structure</label>
+            <select id="components-billing-generateinvoicemodal-deal-structure"
               value={form.dealStructure}
               onChange={(e) => setForm({ ...form, dealStructure: e.target.value as DealStructure })}
               className={`${inputBase} border-gray-700`}
@@ -256,8 +256,8 @@ export default function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: 
 
           {/* Funding Amount */}
           <div>
-            <label className={labelBase}>Funding Amount (USD)</label>
-            <input
+            <label className={labelBase} htmlFor="components-billing-generateinvoicemodal-funding-amount-usd">Funding Amount (USD)</label>
+            <input id="components-billing-generateinvoicemodal-funding-amount-usd"
               type="number"
               value={form.fundingAmount}
               onChange={(e) => {
@@ -290,8 +290,8 @@ export default function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: 
 
           {/* Due Date */}
           <div>
-            <label className={labelBase}>Due Date</label>
-            <input
+            <label className={labelBase} htmlFor="components-billing-generateinvoicemodal-due-date">Due Date</label>
+            <input id="components-billing-generateinvoicemodal-due-date"
               type="date"
               value={form.dueDate}
               onChange={(e) => {
@@ -305,8 +305,8 @@ export default function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: 
 
           {/* Description */}
           <div>
-            <label className={labelBase}>Description</label>
-            <textarea
+            <label className={labelBase} htmlFor="components-billing-generateinvoicemodal-description">Description</label>
+            <textarea id="components-billing-generateinvoicemodal-description"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder="Invoice description..."
@@ -361,14 +361,14 @@ export default function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: 
 
               {/* Add custom line item */}
               <div className="border-t border-gray-700 px-3 py-2 flex items-center gap-2">
-                <input
+                <input aria-label="Additional item"
                   type="text"
                   value={newLineLabel}
                   onChange={(e) => setNewLineLabel(e.target.value)}
                   placeholder="Additional item..."
                   className="flex-1 bg-transparent border-none text-xs text-gray-300 placeholder-gray-600 focus:outline-none"
                 />
-                <input
+                <input aria-label="0.00"
                   type="number"
                   value={newLineAmount}
                   onChange={(e) => setNewLineAmount(e.target.value)}

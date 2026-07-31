@@ -314,7 +314,7 @@ export function RoundActivityTimeline({ roundId }: RoundActivityTimelineProps) {
               <div className="mt-4 pt-4 border-t border-gray-100">
                 {showNoteForm ? (
                   <div className="space-y-3">
-                    <textarea
+                    <textarea aria-label="Add a note about this round"
                       value={noteText}
                       onChange={(e) => setNoteText(e.target.value)}
                       placeholder="Add a note about this round..."

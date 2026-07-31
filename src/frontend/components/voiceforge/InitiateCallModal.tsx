@@ -151,7 +151,7 @@ export function InitiateCallModal({
                 {clientName}
               </div>
             ) : (
-              <input
+              <input aria-label="Enter client name"
                 type="text"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
@@ -169,7 +169,7 @@ export function InitiateCallModal({
                 {purpose}
               </div>
             ) : (
-              <select
+              <select aria-label="Call purpose"
                 value={purpose}
                 onChange={(e) => setPurpose(e.target.value)}
                 style={inputStyle}
@@ -183,8 +183,8 @@ export function InitiateCallModal({
 
           {/* Advisor */}
           <div>
-            <label style={labelStyle}>Advisor</label>
-            <select
+            <label style={labelStyle} htmlFor="components-voiceforge-initiatecallmodal-advisor">Advisor</label>
+            <select id="components-voiceforge-initiatecallmodal-advisor"
               value={advisor}
               onChange={(e) => setAdvisor(e.target.value)}
               style={inputStyle}

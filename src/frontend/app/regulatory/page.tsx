@@ -457,8 +457,8 @@ export default function RegulatoryPage() {
 
             {/* Notes */}
             <div className="mb-4">
-              <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">Notes</label>
-              <textarea
+              <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5" htmlFor="regulatory-notes">Notes</label>
+              <textarea id="regulatory-notes"
                 value={alertNotes}
                 onChange={(e) => setAlertNotes(e.target.value)}
                 placeholder="Add internal notes..."
@@ -529,8 +529,8 @@ export default function RegulatoryPage() {
             </div>
 
             <div className="mb-4">
-              <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">Rationale</label>
-              <textarea
+              <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5" htmlFor="regulatory-rationale">Rationale</label>
+              <textarea id="regulatory-rationale"
                 value={flowRationale}
                 onChange={(e) => setFlowRationale(e.target.value)}
                 placeholder="Explain classification rationale..."
@@ -566,8 +566,8 @@ export default function RegulatoryPage() {
 
       {/* ── Client Selector ───────────────────────────────── */}
       <div className="mb-6">
-        <label className="block text-xs text-gray-400 uppercase font-semibold tracking-wide mb-1.5">Client</label>
-        <select
+        <label className="block text-xs text-gray-400 uppercase font-semibold tracking-wide mb-1.5" htmlFor="regulatory-client">Client</label>
+        <select id="regulatory-client"
           value={selectedClient}
           onChange={(e) => {
             setSelectedClient(e.target.value);

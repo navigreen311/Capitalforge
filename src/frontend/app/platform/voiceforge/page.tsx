@@ -737,7 +737,7 @@ export default function VoiceForgePage() {
                       )}
                     </button>
                     <div className="flex-1">
-                      <input
+                      <input aria-label="Seek position"
                         type="range"
                         min={0}
                         max={recordingDuration}
@@ -860,15 +860,15 @@ export default function VoiceForgePage() {
       <ModalShell open={!!pauseModalCampaign} onClose={() => { setPauseModalCampaign(null); setPauseReason(''); setPauseResumeDate(''); }} title="Pause Campaign">
         <div className="space-y-4">
           <div>
-            <label className={labelClass}>Reason for Pause</label>
-            <select value={pauseReason} onChange={(e) => setPauseReason(e.target.value)} className={selectClass}>
+            <label className={labelClass} htmlFor="platform-voiceforge-reason-for-pause">Reason for Pause</label>
+            <select id="platform-voiceforge-reason-for-pause" value={pauseReason} onChange={(e) => setPauseReason(e.target.value)} className={selectClass}>
               <option value="">Select a reason...</option>
               {PAUSE_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
           <div>
-            <label className={labelClass}>Resume Date (optional)</label>
-            <input type="date" value={pauseResumeDate} onChange={(e) => setPauseResumeDate(e.target.value)} className={inputClass} />
+            <label className={labelClass} htmlFor="platform-voiceforge-resume-date-optional">Resume Date (optional)</label>
+            <input id="platform-voiceforge-resume-date-optional" type="date" value={pauseResumeDate} onChange={(e) => setPauseResumeDate(e.target.value)} className={inputClass} />
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => { setPauseModalCampaign(null); setPauseReason(''); setPauseResumeDate(''); }} className={btnSecondary}>Cancel</button>
@@ -904,12 +904,12 @@ export default function VoiceForgePage() {
       <ModalShell open={!!ackModalFlag} onClose={() => { setAckModalFlag(null); setFlagReviewer(''); setFlagNotes(''); }} title="Acknowledge Flag">
         <div className="space-y-4">
           <div>
-            <label className={labelClass}>Reviewer Name</label>
-            <input value={flagReviewer} onChange={(e) => setFlagReviewer(e.target.value)} placeholder="Enter reviewer name" className={inputClass} />
+            <label className={labelClass} htmlFor="platform-voiceforge-reviewer-name">Reviewer Name</label>
+            <input id="platform-voiceforge-reviewer-name" value={flagReviewer} onChange={(e) => setFlagReviewer(e.target.value)} placeholder="Enter reviewer name" className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>Notes (optional)</label>
-            <textarea value={flagNotes} onChange={(e) => setFlagNotes(e.target.value)} rows={3} placeholder="Add notes..." className={inputClass} />
+            <label className={labelClass} htmlFor="platform-voiceforge-notes-optional">Notes (optional)</label>
+            <textarea id="platform-voiceforge-notes-optional" value={flagNotes} onChange={(e) => setFlagNotes(e.target.value)} rows={3} placeholder="Add notes..." className={inputClass} />
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => { setAckModalFlag(null); setFlagReviewer(''); setFlagNotes(''); }} className={btnSecondary}>Cancel</button>
@@ -921,15 +921,15 @@ export default function VoiceForgePage() {
       <ModalShell open={!!resolveModalFlag} onClose={() => { setResolveModalFlag(null); setFlagResolutionAction(''); setFlagNotes(''); }} title="Resolve Flag">
         <div className="space-y-4">
           <div>
-            <label className={labelClass}>Resolution Action</label>
-            <select value={flagResolutionAction} onChange={(e) => setFlagResolutionAction(e.target.value)} className={selectClass}>
+            <label className={labelClass} htmlFor="platform-voiceforge-resolution-action">Resolution Action</label>
+            <select id="platform-voiceforge-resolution-action" value={flagResolutionAction} onChange={(e) => setFlagResolutionAction(e.target.value)} className={selectClass}>
               <option value="">Select action...</option>
               {RESOLUTION_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
           <div>
-            <label className={labelClass}>Notes (optional)</label>
-            <textarea value={flagNotes} onChange={(e) => setFlagNotes(e.target.value)} rows={3} placeholder="Add notes..." className={inputClass} />
+            <label className={labelClass} htmlFor="platform-voiceforge-notes-optional-2">Notes (optional)</label>
+            <textarea id="platform-voiceforge-notes-optional-2" value={flagNotes} onChange={(e) => setFlagNotes(e.target.value)} rows={3} placeholder="Add notes..." className={inputClass} />
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => { setResolveModalFlag(null); setFlagResolutionAction(''); setFlagNotes(''); }} className={btnSecondary}>Cancel</button>
@@ -944,23 +944,23 @@ export default function VoiceForgePage() {
       <ModalShell open={remediationModalOpen} onClose={() => setRemediationModalOpen(false)} title="Assign Remediation — Sam Delgado">
         <div className="space-y-4">
           <div>
-            <label className={labelClass}>Remediation Type</label>
-            <select value={remediationType} onChange={(e) => setRemediationType(e.target.value)} className={selectClass}>
+            <label className={labelClass} htmlFor="platform-voiceforge-remediation-type">Remediation Type</label>
+            <select id="platform-voiceforge-remediation-type" value={remediationType} onChange={(e) => setRemediationType(e.target.value)} className={selectClass}>
               <option value="">Select type...</option>
               {REMEDIATION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div>
-            <label className={labelClass}>Assigned Officer</label>
-            <input value={remediationOfficer} onChange={(e) => setRemediationOfficer(e.target.value)} placeholder="Enter officer name" className={inputClass} />
+            <label className={labelClass} htmlFor="platform-voiceforge-assigned-officer">Assigned Officer</label>
+            <input id="platform-voiceforge-assigned-officer" value={remediationOfficer} onChange={(e) => setRemediationOfficer(e.target.value)} placeholder="Enter officer name" className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>Due Date</label>
-            <input type="date" value={remediationDueDate} onChange={(e) => setRemediationDueDate(e.target.value)} className={inputClass} />
+            <label className={labelClass} htmlFor="platform-voiceforge-due-date">Due Date</label>
+            <input id="platform-voiceforge-due-date" type="date" value={remediationDueDate} onChange={(e) => setRemediationDueDate(e.target.value)} className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>Notes (optional)</label>
-            <textarea value={remediationNotes} onChange={(e) => setRemediationNotes(e.target.value)} rows={3} placeholder="Additional context..." className={inputClass} />
+            <label className={labelClass} htmlFor="platform-voiceforge-notes-optional-3">Notes (optional)</label>
+            <textarea id="platform-voiceforge-notes-optional-3" value={remediationNotes} onChange={(e) => setRemediationNotes(e.target.value)} rows={3} placeholder="Additional context..." className={inputClass} />
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setRemediationModalOpen(false)} className={btnSecondary}>Cancel</button>
@@ -977,37 +977,37 @@ export default function VoiceForgePage() {
           <div className="space-y-4">
             <div>
               <label className={labelClass}>Campaign Name</label>
-              <input value={ncName} onChange={(e) => setNcName(e.target.value)} placeholder="e.g., Q2 Balance Transfer Push" className={inputClass} />
+              <input aria-label="Campaign Name" value={ncName} onChange={(e) => setNcName(e.target.value)} placeholder="e.g., Q2 Balance Transfer Push" className={inputClass} />
             </div>
             <div>
               <label className={labelClass}>Campaign Type</label>
-              <select value={ncType} onChange={(e) => setNcType(e.target.value)} className={selectClass}>
+              <select aria-label="Campaign Type" value={ncType} onChange={(e) => setNcType(e.target.value)} className={selectClass}>
                 <option value="">Select type...</option>
                 {CAMPAIGN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelClass}>Target Segment</label>
-              <input value={ncSegment} onChange={(e) => setNcSegment(e.target.value)} placeholder="e.g., High balance multi-card holders" className={inputClass} />
+              <label className={labelClass} htmlFor="platform-voiceforge-target-segment">Target Segment</label>
+              <input id="platform-voiceforge-target-segment" value={ncSegment} onChange={(e) => setNcSegment(e.target.value)} placeholder="e.g., High balance multi-card holders" className={inputClass} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className={labelClass}>Max Calls</label>
-                <input type="number" value={ncMaxCalls} onChange={(e) => setNcMaxCalls(e.target.value)} placeholder="500" className={inputClass} />
+                <label className={labelClass} htmlFor="platform-voiceforge-max-calls">Max Calls</label>
+                <input id="platform-voiceforge-max-calls" type="number" value={ncMaxCalls} onChange={(e) => setNcMaxCalls(e.target.value)} placeholder="500" className={inputClass} />
               </div>
               <div>
-                <label className={labelClass}>Daily Limit</label>
-                <input type="number" value={ncDailyLimit} onChange={(e) => setNcDailyLimit(e.target.value)} placeholder="50" className={inputClass} />
+                <label className={labelClass} htmlFor="platform-voiceforge-daily-limit">Daily Limit</label>
+                <input id="platform-voiceforge-daily-limit" type="number" value={ncDailyLimit} onChange={(e) => setNcDailyLimit(e.target.value)} placeholder="50" className={inputClass} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className={labelClass}>Start Date</label>
-                <input type="date" value={ncStartDate} onChange={(e) => setNcStartDate(e.target.value)} className={inputClass} />
+                <label className={labelClass} htmlFor="platform-voiceforge-start-date">Start Date</label>
+                <input id="platform-voiceforge-start-date" type="date" value={ncStartDate} onChange={(e) => setNcStartDate(e.target.value)} className={inputClass} />
               </div>
               <div>
-                <label className={labelClass}>End Date</label>
-                <input type="date" value={ncEndDate} onChange={(e) => setNcEndDate(e.target.value)} className={inputClass} />
+                <label className={labelClass} htmlFor="platform-voiceforge-end-date">End Date</label>
+                <input id="platform-voiceforge-end-date" type="date" value={ncEndDate} onChange={(e) => setNcEndDate(e.target.value)} className={inputClass} />
               </div>
             </div>
             <div className="flex justify-end pt-2">
@@ -1018,8 +1018,8 @@ export default function VoiceForgePage() {
         {newCampaignStep === 2 && (
           <div className="space-y-4">
             <div>
-              <label className={labelClass}>Script Selection</label>
-              <select value={ncScript} onChange={(e) => setNcScript(e.target.value)} className={selectClass}>
+              <label className={labelClass} htmlFor="platform-voiceforge-script-selection">Script Selection</label>
+              <select id="platform-voiceforge-script-selection" value={ncScript} onChange={(e) => setNcScript(e.target.value)} className={selectClass}>
                 <option value="">Select script...</option>
                 {SCRIPT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>

@@ -363,8 +363,8 @@ NOW, THEREFORE, in consideration of the mutual promises and covenants herein, th
             <div className="space-y-4">
               <p className="text-sm text-gray-300 mb-3">Update the terms for the renewed contract.</p>
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">New Expiry Date</label>
-                <input
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-contracts-new-expiry-date">New Expiry Date</label>
+                <input id="compliance-contracts-new-expiry-date"
                   type="date"
                   value={newExpiry}
                   onChange={(e) => setNewExpiry(e.target.value)}
@@ -372,8 +372,8 @@ NOW, THEREFORE, in consideration of the mutual promises and covenants herein, th
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Amount</label>
-                <input
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-contracts-amount">Amount</label>
+                <input id="compliance-contracts-amount"
                   type="text"
                   value={newAmount}
                   onChange={(e) => setNewAmount(e.target.value)}
@@ -381,8 +381,8 @@ NOW, THEREFORE, in consideration of the mutual promises and covenants herein, th
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Notice Period</label>
-                <select
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-contracts-notice-period">Notice Period</label>
+                <select id="compliance-contracts-notice-period"
                   value={newNoticePeriod}
                   onChange={(e) => setNewNoticePeriod(e.target.value)}
                   className="w-full rounded-lg bg-[#0A1628] border border-gray-700 text-gray-200 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"
@@ -428,7 +428,7 @@ NOW, THEREFORE, in consideration of the mutual promises and covenants herein, th
           {step === 3 && (
             <div className="space-y-3">
               <p className="text-sm text-gray-300 mb-1">Review and edit the generated renewal agreement.</p>
-              <textarea
+              <textarea aria-label="Generated contract text"
                 value={generatedText}
                 onChange={(e) => setGeneratedText(e.target.value)}
                 rows={18}
@@ -754,8 +754,8 @@ export default function ContractsPage() {
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Business Name</label>
-                <input
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-contracts-business-name">Business Name</label>
+                <input id="compliance-contracts-business-name"
                   type="text"
                   value={uploadForm.businessName}
                   onChange={(e) => setUploadForm((f) => ({ ...f, businessName: e.target.value }))}
@@ -764,8 +764,8 @@ export default function ContractsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Contract Type</label>
-                <select
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-contracts-contract-type">Contract Type</label>
+                <select id="compliance-contracts-contract-type"
                   value={uploadForm.contractType}
                   onChange={(e) => setUploadForm((f) => ({ ...f, contractType: e.target.value }))}
                   className="w-full rounded-lg bg-[#0A1628] border border-gray-700 text-gray-200 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"
@@ -777,8 +777,8 @@ export default function ContractsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">File Name</label>
-                <input
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-contracts-file-name">File Name</label>
+                <input id="compliance-contracts-file-name"
                   type="text"
                   value={uploadForm.fileName}
                   onChange={(e) => setUploadForm((f) => ({ ...f, fileName: e.target.value }))}

@@ -131,7 +131,7 @@ function AddNoteModal({ isOpen, onClose, onSave, isSaving }: AddNoteModalProps) 
           </button>
         </div>
 
-        <textarea
+        <textarea aria-label="Add a note about this client"
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
           placeholder="Add a note about this client..."
@@ -347,7 +347,7 @@ export function TimelineTab({ clientId }: TimelineTabProps) {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input
+            <input aria-label="Search events"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}

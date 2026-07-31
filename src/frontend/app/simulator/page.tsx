@@ -596,35 +596,35 @@ function ScenarioBuilder({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">FICO Score</label>
-          <input type="number" min={300} max={850} value={input.fico} onChange={set('fico')}
+          <label className="text-xs text-gray-400 font-medium" htmlFor="simulator-fico-score">FICO Score</label>
+          <input id="simulator-fico-score" type="number" min={300} max={850} value={input.fico} onChange={set('fico')}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]" />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Annual Revenue ($)</label>
-          <input type="number" value={input.revenue} onChange={set('revenue')}
+          <label className="text-xs text-gray-400 font-medium" htmlFor="simulator-annual-revenue">Annual Revenue ($)</label>
+          <input id="simulator-annual-revenue" type="number" value={input.revenue} onChange={set('revenue')}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]" />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Debt-to-Income Ratio (%)</label>
-          <input type="number" min={0} max={100} value={input.debt} onChange={set('debt')}
+          <label className="text-xs text-gray-400 font-medium" htmlFor="simulator-debt-to-income-ratio">Debt-to-Income Ratio (%)</label>
+          <input id="simulator-debt-to-income-ratio" type="number" min={0} max={100} value={input.debt} onChange={set('debt')}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]" />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Capital Target ($)</label>
-          <input type="number" value={input.target} onChange={set('target')}
+          <label className="text-xs text-gray-400 font-medium" htmlFor="simulator-capital-target">Capital Target ($)</label>
+          <input id="simulator-capital-target" type="number" value={input.target} onChange={set('target')}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]" />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Industry</label>
-          <select value={input.industry} onChange={set('industry')}
+          <label className="text-xs text-gray-400 font-medium" htmlFor="simulator-industry">Industry</label>
+          <select id="simulator-industry" value={input.industry} onChange={set('industry')}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
             {INDUSTRIES.map((ind) => <option key={ind}>{ind}</option>)}
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Horizon (months)</label>
-          <select value={input.months} onChange={set('months')}
+          <label className="text-xs text-gray-400 font-medium" htmlFor="simulator-horizon-months">Horizon (months)</label>
+          <select id="simulator-horizon-months" value={input.months} onChange={set('months')}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
             {['6', '12', '18', '24', '36'].map((m) => <option key={m}>{m}</option>)}
           </select>

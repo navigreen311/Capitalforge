@@ -499,8 +499,8 @@ function DisputeModal({
         </p>
         <div className="space-y-4">
           <div>
-            <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Dispute Reason</label>
-            <select
+            <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-dispute-reason">Dispute Reason</label>
+            <select id="referrals-dispute-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value as DisputeReason)}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -514,8 +514,8 @@ function DisputeModal({
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Description</label>
-            <textarea
+            <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-description">Description</label>
+            <textarea id="referrals-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
@@ -638,7 +638,7 @@ function AddReferralModal({
           <div className="space-y-4">
             <div>
               <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Client</label>
-              <select
+              <select aria-label="Client"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -648,8 +648,8 @@ function AddReferralModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Partner</label>
-              <select
+              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-partner">Partner</label>
+              <select id="referrals-partner"
                 value={partnerName}
                 onChange={(e) => setPartnerName(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -660,8 +660,8 @@ function AddReferralModal({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Source Type</label>
-                <select
+                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-source-type">Source Type</label>
+                <select id="referrals-source-type"
                   value={sourceType}
                   onChange={(e) => setSourceType(e.target.value as SourceType)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -672,8 +672,8 @@ function AddReferralModal({
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Channel</label>
-                <select
+                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-channel">Channel</label>
+                <select id="referrals-channel"
                   value={channel}
                   onChange={(e) => setChannel(e.target.value as Channel)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -685,8 +685,8 @@ function AddReferralModal({
               </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Date Referred</label>
-              <input
+              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-date-referred">Date Referred</label>
+              <input id="referrals-date-referred"
                 type="date"
                 value={referredAt}
                 onChange={(e) => setReferredAt(e.target.value)}
@@ -1037,7 +1037,7 @@ export default function ReferralsPage() {
 
       {/* Client Selector */}
       <div className="mb-4">
-        <select
+        <select aria-label="Filter by client"
           value={clientFilter}
           onChange={(e) => setClientFilter(e.target.value)}
           className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500 min-w-[260px]"
@@ -1105,7 +1105,7 @@ export default function ReferralsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-5">
-        <input
+        <input aria-label="Search client or partner"
           type="text"
           placeholder="Search client or partner..."
           value={search}
@@ -1113,7 +1113,7 @@ export default function ReferralsPage() {
           className="flex-1 min-w-[200px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-yellow-500"
         />
 
-        <select
+        <select aria-label="Filter by source type"
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value as SourceType | '')}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -1124,7 +1124,7 @@ export default function ReferralsPage() {
           ))}
         </select>
 
-        <select
+        <select aria-label="Filter by channel"
           value={channelFilter}
           onChange={(e) => setChannelFilter(e.target.value as Channel | '')}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -1135,7 +1135,7 @@ export default function ReferralsPage() {
           ))}
         </select>
 
-        <select
+        <select aria-label="Filter by fee status"
           value={feeStatusFilter}
           onChange={(e) => setFeeStatusFilter(e.target.value as FeeStatus | '')}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -1162,7 +1162,7 @@ export default function ReferralsPage() {
           <thead>
             <tr className="bg-gray-900 text-gray-400 text-xs uppercase tracking-wide">
               <th className="text-left px-4 py-3 font-semibold w-10">
-                <input
+                <input aria-label="Select all referrals"
                   type="checkbox"
                   checked={approvedDisplayed.length > 0 && selectedApproved.length === approvedDisplayed.length}
                   onChange={toggleSelectAll}
@@ -1202,7 +1202,7 @@ export default function ReferralsPage() {
                 >
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     {r.feeStatus === 'approved' ? (
-                      <input
+                      <input aria-label="Select referral"
                         type="checkbox"
                         checked={selectedIds.has(r.id)}
                         onChange={() => toggleSelect(r.id)}
@@ -1430,8 +1430,8 @@ export default function ReferralsPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Partner Name</label>
-                <input
+                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-partner-name">Partner Name</label>
+                <input id="referrals-partner-name"
                   type="text"
                   placeholder="Select or type partner name"
                   value={agPartner}
@@ -1440,8 +1440,8 @@ export default function ReferralsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Agreement Type</label>
-                <select
+                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-agreement-type">Agreement Type</label>
+                <select id="referrals-agreement-type"
                   value={agType}
                   onChange={(e) => setAgType(e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -1454,8 +1454,8 @@ export default function ReferralsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Fee Structure</label>
-                  <select
+                  <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-fee-structure">Fee Structure</label>
+                  <select id="referrals-fee-structure"
                     value={agFeeStructure}
                     onChange={(e) => setAgFeeStructure(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -1466,8 +1466,8 @@ export default function ReferralsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Fee Value</label>
-                  <input
+                  <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-fee-value">Fee Value</label>
+                  <input id="referrals-fee-value"
                     type="text"
                     placeholder="e.g. 2% or $1,500"
                     value={agFeeValue}
@@ -1478,8 +1478,8 @@ export default function ReferralsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Effective Date</label>
-                  <input
+                  <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-effective-date">Effective Date</label>
+                  <input id="referrals-effective-date"
                     type="date"
                     value={agEffectiveDate}
                     onChange={(e) => setAgEffectiveDate(e.target.value)}
@@ -1487,8 +1487,8 @@ export default function ReferralsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Expiration Date</label>
-                  <input
+                  <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-expiration-date">Expiration Date</label>
+                  <input id="referrals-expiration-date"
                     type="date"
                     value={agExpirationDate}
                     onChange={(e) => setAgExpirationDate(e.target.value)}
@@ -1497,8 +1497,8 @@ export default function ReferralsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Signatory Name</label>
-                <input
+                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide" htmlFor="referrals-signatory-name">Signatory Name</label>
+                <input id="referrals-signatory-name"
                   type="text"
                   placeholder="Full name of authorized signatory"
                   value={agSignatory}

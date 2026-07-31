@@ -824,7 +824,7 @@ function ClientSelector({
 
   return (
     <div className="relative">
-      <input
+      <input aria-label="Search clients"
         type="text"
         placeholder="Search clients..."
         value={query}

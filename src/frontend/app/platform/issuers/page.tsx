@@ -337,7 +337,7 @@ function EditRulesModal({ issuer, onClose }: { issuer: Issuer; onClose: () => vo
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] text-gray-500 uppercase block mb-1">Rule Name</label>
-                  <input
+                  <input aria-label="Rule Name"
                     type="text"
                     value={rule.name}
                     onChange={(e) => updateRule(rule.id, 'name', e.target.value)}
@@ -347,7 +347,7 @@ function EditRulesModal({ issuer, onClose }: { issuer: Issuer; onClose: () => vo
                 </div>
                 <div>
                   <label className="text-[10px] text-gray-500 uppercase block mb-1">Value / Description</label>
-                  <input
+                  <input aria-label="Value / Description"
                     type="text"
                     value={rule.value}
                     onChange={(e) => updateRule(rule.id, 'value', e.target.value)}

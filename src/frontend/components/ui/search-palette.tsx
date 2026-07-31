@@ -189,7 +189,7 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
             <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
 
-          <input
+          <input aria-label="Go to page"
             ref={inputRef}
             type="text"
             role="combobox"

@@ -78,7 +78,7 @@ export function AskAIWidget() {
 
       {/* Custom input */}
       <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
+        <input aria-label="Ask anything"
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}

@@ -223,7 +223,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
 
-          <input
+          <input aria-label="Search clients, applications, pages"
             ref={inputRef}
             type="text"
             role="combobox"

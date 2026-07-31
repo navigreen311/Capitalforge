@@ -16,6 +16,7 @@ import {
   useMemo,
   useEffect,
   useId,
+  Children,
   cloneElement,
   isValidElement,
   type ReactElement,
@@ -217,27 +218,47 @@ function Field({ label, required, children, error }: {
   const generatedId = useId();
   const errorId = `${generatedId}-error`;
 
-  const control = isValidElement(children)
-    ? cloneElement(children as ReactElement<Record<string, unknown>>, {
-        // A caller that sets its own id keeps it; the label follows.
-        id: (children.props as { id?: string }).id ?? generatedId,
-        // aria-required rather than the native attribute: the wizard is not a
-        // <form>, so native validation would never fire, but it would still
-        // apply :invalid styling to every empty field on arrival.
-        'aria-required': required ? true : undefined,
-        'aria-invalid': error ? true : undefined,
-        // Points the control at its error text, which is what makes the
-        // message reachable rather than merely visible.
-        'aria-describedby': error ? errorId : undefined,
-      })
-    : children;
+  // Walks the children rather than assuming a single one. Several fields pass
+  // the control plus a hint paragraph, and treating `children` as one element
+  // silently skipped those — the field kept its label and lost the
+  // association, with nothing to show for it on screen.
+  const kids = Children.toArray(children);
+  const controlIndex = kids.findIndex(
+    (child) =>
+      isValidElement(child) &&
+      (child.type === 'input' || child.type === 'select' || child.type === 'textarea'),
+  );
 
-  const controlId = isValidElement(children)
-    ? ((children.props as { id?: string }).id ?? generatedId)
-    : generatedId;
+  const controlId =
+    controlIndex === -1
+      ? undefined
+      : ((kids[controlIndex] as ReactElement<{ id?: string }>).props.id ?? generatedId);
+
+  const control =
+    controlIndex === -1
+      ? children
+      : kids.map((child, i) =>
+          i !== controlIndex
+            ? child
+            : cloneElement(child as ReactElement<Record<string, unknown>>, {
+                // A caller that sets its own id keeps it; the label follows.
+                id: controlId,
+                // aria-required rather than the native attribute: the wizard is
+                // not a <form>, so native validation would never fire, but it
+                // would still apply :invalid styling to every empty field on
+                // arrival.
+                'aria-required': required ? true : undefined,
+                'aria-invalid': error ? true : undefined,
+                // Points the control at its error text, which is what makes
+                // the message reachable rather than merely visible.
+                'aria-describedby': error ? errorId : undefined,
+              }),
+        );
 
   return (
     <div>
+      {/* htmlFor is omitted when no control was found, rather than pointing at
+          an id that does not exist. */}
       <label htmlFor={controlId} className="block text-sm font-medium text-gray-300 mb-1">
         {label}
         {/* Decorative: the requirement is conveyed by aria-required, so the

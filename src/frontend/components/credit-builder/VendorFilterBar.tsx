@@ -49,7 +49,7 @@ export function VendorFilterBar({
   return (
     <div className="flex flex-wrap items-center gap-3">
       {/* Tier dropdown */}
-      <select
+      <select aria-label="Filter by tier"
         value={tierFilter}
         onChange={(e) => onTierChange(e.target.value)}
         className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -62,7 +62,7 @@ export function VendorFilterBar({
       </select>
 
       {/* Bureau dropdown */}
-      <select
+      <select aria-label="Filter by bureau"
         value={bureauFilter}
         onChange={(e) => onBureauChange(e.target.value)}
         className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -75,7 +75,7 @@ export function VendorFilterBar({
       </select>
 
       {/* Search input */}
-      <input
+      <input aria-label="Search vendors"
         type="text"
         value={searchQuery}
         onChange={(e) => onSearchChange(e.target.value)}

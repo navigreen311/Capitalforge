@@ -236,35 +236,35 @@ function LogComplaintModal({ open, onClose, onSubmit }: LogModalProps) {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs text-gray-400 mb-1 font-medium">Client</label>
-            <select value={client} onChange={(e) => setClient(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
+            <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-client">Client</label>
+            <select id="complaints-client" value={client} onChange={(e) => setClient(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
               {CLIENTS.map((c) => <option key={c}>{c}</option>)}
             </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-400 mb-1 font-medium">Category</label>
-              <select value={category} onChange={(e) => setCategory(e.target.value as Category)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
+              <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-category">Category</label>
+              <select id="complaints-category" value={category} onChange={(e) => setCategory(e.target.value as Category)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
                 {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1 font-medium">Severity</label>
-              <select value={severity} onChange={(e) => setSeverity(e.target.value as Severity)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
+              <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-severity">Severity</label>
+              <select id="complaints-severity" value={severity} onChange={(e) => setSeverity(e.target.value as Severity)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
                 {SEVERITIES.map((s) => <option key={s}>{s}</option>)}
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-1 font-medium">Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Describe the complaint..." className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-[#C9A84C] resize-none" />
+            <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-description">Description</label>
+            <textarea id="complaints-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Describe the complaint..." className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-[#C9A84C] resize-none" />
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-1 font-medium">Assignee</label>
-            <select value={assignee} onChange={(e) => setAssignee(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
+            <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-assignee">Assignee</label>
+            <select id="complaints-assignee" value={assignee} onChange={(e) => setAssignee(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
               {ADVISORS.map((a) => <option key={a}>{a}</option>)}
             </select>
           </div>
@@ -328,7 +328,7 @@ CapitalForge Compliance Department`;
           <h2 className="text-lg font-bold text-white">Regulatory Response — {complaint.id}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
         </div>
-        <textarea
+        <textarea aria-label="Letter text"
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={20}
@@ -376,14 +376,14 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
-        <input
+        <input aria-label="Search ID, client, category"
           type="text"
           placeholder="Search ID, client, category..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[200px] px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-[#C9A84C]"
         />
-        <select
+        <select aria-label="Filter by severity"
           value={filterSev}
           onChange={(e) => setFilterSev(e.target.value as Severity | 'All')}
           className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -391,7 +391,7 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
           <option value="All">All Severities</option>
           {SEVERITIES.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <select
+        <select aria-label="Filter by status"
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value as ComplaintStatus | 'All')}
           className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -600,7 +600,7 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
         {/* Root Cause Dropdown */}
         <div className="space-y-1">
           <p className="text-xs text-gray-500 font-medium">Root Cause</p>
-          <select
+          <select aria-label="Root cause"
             value={complaint.rootCause}
             onChange={(e) => handleRootCauseChange(e.target.value)}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-amber-300 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -785,8 +785,8 @@ export default function ComplaintsPage() {
 
       {/* ── Client Selector ─────────────────────────────────────── */}
       <div className="flex items-center gap-3">
-        <label className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Client</label>
-        <select
+        <label className="text-xs text-gray-500 uppercase tracking-wider font-semibold" htmlFor="complaints-client-2">Client</label>
+        <select id="complaints-client-2"
           value={selectedClient}
           onChange={(e) => setSelectedClient(e.target.value)}
           className="px-4 py-2 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm font-medium focus:outline-none focus:border-[#C9A84C] min-w-[200px]"

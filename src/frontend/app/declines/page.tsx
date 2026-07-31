@@ -524,7 +524,7 @@ function LetterGeneratorModal({
           </p>
 
           {isEditing ? (
-            <textarea
+            <textarea aria-label="Letter text"
               value={editableText}
               onChange={(e) => setEditableText(e.target.value)}
               className="w-full text-xs text-gray-300 bg-gray-950 rounded-lg p-4 font-mono leading-relaxed border border-[#C9A84C]/40 focus:border-[#C9A84C] focus:outline-none resize-none"
@@ -706,7 +706,7 @@ function AdverseActionParser({
               : <>Drop adverse action notice here, or <span className="text-yellow-500 underline">browse files</span></>}
         </p>
         <p className="text-xs text-gray-600 mt-1">PDF, PNG, JPG accepted</p>
-        <input
+        <input aria-label="Upload adverse action notice"
           ref={fileRef}
           type="file"
           accept=".pdf,.png,.jpg,.jpeg"
@@ -881,8 +881,8 @@ function LogDeclineModal({
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {/* Client — searchable dropdown */}
           <div className="relative">
-            <label className={labelCls}>Client *</label>
-            <input
+            <label className={labelCls} htmlFor="declines-client">Client *</label>
+            <input id="declines-client"
               type="text"
               value={clientSearch}
               onChange={(e) => {
@@ -917,8 +917,8 @@ function LogDeclineModal({
 
           {/* Issuer */}
           <div>
-            <label className={labelCls}>Issuer *</label>
-            <select
+            <label className={labelCls} htmlFor="declines-issuer">Issuer *</label>
+            <select id="declines-issuer"
               value={form.issuer}
               onChange={(e) => handleChange('issuer', e.target.value)}
               className={inputCls}
@@ -933,8 +933,8 @@ function LogDeclineModal({
 
           {/* Card Name */}
           <div>
-            <label className={labelCls}>Card Name *</label>
-            <input
+            <label className={labelCls} htmlFor="declines-card-name">Card Name *</label>
+            <input id="declines-card-name"
               type="text"
               value={form.cardName}
               onChange={(e) => handleChange('cardName', e.target.value)}
@@ -947,8 +947,8 @@ function LogDeclineModal({
           <div className="grid grid-cols-2 gap-3">
             {/* Application ID (optional) */}
             <div>
-              <label className={labelCls}>Application ID</label>
-              <input
+              <label className={labelCls} htmlFor="declines-application-id">Application ID</label>
+              <input id="declines-application-id"
                 type="text"
                 value={form.appId}
                 onChange={(e) => handleChange('appId', e.target.value)}
@@ -959,8 +959,8 @@ function LogDeclineModal({
 
             {/* Declined Date */}
             <div>
-              <label className={labelCls}>Declined Date *</label>
-              <input
+              <label className={labelCls} htmlFor="declines-declined-date">Declined Date *</label>
+              <input id="declines-declined-date"
                 type="date"
                 value={form.declinedDate}
                 onChange={(e) => handleChange('declinedDate', e.target.value)}
@@ -972,8 +972,8 @@ function LogDeclineModal({
 
           {/* Decline Reason */}
           <div>
-            <label className={labelCls}>Decline Reason *</label>
-            <select
+            <label className={labelCls} htmlFor="declines-decline-reason">Decline Reason *</label>
+            <select id="declines-decline-reason"
               value={form.reasonCategory}
               onChange={(e) => handleChange('reasonCategory', e.target.value)}
               className={inputCls}
@@ -987,8 +987,8 @@ function LogDeclineModal({
 
           {/* Requested Limit */}
           <div>
-            <label className={labelCls}>Requested Limit</label>
-            <input
+            <label className={labelCls} htmlFor="declines-requested-limit">Requested Limit</label>
+            <input id="declines-requested-limit"
               type="number"
               value={form.requestedLimit || ''}
               onChange={(e) => handleChange('requestedLimit', Number(e.target.value))}
@@ -1000,8 +1000,8 @@ function LogDeclineModal({
 
           {/* Notes */}
           <div>
-            <label className={labelCls}>Notes</label>
-            <textarea
+            <label className={labelCls} htmlFor="declines-notes">Notes</label>
+            <textarea id="declines-notes"
               value={form.notes}
               onChange={(e) => handleChange('notes', e.target.value)}
               placeholder="Additional details about the decline..."
@@ -1361,14 +1361,14 @@ export default function DeclinesPage() {
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h2 className="text-base font-semibold text-gray-200">Decline Records</h2>
           <div className="flex gap-2 flex-wrap">
-            <input
+            <input aria-label="Search business or issuer"
               type="text"
               placeholder="Search business or issuer…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-yellow-600 w-52"
             />
-            <select
+            <select aria-label="Filter by reason"
               value={reasonFilter}
               onChange={(e) => setReasonFilter(e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-yellow-600"
@@ -1378,7 +1378,7 @@ export default function DeclinesPage() {
                 <option key={k} value={k}>{v.label}</option>
               ))}
             </select>
-            <select
+            <select aria-label="Filter by status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-yellow-600"

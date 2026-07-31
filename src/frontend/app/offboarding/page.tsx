@@ -662,7 +662,7 @@ function InterviewDrawer({
           {/* Notes */}
           <div className="mb-6">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Notes</p>
-            <textarea
+            <textarea aria-label="Notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={4}
@@ -814,7 +814,7 @@ function InitiateModal({
             {/* Entity (searchable dropdown) */}
             <div ref={entityRef} className="relative">
               <label className="text-xs text-gray-400 mb-1.5 block font-medium">{type === 'client' ? 'Client Name' : 'Tenant Name'}</label>
-              <input
+              <input aria-label="Search entities"
                 value={entity}
                 onChange={(e) => { setEntity(e.target.value); setEntityOpen(true); }}
                 onFocus={() => setEntityOpen(true)}
@@ -850,8 +850,8 @@ function InitiateModal({
 
             {/* Assignee */}
             <div>
-              <label className="text-xs text-gray-400 mb-1.5 block font-medium">Assignee</label>
-              <select value={assignee} onChange={(e) => setAssignee(e.target.value)}
+              <label className="text-xs text-gray-400 mb-1.5 block font-medium" htmlFor="offboarding-assignee">Assignee</label>
+              <select id="offboarding-assignee" value={assignee} onChange={(e) => setAssignee(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]">
                 {PLACEHOLDER_USERS.map((u) => <option key={u} value={u}>{u}</option>)}
               </select>
@@ -886,8 +886,8 @@ function InitiateModal({
 
             {/* Notes */}
             <div>
-              <label className="text-xs text-gray-400 mb-1.5 block font-medium">Reason / Notes</label>
-              <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
+              <label className="text-xs text-gray-400 mb-1.5 block font-medium" htmlFor="offboarding-reason-notes">Reason / Notes</label>
+              <textarea id="offboarding-reason-notes" value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
                 placeholder="Reason for offboarding (optional)"
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-[#C9A84C] resize-none" />
             </div>
@@ -983,8 +983,8 @@ function ConductInterviewModal({
           <div className="space-y-4">
             {/* Entity */}
             <div ref={entityRef} className="relative">
-              <label className="text-xs text-gray-400 mb-1.5 block font-medium">Entity</label>
-              <input value={entity} onChange={(e) => { setEntity(e.target.value); setEntityOpen(true); }}
+              <label className="text-xs text-gray-400 mb-1.5 block font-medium" htmlFor="offboarding-entity">Entity</label>
+              <input id="offboarding-entity" value={entity} onChange={(e) => { setEntity(e.target.value); setEntityOpen(true); }}
                 onFocus={() => setEntityOpen(true)} placeholder="Search entities..."
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-[#C9A84C]" />
               {entityOpen && filtered.length > 0 && (
@@ -999,16 +999,16 @@ function ConductInterviewModal({
 
             {/* Date */}
             <div>
-              <label className="text-xs text-gray-400 mb-1.5 block font-medium">Date</label>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+              <label className="text-xs text-gray-400 mb-1.5 block font-medium" htmlFor="offboarding-date">Date</label>
+              <input id="offboarding-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]" />
             </div>
 
             {/* NPS Slider */}
             <div>
-              <label className="text-xs text-gray-400 mb-1.5 block font-medium">NPS Score</label>
+              <label className="text-xs text-gray-400 mb-1.5 block font-medium" htmlFor="offboarding-nps-score">NPS Score</label>
               <div className="flex items-center gap-3">
-                <input type="range" min={0} max={10} value={nps} onChange={(e) => setNps(Number(e.target.value))}
+                <input id="offboarding-nps-score" type="range" min={0} max={10} value={nps} onChange={(e) => setNps(Number(e.target.value))}
                   className="flex-1 accent-[#C9A84C]" />
                 <span className={`text-lg font-black w-8 text-center ${npsColor}`}>{nps}</span>
               </div>
@@ -1038,8 +1038,8 @@ function ConductInterviewModal({
 
             {/* Notes */}
             <div>
-              <label className="text-xs text-gray-400 mb-1.5 block font-medium">Notes</label>
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+              <label className="text-xs text-gray-400 mb-1.5 block font-medium" htmlFor="offboarding-notes">Notes</label>
+              <textarea id="offboarding-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
                 placeholder="Interview notes..."
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-[#C9A84C] resize-none" />
             </div>
@@ -1081,7 +1081,7 @@ function EarlyDeletionModal({ dataClass, onClose, onToast }: { dataClass: string
       <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
         <h3 className="text-md font-bold text-white mb-4">Request Early Deletion</h3>
         <p className="text-xs text-gray-400 mb-3">Data class: <span className="text-gray-200">{dataClass}</span></p>
-        <textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={3}
+        <textarea aria-label="Justification for early deletion" value={justification} onChange={(e) => setJustification(e.target.value)} rows={3}
           placeholder="Justification for early deletion..."
           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-[#C9A84C] resize-none mb-4" />
         <div className="flex gap-3">
@@ -1119,23 +1119,23 @@ function AddDataClassModal({ onClose, onAdd }: { onClose: () => void; onAdd: (r:
         <h3 className="text-md font-bold text-white mb-4">Add Data Class</h3>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-gray-400 mb-1 block font-medium">Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)}
+            <label className="text-xs text-gray-400 mb-1 block font-medium" htmlFor="offboarding-name">Name</label>
+            <input id="offboarding-name" value={name} onChange={(e) => setName(e.target.value)}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]" />
           </div>
           <div>
-            <label className="text-xs text-gray-400 mb-1 block font-medium">Retention Period (years)</label>
-            <input type="number" min={1} max={99} value={years} onChange={(e) => setYears(Number(e.target.value))}
+            <label className="text-xs text-gray-400 mb-1 block font-medium" htmlFor="offboarding-retention-period-years">Retention Period (years)</label>
+            <input id="offboarding-retention-period-years" type="number" min={1} max={99} value={years} onChange={(e) => setYears(Number(e.target.value))}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]" />
           </div>
           <div>
-            <label className="text-xs text-gray-400 mb-1 block font-medium">Legal Basis</label>
-            <input value={basis} onChange={(e) => setBasis(e.target.value)} placeholder="e.g. GDPR Art. 17"
+            <label className="text-xs text-gray-400 mb-1 block font-medium" htmlFor="offboarding-legal-basis">Legal Basis</label>
+            <input id="offboarding-legal-basis" value={basis} onChange={(e) => setBasis(e.target.value)} placeholder="e.g. GDPR Art. 17"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-[#C9A84C]" />
           </div>
           <div>
-            <label className="text-xs text-gray-400 mb-1 block font-medium">Notes (optional)</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
+            <label className="text-xs text-gray-400 mb-1 block font-medium" htmlFor="offboarding-notes-optional">Notes (optional)</label>
+            <textarea id="offboarding-notes-optional" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C] resize-none" />
           </div>
         </div>

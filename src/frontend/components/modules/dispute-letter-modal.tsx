@@ -250,7 +250,7 @@ export default function DisputeLetterModal({
         {/* Letter content */}
         <div className="flex-1 overflow-auto px-5 py-4">
           {isEditing ? (
-            <textarea
+            <textarea aria-label="Dispute letter text"
               ref={textareaRef}
               value={editableText}
               onChange={(e) => setEditableText(e.target.value)}

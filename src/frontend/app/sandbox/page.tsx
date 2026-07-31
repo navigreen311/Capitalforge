@@ -453,7 +453,7 @@ function ArchetypeGrid({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
-        <input
+        <input aria-label="Search archetypes"
           type="text"
           placeholder="Search archetypes..."
           value={search}
@@ -595,8 +595,8 @@ function PracticeMode({ preselectedArchetype }: { preselectedArchetype: Archetyp
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1">
-              <label className="text-xs text-gray-400 font-medium">Session Type</label>
-              <select
+              <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-session-type">Session Type</label>
+              <select id="sandbox-session-type"
                 value={sessionType}
                 onChange={(e) => setSessionType(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -608,8 +608,8 @@ function PracticeMode({ preselectedArchetype }: { preselectedArchetype: Archetyp
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-400 font-medium">Difficulty</label>
-              <select
+              <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-difficulty">Difficulty</label>
+              <select id="sandbox-difficulty"
                 value={difficulty}
                 onChange={(e) => setDifficulty(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -621,8 +621,8 @@ function PracticeMode({ preselectedArchetype }: { preselectedArchetype: Archetyp
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-400 font-medium">Archetype Pool</label>
-              <select
+              <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-archetype-pool">Archetype Pool</label>
+              <select id="sandbox-archetype-pool"
                 value={archetypePool}
                 onChange={(e) => setArchetypePool(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -949,8 +949,8 @@ function CustomProfileCreator({
 
       <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Profile Name</label>
-          <input
+          <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-profile-name">Profile Name</label>
+          <input id="sandbox-profile-name"
             value={profileName}
             onChange={(e) => setProfileName(e.target.value)}
             placeholder="e.g. Edge Case Alpha"
@@ -958,8 +958,8 @@ function CustomProfileCreator({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">FICO Score</label>
-          <input
+          <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-fico-score">FICO Score</label>
+          <input id="sandbox-fico-score"
             type="number"
             min={300}
             max={850}
@@ -970,8 +970,8 @@ function CustomProfileCreator({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Industry</label>
-          <select
+          <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-industry">Industry</label>
+          <select id="sandbox-industry"
             value={industry}
             onChange={(e) => setIndustry(e.target.value as Industry)}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -980,8 +980,8 @@ function CustomProfileCreator({
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Annual Revenue ($)</label>
-          <input
+          <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-annual-revenue">Annual Revenue ($)</label>
+          <input id="sandbox-annual-revenue"
             type="number"
             value={revenue}
             onChange={(e) => setRevenue(e.target.value)}
@@ -990,8 +990,8 @@ function CustomProfileCreator({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Debt-to-Income Ratio (%)</label>
-          <input
+          <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-debt-to-income-ratio">Debt-to-Income Ratio (%)</label>
+          <input id="sandbox-debt-to-income-ratio"
             type="number"
             min={0}
             max={100}
@@ -1002,8 +1002,8 @@ function CustomProfileCreator({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Business Age (years)</label>
-          <input
+          <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-business-age-years">Business Age (years)</label>
+          <input id="sandbox-business-age-years"
             type="number"
             min={0}
             value={businessAge}
@@ -1013,8 +1013,8 @@ function CustomProfileCreator({
           />
         </div>
         <div className="sm:col-span-2 lg:col-span-3 space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Notes</label>
-          <textarea
+          <label className="text-xs text-gray-400 font-medium" htmlFor="sandbox-notes">Notes</label>
+          <textarea id="sandbox-notes"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

@@ -828,7 +828,7 @@ export default function SpendGovernancePage() {
                   <td className="px-4 py-3 max-w-xs" onClick={(e) => e.stopPropagation()}>
                     {editingPurposeId === t.id ? (
                       <div className="flex items-center gap-1">
-                        <input
+                        <input aria-label="Enter business purpose"
                           type="text"
                           value={editingPurposeValue}
                           onChange={(e) => setEditingPurposeValue(e.target.value)}

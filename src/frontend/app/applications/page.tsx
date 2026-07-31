@@ -421,7 +421,7 @@ export default function ApplicationsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Application Pipeline</h1>
         <div className="flex gap-2">
-          <input
+          <input aria-label="Search"
             type="text"
             placeholder="Search..."
             value={search}

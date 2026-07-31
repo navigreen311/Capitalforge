@@ -675,8 +675,8 @@ export default function DecisionsPage() {
 
       {/* Client Selector */}
       <div className="mb-6 flex items-center gap-3">
-        <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Client</label>
-        <select
+        <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold" htmlFor="decisions-client">Client</label>
+        <select id="decisions-client"
           value={selectedClient}
           onChange={(e) => setSelectedClient(e.target.value)}
           className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#C9A84C] min-w-[260px]"
@@ -747,7 +747,7 @@ export default function DecisionsPage() {
         <div>
           {/* Filters */}
           <div className="flex flex-wrap gap-3 mb-4">
-            <select
+            <select aria-label="Filter by module"
               value={moduleFilter}
               onChange={(e) => setModuleFilter(e.target.value as ModuleSource | 'all')}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-blue-500"
@@ -757,7 +757,7 @@ export default function DecisionsPage() {
                 <option key={m} value={m}>{MODULE_LABELS[m]}</option>
               ))}
             </select>
-            <select
+            <select aria-label="Filter by override status"
               value={overrideFilter}
               onChange={(e) => setOverrideFilter(e.target.value as OverrideStatus | 'all')}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-blue-500"

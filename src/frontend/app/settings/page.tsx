@@ -870,20 +870,20 @@ function SettingsPageInner() {
             <h3 className="text-sm font-semibold text-gray-200">Personal Information</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Full Name</label>
-                <input value={profileName} onChange={(e) => setProfileName(e.target.value)} className={inputCls} />
+                <label className={labelCls} htmlFor="settings-full-name">Full Name</label>
+                <input id="settings-full-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} className={inputCls} />
               </div>
               <div>
-                <label className={labelCls}>Email Address</label>
-                <input value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} type="email" className={inputCls} />
+                <label className={labelCls} htmlFor="settings-email-address">Email Address</label>
+                <input id="settings-email-address" value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} type="email" className={inputCls} />
               </div>
               <div>
-                <label className={labelCls}>Phone Number</label>
-                <input value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} className={inputCls} />
+                <label className={labelCls} htmlFor="settings-phone-number">Phone Number</label>
+                <input id="settings-phone-number" value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} className={inputCls} />
               </div>
               <div>
-                <label className={labelCls}>Timezone</label>
-                <select value={profileTimezone} onChange={(e) => setProfileTimezone(e.target.value)} className={inputCls}>
+                <label className={labelCls} htmlFor="settings-timezone">Timezone</label>
+                <select id="settings-timezone" value={profileTimezone} onChange={(e) => setProfileTimezone(e.target.value)} className={inputCls}>
                   {['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'UTC', 'Europe/London'].map((tz) => (
                     <option key={tz} value={tz}>{tz}</option>
                   ))}
@@ -911,8 +911,8 @@ function SettingsPageInner() {
           <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Firm Details</h3>
             <div>
-              <label className={labelCls}>Firm Name</label>
-              <input value={tenantFirm.name} onChange={(e) => setTenantFirm({ ...tenantFirm, name: e.target.value })} className={inputCls} />
+              <label className={labelCls} htmlFor="settings-firm-name">Firm Name</label>
+              <input id="settings-firm-name" value={tenantFirm.name} onChange={(e) => setTenantFirm({ ...tenantFirm, name: e.target.value })} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>Logo</label>
@@ -928,8 +928,8 @@ function SettingsPageInner() {
               </div>
             </div>
             <div>
-              <label className={labelCls}>Address</label>
-              <textarea
+              <label className={labelCls} htmlFor="settings-address">Address</label>
+              <textarea id="settings-address"
                 rows={2}
                 defaultValue="123 Finance District, Suite 400, New York, NY 10005"
                 className={inputCls}
@@ -942,8 +942,8 @@ function SettingsPageInner() {
             <h3 className="text-sm font-semibold text-gray-200">Regulatory &amp; Compliance</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>EIN</label>
-                <input
+                <label className={labelCls} htmlFor="settings-ein">EIN</label>
+                <input id="settings-ein"
                   value={firmEin}
                   onChange={(e) => setFirmEin(e.target.value)}
                   placeholder="XX-XXXXXXX"
@@ -951,8 +951,8 @@ function SettingsPageInner() {
                 />
               </div>
               <div>
-                <label className={labelCls}>Firm License Number</label>
-                <input
+                <label className={labelCls} htmlFor="settings-firm-license-number">Firm License Number</label>
+                <input id="settings-firm-license-number"
                   value={firmLicenseNumber}
                   onChange={(e) => setFirmLicenseNumber(e.target.value)}
                   placeholder="Enter license number"
@@ -960,8 +960,8 @@ function SettingsPageInner() {
                 />
               </div>
               <div>
-                <label className={labelCls}>Website URL</label>
-                <input
+                <label className={labelCls} htmlFor="settings-website-url">Website URL</label>
+                <input id="settings-website-url"
                   value={firmWebsite}
                   onChange={(e) => setFirmWebsite(e.target.value)}
                   placeholder="https://example.com"
@@ -1098,17 +1098,17 @@ function SettingsPageInner() {
           <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Change Password</h3>
             <div>
-              <label className={labelCls}>Current Password</label>
-              <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Enter current password" className={inputCls} />
+              <label className={labelCls} htmlFor="settings-current-password">Current Password</label>
+              <input id="settings-current-password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Enter current password" className={inputCls} />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>New Password</label>
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min 8 characters" className={inputCls} />
+                <label className={labelCls} htmlFor="settings-new-password">New Password</label>
+                <input id="settings-new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min 8 characters" className={inputCls} />
               </div>
               <div>
-                <label className={labelCls}>Confirm New Password</label>
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Re-enter new password" className={inputCls} />
+                <label className={labelCls} htmlFor="settings-confirm-new-password">Confirm New Password</label>
+                <input id="settings-confirm-new-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Re-enter new password" className={inputCls} />
               </div>
             </div>
             <div className="flex justify-end">
@@ -1201,9 +1201,9 @@ function SettingsPageInner() {
                   </div>
                 </div>
                 <div className="border-t border-gray-700/50 pt-4">
-                  <label className="block text-xs font-medium text-gray-400 mb-2">Enter 6-digit verification code</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-2" htmlFor="settings-enter-6-digit-verification-code">Enter 6-digit verification code</label>
                   <div className="flex items-center gap-3">
-                    <input
+                    <input id="settings-enter-6-digit-verification-code"
                       type="text"
                       value={twoFactorCode}
                       onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -1237,8 +1237,8 @@ function SettingsPageInner() {
                   <h3 className="text-sm font-semibold text-gray-200">Disable Two-Factor Authentication</h3>
                   <p className="text-xs text-gray-400">Enter your password to confirm disabling 2FA. This will reduce your account security.</p>
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1.5">Password</label>
-                    <input
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5" htmlFor="settings-password">Password</label>
+                    <input id="settings-password"
                       type="password"
                       value={disablePassword}
                       onChange={(e) => setDisablePassword(e.target.value)}
@@ -1305,8 +1305,8 @@ function SettingsPageInner() {
             <Modal title={`Connect ${apiKeyModal.label}`} onClose={() => { setApiKeyModal(null); setApiKeyInput(''); }}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5">API Key</label>
-                  <input
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5" htmlFor="settings-api-key">API Key</label>
+                  <input id="settings-api-key"
                     type="password"
                     value={apiKeyInput}
                     onChange={(e) => setApiKeyInput(e.target.value)}
@@ -1406,8 +1406,8 @@ function SettingsPageInner() {
             <Modal title="Generate New API Key" onClose={() => setShowNewKeyModal(false)}>
               <div className="space-y-4">
                 <div>
-                  <label className={labelCls}>Key Name</label>
-                  <input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} placeholder="e.g. Mobile App Production" className={inputCls} />
+                  <label className={labelCls} htmlFor="settings-key-name">Key Name</label>
+                  <input id="settings-key-name" value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} placeholder="e.g. Mobile App Production" className={inputCls} />
                 </div>
                 <div>
                   <label className={labelCls}>Scopes</label>
@@ -1428,8 +1428,8 @@ function SettingsPageInner() {
                   </div>
                 </div>
                 <div>
-                  <label className={labelCls}>Expiration</label>
-                  <select
+                  <label className={labelCls} htmlFor="settings-expiration">Expiration</label>
+                  <select id="settings-expiration"
                     value={newKeyExpiration}
                     onChange={(e) => setNewKeyExpiration(e.target.value)}
                     className={inputCls}
@@ -1527,8 +1527,8 @@ function SettingsPageInner() {
           <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Firm Branding</h3>
             <div>
-              <label className={labelCls}>Firm Name</label>
-              <input value={tenantFirm.name} onChange={(e) => setTenantFirm({ ...tenantFirm, name: e.target.value })} className={inputCls} />
+              <label className={labelCls} htmlFor="settings-firm-name-2">Firm Name</label>
+              <input id="settings-firm-name-2" value={tenantFirm.name} onChange={(e) => setTenantFirm({ ...tenantFirm, name: e.target.value })} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>Logo</label>
@@ -1565,16 +1565,16 @@ function SettingsPageInner() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Primary Color</label>
+                <label className={labelCls} htmlFor="settings-primary-color">Primary Color</label>
                 <div className="flex items-center gap-3">
-                  <input type="color" value={tenantFirm.primaryColor} onChange={(e) => setTenantFirm({ ...tenantFirm, primaryColor: e.target.value })} className="h-9 w-16 rounded cursor-pointer bg-transparent border-0" />
+                  <input id="settings-primary-color" type="color" value={tenantFirm.primaryColor} onChange={(e) => setTenantFirm({ ...tenantFirm, primaryColor: e.target.value })} className="h-9 w-16 rounded cursor-pointer bg-transparent border-0" />
                   <span className="text-xs text-gray-400">{tenantFirm.primaryColor}</span>
                 </div>
               </div>
               <div>
-                <label className={labelCls}>Accent Color</label>
+                <label className={labelCls} htmlFor="settings-accent-color">Accent Color</label>
                 <div className="flex items-center gap-3">
-                  <input type="color" value={tenantFirm.accentColor} onChange={(e) => setTenantFirm({ ...tenantFirm, accentColor: e.target.value })} className="h-9 w-16 rounded cursor-pointer bg-transparent border-0" />
+                  <input id="settings-accent-color" type="color" value={tenantFirm.accentColor} onChange={(e) => setTenantFirm({ ...tenantFirm, accentColor: e.target.value })} className="h-9 w-16 rounded cursor-pointer bg-transparent border-0" />
                   <span className="text-xs text-gray-400">{tenantFirm.accentColor}</span>
                 </div>
               </div>
@@ -1586,28 +1586,28 @@ function SettingsPageInner() {
             <h3 className="text-sm font-semibold text-gray-200">Business Settings</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Timezone</label>
-                <select value={tenantBiz.timezone} onChange={(e) => setTenantBiz({ ...tenantBiz, timezone: e.target.value })} className={inputCls}>
+                <label className={labelCls} htmlFor="settings-timezone-2">Timezone</label>
+                <select id="settings-timezone-2" value={tenantBiz.timezone} onChange={(e) => setTenantBiz({ ...tenantBiz, timezone: e.target.value })} className={inputCls}>
                   {['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'UTC', 'Europe/London'].map((tz) => (
                     <option key={tz} value={tz}>{tz}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Currency</label>
-                <select value={tenantBiz.currency} onChange={(e) => setTenantBiz({ ...tenantBiz, currency: e.target.value })} className={inputCls}>
+                <label className={labelCls} htmlFor="settings-currency">Currency</label>
+                <select id="settings-currency" value={tenantBiz.currency} onChange={(e) => setTenantBiz({ ...tenantBiz, currency: e.target.value })} className={inputCls}>
                   {['USD', 'EUR', 'GBP', 'CAD'].map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Business Hours</label>
-                <input value={tenantBiz.hours} onChange={(e) => setTenantBiz({ ...tenantBiz, hours: e.target.value })} className={inputCls} />
+                <label className={labelCls} htmlFor="settings-business-hours">Business Hours</label>
+                <input id="settings-business-hours" value={tenantBiz.hours} onChange={(e) => setTenantBiz({ ...tenantBiz, hours: e.target.value })} className={inputCls} />
               </div>
               <div>
-                <label className={labelCls}>Fiscal Year Start</label>
-                <select value={tenantBiz.fiscalYear} onChange={(e) => setTenantBiz({ ...tenantBiz, fiscalYear: e.target.value })} className={inputCls}>
+                <label className={labelCls} htmlFor="settings-fiscal-year-start">Fiscal Year Start</label>
+                <select id="settings-fiscal-year-start" value={tenantBiz.fiscalYear} onChange={(e) => setTenantBiz({ ...tenantBiz, fiscalYear: e.target.value })} className={inputCls}>
                   {['January', 'February', 'March', 'April', 'July', 'October'].map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
@@ -1620,16 +1620,16 @@ function SettingsPageInner() {
           <div className="rounded-xl border border-gray-700/50 bg-[#0f1b2e] p-6 space-y-5">
             <h3 className="text-sm font-semibold text-gray-200">Email Settings</h3>
             <div>
-              <label className={labelCls}>From Name</label>
-              <input value={tenantEmail.fromName} onChange={(e) => setTenantEmail({ ...tenantEmail, fromName: e.target.value })} className={inputCls} />
+              <label className={labelCls} htmlFor="settings-from-name">From Name</label>
+              <input id="settings-from-name" value={tenantEmail.fromName} onChange={(e) => setTenantEmail({ ...tenantEmail, fromName: e.target.value })} className={inputCls} />
             </div>
             <div>
-              <label className={labelCls}>Reply-To Address</label>
-              <input value={tenantEmail.replyTo} onChange={(e) => setTenantEmail({ ...tenantEmail, replyTo: e.target.value })} className={inputCls} />
+              <label className={labelCls} htmlFor="settings-reply-to-address">Reply-To Address</label>
+              <input id="settings-reply-to-address" value={tenantEmail.replyTo} onChange={(e) => setTenantEmail({ ...tenantEmail, replyTo: e.target.value })} className={inputCls} />
             </div>
             <div>
-              <label className={labelCls}>Email Footer</label>
-              <textarea value={tenantEmail.footer} onChange={(e) => setTenantEmail({ ...tenantEmail, footer: e.target.value })} rows={2} className={inputCls} />
+              <label className={labelCls} htmlFor="settings-email-footer">Email Footer</label>
+              <textarea id="settings-email-footer" value={tenantEmail.footer} onChange={(e) => setTenantEmail({ ...tenantEmail, footer: e.target.value })} rows={2} className={inputCls} />
             </div>
           </div>
 
@@ -1686,16 +1686,16 @@ function SettingsPageInner() {
             <Modal title={`Edit User: ${editUser.name}`} onClose={() => setEditUser(null)}>
               <div className="space-y-4">
                 <div>
-                  <label className={labelCls}>Name</label>
-                  <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className={inputCls} />
+                  <label className={labelCls} htmlFor="settings-name">Name</label>
+                  <input id="settings-name" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className={inputCls} />
                 </div>
                 <div>
-                  <label className={labelCls}>Email</label>
-                  <input value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className={inputCls} />
+                  <label className={labelCls} htmlFor="settings-email">Email</label>
+                  <input id="settings-email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className={inputCls} />
                 </div>
                 <div>
-                  <label className={labelCls}>Role</label>
-                  <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value as UserRole })} className={inputCls}>
+                  <label className={labelCls} htmlFor="settings-role">Role</label>
+                  <select id="settings-role" value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value as UserRole })} className={inputCls}>
                     {ROLE_OPTIONS.map((r) => (
                       <option key={r.value} value={r.value}>{r.label}</option>
                     ))}
@@ -1743,20 +1743,20 @@ function SettingsPageInner() {
             <Modal title="Invite User" onClose={() => setInviteModal(false)}>
               <div className="space-y-4">
                 <div>
-                  <label className={labelCls}>Email Address</label>
-                  <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="user@company.com" className={inputCls} />
+                  <label className={labelCls} htmlFor="settings-email-address-2">Email Address</label>
+                  <input id="settings-email-address-2" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="user@company.com" className={inputCls} />
                 </div>
                 <div>
-                  <label className={labelCls}>Role</label>
-                  <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as UserRole)} className={inputCls}>
+                  <label className={labelCls} htmlFor="settings-role-2">Role</label>
+                  <select id="settings-role-2" value={inviteRole} onChange={(e) => setInviteRole(e.target.value as UserRole)} className={inputCls}>
                     {ROLE_OPTIONS.map((r) => (
                       <option key={r.value} value={r.value}>{r.label}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className={labelCls}>Message (optional)</label>
-                  <textarea value={inviteMessage} onChange={(e) => setInviteMessage(e.target.value)} rows={2} placeholder="Welcome to the team..." className={inputCls} />
+                  <label className={labelCls} htmlFor="settings-message-optional">Message (optional)</label>
+                  <textarea id="settings-message-optional" value={inviteMessage} onChange={(e) => setInviteMessage(e.target.value)} rows={2} placeholder="Welcome to the team..." className={inputCls} />
                 </div>
                 <div className="flex justify-end gap-3 pt-2">
                   <button onClick={() => setInviteModal(false)} className={grayBtn}>Cancel</button>

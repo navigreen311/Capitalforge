@@ -515,7 +515,7 @@ export default function FundingRoundsPage() {
           </div>
 
           {/* Status dropdown */}
-          <select
+          <select aria-label="Filter by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as RoundStatus | '')}
             className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"

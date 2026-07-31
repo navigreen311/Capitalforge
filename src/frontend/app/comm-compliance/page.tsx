@@ -397,7 +397,7 @@ function ScriptsLibrary({
       {/* Controls */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <input
+          <input aria-label="Search scripts by title, keyword, or tag"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -540,7 +540,7 @@ function ClaimsScanner() {
         The scanner checks locally — no external API calls.
       </p>
 
-      <textarea
+      <textarea aria-label="Paste or type a script, email, or call note to scan for banned claims"
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Paste or type a script, email, or call note to scan for banned claims..."
@@ -1005,8 +1005,8 @@ export default function CommCompliancePage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1">Advisor</label>
-                <select
+                <label className="block text-xs text-gray-400 font-semibold mb-1" htmlFor="comm-compliance-advisor">Advisor</label>
+                <select id="comm-compliance-advisor"
                   value={qaAdvisor}
                   onChange={(e) => setQaAdvisor(e.target.value)}
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:border-brand-gold/60"
@@ -1016,8 +1016,8 @@ export default function CommCompliancePage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1">Review Type</label>
-                <select
+                <label className="block text-xs text-gray-400 font-semibold mb-1" htmlFor="comm-compliance-review-type">Review Type</label>
+                <select id="comm-compliance-review-type"
                   value={qaReviewType}
                   onChange={(e) => setQaReviewType(e.target.value)}
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:border-brand-gold/60"
@@ -1031,7 +1031,7 @@ export default function CommCompliancePage() {
               {qaReviewType === 'Call Recording' && (
                 <div>
                   <label className="block text-xs text-gray-400 font-semibold mb-1">Call Reference</label>
-                  <input
+                  <input aria-label="Call Reference"
                     type="text"
                     value={qaCallRef}
                     onChange={(e) => setQaCallRef(e.target.value)}
@@ -1042,8 +1042,8 @@ export default function CommCompliancePage() {
               )}
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1">Reviewer</label>
-                <select
+                <label className="block text-xs text-gray-400 font-semibold mb-1" htmlFor="comm-compliance-reviewer">Reviewer</label>
+                <select id="comm-compliance-reviewer"
                   value={qaReviewer}
                   onChange={(e) => setQaReviewer(e.target.value)}
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:border-brand-gold/60"
@@ -1053,8 +1053,8 @@ export default function CommCompliancePage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1">Priority</label>
-                <select
+                <label className="block text-xs text-gray-400 font-semibold mb-1" htmlFor="comm-compliance-priority">Priority</label>
+                <select id="comm-compliance-priority"
                   value={qaPriority}
                   onChange={(e) => setQaPriority(e.target.value)}
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:border-brand-gold/60"
@@ -1089,8 +1089,8 @@ export default function CommCompliancePage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1">Script Name</label>
-                <input
+                <label className="block text-xs text-gray-400 font-semibold mb-1" htmlFor="comm-compliance-script-name">Script Name</label>
+                <input id="comm-compliance-script-name"
                   type="text"
                   value={newScriptName}
                   onChange={(e) => setNewScriptName(e.target.value)}
@@ -1100,8 +1100,8 @@ export default function CommCompliancePage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1">Category</label>
-                <select
+                <label className="block text-xs text-gray-400 font-semibold mb-1" htmlFor="comm-compliance-category">Category</label>
+                <select id="comm-compliance-category"
                   value={newScriptCategory}
                   onChange={(e) => setNewScriptCategory(e.target.value as ScriptCategory)}
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:border-brand-gold/60"
@@ -1113,8 +1113,8 @@ export default function CommCompliancePage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-1">Content</label>
-                <textarea
+                <label className="block text-xs text-gray-400 font-semibold mb-1" htmlFor="comm-compliance-content">Content</label>
+                <textarea id="comm-compliance-content"
                   value={newScriptContent}
                   onChange={(e) => setNewScriptContent(e.target.value)}
                   placeholder="Type or paste the full script content..."
@@ -1151,7 +1151,7 @@ export default function CommCompliancePage() {
 
       {/* Client Selector */}
       <div className="mb-4">
-        <select
+        <select aria-label="Select client"
           value={selectedClient}
           onChange={(e) => setSelectedClient(e.target.value)}
           className="rounded-lg border border-gray-700 bg-gray-900 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:border-brand-gold/60"

@@ -184,7 +184,7 @@ function ScenarioCard({
             {index + 1}
           </span>
           {editingName ? (
-            <input
+            <input aria-label="Scenario name"
               ref={nameInputRef}
               type="text"
               value={scenario.name}
@@ -216,8 +216,8 @@ function ScenarioCard({
       {/* Inputs */}
       <div className="space-y-3 mb-5">
         <div>
-          <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">Client</label>
-          <select
+          <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-client">Client</label>
+          <select id="financial-control-simulator-client"
             value={scenario.clientId}
             onChange={(e) => onChange({ ...scenario, clientId: e.target.value })}
             className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
@@ -235,8 +235,8 @@ function ScenarioCard({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">Rounds</label>
-            <input
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-rounds">Rounds</label>
+            <input id="financial-control-simulator-rounds"
               type="number"
               min={1}
               max={10}
@@ -246,8 +246,8 @@ function ScenarioCard({
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">Target / Round</label>
-            <input
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-target-round">Target / Round</label>
+            <input id="financial-control-simulator-target-round"
               type="number"
               min={5000}
               step={5000}
@@ -260,8 +260,8 @@ function ScenarioCard({
 
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">Timing (mo)</label>
-            <input
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-timing-mo">Timing (mo)</label>
+            <input id="financial-control-simulator-timing-mo"
               type="number"
               min={1}
               max={36}
@@ -271,8 +271,8 @@ function ScenarioCard({
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">Avg APR %</label>
-            <input
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-avg-apr">Avg APR %</label>
+            <input id="financial-control-simulator-avg-apr"
               type="number"
               min={0}
               max={40}
@@ -283,8 +283,8 @@ function ScenarioCard({
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">Intro (mo)</label>
-            <input
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-intro-mo">Intro (mo)</label>
+            <input id="financial-control-simulator-intro-mo"
               type="number"
               min={0}
               max={24}

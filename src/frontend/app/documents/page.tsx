@@ -410,7 +410,7 @@ export default function DocumentsPage() {
 
       {/* Client selector */}
       <div className="mb-4">
-        <select
+        <select aria-label="Filter by client"
           value={clientSelector}
           onChange={(e) => setClientSelector(e.target.value)}
           className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500 min-w-[240px]"
@@ -452,7 +452,7 @@ export default function DocumentsPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-6">
         <div className="relative flex-1 min-w-[220px]">
-          <input
+          <input aria-label="Search filename, business, document type"
             type="text"
             placeholder="Search filename, business, document type..."
             value={search}
@@ -470,7 +470,7 @@ export default function DocumentsPage() {
           )}
         </div>
 
-        <select
+        <select aria-label="Filter by type"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as DocumentType | '')}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
@@ -481,7 +481,7 @@ export default function DocumentsPage() {
           ))}
         </select>
 
-        <select
+        <select aria-label="Filter by business"
           value={businessFilter}
           onChange={(e) => setBusinessFilter(e.target.value)}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
@@ -547,7 +547,7 @@ export default function DocumentsPage() {
             <thead>
               <tr className="bg-gray-900 text-gray-400 text-xs uppercase tracking-wide">
                 <th className="px-4 py-3 w-10">
-                  <input
+                  <input aria-label="Select all documents"
                     type="checkbox"
                     checked={selectedIds.size === displayed.length && displayed.length > 0}
                     onChange={toggleSelectAll}
@@ -569,7 +569,7 @@ export default function DocumentsPage() {
                 <tr key={doc.id} className={`transition-colors group ${selectedIds.has(doc.id) ? 'bg-blue-950/30' : 'bg-gray-950 hover:bg-gray-900'}`}>
                   {/* Checkbox */}
                   <td className="px-4 py-3">
-                    <input
+                    <input aria-label="Select document"
                       type="checkbox"
                       checked={selectedIds.has(doc.id)}
                       onChange={() => toggleSelect(doc.id)}
@@ -735,7 +735,7 @@ export default function DocumentsPage() {
               }}
               onClick={() => uploadFileRef.current?.click()}
             >
-              <input
+              <input aria-label="Upload document"
                 ref={uploadFileRef}
                 type="file"
                 accept=".pdf,.jpg,.png,.json,.csv,.doc,.docx,.xlsx"

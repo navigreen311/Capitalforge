@@ -247,7 +247,7 @@ export function GenerateDocumentModal({
                   </span>
                   <span className="text-gray-500 text-xs">{wordCount} words</span>
                 </div>
-                <textarea
+                <textarea aria-label="Generated document"
                   ref={textareaRef}
                   readOnly
                   value={displayed}
@@ -265,7 +265,7 @@ export function GenerateDocumentModal({
                   </span>
                   <span className="text-gray-500 text-xs">{wordCount} words</span>
                 </div>
-                <textarea
+                <textarea aria-label="Document content"
                   ref={textareaRef}
                   value={editedContent}
                   onChange={(e) => setEditedContent(e.target.value)}

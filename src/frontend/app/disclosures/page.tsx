@@ -205,8 +205,8 @@ function RejectModal({
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">x</button>
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Rejection Reason</label>
-          <textarea
+          <label className="text-xs text-gray-400 font-medium" htmlFor="disclosures-rejection-reason">Rejection Reason</label>
+          <textarea id="disclosures-rejection-reason"
             rows={3}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -261,14 +261,14 @@ function TemplateLibraryTable({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
-        <input
+        <input aria-label="Search templates"
           type="text"
           placeholder="Search templates..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[180px] px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-[#C9A84C]"
         />
-        <select
+        <select aria-label="Filter by status"
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
           className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -276,7 +276,7 @@ function TemplateLibraryTable({
           <option value="All">All Statuses</option>
           {(['Draft','Pending Approval','Approved','Deprecated'] as DisclosureStatus[]).map((s) => <option key={s}>{s}</option>)}
         </select>
-        <select
+        <select aria-label="Filter by category"
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value as typeof filterCategory)}
           className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -411,8 +411,8 @@ function CreateApproveWorkflow({
             )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1 col-span-2">
-                <label className="text-xs text-gray-400 font-medium">Template Name</label>
-                <input
+                <label className="text-xs text-gray-400 font-medium" htmlFor="disclosures-template-name">Template Name</label>
+                <input id="disclosures-template-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-[#C9A84C]"
@@ -420,8 +420,8 @@ function CreateApproveWorkflow({
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-gray-400 font-medium">State / Jurisdiction</label>
-                <input
+                <label className="text-xs text-gray-400 font-medium" htmlFor="disclosures-state-jurisdiction">State / Jurisdiction</label>
+                <input id="disclosures-state-jurisdiction"
                   value={templateState}
                   onChange={(e) => setTemplateState(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-[#C9A84C]"
@@ -429,8 +429,8 @@ function CreateApproveWorkflow({
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-gray-400 font-medium">Category</label>
-                <select
+                <label className="text-xs text-gray-400 font-medium" htmlFor="disclosures-category">Category</label>
+                <select id="disclosures-category"
                   value={category}
                   onChange={(e) => setCategory(e.target.value as DisclosureCategory)}
                   className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -439,8 +439,8 @@ function CreateApproveWorkflow({
                 </select>
               </div>
               <div className="space-y-1 col-span-2">
-                <label className="text-xs text-gray-400 font-medium">Disclosure Content</label>
-                <textarea
+                <label className="text-xs text-gray-400 font-medium" htmlFor="disclosures-disclosure-content">Disclosure Content</label>
+                <textarea id="disclosures-disclosure-content"
                   rows={5}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
@@ -753,8 +753,8 @@ export default function DisclosuresPage() {
 
       {/* ── Client Selector ────────────────────────────────────── */}
       <div className="flex items-center gap-3">
-        <label className="text-xs text-gray-400 font-medium uppercase tracking-wider">Client</label>
-        <select
+        <label className="text-xs text-gray-400 font-medium uppercase tracking-wider" htmlFor="disclosures-client">Client</label>
+        <select id="disclosures-client"
           value={selectedClient}
           onChange={(e) => setSelectedClient(e.target.value)}
           className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C] min-w-[220px]"

@@ -98,7 +98,7 @@ export function RoundStrategyNotes({ roundId, initialNotes }: RoundStrategyNotes
       >
         {editing ? (
           <div className="space-y-3">
-            <textarea
+            <textarea aria-label="Enter strategy notes for this round"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               rows={6}

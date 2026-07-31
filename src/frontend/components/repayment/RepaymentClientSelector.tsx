@@ -169,7 +169,7 @@ export function RepaymentClientSelector({
       {/* Search combobox (hidden when a client is selected) */}
       {!selectedClient && (
         <div className="relative">
-          <input
+          <input aria-label="Search for a client"
             ref={inputRef}
             type="text"
             value={query}

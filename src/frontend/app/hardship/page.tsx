@@ -649,8 +649,8 @@ export default function HardshipPage() {
 
       {/* Feature 6: Client selector bar */}
       <div className="flex items-center gap-3 rounded-xl border border-gray-800 bg-[#0A1628] px-5 py-3">
-        <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide whitespace-nowrap">Client:</label>
-        <select
+        <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide whitespace-nowrap" htmlFor="hardship-client">Client:</label>
+        <select id="hardship-client"
           value={selectedClientFilter}
           onChange={e => setSelectedClientFilter(e.target.value)}
           className="bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#C9A84C] focus:border-[#C9A84C] min-w-[220px]"
@@ -1321,8 +1321,8 @@ export default function HardshipPage() {
             <div className="p-6 space-y-4">
               {/* Client selector */}
               <div>
-                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Client</label>
-                <select
+                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-client-2">Client</label>
+                <select id="hardship-client-2"
                   value={newCaseClient}
                   onChange={e => setNewCaseClient(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#C9A84C] focus:border-[#C9A84C]"
@@ -1336,8 +1336,8 @@ export default function HardshipPage() {
 
               {/* Severity */}
               <div>
-                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Severity</label>
-                <select
+                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-severity">Severity</label>
+                <select id="hardship-severity"
                   value={newCaseSeverity}
                   onChange={e => setNewCaseSeverity(e.target.value as CaseSeverity)}
                   className="w-full bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#C9A84C] focus:border-[#C9A84C]"
@@ -1350,8 +1350,8 @@ export default function HardshipPage() {
 
               {/* Total debt */}
               <div>
-                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Total Debt ($)</label>
-                <input
+                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-total-debt">Total Debt ($)</label>
+                <input id="hardship-total-debt"
                   type="number"
                   value={newCaseDebt}
                   onChange={e => setNewCaseDebt(e.target.value)}
@@ -1362,8 +1362,8 @@ export default function HardshipPage() {
 
               {/* Reason */}
               <div>
-                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Reason</label>
-                <select
+                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-reason">Reason</label>
+                <select id="hardship-reason"
                   value={newCaseReason}
                   onChange={e => setNewCaseReason(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#C9A84C] focus:border-[#C9A84C]"
@@ -1377,8 +1377,8 @@ export default function HardshipPage() {
 
               {/* Notes */}
               <div>
-                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Notes</label>
-                <textarea
+                <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-notes">Notes</label>
+                <textarea id="hardship-notes"
                   value={newCaseNotes}
                   onChange={e => setNewCaseNotes(e.target.value)}
                   rows={3}
@@ -1422,8 +1422,8 @@ export default function HardshipPage() {
                 <>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Business Name</label>
-                      <input
+                      <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-business-name">Business Name</label>
+                      <input id="hardship-business-name"
                         type="text"
                         value={letterBusiness}
                         onChange={e => setLetterBusiness(e.target.value)}
@@ -1432,8 +1432,8 @@ export default function HardshipPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Issuer</label>
-                      <input
+                      <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-issuer">Issuer</label>
+                      <input id="hardship-issuer"
                         type="text"
                         value={letterIssuer}
                         onChange={e => setLetterIssuer(e.target.value)}
@@ -1442,8 +1442,8 @@ export default function HardshipPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Card Name</label>
-                      <input
+                      <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-card-name">Card Name</label>
+                      <input id="hardship-card-name"
                         type="text"
                         value={letterCardName}
                         onChange={e => setLetterCardName(e.target.value)}
@@ -1452,8 +1452,8 @@ export default function HardshipPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Balance ($)</label>
-                      <input
+                      <label className="block text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1" htmlFor="hardship-balance">Balance ($)</label>
+                      <input id="hardship-balance"
                         type="number"
                         value={letterBalance}
                         onChange={e => setLetterBalance(e.target.value)}
@@ -1476,7 +1476,7 @@ export default function HardshipPage() {
                 </>
               ) : (
                 <>
-                  <textarea
+                  <textarea aria-label="Generated letter"
                     value={generatedLetter}
                     onChange={e => setGeneratedLetter(e.target.value)}
                     rows={20}

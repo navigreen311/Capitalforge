@@ -371,7 +371,7 @@ export default function AiGovernancePage() {
 
       {/* Client Selector */}
       <div className="mb-6">
-        <select
+        <select aria-label="Select client"
           value={selectedClient}
           onChange={(e) => setSelectedClient(e.target.value)}
           className="bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-4 py-2.5 focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C] outline-none cursor-pointer"

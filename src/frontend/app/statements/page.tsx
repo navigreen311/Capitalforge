@@ -716,7 +716,7 @@ function StatementsClientSelector({
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input
+            <input aria-label="Search clients by name, type, or state"
               ref={inputRef}
               type="text"
               value={query}
@@ -1008,8 +1008,8 @@ function UploadModal({ onClose, onImport }: { onClose: () => void; onImport: (st
           {mode === 'manual' && (
             <div className="space-y-3">
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1">Issuer</label>
-                <input
+                <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1" htmlFor="statements-issuer">Issuer</label>
+                <input id="statements-issuer"
                   type="text"
                   value={manualIssuer}
                   onChange={(e) => setManualIssuer(e.target.value)}
@@ -1018,8 +1018,8 @@ function UploadModal({ onClose, onImport }: { onClose: () => void; onImport: (st
                 />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1">Card Name</label>
-                <input
+                <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1" htmlFor="statements-card-name">Card Name</label>
+                <input id="statements-card-name"
                   type="text"
                   value={manualCard}
                   onChange={(e) => setManualCard(e.target.value)}
@@ -1029,8 +1029,8 @@ function UploadModal({ onClose, onImport }: { onClose: () => void; onImport: (st
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1">Statement Date</label>
-                  <input
+                  <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1" htmlFor="statements-statement-date">Statement Date</label>
+                  <input id="statements-statement-date"
                     type="date"
                     value={manualDate}
                     onChange={(e) => setManualDate(e.target.value)}
@@ -1038,8 +1038,8 @@ function UploadModal({ onClose, onImport }: { onClose: () => void; onImport: (st
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1">Closing Balance</label>
-                  <input
+                  <label className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold block mb-1" htmlFor="statements-closing-balance">Closing Balance</label>
+                  <input id="statements-closing-balance"
                     type="text"
                     value={manualBalance}
                     onChange={(e) => setManualBalance(e.target.value)}

@@ -275,7 +275,7 @@ function ClientSelector({
       {open && (
         <div className="absolute top-full mt-1 left-0 w-72 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="p-2 border-b border-gray-800">
-            <input
+            <input aria-label="Search clients"
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

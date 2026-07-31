@@ -1241,7 +1241,7 @@ export default function PortfolioPage() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2">
-            <select
+            <select aria-label="Filter by quarter"
               value={quarter}
               onChange={(e) => setQuarter(e.target.value as Quarter)}
               className="px-3 py-2 rounded-lg border border-gray-700 bg-gray-900 text-gray-300 text-sm font-medium hover:bg-gray-800 transition-colors focus:outline-none focus:ring-1 focus:ring-[#C9A84C] appearance-none cursor-pointer pr-8"

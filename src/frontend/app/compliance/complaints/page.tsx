@@ -260,7 +260,7 @@ export default function ComplaintsPage() {
                       <td className="px-4 py-3 text-xs text-gray-500">{formatDate(c.createdAt)}</td>
                       <td className="px-4 py-3">
                         {c.status !== 'Resolved' && (
-                          <select
+                          <select aria-label="Change complaint status"
                             value=""
                             onChange={(e) => {
                               if (e.target.value) handleStatusChange(c.id, e.target.value as ComplaintStatus);
@@ -306,7 +306,7 @@ export default function ComplaintsPage() {
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Business</label>
-                <input
+                <input aria-label="Business"
                   type="text"
                   value={form.businessName}
                   onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))}
@@ -317,7 +317,7 @@ export default function ComplaintsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Complaint Type</label>
-                  <select
+                  <select aria-label="Complaint Type"
                     value={form.complaintType}
                     onChange={(e) => setForm((f) => ({ ...f, complaintType: e.target.value as ComplaintType }))}
                     className="w-full rounded-lg bg-[#0A1628] border border-gray-700 text-gray-200 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"
@@ -326,8 +326,8 @@ export default function ComplaintsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Channel</label>
-                  <select
+                  <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-complaints-channel">Channel</label>
+                  <select id="compliance-complaints-channel"
                     value={form.channel}
                     onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value as Channel }))}
                     className="w-full rounded-lg bg-[#0A1628] border border-gray-700 text-gray-200 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"
@@ -337,8 +337,8 @@ export default function ComplaintsPage() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Description</label>
-                <textarea
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-complaints-description">Description</label>
+                <textarea id="compliance-complaints-description"
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                   rows={4}

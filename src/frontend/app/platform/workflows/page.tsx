@@ -9,7 +9,7 @@
 // and recent execution log section
 // ============================================================
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useId } from 'react';
 import { loadJson, toLoadError, type AuthFetchError } from '@/lib/load-json';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 
@@ -334,10 +334,12 @@ function FormSelect({
   options: { value: string; label: string }[];
   placeholder?: string;
 }) {
+  const selectId = useId();
   return (
     <div>
-      <label className="text-xs text-gray-400 block mb-1">{label}</label>
+      <label htmlFor={selectId} className="text-xs text-gray-400 block mb-1">{label}</label>
       <select
+        id={selectId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#C9A84C] appearance-none"
@@ -491,32 +493,32 @@ function WorkflowCard({
               <div className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-gray-400 block mb-1">Workflow Name</label>
-                    <input
+                    <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-workflows-workflow-name">Workflow Name</label>
+                    <input id="platform-workflows-workflow-name"
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-400 block mb-1">Trigger</label>
-                    <input
+                    <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-workflows-trigger">Trigger</label>
+                    <input id="platform-workflows-trigger"
                       value={editTrigger}
                       onChange={(e) => setEditTrigger(e.target.value)}
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-400 block mb-1">Condition</label>
-                    <input
+                    <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-workflows-condition">Condition</label>
+                    <input id="platform-workflows-condition"
                       value={editCondition}
                       onChange={(e) => setEditCondition(e.target.value)}
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-400 block mb-1">Action</label>
-                    <input
+                    <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-workflows-action">Action</label>
+                    <input id="platform-workflows-action"
                       value={editAction}
                       onChange={(e) => setEditAction(e.target.value)}
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
@@ -966,7 +968,7 @@ export default function PlatformWorkflowsPage() {
               <div>
                 <label className="text-xs text-gray-400 block mb-1">{selectedTrigger.nParam.label}</label>
                 <div className="flex items-center gap-2">
-                  <input
+                  <input aria-label="Trigger value"
                     type="number"
                     value={formNValue}
                     onChange={(e) => setFormNValue(e.target.value)}
@@ -985,8 +987,8 @@ export default function PlatformWorkflowsPage() {
 
             {/* Workflow Name */}
             <div>
-              <label className="text-xs text-gray-400 block mb-1">Workflow Name</label>
-              <input
+              <label className="text-xs text-gray-400 block mb-1" htmlFor="platform-workflows-workflow-name-2">Workflow Name</label>
+              <input id="platform-workflows-workflow-name-2"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"

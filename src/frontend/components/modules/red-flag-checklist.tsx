@@ -295,7 +295,7 @@ function ChecklistRow({
               </p>
             ) : (
               <div className="flex gap-2">
-                <textarea
+                <textarea aria-label="Add rationale, exception notes, or escalation details"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={2}

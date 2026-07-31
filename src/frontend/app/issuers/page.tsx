@@ -944,17 +944,17 @@ function AddIssuerModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: 
           </div>
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Issuer *</label>
-              <input required className={inputCls} value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} placeholder="e.g. Discover" />
+              <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-issuer">Issuer *</label>
+              <input id="issuers-issuer" required className={inputCls} value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} placeholder="e.g. Discover" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Banker Name *</label>
-                <input required className={inputCls} value={form.bankerName} onChange={(e) => setForm({ ...form, bankerName: e.target.value })} />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-banker-name">Banker Name *</label>
+                <input id="issuers-banker-name" required className={inputCls} value={form.bankerName} onChange={(e) => setForm({ ...form, bankerName: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Tier</label>
-                <select className={inputCls} value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value as IssuerContact['tier'] })}>
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-tier">Tier</label>
+                <select id="issuers-tier" className={inputCls} value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value as IssuerContact['tier'] })}>
                   <option value="standard">Standard</option>
                   <option value="silver">Silver</option>
                   <option value="gold">Gold</option>
@@ -964,21 +964,21 @@ function AddIssuerModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: 
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Direct Line</label>
-                <input className={inputCls} value={form.directLine} onChange={(e) => setForm({ ...form, directLine: e.target.value })} placeholder="1-800-XXX-XXXX" />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-direct-line">Direct Line</label>
+                <input id="issuers-direct-line" className={inputCls} value={form.directLine} onChange={(e) => setForm({ ...form, directLine: e.target.value })} placeholder="1-800-XXX-XXXX" />
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Recon Line</label>
-                <input className={inputCls} value={form.reconLine} onChange={(e) => setForm({ ...form, reconLine: e.target.value })} placeholder="1-800-XXX-XXXX" />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-recon-line">Recon Line</label>
+                <input id="issuers-recon-line" className={inputCls} value={form.reconLine} onChange={(e) => setForm({ ...form, reconLine: e.target.value })} placeholder="1-800-XXX-XXXX" />
               </div>
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Hours</label>
-              <input className={inputCls} value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} placeholder="Mon-Fri 8am-5pm ET" />
+              <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-hours">Hours</label>
+              <input id="issuers-hours" className={inputCls} value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} placeholder="Mon-Fri 8am-5pm ET" />
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Notes</label>
-              <textarea className={inputCls} rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-notes">Notes</label>
+              <textarea id="issuers-notes" className={inputCls} rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
@@ -1015,18 +1015,18 @@ function LogContactModal({ issuer, onClose, onSubmit }: { issuer: IssuerContact;
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Date</label>
-                <input type="date" className={inputCls} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-date">Date</label>
+                <input id="issuers-date" type="date" className={inputCls} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Banker</label>
-                <input className={inputCls} value={form.banker} onChange={(e) => setForm({ ...form, banker: e.target.value })} />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-banker">Banker</label>
+                <input id="issuers-banker" className={inputCls} value={form.banker} onChange={(e) => setForm({ ...form, banker: e.target.value })} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Call Type</label>
-                <select className={inputCls} value={form.callType} onChange={(e) => setForm({ ...form, callType: e.target.value })}>
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-call-type">Call Type</label>
+                <select id="issuers-call-type" className={inputCls} value={form.callType} onChange={(e) => setForm({ ...form, callType: e.target.value })}>
                   <option>Recon Call</option>
                   <option>Relationship Check</option>
                   <option>New App Support</option>
@@ -1035,13 +1035,13 @@ function LogContactModal({ issuer, onClose, onSubmit }: { issuer: IssuerContact;
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Duration (mins)</label>
-                <input type="number" className={inputCls} value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })} placeholder="e.g. 15" />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-duration-mins">Duration (mins)</label>
+                <input id="issuers-duration-mins" type="number" className={inputCls} value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })} placeholder="e.g. 15" />
               </div>
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Outcome</label>
-              <select className={inputCls} value={form.outcome} onChange={(e) => setForm({ ...form, outcome: e.target.value })}>
+              <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-outcome">Outcome</label>
+              <select id="issuers-outcome" className={inputCls} value={form.outcome} onChange={(e) => setForm({ ...form, outcome: e.target.value })}>
                 <option>Approved</option>
                 <option>Denied</option>
                 <option>Pending</option>
@@ -1051,8 +1051,8 @@ function LogContactModal({ issuer, onClose, onSubmit }: { issuer: IssuerContact;
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Notes</label>
-              <textarea className={inputCls} rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-notes-2">Notes</label>
+              <textarea id="issuers-notes-2" className={inputCls} rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
@@ -1094,39 +1094,39 @@ function LogReconModal({ contacts, onClose, onSubmit }: { contacts: IssuerContac
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Issuer *</label>
-                <select required className={inputCls} value={form.issuer} onChange={(e) => handleIssuerChange(e.target.value)}>
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-issuer-2">Issuer *</label>
+                <select id="issuers-issuer-2" required className={inputCls} value={form.issuer} onChange={(e) => handleIssuerChange(e.target.value)}>
                   {contacts.map((c) => <option key={c.id} value={c.issuer}>{c.issuer}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Application ID *</label>
-                <input required className={inputCls} value={form.applicationId} onChange={(e) => setForm({ ...form, applicationId: e.target.value })} placeholder="APP-2026-XXXX" />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-application-id">Application ID *</label>
+                <input id="issuers-application-id" required className={inputCls} value={form.applicationId} onChange={(e) => setForm({ ...form, applicationId: e.target.value })} placeholder="APP-2026-XXXX" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Client *</label>
-                <input required className={inputCls} value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-client">Client *</label>
+                <input id="issuers-client" required className={inputCls} value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Date</label>
-                <input type="date" className={inputCls} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-date-2">Date</label>
+                <input id="issuers-date-2" type="date" className={inputCls} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Banker</label>
-                <input className={inputCls} value={form.banker} onChange={(e) => setForm({ ...form, banker: e.target.value })} />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-banker-2">Banker</label>
+                <input id="issuers-banker-2" className={inputCls} value={form.banker} onChange={(e) => setForm({ ...form, banker: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Resolution Time</label>
-                <input className={inputCls} value={form.resolutionTime} onChange={(e) => setForm({ ...form, resolutionTime: e.target.value })} placeholder="e.g. 2 days" />
+                <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-resolution-time">Resolution Time</label>
+                <input id="issuers-resolution-time" className={inputCls} value={form.resolutionTime} onChange={(e) => setForm({ ...form, resolutionTime: e.target.value })} placeholder="e.g. 2 days" />
               </div>
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Outcome *</label>
-              <select required className={inputCls} value={form.outcome} onChange={(e) => setForm({ ...form, outcome: e.target.value })}>
+              <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-outcome-2">Outcome *</label>
+              <select id="issuers-outcome-2" required className={inputCls} value={form.outcome} onChange={(e) => setForm({ ...form, outcome: e.target.value })}>
                 <option>Approved on Recon</option>
                 <option>Denied — Too Many Accounts</option>
                 <option>Denied — Velocity</option>
@@ -1137,8 +1137,8 @@ function LogReconModal({ contacts, onClose, onSubmit }: { contacts: IssuerContac
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Notes</label>
-              <textarea className={inputCls} rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              <label className="text-xs text-gray-400 mb-1 block" htmlFor="issuers-notes-3">Notes</label>
+              <textarea id="issuers-notes-3" className={inputCls} rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
@@ -1241,7 +1241,7 @@ export default function IssuersPage() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {/* Client Selector */}
-          <select
+          <select aria-label="Select client"
             value={selectedClient}
             onChange={(e) => setSelectedClient(e.target.value)}
             className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-yellow-600"
@@ -1287,7 +1287,7 @@ export default function IssuersPage() {
           <h2 className="text-base font-semibold text-gray-200">Contact Directory</h2>
           <div className="flex gap-2 flex-wrap">
             {/* Tier filter */}
-            <select
+            <select aria-label="Filter by tier"
               value={selectedTier}
               onChange={(e) => setSelectedTier(e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-yellow-600"
@@ -1298,7 +1298,7 @@ export default function IssuersPage() {
               <option value="silver">Silver</option>
               <option value="standard">Standard</option>
             </select>
-            <input
+            <input aria-label="Search issuer or banker"
               type="text"
               placeholder="Search issuer or banker..."
               value={contactSearch}

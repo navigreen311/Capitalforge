@@ -947,37 +947,37 @@ function AddPartnerWizard({
           <div className="space-y-4">
             <div>
               <label className={labelClass}>Partner Name *</label>
-              <input type="text" placeholder="Acme Capital Brokers" className={inputClass} value={form.name} onChange={(e) => updateField('name', e.target.value)} />
+              <input aria-label="Partner Name" type="text" placeholder="Acme Capital Brokers" className={inputClass} value={form.name} onChange={(e) => updateField('name', e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelClass}>Type</label>
-                <select className={inputClass} value={form.type} onChange={(e) => updateField('type', e.target.value as PartnerType)}>
+                <select aria-label="Type" className={inputClass} value={form.type} onChange={(e) => updateField('type', e.target.value as PartnerType)}>
                   {PARTNER_TYPES.map((t) => <option key={t} value={t}>{PARTNER_TYPE_CONFIG[t].label}</option>)}
                 </select>
               </div>
               <div>
-                <label className={labelClass}>State / Jurisdiction *</label>
-                <input type="text" placeholder="TX" className={inputClass} value={form.jurisdiction} onChange={(e) => updateField('jurisdiction', e.target.value)} />
+                <label className={labelClass} htmlFor="partners-state-jurisdiction">State / Jurisdiction *</label>
+                <input id="partners-state-jurisdiction" type="text" placeholder="TX" className={inputClass} value={form.jurisdiction} onChange={(e) => updateField('jurisdiction', e.target.value)} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className={labelClass}>Contact Name *</label>
-                <input type="text" placeholder="Jane Smith" className={inputClass} value={form.contactName} onChange={(e) => updateField('contactName', e.target.value)} />
+                <label className={labelClass} htmlFor="partners-contact-name">Contact Name *</label>
+                <input id="partners-contact-name" type="text" placeholder="Jane Smith" className={inputClass} value={form.contactName} onChange={(e) => updateField('contactName', e.target.value)} />
               </div>
               <div>
-                <label className={labelClass}>Phone</label>
-                <input type="text" placeholder="(555) 555-0100" className={inputClass} value={form.phone} onChange={(e) => updateField('phone', e.target.value)} />
+                <label className={labelClass} htmlFor="partners-phone">Phone</label>
+                <input id="partners-phone" type="text" placeholder="(555) 555-0100" className={inputClass} value={form.phone} onChange={(e) => updateField('phone', e.target.value)} />
               </div>
             </div>
             <div>
-              <label className={labelClass}>Email *</label>
-              <input type="email" placeholder="contact@partner.com" className={inputClass} value={form.email} onChange={(e) => updateField('email', e.target.value)} />
+              <label className={labelClass} htmlFor="partners-email">Email *</label>
+              <input id="partners-email" type="email" placeholder="contact@partner.com" className={inputClass} value={form.email} onChange={(e) => updateField('email', e.target.value)} />
             </div>
             <div>
-              <label className={labelClass}>Website</label>
-              <input type="text" placeholder="www.partner.com" className={inputClass} value={form.website} onChange={(e) => updateField('website', e.target.value)} />
+              <label className={labelClass} htmlFor="partners-website">Website</label>
+              <input id="partners-website" type="text" placeholder="www.partner.com" className={inputClass} value={form.website} onChange={(e) => updateField('website', e.target.value)} />
             </div>
             <div>
               <label className={labelClass}>Services (multi-select)</label>
@@ -1032,8 +1032,8 @@ function AddPartnerWizard({
 
             {/* Risk tier */}
             <div>
-              <label className={labelClass}>Risk Tier</label>
-              <select className={inputClass} value={form.riskTier} onChange={(e) => updateField('riskTier', e.target.value)}>
+              <label className={labelClass} htmlFor="partners-risk-tier">Risk Tier</label>
+              <select id="partners-risk-tier" className={inputClass} value={form.riskTier} onChange={(e) => updateField('riskTier', e.target.value)}>
                 <option value="Low">Low</option>
                 <option value="Medium">Medium</option>
                 <option value="High">High</option>
@@ -1064,8 +1064,8 @@ function AddPartnerWizard({
         {step === 3 && (
           <div className="space-y-4">
             <div>
-              <label className={labelClass}>Fee Structure</label>
-              <select className={inputClass} value={form.feeStructure} onChange={(e) => updateField('feeStructure', e.target.value)}>
+              <label className={labelClass} htmlFor="partners-fee-structure">Fee Structure</label>
+              <select id="partners-fee-structure" className={inputClass} value={form.feeStructure} onChange={(e) => updateField('feeStructure', e.target.value)}>
                 <option value="Flat fee">Flat Fee</option>
                 <option value="% of funding">% of Funding</option>
                 <option value="Monthly retainer">Monthly Retainer</option>
@@ -1073,9 +1073,9 @@ function AddPartnerWizard({
             </div>
 
             <div>
-              <label className={labelClass}>Referral Code (auto-generated)</label>
+              <label className={labelClass} htmlFor="partners-referral-code-auto-generated">Referral Code (auto-generated)</label>
               <div className="flex gap-2">
-                <input type="text" className={inputClass} value={form.referralCode} readOnly />
+                <input id="partners-referral-code-auto-generated" type="text" className={inputClass} value={form.referralCode} readOnly />
                 <button
                   onClick={() => updateField('referralCode', generateReferralCode())}
                   className="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-300 border border-gray-700 whitespace-nowrap"
@@ -1086,8 +1086,8 @@ function AddPartnerWizard({
             </div>
 
             <div>
-              <label className={labelClass}>Review Cycle</label>
-              <select className={inputClass} value={form.reviewCycle} onChange={(e) => updateField('reviewCycle', e.target.value)}>
+              <label className={labelClass} htmlFor="partners-review-cycle">Review Cycle</label>
+              <select id="partners-review-cycle" className={inputClass} value={form.reviewCycle} onChange={(e) => updateField('reviewCycle', e.target.value)}>
                 <option value="Monthly">Monthly</option>
                 <option value="Quarterly">Quarterly</option>
                 <option value="Semi-annual">Semi-annual</option>
@@ -1201,8 +1201,8 @@ export default function PartnersPage() {
 
       {/* Client selector */}
       <div className="flex items-center gap-3 mb-4">
-        <label className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Client</label>
-        <select
+        <label className="text-xs text-gray-500 uppercase tracking-wide font-semibold" htmlFor="partners-client">Client</label>
+        <select id="partners-client"
           value={selectedClient}
           onChange={(e) => setSelectedClient(e.target.value)}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -1269,7 +1269,7 @@ export default function PartnersPage() {
         <>
           {/* Filters */}
           <div className="flex flex-wrap gap-3 mb-5">
-            <select
+            <select aria-label="Filter by type"
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as PartnerType | '')}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"
@@ -1280,7 +1280,7 @@ export default function PartnersPage() {
               ))}
             </select>
 
-            <select
+            <select aria-label="Filter by dd status"
               value={ddFilter}
               onChange={(e) => setDdFilter(e.target.value as DueDiligenceStatus | '')}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-500"

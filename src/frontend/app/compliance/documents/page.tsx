@@ -292,7 +292,7 @@ export default function DocumentVaultPage() {
 
       {/* Search */}
       <div className="mb-4">
-        <input
+        <input aria-label="Search by business name, doc type, or filename"
           type="text"
           placeholder="Search by business name, doc type, or filename..."
           value={search}
@@ -417,7 +417,7 @@ export default function DocumentVaultPage() {
                     : 'border-gray-600 hover:border-gray-500 bg-[#0A1628]/50'
                 }`}
               >
-                <input
+                <input aria-label="Upload document"
                   ref={fileInputRef}
                   type="file"
                   className="hidden"
@@ -440,8 +440,8 @@ export default function DocumentVaultPage() {
 
               {/* Business / Client Selector */}
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Business / Client</label>
-                <select
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-documents-business-client">Business / Client</label>
+                <select id="compliance-documents-business-client"
                   value={uploadForm.businessId}
                   onChange={(e) => {
                     const biz = BUSINESSES.find((b) => b.id === e.target.value);
@@ -458,8 +458,8 @@ export default function DocumentVaultPage() {
 
               {/* Document Type Selector */}
               <div>
-                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1">Document Type</label>
-                <select
+                <label className="text-xs text-gray-400 font-semibold uppercase block mb-1" htmlFor="compliance-documents-document-type">Document Type</label>
+                <select id="compliance-documents-document-type"
                   value={uploadForm.docType}
                   onChange={(e) => setUploadForm((f) => ({ ...f, docType: e.target.value as DocType }))}
                   className="w-full rounded-lg bg-[#0A1628] border border-gray-700 text-gray-200 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"

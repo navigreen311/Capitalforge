@@ -157,7 +157,7 @@ export default function UploadContractModal({ open, onClose, onSubmit }: UploadC
                 : 'border-gray-700 bg-[#0A1628] hover:border-gray-500'
             }`}
           >
-            <input
+            <input aria-label="Upload contract file"
               ref={fileRef}
               type="file"
               accept=".pdf,.docx,.doc"
@@ -191,8 +191,8 @@ export default function UploadContractModal({ open, onClose, onSubmit }: UploadC
           {/* Contract type + Client — side by side */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={LABEL_CLS}>Contract Type *</label>
-              <select
+              <label className={LABEL_CLS} htmlFor="components-contracts-uploadcontractmodal-contract-type">Contract Type *</label>
+              <select id="components-contracts-uploadcontractmodal-contract-type"
                 value={form.contractType}
                 onChange={(e) => update('contractType', e.target.value)}
                 className={INPUT_CLS}
@@ -204,8 +204,8 @@ export default function UploadContractModal({ open, onClose, onSubmit }: UploadC
               </select>
             </div>
             <div>
-              <label className={LABEL_CLS}>Client *</label>
-              <select
+              <label className={LABEL_CLS} htmlFor="components-contracts-uploadcontractmodal-client">Client *</label>
+              <select id="components-contracts-uploadcontractmodal-client"
                 value={form.client}
                 onChange={(e) => update('client', e.target.value)}
                 className={INPUT_CLS}
@@ -220,8 +220,8 @@ export default function UploadContractModal({ open, onClose, onSubmit }: UploadC
 
           {/* Counterparty name */}
           <div>
-            <label className={LABEL_CLS}>Counterparty Name</label>
-            <input
+            <label className={LABEL_CLS} htmlFor="components-contracts-uploadcontractmodal-counterparty-name">Counterparty Name</label>
+            <input id="components-contracts-uploadcontractmodal-counterparty-name"
               type="text"
               value={form.counterpartyName}
               onChange={(e) => update('counterpartyName', e.target.value)}
@@ -233,8 +233,8 @@ export default function UploadContractModal({ open, onClose, onSubmit }: UploadC
           {/* Effective / Expiry dates */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={LABEL_CLS}>Effective Date</label>
-              <input
+              <label className={LABEL_CLS} htmlFor="components-contracts-uploadcontractmodal-effective-date">Effective Date</label>
+              <input id="components-contracts-uploadcontractmodal-effective-date"
                 type="date"
                 value={form.effectiveDate}
                 onChange={(e) => update('effectiveDate', e.target.value)}
@@ -242,8 +242,8 @@ export default function UploadContractModal({ open, onClose, onSubmit }: UploadC
               />
             </div>
             <div>
-              <label className={LABEL_CLS}>Expiry Date</label>
-              <input
+              <label className={LABEL_CLS} htmlFor="components-contracts-uploadcontractmodal-expiry-date">Expiry Date</label>
+              <input id="components-contracts-uploadcontractmodal-expiry-date"
                 type="date"
                 value={form.expiryDate}
                 onChange={(e) => update('expiryDate', e.target.value)}
@@ -272,7 +272,7 @@ export default function UploadContractModal({ open, onClose, onSubmit }: UploadC
 
             {form.autoRenewal && (
               <div className="flex-1">
-                <input
+                <input aria-label="Notice period (e.g. 30 days)"
                   type="text"
                   value={form.noticePeriod}
                   onChange={(e) => update('noticePeriod', e.target.value)}
@@ -285,8 +285,8 @@ export default function UploadContractModal({ open, onClose, onSubmit }: UploadC
 
           {/* Governing state */}
           <div>
-            <label className={LABEL_CLS}>Governing State</label>
-            <select
+            <label className={LABEL_CLS} htmlFor="components-contracts-uploadcontractmodal-governing-state">Governing State</label>
+            <select id="components-contracts-uploadcontractmodal-governing-state"
               value={form.governingState}
               onChange={(e) => update('governingState', e.target.value)}
               className={INPUT_CLS}

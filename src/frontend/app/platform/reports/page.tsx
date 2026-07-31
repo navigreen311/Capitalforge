@@ -867,10 +867,10 @@ export default function PlatformReportsPage() {
 
           {/* Date Range Picker */}
           <div>
-            <label className="block text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">
+            <label className="block text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide" htmlFor="platform-reports-start-date">
               Start Date
             </label>
-            <input
+            <input id="platform-reports-start-date"
               type="date"
               value={startDate}
               onChange={(e) => {
@@ -886,10 +886,10 @@ export default function PlatformReportsPage() {
             )}
           </div>
           <div>
-            <label className="block text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide">
+            <label className="block text-xs text-gray-400 font-medium mb-2 uppercase tracking-wide" htmlFor="platform-reports-end-date">
               End Date
             </label>
-            <input
+            <input id="platform-reports-end-date"
               type="date"
               value={endDate}
               onChange={(e) => {

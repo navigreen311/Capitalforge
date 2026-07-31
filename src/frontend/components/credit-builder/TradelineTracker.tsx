@@ -204,8 +204,8 @@ function AddTradelineModal({
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Vendor dropdown */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Vendor Name</label>
-            <select
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-vendor-name">Vendor Name</label>
+            <select id="components-credit-builder-tradelinetrack-vendor-name"
               value={form.vendor}
               onChange={(e) => setForm({ ...form, vendor: e.target.value })}
               className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2
@@ -221,7 +221,7 @@ function AddTradelineModal({
           {isCustomVendor && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Custom Vendor Name</label>
-              <input
+              <input aria-label="Custom Vendor Name"
                 type="text"
                 value={form.customVendor}
                 onChange={(e) => setForm({ ...form, customVendor: e.target.value })}
@@ -235,8 +235,8 @@ function AddTradelineModal({
 
           {/* Applied Date */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Applied Date</label>
-            <input
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-applied-date">Applied Date</label>
+            <input id="components-credit-builder-tradelinetrack-applied-date"
               type="date"
               value={form.appliedDate}
               onChange={(e) => setForm({ ...form, appliedDate: e.target.value })}
@@ -270,7 +270,7 @@ function AddTradelineModal({
           {form.approvalStatus === 'Yes' && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Credit Limit</label>
-              <input
+              <input aria-label="Credit Limit"
                 type="number"
                 value={form.creditLimit}
                 onChange={(e) => setForm({ ...form, creditLimit: e.target.value })}
@@ -284,8 +284,8 @@ function AddTradelineModal({
 
           {/* Payment Terms */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Payment Terms</label>
-            <select
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-payment-terms">Payment Terms</label>
+            <select id="components-credit-builder-tradelinetrack-payment-terms"
               value={form.paymentTerms}
               onChange={(e) => setForm({ ...form, paymentTerms: e.target.value as PaymentTerms })}
               className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2
@@ -317,8 +317,8 @@ function AddTradelineModal({
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Notes</label>
-            <textarea
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-notes">Notes</label>
+            <textarea id="components-credit-builder-tradelinetrack-notes"
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="Any additional details..."
@@ -437,20 +437,20 @@ function DisputeModal({
         </div>
         <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Bureau Affected</label>
-            <select value={form.bureauAffected} onChange={(e) => setForm({ ...form, bureauAffected: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-bureau-affected">Bureau Affected</label>
+            <select id="components-credit-builder-tradelinetrack-bureau-affected" value={form.bureauAffected} onChange={(e) => setForm({ ...form, bureauAffected: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
               <option value="D&B">Dun & Bradstreet</option>
               <option value="Experian Biz">Experian Business</option>
               <option value="Equifax Biz">Equifax Business</option>
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Expected Report Date</label>
-            <input type="date" value={form.expectedReportDate} onChange={(e) => setForm({ ...form, expectedReportDate: e.target.value })} required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-expected-report-date">Expected Report Date</label>
+            <input id="components-credit-builder-tradelinetrack-expected-report-date" type="date" value={form.expectedReportDate} onChange={(e) => setForm({ ...form, expectedReportDate: e.target.value })} required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Actual Status</label>
-            <select value={form.actualStatus} onChange={(e) => setForm({ ...form, actualStatus: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-actual-status">Actual Status</label>
+            <select id="components-credit-builder-tradelinetrack-actual-status" value={form.actualStatus} onChange={(e) => setForm({ ...form, actualStatus: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
               <option value="">Select status...</option>
               <option value="not_reporting">Not Reporting</option>
               <option value="incorrect_balance">Incorrect Balance</option>
@@ -460,8 +460,8 @@ function DisputeModal({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Notes</label>
-            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} placeholder="Describe the reporting error..." className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none" />
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-notes-2">Notes</label>
+            <textarea id="components-credit-builder-tradelinetrack-notes-2" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} placeholder="Describe the reporting error..." className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none" />
           </div>
           <button type="submit" className="w-full bg-amber-600 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-amber-500 transition-colors focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-gray-900 outline-none">
             Submit Dispute
@@ -506,16 +506,16 @@ function LogPaymentModal({
         </div>
         <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Payment Amount</label>
-            <input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="$0.00" min="0" step="0.01" required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-payment-amount">Payment Amount</label>
+            <input id="components-credit-builder-tradelinetrack-payment-amount" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="$0.00" min="0" step="0.01" required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Payment Date</label>
-            <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-payment-date">Payment Date</label>
+            <input id="components-credit-builder-tradelinetrack-payment-date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Payment Method</label>
-            <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+            <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="components-credit-builder-tradelinetrack-payment-method">Payment Method</label>
+            <select id="components-credit-builder-tradelinetrack-payment-method" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })} className="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
               <option value="ach">ACH Transfer</option>
               <option value="check">Check</option>
               <option value="credit_card">Credit Card</option>

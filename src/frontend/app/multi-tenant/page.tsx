@@ -317,8 +317,8 @@ function ImpersonateModal({ tenant, onConfirm, onClose }: { tenant: Tenant; onCo
           <strong>Warning:</strong> Impersonation is logged and audited. All actions taken while impersonating will be attributed to your admin account on behalf of the tenant.
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-gray-400 font-medium">Reason for Impersonation <span className="text-red-400">*</span></label>
-          <textarea
+          <label className="text-xs text-gray-400 font-medium" htmlFor="multi-tenant-reason-for-impersonation">Reason for Impersonation <span className="text-red-400">*</span></label>
+          <textarea id="multi-tenant-reason-for-impersonation"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="Describe why you need to impersonate this tenant..."
@@ -363,8 +363,8 @@ function SuspendModal({ tenant, onConfirm, onClose }: { tenant: Tenant; onConfir
 
         <div className="space-y-4">
           <div className="space-y-1">
-            <label className="text-xs text-gray-400 font-medium">Suspension Reason</label>
-            <select
+            <label className="text-xs text-gray-400 font-medium" htmlFor="multi-tenant-suspension-reason">Suspension Reason</label>
+            <select id="multi-tenant-suspension-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -387,8 +387,8 @@ function SuspendModal({ tenant, onConfirm, onClose }: { tenant: Tenant; onConfir
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs text-gray-400 font-medium">Duration</label>
-            <select
+            <label className="text-xs text-gray-400 font-medium" htmlFor="multi-tenant-duration">Duration</label>
+            <select id="multi-tenant-duration"
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -535,7 +535,7 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs text-gray-400 font-medium">Organization Name</label>
-              <input
+              <input aria-label="Organization Name"
                 value={orgName}
                 onChange={(e) => setOrgName(e.target.value)}
                 placeholder="e.g. Apex Capital Group"
@@ -544,7 +544,7 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
             </div>
             <div className="space-y-1">
               <label className="text-xs text-gray-400 font-medium">Slug / Subdomain</label>
-              <input
+              <input aria-label="Slug / Subdomain"
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 placeholder={autoSlug || 'auto-generated'}
@@ -559,7 +559,7 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-xs text-gray-400 font-medium">Plan</label>
-                <select
+                <select aria-label="Plan"
                   value={plan}
                   onChange={(e) => setPlan(e.target.value as Plan)}
                   className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -572,7 +572,7 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-gray-400 font-medium">Primary Color</label>
-                <input
+                <input aria-label="Primary Color"
                   type="color"
                   value={primaryColor}
                   onChange={(e) => setPrimaryColor(e.target.value)}
@@ -581,8 +581,8 @@ function CreateTenantWizard({ onClose, onSubmit, allSlugs }: { onClose: () => vo
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-400 font-medium">Admin Email</label>
-              <input
+              <label className="text-xs text-gray-400 font-medium" htmlFor="multi-tenant-admin-email">Admin Email</label>
+              <input id="multi-tenant-admin-email"
                 type="email"
                 value={adminEmail}
                 onChange={(e) => setAdminEmail(e.target.value)}

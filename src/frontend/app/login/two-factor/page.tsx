@@ -156,6 +156,10 @@ export default function TwoFactorPage() {
               {digits.map((digit, i) => (
                 <input
                   key={i}
+                  // Six identical boxes: without a position in the name they
+                  // are announced as six unlabelled text fields, and there is
+                  // no way to tell which digit is being entered.
+                  aria-label={`Verification code digit ${i + 1} of ${digits.length}`}
                   ref={(el) => { inputRefs.current[i] = el; }}
                   type="text"
                   inputMode="numeric"

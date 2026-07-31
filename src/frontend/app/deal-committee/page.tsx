@@ -662,8 +662,8 @@ export default function DealCommitteePage() {
             <h2 className="text-lg font-bold text-white mb-4">Assign Review</h2>
 
             {/* Deal */}
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Client / Deal</label>
-            <select
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5" htmlFor="deal-committee-client-deal">Client / Deal</label>
+            <select id="deal-committee-client-deal"
               value={assignDeal}
               onChange={(e) => setAssignDeal(e.target.value)}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 mb-4 focus:outline-none focus:border-[#C9A84C]"
@@ -674,8 +674,8 @@ export default function DealCommitteePage() {
             </select>
 
             {/* Tier */}
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Risk Tier</label>
-            <select
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5" htmlFor="deal-committee-risk-tier">Risk Tier</label>
+            <select id="deal-committee-risk-tier"
               value={assignTier}
               onChange={(e) => setAssignTier(e.target.value as RiskTier)}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 mb-4 focus:outline-none focus:border-[#C9A84C]"
@@ -706,8 +706,8 @@ export default function DealCommitteePage() {
             </div>
 
             {/* SLA Deadline */}
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">SLA Deadline</label>
-            <input
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5" htmlFor="deal-committee-sla-deadline">SLA Deadline</label>
+            <input id="deal-committee-sla-deadline"
               type="date"
               value={assignSlaDate}
               onChange={(e) => setAssignSlaDate(e.target.value)}
@@ -739,8 +739,8 @@ export default function DealCommitteePage() {
           <div className="p-6">
             <h2 className="text-lg font-bold text-white mb-4">Add Condition</h2>
 
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Description</label>
-            <textarea
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5" htmlFor="deal-committee-description">Description</label>
+            <textarea id="deal-committee-description"
               value={newCondDesc}
               onChange={(e) => setNewCondDesc(e.target.value)}
               rows={3}
@@ -748,16 +748,16 @@ export default function DealCommitteePage() {
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-600 mb-4 focus:outline-none focus:border-[#C9A84C] resize-none"
             />
 
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Due Date</label>
-            <input
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5" htmlFor="deal-committee-due-date">Due Date</label>
+            <input id="deal-committee-due-date"
               type="date"
               value={newCondDue}
               onChange={(e) => setNewCondDue(e.target.value)}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 mb-4 focus:outline-none focus:border-[#C9A84C]"
             />
 
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Assignee</label>
-            <select
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5" htmlFor="deal-committee-assignee">Assignee</label>
+            <select id="deal-committee-assignee"
               value={newCondAssignee}
               onChange={(e) => setNewCondAssignee(e.target.value)}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 mb-6 focus:outline-none focus:border-[#C9A84C]"
@@ -796,8 +796,8 @@ export default function DealCommitteePage() {
               {conditions.find((c) => c.id === markMetId)?.condition}
             </p>
 
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Note (required)</label>
-            <textarea
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5" htmlFor="deal-committee-note-required">Note (required)</label>
+            <textarea id="deal-committee-note-required"
               value={markMetNote}
               onChange={(e) => setMarkMetNote(e.target.value)}
               rows={3}
@@ -995,10 +995,10 @@ export default function DealCommitteePage() {
                       {/* Warning items: compensating factor override */}
                       {item.state === 'warning' && (
                         <div className="mt-2 pt-3 border-t border-gray-800">
-                          <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold block mb-1.5">
+                          <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold block mb-1.5" htmlFor="deal-committee-document-compensating-factor">
                             Document Compensating Factor
                           </label>
-                          <textarea
+                          <textarea id="deal-committee-document-compensating-factor"
                             value={overrideTexts[item.id] ?? ''}
                             onChange={(e) => setOverrideTexts((prev) => ({ ...prev, [item.id]: e.target.value }))}
                             rows={2}

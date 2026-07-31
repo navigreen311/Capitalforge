@@ -1087,7 +1087,7 @@ export default function VisionAudioForgePage() {
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Bundle Type</label>
-              <select
+              <select aria-label="Bundle Type"
                 value={bundleType}
                 onChange={(e) => setBundleType(e.target.value)}
                 className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
@@ -1098,8 +1098,8 @@ export default function VisionAudioForgePage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Entity / Client</label>
-              <select
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5" htmlFor="platform-visionaudioforge-entity-client">Entity / Client</label>
+              <select id="platform-visionaudioforge-entity-client"
                 value={bundleEntity}
                 onChange={(e) => setBundleEntity(e.target.value)}
                 className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
@@ -1110,8 +1110,8 @@ export default function VisionAudioForgePage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Label</label>
-              <input
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5" htmlFor="platform-visionaudioforge-label">Label</label>
+              <input id="platform-visionaudioforge-label"
                 type="text"
                 value={bundleLabel}
                 onChange={(e) => setBundleLabel(e.target.value)}
@@ -1120,8 +1120,8 @@ export default function VisionAudioForgePage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Notes (optional)</label>
-              <textarea
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5" htmlFor="platform-visionaudioforge-notes-optional">Notes (optional)</label>
+              <textarea id="platform-visionaudioforge-notes-optional"
                 value={bundleNotes}
                 onChange={(e) => setBundleNotes(e.target.value)}
                 rows={3}
@@ -1143,7 +1143,7 @@ export default function VisionAudioForgePage() {
         {bundleStep === 2 && (
           <div className="space-y-4">
             <div>
-              <input
+              <input aria-label="Filter by document type"
                 type="text"
                 value={bundleDocFilter}
                 onChange={(e) => setBundleDocFilter(e.target.value)}
@@ -1171,7 +1171,7 @@ export default function VisionAudioForgePage() {
                         );
                       }}>
                         <td className="py-2 pr-3">
-                          <input
+                          <input aria-label="Select document for bundle"
                             type="checkbox"
                             checked={bundleSelectedDocs.includes(doc.id)}
                             onChange={() => {}}
@@ -1265,7 +1265,7 @@ export default function VisionAudioForgePage() {
               }}
               onClick={() => fileInputRef.current?.click()}
             >
-              <input
+              <input aria-label="Upload document"
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png"
@@ -1292,8 +1292,8 @@ export default function VisionAudioForgePage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Document Type</label>
-              <select
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5" htmlFor="platform-visionaudioforge-document-type">Document Type</label>
+              <select id="platform-visionaudioforge-document-type"
                 value={uploadDocType}
                 onChange={(e) => setUploadDocType(e.target.value)}
                 className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
@@ -1305,8 +1305,8 @@ export default function VisionAudioForgePage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Client (optional)</label>
-              <select
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5" htmlFor="platform-visionaudioforge-client-optional">Client (optional)</label>
+              <select id="platform-visionaudioforge-client-optional"
                 value={uploadClient}
                 onChange={(e) => setUploadClient(e.target.value)}
                 className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"

@@ -626,7 +626,7 @@ export default function ClientsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-6">
-        <input
+        <input aria-label="Search business or advisor"
           type="text"
           placeholder="Search business or advisor…"
           value={search}
@@ -634,7 +634,7 @@ export default function ClientsPage() {
           className="flex-1 min-w-[220px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-500"
         />
 
-        <select
+        <select aria-label="Filter by status"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as BusinessStatus | '')}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
@@ -647,7 +647,7 @@ export default function ClientsPage() {
           ))}
         </select>
 
-        <select
+        <select aria-label="Filter by advisor"
           value={advisorFilter}
           onChange={(e) => setAdvisorFilter(e.target.value)}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
@@ -748,7 +748,7 @@ export default function ClientsPage() {
           <thead>
             <tr className="bg-gray-900 text-gray-400 text-xs uppercase tracking-wide">
               <th className="px-4 py-3 w-10">
-                <input
+                <input aria-label="Select all clients on this page"
                   type="checkbox"
                   checked={allOnPageSelected}
                   onChange={toggleAll}
@@ -790,7 +790,7 @@ export default function ClientsPage() {
                   onClick={() => router.push(`/clients/${client.id}`)}
                 >
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <input
+                    <input aria-label="Select client"
                       type="checkbox"
                       checked={selectedIds.has(client.id)}
                       onChange={() => toggleOne(client.id)}
@@ -863,7 +863,7 @@ export default function ClientsPage() {
           <span className="text-sm text-gray-400">
             {rangeStart}–{rangeEnd} of {totalItems} clients
           </span>
-          <select
+          <select aria-label="Results per page"
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
             className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-blue-500"

@@ -136,7 +136,7 @@ export function GenerateDocumentModal({
                   <span className="text-green-400 text-sm font-medium">✓ Draft ready — review and edit below</span>
                   <span className="text-gray-500 text-xs">{editedContent.split(/\s+/).length} words</span>
                 </div>
-                <textarea
+                <textarea aria-label="Document content"
                   value={editedContent}
                   onChange={(e) => setEditedContent(e.target.value)}
                   className="w-full h-96 bg-[#0d1117] border border-gray-600 rounded-lg p-4 text-gray-200 text-sm font-mono leading-relaxed resize-none focus:outline-none focus:border-[#D4A843]"

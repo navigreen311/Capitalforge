@@ -799,7 +799,7 @@ export default function OptimizerPage() {
           <SectionCard title="Business / Client" subtitle="Select a client to load their data for optimization">
             <div className="space-y-4">
               <FormField label="Select Business">
-                <select
+                <select aria-label="Select client"
                   value={form.selectedBusinessId}
                   onChange={(e) => setForm({ ...form, selectedBusinessId: e.target.value })}
                   className="cf-input"
@@ -846,7 +846,7 @@ export default function OptimizerPage() {
               </FormField>
 
               <FormField label="Max Cards">
-                <input
+                <input aria-label="Maximum cards"
                   type="number"
                   min={1}
                   max={20}
@@ -887,7 +887,7 @@ export default function OptimizerPage() {
           <SectionCard title="Credit Profile" subtitle="Applicant FICO and financial snapshot">
             <div className="space-y-4">
               <FormField label="Personal FICO Score">
-                <input
+                <input aria-label="e.g. 760"
                   type="number"
                   min={300}
                   max={850}
@@ -901,7 +901,7 @@ export default function OptimizerPage() {
               <FormField label="Annual Business Revenue">
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                  <input
+                  <input aria-label="e.g. 500000"
                     type="number"
                     placeholder="e.g. 500000"
                     value={form.annualRevenue}
@@ -913,7 +913,7 @@ export default function OptimizerPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <FormField label="Years in Business">
-                  <input
+                  <input aria-label="2"
                     type="number"
                     min={0}
                     placeholder="2"
@@ -923,7 +923,7 @@ export default function OptimizerPage() {
                   />
                 </FormField>
                 <FormField label="Employees">
-                  <input
+                  <input aria-label="10"
                     type="number"
                     min={1}
                     placeholder="10"
@@ -939,7 +939,7 @@ export default function OptimizerPage() {
                 <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Business Credit Scores</p>
                 <div className="space-y-3">
                   <FormField label="D&B PAYDEX Score">
-                    <input
+                    <input aria-label="e.g. 80"
                       type="number"
                       min={1}
                       max={100}
@@ -952,7 +952,7 @@ export default function OptimizerPage() {
                   </FormField>
 
                   <FormField label="Experian Business Intelliscore">
-                    <input
+                    <input aria-label="e.g. 76"
                       type="number"
                       min={1}
                       max={100}
@@ -965,7 +965,7 @@ export default function OptimizerPage() {
                   </FormField>
 
                   <FormField label="FICO SBSS Score">
-                    <input
+                    <input aria-label="e.g. 160"
                       type="number"
                       min={0}
                       max={300}
@@ -984,7 +984,7 @@ export default function OptimizerPage() {
                 <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Inquiry History</p>
                 <div className="grid grid-cols-3 gap-3">
                   <FormField label="6 Months">
-                    <input
+                    <input aria-label="0"
                       type="number"
                       min={0}
                       placeholder="0"
@@ -994,7 +994,7 @@ export default function OptimizerPage() {
                     />
                   </FormField>
                   <FormField label="12 Months">
-                    <input
+                    <input aria-label="0"
                       type="number"
                       min={0}
                       placeholder="0"
@@ -1004,7 +1004,7 @@ export default function OptimizerPage() {
                     />
                   </FormField>
                   <FormField label="24 Months">
-                    <input
+                    <input aria-label="0"
                       type="number"
                       min={0}
                       placeholder="0"
@@ -1023,7 +1023,7 @@ export default function OptimizerPage() {
           <SectionCard title="Business Profile">
             <div className="space-y-4">
               <FormField label="Entity Type">
-                <select
+                <select aria-label="Business type"
                   value={form.businessType}
                   onChange={(e) => setForm({ ...form, businessType: e.target.value })}
                   className="cf-input"
@@ -1037,7 +1037,7 @@ export default function OptimizerPage() {
               <FormField label="Target Credit Funding">
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                  <input
+                  <input aria-label="e.g. 100000"
                     type="number"
                     placeholder="e.g. 100000"
                     value={form.targetFunding}
@@ -1081,7 +1081,7 @@ export default function OptimizerPage() {
                             <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Balance</label>
                             <div className="relative">
                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                              <input
+                              <input aria-label="0"
                                 type="number"
                                 min={0}
                                 placeholder="0"
@@ -1103,7 +1103,7 @@ export default function OptimizerPage() {
                             <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Limit</label>
                             <div className="relative">
                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                              <input
+                              <input aria-label="0"
                                 type="number"
                                 min={0}
                                 placeholder="0"
@@ -1195,7 +1195,7 @@ export default function OptimizerPage() {
                 {/* ── Eligibility Form ────────────────── */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField label="State of Residence">
-                    <select
+                    <select aria-label="State"
                       value={cuForm.state}
                       onChange={(e) => setCUForm({ ...cuForm, state: e.target.value })}
                       className="cf-input"
@@ -1232,7 +1232,7 @@ export default function OptimizerPage() {
                   </FormField>
 
                   <FormField label="Employer">
-                    <input
+                    <input aria-label="e.g. Microsoft, Intel, Boeing"
                       type="text"
                       placeholder="e.g. Microsoft, Intel, Boeing"
                       value={cuForm.employer}

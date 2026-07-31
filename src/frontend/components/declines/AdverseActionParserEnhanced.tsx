@@ -148,7 +148,7 @@ export function AdverseActionParserEnhanced({
             <span className="text-yellow-500 underline">browse files</span>
           </p>
           <p className="text-xs text-gray-600 mt-1">PDF, PNG, JPG accepted</p>
-          <input
+          <input aria-label="Upload adverse action notice"
             ref={fileRef}
             type="file"
             accept=".pdf,.png,.jpg,.jpeg"

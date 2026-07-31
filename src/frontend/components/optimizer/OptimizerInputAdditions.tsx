@@ -98,7 +98,7 @@ export function OptimizerInputAdditions({
             <label className={labelClass}>Total Current Credit Limit ($)</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
-              <input
+              <input aria-label="e.g. 50000"
                 type="number"
                 min={0}
                 placeholder="e.g. 50000"
@@ -113,7 +113,7 @@ export function OptimizerInputAdditions({
             <label className={labelClass}>Total Current Balance ($)</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
-              <input
+              <input aria-label="e.g. 5000"
                 type="number"
                 min={0}
                 placeholder="e.g. 5000"
@@ -143,8 +143,8 @@ export function OptimizerInputAdditions({
         <h3 className={sectionTitleClass}>Inquiry History</h3>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelClass}>Hard Inquiries (last 90d)</label>
-            <input
+            <label className={labelClass} htmlFor="components-optimizer-optimizerinputaddit-hard-inquiries-last-90d">Hard Inquiries (last 90d)</label>
+            <input id="components-optimizer-optimizerinputaddit-hard-inquiries-last-90d"
               type="number"
               min={0}
               placeholder="0"
@@ -154,10 +154,10 @@ export function OptimizerInputAdditions({
             />
           </div>
           <div>
-            <label className={labelClass}>
+            <label className={labelClass} htmlFor="components-optimizer-optimizerinputaddit-hard-inquiries-last-24-mo">
               Hard Inquiries (last 24 mo)
             </label>
-            <input
+            <input id="components-optimizer-optimizerinputaddit-hard-inquiries-last-24-mo"
               type="number"
               min={0}
               placeholder="0"
@@ -178,8 +178,8 @@ export function OptimizerInputAdditions({
         </h3>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelClass}>FICO SBSS Score (/300)</label>
-            <input
+            <label className={labelClass} htmlFor="components-optimizer-optimizerinputaddit-fico-sbss-score-300">FICO SBSS Score (/300)</label>
+            <input id="components-optimizer-optimizerinputaddit-fico-sbss-score-300"
               type="number"
               min={0}
               max={300}
@@ -190,8 +190,8 @@ export function OptimizerInputAdditions({
             />
           </div>
           <div>
-            <label className={labelClass}>D&B PAYDEX Score (/100)</label>
-            <input
+            <label className={labelClass} htmlFor="components-optimizer-optimizerinputaddit-d-b-paydex-score-100">D&B PAYDEX Score (/100)</label>
+            <input id="components-optimizer-optimizerinputaddit-d-b-paydex-score-100"
               type="number"
               min={0}
               max={100}
@@ -208,8 +208,8 @@ export function OptimizerInputAdditions({
       <div className={sectionBorderClass}>
         <h3 className={sectionTitleClass}>State</h3>
         <div>
-          <label className={labelClass}>State of Formation</label>
-          <select
+          <label className={labelClass} htmlFor="components-optimizer-optimizerinputaddit-state-of-formation">State of Formation</label>
+          <select id="components-optimizer-optimizerinputaddit-state-of-formation"
             value={stateOfFormation}
             onChange={(e) => onChange('stateOfFormation', e.target.value)}
             className={inputClass}
@@ -258,7 +258,7 @@ export function OptimizerInputAdditions({
             <div className="grid grid-cols-2 gap-3 mt-2 pl-6 border-l-2 border-gray-700">
               <div>
                 <label className={labelClass}>Previous Round Date</label>
-                <input
+                <input aria-label="Previous Round Date"
                   type="date"
                   value={previousRoundDate}
                   onChange={(e) => onChange('previousRoundDate', e.target.value)}
@@ -267,7 +267,7 @@ export function OptimizerInputAdditions({
               </div>
               <div>
                 <label className={labelClass}>Accounts Age (months)</label>
-                <input
+                <input aria-label="Accounts Age (months)"
                   type="number"
                   min={0}
                   placeholder="e.g. 6"

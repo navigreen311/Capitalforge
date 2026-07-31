@@ -724,7 +724,7 @@ export function ApplicationDetailDrawer({ appId, onClose }: ApplicationDetailDra
 
                     {/* Add note input */}
                     <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
-                      <input
+                      <input aria-label="Add note"
                         type="text"
                         value={noteText}
                         onChange={(e) => setNoteText(e.target.value)}

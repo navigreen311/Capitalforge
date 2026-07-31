@@ -488,8 +488,8 @@ export default function PlatformOffboardingPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-400 font-medium mb-1">Select Business</label>
-                <select
+                <label className="block text-xs text-gray-400 font-medium mb-1" htmlFor="platform-offboarding-select-business">Select Business</label>
+                <select id="platform-offboarding-select-business"
                   value={formBizId}
                   onChange={(e) => setFormBizId(e.target.value)}
                   className="w-full bg-[#111c33] border border-gray-700/50 rounded-lg px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-[#C9A84C]"
@@ -504,8 +504,8 @@ export default function PlatformOffboardingPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-medium mb-1">Reason</label>
-                <select
+                <label className="block text-xs text-gray-400 font-medium mb-1" htmlFor="platform-offboarding-reason">Reason</label>
+                <select id="platform-offboarding-reason"
                   value={formReason}
                   onChange={(e) => setFormReason(e.target.value as OffboardingReason)}
                   className="w-full bg-[#111c33] border border-gray-700/50 rounded-lg px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-[#C9A84C]"
@@ -518,8 +518,8 @@ export default function PlatformOffboardingPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-medium mb-1">Scheduled Deletion Date</label>
-                <input
+                <label className="block text-xs text-gray-400 font-medium mb-1" htmlFor="platform-offboarding-scheduled-deletion-date">Scheduled Deletion Date</label>
+                <input id="platform-offboarding-scheduled-deletion-date"
                   type="date"
                   value={formDate}
                   onChange={(e) => setFormDate(e.target.value)}
@@ -529,8 +529,8 @@ export default function PlatformOffboardingPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 font-medium mb-1">Notes</label>
-                <textarea
+                <label className="block text-xs text-gray-400 font-medium mb-1" htmlFor="platform-offboarding-notes">Notes</label>
+                <textarea id="platform-offboarding-notes"
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
                   rows={3}

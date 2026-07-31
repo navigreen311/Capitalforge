@@ -408,8 +408,8 @@ function AssignTrainingModal({ onClose, onSubmit }: { onClose: () => void; onSub
 
         {/* Track / Module */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Track / Module</label>
-          <select
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2" htmlFor="training-track-module">Track / Module</label>
+          <select id="training-track-module"
             value={track}
             onChange={(e) => setTrack(e.target.value)}
             className="w-full rounded-xl border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2.5 focus:outline-none focus:border-brand-gold/60"
@@ -425,8 +425,8 @@ function AssignTrainingModal({ onClose, onSubmit }: { onClose: () => void; onSub
 
         {/* Due Date */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Due Date</label>
-          <input
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2" htmlFor="training-due-date">Due Date</label>
+          <input id="training-due-date"
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
@@ -436,8 +436,8 @@ function AssignTrainingModal({ onClose, onSubmit }: { onClose: () => void; onSub
 
         {/* Priority */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Priority</label>
-          <select
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2" htmlFor="training-priority">Priority</label>
+          <select id="training-priority"
             value={priority}
             onChange={(e) => setPriority(e.target.value as 'Normal' | 'High' | 'Critical')}
             className="w-full rounded-xl border border-gray-700 bg-gray-800 text-gray-100 text-sm px-3 py-2.5 focus:outline-none focus:border-brand-gold/60"
@@ -450,8 +450,8 @@ function AssignTrainingModal({ onClose, onSubmit }: { onClose: () => void; onSub
 
         {/* Note */}
         <div className="mb-5">
-          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Note (optional)</label>
-          <textarea
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2" htmlFor="training-note-optional">Note (optional)</label>
+          <textarea id="training-note-optional"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={3}
@@ -813,7 +813,7 @@ function BannedClaimsLibrary({ claims }: { claims: BannedClaim[] }) {
     <div>
       {/* Search */}
       <div className="relative mb-4">
-        <input
+        <input aria-label="Search banned claims, rules, enforcement cases"
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -1022,7 +1022,7 @@ export default function TrainingPage() {
 
       {/* Client selector */}
       <div className="mb-5">
-        <select
+        <select aria-label="Select client"
           value={selectedClient}
           onChange={(e) => setSelectedClient(e.target.value)}
           className="rounded-xl border border-gray-700 bg-gray-900 text-gray-100 text-sm px-4 py-2.5 focus:outline-none focus:border-brand-gold/60 transition-colors min-w-[260px]"

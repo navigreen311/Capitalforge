@@ -269,7 +269,7 @@ function DealCard({ deal, onVote, onComment }: {
         <div className="px-6 py-4 border-b border-gray-800">
           <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-3 font-semibold">Cast Vote</h4>
           <div className="flex items-center gap-3 flex-wrap">
-            <select
+            <select aria-label="Reviewer"
               value={votingReviewer || ''}
               onChange={(e) => setVotingReviewer(e.target.value || null)}
               className="rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200 px-3 py-2 focus:outline-none focus:border-[#C9A84C]/60"
@@ -329,7 +329,7 @@ function DealCard({ deal, onVote, onComment }: {
 
         {/* Add Comment */}
         <div className="flex gap-3">
-          <input
+          <input aria-label="Add a comment"
             type="text"
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}

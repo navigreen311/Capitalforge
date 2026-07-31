@@ -546,8 +546,8 @@ function ChangeAlertsTable({
             Acknowledging alert for <span className="font-mono text-gray-200">{alerts.find((a) => a.id === ackModal)?.field}</span>
           </p>
           <div>
-            <label className="text-xs text-gray-400 block mb-1">Notes (required)</label>
-            <textarea
+            <label className="text-xs text-gray-400 block mb-1" htmlFor="data-lineage-notes-required">Notes (required)</label>
+            <textarea id="data-lineage-notes-required"
               value={ackNotes}
               onChange={(e) => setAckNotes(e.target.value)}
               placeholder="Describe the investigation or rationale..."
@@ -574,8 +574,8 @@ function ChangeAlertsTable({
             Resolving alert for <span className="font-mono text-gray-200">{alerts.find((a) => a.id === resolveModal)?.field}</span>
           </p>
           <div>
-            <label className="text-xs text-gray-400 block mb-1">Resolution method</label>
-            <select
+            <label className="text-xs text-gray-400 block mb-1" htmlFor="data-lineage-resolution-method">Resolution method</label>
+            <select id="data-lineage-resolution-method"
               value={resolveMethod}
               onChange={(e) => setResolveMethod(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
@@ -770,7 +770,7 @@ function SnapshotManager({
         <Modal title="Create Pipeline Snapshot" onClose={() => { setCreateModal(false); setNewLabel(''); setNewNotes(''); }}>
           <div>
             <label className="text-xs text-gray-400 block mb-1">Label (required)</label>
-            <input
+            <input aria-label="Label (required)"
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               placeholder="e.g., Pre-deployment baseline"
@@ -779,7 +779,7 @@ function SnapshotManager({
           </div>
           <div>
             <label className="text-xs text-gray-400 block mb-1">Notes (optional)</label>
-            <textarea
+            <textarea aria-label="Notes (optional)"
               value={newNotes}
               onChange={(e) => setNewNotes(e.target.value)}
               placeholder="Describe the reason for this snapshot..."
@@ -1076,7 +1076,7 @@ export default function DataLineagePage() {
 
       {/* Search */}
       <div className="max-w-md space-y-1">
-        <input
+        <input aria-label="Search fields, nodes, or sources"
           type="text"
           placeholder="Search fields, nodes, or sources..."
           value={search}

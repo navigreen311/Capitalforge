@@ -551,7 +551,7 @@ function NewRuleBuilder({ open, onClose, onSubmit }: {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Rule Name *</label>
-                <input
+                <input aria-label="Rule Name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-600"
@@ -560,7 +560,7 @@ function NewRuleBuilder({ open, onClose, onSubmit }: {
               </div>
               <div>
                 <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Description</label>
-                <textarea
+                <textarea aria-label="Description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={2}
@@ -571,7 +571,7 @@ function NewRuleBuilder({ open, onClose, onSubmit }: {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Category</label>
-                  <select
+                  <select aria-label="Category"
                     value={category}
                     onChange={(e) => setCategory(e.target.value as RuleCategory)}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-600"
@@ -580,8 +580,8 @@ function NewRuleBuilder({ open, onClose, onSubmit }: {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Priority</label>
-                  <select
+                  <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1" htmlFor="workflows-priority">Priority</label>
+                  <select id="workflows-priority"
                     value={priority}
                     onChange={(e) => setPriority(e.target.value as PolicyRulePriority)}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-600"
@@ -593,8 +593,8 @@ function NewRuleBuilder({ open, onClose, onSubmit }: {
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Start Date</label>
-                <input
+                <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1" htmlFor="workflows-start-date">Start Date</label>
+                <input id="workflows-start-date"
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
@@ -628,21 +628,21 @@ function NewRuleBuilder({ open, onClose, onSubmit }: {
                   )}
                   <div className="flex gap-2 items-start">
                     <div className="flex-1 grid grid-cols-3 gap-2">
-                      <select
+                      <select aria-label="Condition field"
                         value={cond.field}
                         onChange={(e) => updateCondition(idx, 'field', e.target.value)}
                         className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-xs text-gray-100 focus:outline-none focus:border-yellow-600"
                       >
                         {CONDITION_FIELDS.map((f) => <option key={f} value={f}>{f}</option>)}
                       </select>
-                      <select
+                      <select aria-label="Condition operator"
                         value={cond.operator}
                         onChange={(e) => updateCondition(idx, 'operator', e.target.value)}
                         className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-xs text-gray-100 focus:outline-none focus:border-yellow-600"
                       >
                         {CONDITION_OPERATORS.map((op) => <option key={op} value={op}>{op}</option>)}
                       </select>
-                      <input
+                      <input aria-label="Value"
                         value={cond.value}
                         onChange={(e) => updateCondition(idx, 'value', e.target.value)}
                         placeholder="Value"
@@ -687,8 +687,8 @@ function NewRuleBuilder({ open, onClose, onSubmit }: {
           {step === 3 && (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Action</label>
-                <select
+                <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1" htmlFor="workflows-action">Action</label>
+                <select id="workflows-action"
                   value={actionType}
                   onChange={(e) => setActionType(e.target.value as ActionType)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-600"
@@ -697,8 +697,8 @@ function NewRuleBuilder({ open, onClose, onSubmit }: {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Parameters (optional)</label>
-                <input
+                <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1" htmlFor="workflows-parameters-optional">Parameters (optional)</label>
+                <input id="workflows-parameters-optional"
                   value={actionParams}
                   onChange={(e) => setActionParams(e.target.value)}
                   placeholder="e.g., notify_email=compliance@company.com"
@@ -900,8 +900,8 @@ function WorkflowRuleEditDrawer({ rule, onClose, onDuplicate, onArchive }: {
         <div className="p-4 rounded-lg border border-blue-800 bg-blue-950/30">
           <p className="text-xs text-blue-300 uppercase tracking-wide font-semibold mb-3">Rule Test Simulation</p>
           <div className="mb-3">
-            <label className="block text-xs text-gray-400 mb-1">Select Client</label>
-            <select
+            <label className="block text-xs text-gray-400 mb-1" htmlFor="workflows-select-client">Select Client</label>
+            <select id="workflows-select-client"
               value={testClient}
               onChange={(e) => { setTestClient(e.target.value); setTestResults(null); }}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-600"
@@ -1000,7 +1000,7 @@ function PolicyRuleEditDrawer({ rule, onClose, onSave }: {
         <div className="mb-4 p-3 rounded-lg bg-gray-800/60 border border-gray-700">
           <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-2">Threshold Value</p>
           <div className="flex items-center gap-3">
-            <input
+            <input aria-label="Threshold value"
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(parseFloat(e.target.value) || 0)}
@@ -1064,8 +1064,8 @@ function PolicyRuleEditDrawer({ rule, onClose, onSave }: {
         <div className="p-4 rounded-lg border border-blue-800 bg-blue-950/30">
           <p className="text-xs text-blue-300 uppercase tracking-wide font-semibold mb-3">Rule Test Simulation</p>
           <div className="mb-3">
-            <label className="block text-xs text-gray-400 mb-1">Select Client</label>
-            <select
+            <label className="block text-xs text-gray-400 mb-1" htmlFor="workflows-select-client-2">Select Client</label>
+            <select id="workflows-select-client-2"
               value={testClient}
               onChange={(e) => { setTestClient(e.target.value); setTestResults(null); }}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-600"
@@ -1141,8 +1141,8 @@ function DeployConfirmationModal({ version, onClose, onConfirm }: {
 
           {/* Deploy Reason */}
           <div className="mb-4">
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Deploy Reason *</label>
-            <textarea
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1" htmlFor="workflows-deploy-reason">Deploy Reason *</label>
+            <textarea id="workflows-deploy-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={2}
@@ -1214,8 +1214,8 @@ function RollbackConfirmationModal({ version, currentVersion, onClose, onConfirm
 
           {/* Rollback Reason */}
           <div className="mb-4">
-            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Rollback Reason *</label>
-            <textarea
+            <label className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1" htmlFor="workflows-rollback-reason">Rollback Reason *</label>
+            <textarea id="workflows-rollback-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={2}
@@ -1667,13 +1667,13 @@ export default function WorkflowsPage() {
         <div>
           {/* Filter bar */}
           <div className="flex items-center gap-3 mb-4 flex-wrap">
-            <input
+            <input aria-label="Filter by rule name"
               value={logFilterName}
               onChange={(e) => setLogFilterName(e.target.value)}
               placeholder="Filter by rule name..."
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-600 w-64"
             />
-            <select
+            <select aria-label="Filter by outcome"
               value={logFilterOutcome}
               onChange={(e) => setLogFilterOutcome(e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-yellow-600"

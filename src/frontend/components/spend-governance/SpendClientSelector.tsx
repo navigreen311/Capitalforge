@@ -138,7 +138,7 @@ export function SpendClientSelector({
 
         {!selectedClient && (
           <div className="relative">
-            <input
+            <input aria-label="Search for a client"
               ref={inputRef}
               type="text"
               value={query}

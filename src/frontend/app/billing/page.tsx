@@ -299,10 +299,10 @@ function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: GenerateInvoice
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="billing-client-name">
               Client Name
             </label>
-            <select
+            <select id="billing-client-name"
               value={form.client}
               onChange={(e) => handleClientChange(e.target.value)}
               className={`w-full rounded-lg bg-gray-800 border px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C] ${
@@ -318,10 +318,10 @@ function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: GenerateInvoice
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="billing-deal-structure">
               Deal Structure
             </label>
-            <select
+            <select id="billing-deal-structure"
               value={form.dealStructure}
               onChange={(e) => setForm({ ...form, dealStructure: e.target.value as DealStructure })}
               className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
@@ -334,10 +334,10 @@ function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: GenerateInvoice
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+              <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="billing-amount-usd">
                 Amount (USD)
               </label>
-              <input
+              <input id="billing-amount-usd"
                 type="number"
                 value={form.amount}
                 onChange={(e) => {
@@ -352,10 +352,10 @@ function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: GenerateInvoice
               {errors.amount && <p className="text-xs text-red-400 mt-1">{errors.amount}</p>}
             </div>
             <div>
-              <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+              <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="billing-due-date">
                 Due Date
               </label>
-              <input
+              <input id="billing-due-date"
                 type="date"
                 value={form.dueDate}
                 onChange={(e) => {
@@ -371,10 +371,10 @@ function GenerateInvoiceModal({ onClose, onSubmit, nextNumber }: GenerateInvoice
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide">
+            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="billing-description">
               Description
             </label>
-            <textarea
+            <textarea id="billing-description"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder="Invoice description..."

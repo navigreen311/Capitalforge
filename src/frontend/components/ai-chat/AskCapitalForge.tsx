@@ -404,7 +404,7 @@ export function AskCapitalForge() {
         {/* Input area */}
         <form onSubmit={handleSubmit} className="border-t border-white/10 px-4 py-3">
           <div className="flex gap-2 items-end">
-            <textarea
+            <textarea aria-label="Ask about your portfolio"
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}

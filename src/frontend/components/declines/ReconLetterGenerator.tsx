@@ -293,7 +293,7 @@ export function ReconLetterGenerator({ decline, onMarkSent }: ReconLetterGenerat
         </div>
 
         {/* Editable Letter */}
-        <textarea
+        <textarea aria-label="Reconsideration letter text"
           className="w-full bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono leading-relaxed"
           rows={18}
           value={letterText}

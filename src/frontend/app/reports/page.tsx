@@ -595,8 +595,8 @@ function ScheduleModal({ open, onClose }: { open: boolean; onClose: () => void }
               </div>
               <div className="flex gap-4">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Day</label>
-                  <select
+                  <label className="block text-xs text-gray-500 mb-1" htmlFor="reports-day">Day</label>
+                  <select id="reports-day"
                     value={day}
                     onChange={(e) => setDay(e.target.value)}
                     className="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded-lg px-3 py-2"
@@ -612,8 +612,8 @@ function ScheduleModal({ open, onClose }: { open: boolean; onClose: () => void }
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Time</label>
-                  <input
+                  <label className="block text-xs text-gray-500 mb-1" htmlFor="reports-time">Time</label>
+                  <input id="reports-time"
                     type="time"
                     value={time}
                     onChange={(e) => setTime(e.target.value)}
@@ -775,8 +775,8 @@ function GenerateReportModal({
         <h3 className="text-lg font-bold text-white mb-4">Generate Report</h3>
         <div className="space-y-4">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Report Type</label>
-            <select
+            <label className="block text-xs text-gray-500 mb-1" htmlFor="reports-report-type">Report Type</label>
+            <select id="reports-report-type"
               value={reportType}
               onChange={(e) => setReportType(e.target.value)}
               className="w-full bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded-lg px-3 py-2"
