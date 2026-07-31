@@ -112,6 +112,32 @@ function triggerVerb(name: string): string {
  */
 const DESTRUCTIVE = /\b(delete|remove|revoke|suspend|terminate|cancel|close|archive|approve|decline|reject|submit|send|save|confirm|pay|charge|offboard|purge|reset|deactivate|disable|escalate|sign)\b/i;
 
+/**
+ * Status chips share their wording with the verbs above — a filter row of
+ * "Draft | Submitted | Approved" reads as a trigger called "Draft", and
+ * "New(2)" is a badge with a count. Clicking them filters the view and burns a
+ * slot that a real form-opening button would have used.
+ */
+const STATUS_CHIP = /^(new|draft|pending|active|approved|declined|submitted|closed|all|open|archived)(\s*\(\d+\))?$/i;
+
+function isFormTrigger(label: string): boolean {
+  const verb = triggerVerb(label);
+  return OPENS_A_FORM.test(verb) && !DESTRUCTIVE.test(label) && !STATUS_CHIP.test(verb);
+}
+
+/** Every button's visible text, in DOM order, so an index can address it. */
+async function collectButtonLabels(page: import('@playwright/test').Page): Promise<string[]> {
+  return page
+    .getByRole('button')
+    // Structurally typed rather than as Element: the backend tsconfig also
+    // compiles this file and has no DOM lib, so naming a DOM type here breaks
+    // `npm run build:backend`.
+    .evaluateAll((nodes) =>
+      (nodes as unknown as { textContent: string | null; getAttribute(n: string): string | null }[])
+        .map((n) => (n.textContent || n.getAttribute('aria-label') || '').trim()),
+    );
+}
+
 for (const route of ROUTES) {
   test(`every form control on ${route} has an accessible name`, async ({ signedInPage: page }) => {
     const response = await page.goto(route);
@@ -151,6 +177,10 @@ for (const route of ROUTES) {
 /** Cap per route: enough to reach the forms, bounded enough to stay quick. */
 const MAX_TRIGGERS = 8;
 
+// Up to MAX_TRIGGERS clicks, each followed by a reload, so these run well past
+// the default per-test budget.
+test.describe.configure({ timeout: 120_000 });
+
 for (const route of ROUTES) {
   test(`controls revealed by buttons on ${route} have accessible names`, async ({
     signedInPage: page,
@@ -159,27 +189,30 @@ for (const route of ROUTES) {
     await page.waitForLoadState('networkidle').catch(() => undefined);
     await page.waitForTimeout(400);
 
-    const names = await page
-      .getByRole('button')
-      // Structurally typed rather than as Element: the backend tsconfig also
-      // compiles this file and has no DOM lib, so naming a DOM type here
-      // breaks `npm run build:backend`.
-      .evaluateAll((nodes) =>
-        (nodes as unknown as { textContent: string | null; getAttribute(n: string): string | null }[])
-          .map((n) => (n.textContent || n.getAttribute('aria-label') || '').trim())
-          .filter((t) => t !== ''),
-      );
+    const labels = await collectButtonLabels(page);
 
-    const candidates = [...new Set(names)]
-      .filter((n) => OPENS_A_FORM.test(triggerVerb(n)) && !DESTRUCTIVE.test(n))
+    // Indices, not names. Discovery reads textContent but getByRole matches on
+    // the accessible name, and the two differ often enough to matter — the
+    // dashboard's "+New Application" was found by text and then matched zero
+    // buttons by name, so its modal was never opened and the route passed
+    // having audited nothing.
+    const candidates = labels
+      .map((label, index) => ({ label, index }))
+      .filter(({ label }) => isFormTrigger(label))
       .slice(0, MAX_TRIGGERS);
 
     const failures: { trigger: string; controls: UnnamedControl[] }[] = [];
 
-    for (const name of candidates) {
-      const button = page.getByRole('button', { name, exact: true }).first();
+    for (const { label, index } of candidates) {
+      const button = page.getByRole('button').nth(index);
       if (!(await button.isVisible().catch(() => false))) continue;
+      // A disabled trigger cannot open anything, and clicking one costs the
+      // full actionability timeout while Playwright waits for it to become
+      // enabled — enough of those and the test dies of old age rather than
+      // reporting anything.
+      if (await button.isDisabled().catch(() => false)) continue;
 
+      const name = label;
       await button.click({ timeout: 5000 }).catch(() => undefined);
       await page.waitForTimeout(600);
 
@@ -220,6 +253,11 @@ const COVERAGE_ANCHORS: { route: string; trigger: string }[] = [
   { route: '/workflows', trigger: '+ New Rule' },
   { route: '/documents', trigger: '↑ Upload' },
   { route: '/referrals', trigger: '+ Add Referral' },
+  // Both of these opened nothing until the fixes in this commit: the dashboard
+  // trigger was never clicked because discovery and clicking disagreed on the
+  // label, and the tradeline modal could not open at all.
+  { route: '/dashboard', trigger: '+New Application' },
+  { route: '/credit-builder', trigger: '+ Add Tradeline' },
 ];
 
 const COUNT_CONTROLS = `(() => document.querySelectorAll('input, select, textarea').length)()`;
@@ -232,16 +270,23 @@ for (const { route, trigger } of COVERAGE_ANCHORS) {
     await page.waitForLoadState('networkidle').catch(() => undefined);
     await page.waitForTimeout(400);
 
-    const button = page.getByRole('button', { name: trigger, exact: true }).first();
-    await expect(
-      button,
+    // Located exactly as the sweep locates it — by label, then by index — so
+    // this anchor fails if the sweep would have missed the button, not merely
+    // if the button vanished.
+    const labels = await collectButtonLabels(page);
+    const index = labels.indexOf(trigger);
+    expect(
+      index,
       `trigger "${trigger}" no longer exists on ${route} — if it was renamed, ` +
         'update this anchor; the modal behind it is otherwise unaudited',
-    ).toBeVisible();
+    ).toBeGreaterThan(-1);
+
+    const button = page.getByRole('button').nth(index);
+    await expect(button).toBeVisible();
 
     // The discovery filter has to accept it, or the sweep skips it silently.
     expect(
-      OPENS_A_FORM.test(triggerVerb(trigger)) && !DESTRUCTIVE.test(trigger),
+      isFormTrigger(trigger),
       `"${trigger}" is no longer matched by the trigger filter`,
     ).toBe(true);
 

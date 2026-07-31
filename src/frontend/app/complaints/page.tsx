@@ -675,7 +675,16 @@ function RegulatoryInquiries() {
           <h3 className="text-sm font-semibold text-gray-200">Regulator Inquiries</h3>
           <p className="text-xs text-gray-500 mt-0.5">Active regulatory matters requiring response.</p>
         </div>
-        <button className="px-4 py-1.5 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-xs font-semibold transition-colors">
+        {/* No handler exists for this yet. Disabled rather than left looking
+            operable: a button that silently does nothing is worse than one
+            that says it cannot. */}
+        <button
+          type="button"
+          disabled
+          title="Logging a regulator inquiry is not implemented yet"
+          className="px-4 py-1.5 rounded-lg bg-[#C9A84C] text-[#0A1628] text-xs font-semibold
+            opacity-40 cursor-not-allowed"
+        >
           + Log Inquiry
         </button>
       </div>
@@ -714,8 +723,23 @@ function RegulatoryInquiries() {
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <span>{inq.attachments} attachments</span>
                 <div className="flex gap-2">
-                  <button className="text-[#C9A84C] hover:underline">Upload</button>
-                  <button className="text-[#C9A84C] hover:underline">Respond</button>
+                  {/* Same: neither action is wired to anything. */}
+                  <button
+                    type="button"
+                    disabled
+                    title="Uploading inquiry attachments is not implemented yet"
+                    className="text-gray-600 cursor-not-allowed"
+                  >
+                    Upload
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    title="Responding to an inquiry is not implemented yet"
+                    className="text-gray-600 cursor-not-allowed"
+                  >
+                    Respond
+                  </button>
                 </div>
               </div>
             </div>

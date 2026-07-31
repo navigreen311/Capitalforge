@@ -928,11 +928,16 @@ function UploadModal({ onClose, onImport }: { onClose: () => void; onImport: (st
             <>
               {/* Drop zone — PDF only */}
               {!parsed && !parsing && (
-                <div
+                // A div with onClick is unreachable without a mouse: no focus,
+                // no role, no Enter or Space. As a button it is keyboard
+                // operable and announced, with the drop handlers unchanged for
+                // pointer users.
+                <button
+                  type="button"
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={handleFileDrop}
-                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+                  className={`w-full border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
                     dragOver
                       ? 'border-[#C9A84C] bg-[#C9A84C]/5'
                       : 'border-gray-700 hover:border-gray-500 bg-gray-800/30'
@@ -949,7 +954,20 @@ function UploadModal({ onClose, onImport }: { onClose: () => void; onImport: (st
                   <p className="text-[10px] text-gray-600 mt-3">
                     Accepted format: PDF
                   </p>
-                </div>
+                </button>
+              )}
+
+              {/* Neither handler reads the file. handleFileSelect ignores its
+                  input entirely and handleFileDrop only checks the extension;
+                  both then run simulateParse, which waits two seconds and
+                  returns a fixed result. Said plainly, because the animation
+                  and the populated table that follow are otherwise
+                  indistinguishable from a real parse. */}
+              {!parsed && !parsing && (
+                <p className="mt-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Demo only — the file is not read. Any upload returns the same
+                  sample statement.
+                </p>
               )}
 
               {/* Parsing animation */}

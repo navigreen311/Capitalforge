@@ -545,7 +545,12 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
   const apiTradelines = useMemo(() => toTradelines(data), [data]);
 
   const [internalShowAdd, setInternalShowAdd] = useState(false);
-  const showAddModal = externalShowAdd ?? internalShowAdd;
+  // Either source can open it. This was `externalShowAdd ?? internalShowAdd`,
+  // and ?? only falls through on null/undefined — the page passes a real
+  // boolean, so the expression was pinned to the parent's `false` and this
+  // component's own "+ Add Tradeline" button could never open anything. It set
+  // internal state that nothing read.
+  const showAddModal = (externalShowAdd ?? false) || internalShowAdd;
   const setShowAddModal = useCallback((val: boolean) => {
     setInternalShowAdd(val);
     if (!val && onCloseAddModal) onCloseAddModal();
