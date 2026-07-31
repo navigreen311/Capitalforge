@@ -6,41 +6,35 @@
 // GET    /                — funding round detail
 // GET    /repayment       — repayment cards & interest shock
 // GET    /timeline        — round timeline events
-// PATCH  /                — update notes/status
+// PATCH  /                — update round fields
+//
+// Reads FundingRound with its applications. Progress figures are derived from
+// the applications on record rather than stored, so they cannot drift from the
+// rows they describe.
 // ============================================================
 
 import { Router, type Response, type NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
+import { PrismaClient, Prisma } from '@prisma/client';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
-import { okStub, registerStub } from './_stub-response.js';
+import { AGGREGATE_TYPES } from '../../events/event-types.js';
 
-registerStub(
-  'fundingRound.detail',
-  'Round detail, repayment and timeline are sample data; no persistence.',
-);
+const prisma = new PrismaClient();
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function daysFromNow(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
+function getTenantId(req: Request): string {
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    throw new Error('Tenant context is missing — authentication middleware did not run.');
+  }
+  return tenantId;
 }
 
-function dateOnly(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().split('T')[0];
-}
-
-/**
- * Every endpoint in this module returns hardcoded sample data — funding-round
- * detail has no persistence behind it yet — so the module's success helper
- * marks all of them as stubs.
- */
 function ok(res: Response, data: unknown, meta?: Record<string, unknown>): void {
-  okStub(res, data, 'fundingRound.detail', meta);
+  const body: ApiResponse = { success: true, data, ...(meta ? { meta } : {}) };
+  res.status(200).json(body);
 }
 
 function err(res: Response, status: number, code: string, message: string): void {
@@ -48,110 +42,315 @@ function err(res: Response, status: number, code: string, message: string): void
   res.status(status).json(body);
 }
 
-// ── Mock data ────────────────────────────────────────────────
+function num(value: Prisma.Decimal | null): number | null {
+  return value === null ? null : Number(value);
+}
 
-const MOCK_ROUND_DETAIL = {
-  id: 'round_mh_001',
-  businessId: 'biz_meridian_001',
-  businessName: 'Meridian Holdings LLC',
-  roundNumber: 2,
-  status: 'in_progress',
-  targetAmount: 350000,
-  obtainedAmount: 287500,
-  advisorName: 'Sarah Chen',
-  startedAt: daysFromNow(-30),
-  targetCloseAt: daysFromNow(60),
-  notes: 'Phase 2 stack — targeting Chase + Amex',
-  clientReadinessScore: 82,
-  cards: [
-    { id: 'card_mh_chase_001', product: 'Ink Business Preferred', issuer: 'Chase', limit: 45000, balance: 12400, utilization: 27.6, consentStatus: 'complete' },
-    { id: 'card_mh_bofa_001', product: 'Business Advantage Cash', issuer: 'BofA', limit: 35000, balance: 8200, utilization: 23.4, consentStatus: 'complete' },
-    { id: 'card_mh_chase_002', product: 'Ink Business Cash', issuer: 'Chase', limit: 25000, balance: 3100, utilization: 12.4, consentStatus: 'complete' },
-    { id: 'card_mh_amex_001', product: 'Business Gold Card', issuer: 'American Express', limit: 150000, balance: 18500, utilization: 12.3, consentStatus: 'pending' },
-  ],
-  economics: {
-    totalCreditObtained: 287500,
-    estimatedFees: 14375,
-    feePercent: 5.0,
-    netToClient: 273125,
-  },
-  previousRounds: [
-    { roundNumber: 1, status: 'completed', targetAmount: 200000, obtainedAmount: 195000, cardsApproved: 3, completedAt: daysFromNow(-90) },
-  ],
-};
+function daysUntil(date: Date | null): number | null {
+  if (!date) return null;
+  return Math.ceil((date.getTime() - Date.now()) / 86_400_000);
+}
 
-const MOCK_REPAYMENT = {
-  cards: [
-    { name: 'Ink Business Preferred', issuer: 'Chase', next_due: dateOnly(5), amount: 1200, type: 'autopay', status: 'upcoming', balance: 12400, apr_post_promo: 29.99, expiry_date: dateOnly(49), days_remaining: 49 },
-    { name: 'Business Advantage Cash', issuer: 'BofA', next_due: dateOnly(8), amount: 800, type: 'manual', status: 'overdue', balance: 8200, apr_post_promo: 26.99, expiry_date: dateOnly(90), days_remaining: 90 },
-    { name: 'Ink Business Cash', issuer: 'Chase', next_due: dateOnly(15), amount: 400, type: 'autopay', status: 'upcoming', balance: 3100, apr_post_promo: 24.99, expiry_date: dateOnly(120), days_remaining: 120 },
-    { name: 'Business Gold Card', issuer: 'American Express', next_due: dateOnly(12), amount: 1500, type: 'manual', status: 'upcoming', balance: 18500, apr_post_promo: 28.49, expiry_date: dateOnly(65), days_remaining: 65 },
-  ],
-  interest_shock: {
-    total_balance_at_risk: 42200,
-    monthly_interest: 1035,
-    annual_interest: 12420,
-    action_deadline: dateOnly(49),
-  },
-};
+const APPROVED = new Set(['approved', 'active']);
 
-const MOCK_TIMELINE = [
-  { id: 'fre_001', date: daysFromNow(-30), type: 'round_created', title: 'Funding round created', detail: 'Round 2 initiated — targeting $350,000 in new credit lines', actor: 'Sarah Chen' },
-  { id: 'fre_002', date: daysFromNow(-25), type: 'app_drafted', title: 'Application drafted', detail: 'Ink Business Preferred application prepared for Chase submission', actor: 'Sarah Chen' },
-  { id: 'fre_003', date: daysFromNow(-20), type: 'app_submitted', title: 'Application submitted', detail: 'Submitted to Chase via business portal — requested $50,000', actor: 'Sarah Chen' },
-  { id: 'fre_004', date: daysFromNow(-10), type: 'app_approved', title: 'Application approved', detail: 'Chase approved Ink Business Preferred for $45,000 credit limit', actor: 'System' },
-];
+async function loadRound(roundId: string, tenantId: string) {
+  return prisma.fundingRound.findFirst({
+    where: { id: roundId, business: { tenantId } },
+    include: {
+      business: { select: { id: true, legalName: true } },
+      applications: { orderBy: { createdAt: 'asc' } },
+    },
+  });
+}
 
-// ── Router ───────────────────────────────────────────────────
+const UPDATABLE_FIELDS = new Set([
+  'status',
+  'targetCredit',
+  'targetCardCount',
+  'aprExpiryDate',
+  'startedAt',
+  'completedAt',
+]);
+
+const ROUND_STATUSES = new Set(['planning', 'active', 'completed', 'cancelled']);
+
+// ── Router ────────────────────────────────────────────────────
 
 export const fundingRoundDetailRouter = Router({ mergeParams: true });
 
-// GET / — funding round detail
+// GET / — round detail with derived progress
 fundingRoundDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { roundId } = req.params;
-  logger.debug('GET funding round detail', { roundId });
+  const tenantId = getTenantId(req);
 
-  // TODO: replace with Prisma query when model is available
-  ok(res, { ...MOCK_ROUND_DETAIL, id: roundId });
+  try {
+    const round = await loadRound(roundId, tenantId);
+    if (!round) {
+      err(res, 404, 'ROUND_NOT_FOUND', `No funding round found with ID "${roundId}".`);
+      return;
+    }
+
+    const apps = round.applications;
+    const approved = apps.filter((a) => APPROVED.has(a.status));
+    const creditObtained = approved.reduce((sum, a) => sum + Number(a.creditLimit ?? 0), 0);
+    const targetCredit = num(round.targetCredit);
+
+    ok(res, {
+      id: round.id,
+      businessId: round.businessId,
+      businessName: round.business.legalName,
+      roundNumber: round.roundNumber,
+      status: round.status,
+      targetCredit,
+      targetCardCount: round.targetCardCount,
+      aprExpiryDate: round.aprExpiryDate?.toISOString() ?? null,
+      aprExpiryDaysRemaining: daysUntil(round.aprExpiryDate),
+      alertsSent: {
+        day60: round.alertSent60,
+        day30: round.alertSent30,
+        day15: round.alertSent15,
+      },
+      startedAt: round.startedAt?.toISOString() ?? null,
+      completedAt: round.completedAt?.toISOString() ?? null,
+      createdAt: round.createdAt.toISOString(),
+      updatedAt: round.updatedAt.toISOString(),
+
+      // Derived from the applications actually attached to this round.
+      progress: {
+        applicationCount: apps.length,
+        approvedCount: approved.length,
+        declinedCount: apps.filter((a) => a.status === 'declined').length,
+        pendingCount: apps.filter((a) => !APPROVED.has(a.status) && a.status !== 'declined').length,
+        creditObtained,
+        creditRemaining:
+          targetCredit === null ? null : Math.max(0, targetCredit - creditObtained),
+        targetProgressPct:
+          targetCredit && targetCredit > 0
+            ? Math.round((creditObtained / targetCredit) * 100)
+            : null,
+      },
+
+      applications: apps.map((a) => ({
+        id: a.id,
+        issuer: a.issuer,
+        cardProduct: a.cardProduct,
+        status: a.status,
+        creditLimit: num(a.creditLimit),
+        introAprExpiry: a.introAprExpiry?.toISOString() ?? null,
+        declineReason: a.declineReason,
+      })),
+    });
+  } catch (error) {
+    logger.error('Failed to load funding round detail', { roundId, tenantId, error });
+    err(res, 500, 'ROUND_DETAIL_FAILED', 'Unable to load the funding round.');
+  }
 });
 
-// GET /repayment — repayment cards & interest shock
+// GET /repayment — obligations and the interest shock when intro APRs lapse
 fundingRoundDetailRouter.get('/repayment', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { roundId } = req.params;
-  logger.debug('GET funding round repayment', { roundId });
+  const tenantId = getTenantId(req);
 
-  // TODO: replace with Prisma query when model is available
-  ok(res, MOCK_REPAYMENT);
+  try {
+    const round = await loadRound(roundId, tenantId);
+    if (!round) {
+      err(res, 404, 'ROUND_NOT_FOUND', `No funding round found with ID "${roundId}".`);
+      return;
+    }
+
+    const approved = round.applications.filter((a) => APPROVED.has(a.status));
+
+    const cards = approved.map((a) => {
+      const limit = Number(a.creditLimit ?? 0);
+      const regularApr = num(a.regularApr);
+      const daysRemaining = daysUntil(a.introAprExpiry);
+
+      return {
+        applicationId: a.id,
+        issuer: a.issuer,
+        cardProduct: a.cardProduct,
+        creditLimit: limit,
+        introApr: num(a.introApr),
+        introAprExpiry: a.introAprExpiry?.toISOString() ?? null,
+        daysRemaining,
+        regularApr,
+        annualFee: num(a.annualFee),
+        // The cost of carrying the full limit for a year once the intro rate
+        // lapses. Null when the card has no regular APR on record — an unknown
+        // is reported as unknown rather than as zero exposure.
+        annualisedInterestAtRegularApr:
+          regularApr === null ? null : Math.round(limit * (regularApr / 100)),
+        severity:
+          daysRemaining === null
+            ? null
+            : daysRemaining <= 14
+              ? 'critical'
+              : daysRemaining <= 60
+                ? 'warning'
+                : 'ok',
+      };
+    });
+
+    const withApr = cards.filter((c) => c.annualisedInterestAtRegularApr !== null);
+
+    ok(res, {
+      roundId: round.id,
+      businessId: round.businessId,
+      cards,
+      totals: {
+        cardCount: cards.length,
+        totalCreditLimit: cards.reduce((sum, c) => sum + c.creditLimit, 0),
+        totalAnnualFees: cards.reduce((sum, c) => sum + (c.annualFee ?? 0), 0),
+        // Only the cards whose APR is known contribute; the count says how
+        // many those were, so a partial figure is not read as a complete one.
+        interestShockAnnualised: withApr.reduce(
+          (sum, c) => sum + (c.annualisedInterestAtRegularApr ?? 0),
+          0,
+        ),
+        interestShockBasedOnCards: withApr.length,
+        cardsMissingRegularApr: cards.length - withApr.length,
+      },
+      nextAprExpiry:
+        cards
+          .filter((c) => c.introAprExpiry !== null)
+          .sort((a, b) => (a.introAprExpiry! < b.introAprExpiry! ? -1 : 1))[0] ?? null,
+    });
+  } catch (error) {
+    logger.error('Failed to load round repayment', { roundId, tenantId, error });
+    err(res, 500, 'ROUND_REPAYMENT_FAILED', 'Unable to load repayment detail.');
+  }
 });
 
-// GET /timeline — round timeline events
+// GET /timeline — ledger events for the round and its applications
 fundingRoundDetailRouter.get('/timeline', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { roundId } = req.params;
-  logger.debug('GET funding round timeline', { roundId });
+  const tenantId = getTenantId(req);
 
-  // TODO: replace with Prisma query when model is available
-  ok(res, MOCK_TIMELINE, { total: MOCK_TIMELINE.length });
+  try {
+    const round = await loadRound(roundId, tenantId);
+    if (!round) {
+      err(res, 404, 'ROUND_NOT_FOUND', `No funding round found with ID "${roundId}".`);
+      return;
+    }
+
+    // A round's history includes what happened to its applications, so both
+    // aggregates are collected rather than just the round itself.
+    const applicationIds = round.applications.map((a) => a.id);
+    const events = await prisma.ledgerEvent.findMany({
+      where: {
+        tenantId,
+        OR: [
+          { aggregateType: AGGREGATE_TYPES.FUNDING_ROUND, aggregateId: roundId },
+          ...(applicationIds.length
+            ? [{ aggregateType: AGGREGATE_TYPES.APPLICATION, aggregateId: { in: applicationIds } }]
+            : []),
+        ],
+      },
+      orderBy: { publishedAt: 'desc' },
+      take: 200,
+    });
+
+    const timeline = events.map((event) => {
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      return {
+        id: event.id,
+        type: event.eventType,
+        aggregateType: event.aggregateType,
+        aggregateId: event.aggregateId,
+        timestamp: event.publishedAt.toISOString(),
+        actor: typeof payload['createdBy'] === 'string' ? (payload['createdBy'] as string) : 'System',
+        detail: payload,
+      };
+    });
+
+    ok(res, timeline, { total: timeline.length });
+  } catch (error) {
+    logger.error('Failed to load round timeline', { roundId, tenantId, error });
+    err(res, 500, 'ROUND_TIMELINE_FAILED', 'Unable to load the round timeline.');
+  }
 });
 
-// PATCH / — update notes/status
+// PATCH / — update round fields
 fundingRoundDetailRouter.patch('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { roundId } = req.params;
-  const updates = req.body;
+  const tenantId = getTenantId(req);
+  const updates = (req.body ?? {}) as Record<string, unknown>;
 
-  if (!updates || Object.keys(updates).length === 0) {
+  if (Object.keys(updates).length === 0) {
     err(res, 400, 'INVALID_BODY', 'Request body must contain fields to update');
     return;
   }
 
-  const allowedFields = ['notes', 'status'];
-  const invalidFields = Object.keys(updates).filter((k) => !allowedFields.includes(k));
-  if (invalidFields.length > 0) {
-    err(res, 400, 'INVALID_FIELDS', `Only notes and status may be updated. Invalid: ${invalidFields.join(', ')}`);
+  const rejected = Object.keys(updates).filter((k) => !UPDATABLE_FIELDS.has(k));
+  if (rejected.length > 0) {
+    err(res, 400, 'FIELD_NOT_UPDATABLE', `These fields cannot be updated: ${rejected.join(', ')}.`);
     return;
   }
 
-  logger.debug('PATCH funding round', { roundId, fields: Object.keys(updates) });
+  if (typeof updates['status'] === 'string' && !ROUND_STATUSES.has(updates['status'])) {
+    err(
+      res,
+      400,
+      'INVALID_STATUS',
+      `Status must be one of: ${[...ROUND_STATUSES].join(', ')}.`,
+    );
+    return;
+  }
 
-  // TODO: replace with Prisma update when model is available
-  ok(res, { ...MOCK_ROUND_DETAIL, id: roundId, ...updates, updatedAt: new Date().toISOString() });
+  try {
+    const round = await loadRound(roundId, tenantId);
+    if (!round) {
+      err(res, 404, 'ROUND_NOT_FOUND', `No funding round found with ID "${roundId}".`);
+      return;
+    }
+
+    const data: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null) {
+        data[key] = null;
+      } else if (key === 'targetCredit') {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) {
+          err(res, 400, 'INVALID_FIELD', 'targetCredit must be a number.');
+          return;
+        }
+        data[key] = new Prisma.Decimal(parsed);
+      } else if (key === 'targetCardCount') {
+        const parsed = Number(value);
+        if (!Number.isInteger(parsed)) {
+          err(res, 400, 'INVALID_FIELD', 'targetCardCount must be an integer.');
+          return;
+        }
+        data[key] = parsed;
+      } else if (key === 'aprExpiryDate' || key === 'startedAt' || key === 'completedAt') {
+        const parsed = new Date(value as string);
+        if (isNaN(parsed.getTime())) {
+          err(res, 400, 'INVALID_FIELD', `"${key}" must be a valid date.`);
+          return;
+        }
+        data[key] = parsed;
+      } else {
+        data[key] = value;
+      }
+    }
+
+    const updated = await prisma.fundingRound.update({ where: { id: roundId }, data });
+    logger.info('Funding round updated', { roundId, tenantId, fields: Object.keys(data) });
+
+    ok(res, {
+      id: updated.id,
+      businessId: updated.businessId,
+      roundNumber: updated.roundNumber,
+      status: updated.status,
+      targetCredit: num(updated.targetCredit),
+      targetCardCount: updated.targetCardCount,
+      aprExpiryDate: updated.aprExpiryDate?.toISOString() ?? null,
+      startedAt: updated.startedAt?.toISOString() ?? null,
+      completedAt: updated.completedAt?.toISOString() ?? null,
+      updatedAt: updated.updatedAt.toISOString(),
+    });
+  } catch (error) {
+    logger.error('Failed to update funding round', { roundId, tenantId, error });
+    err(res, 500, 'ROUND_UPDATE_FAILED', 'Unable to update the funding round.');
+  }
 });

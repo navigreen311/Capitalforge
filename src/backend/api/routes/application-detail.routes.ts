@@ -1,46 +1,43 @@
 // ============================================================
-// CapitalForge Application Detail Routes
+// CapitalForge Application Timeline
 //
 // Mounted under: /api/applications/:appId
 //
-// GET    /                — application detail
-// GET    /timeline        — application timeline events
-// POST   /submit          — submit application to issuer
-// PATCH  /                — update application fields
+// GET /timeline — application history, projected from the canonical ledger
+//
+// This module used to also define GET /, PATCH / and POST /submit. All three
+// were unreachable: application.routes.ts (mounted at '/' earlier) already
+// serves GET /applications/:id and PUT /applications/:id/status, and
+// applications.routes.ts serves PATCH /applications/:id and
+// POST /applications/:id/submit — both against real records. Express matched
+// those first, so the sample data here was never actually served.
+//
+// They are not reimplemented here. Two handlers for one path is how the
+// behaviour of a route ends up depending on mount order.
 // ============================================================
 
 import { Router, type Response, type NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
+import { PrismaClient } from '@prisma/client';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
-import { okStub, registerStub } from './_stub-response.js';
+import { AGGREGATE_TYPES } from '../../events/event-types.js';
 
-registerStub(
-  'application.detail',
-  'Application detail, timeline and updates are sample data; no persistence.',
-);
+const prisma = new PrismaClient();
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function daysFromNow(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
+function getTenantId(req: Request): string {
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    throw new Error('Tenant context is missing — authentication middleware did not run.');
+  }
+  return tenantId;
 }
 
-function dateOnly(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().split('T')[0];
-}
-
-/**
- * Every endpoint in this module returns hardcoded sample data — there is no
- * persistence behind application detail yet — so the module's success helper
- * marks all of them as stubs rather than letting them pass for real records.
- */
 function ok(res: Response, data: unknown, meta?: Record<string, unknown>): void {
-  okStub(res, data, 'application.detail', meta);
+  const body: ApiResponse = { success: true, data, ...(meta ? { meta } : {}) };
+  res.status(200).json(body);
 }
 
 function err(res: Response, status: number, code: string, message: string): void {
@@ -48,103 +45,52 @@ function err(res: Response, status: number, code: string, message: string): void
   res.status(status).json(body);
 }
 
-// ── Mock data ─────────────────────────────────────────────────
-
-const MOCK_APPLICATION = {
-  id: 'APP-0091',
-  client_id: 'biz_meridian_001',
-  client_name: 'Meridian Holdings LLC',
-  card_product: 'Ink Business Preferred',
-  issuer: 'Chase',
-  round_number: 2,
-  round_id: 'round_mh_001',
-  requested: 50000,
-  approved: 45000,
-  status: 'approved',
-  apr_days_remaining: 365,
-  consent_status: 'complete',
-  missing_consent: null,
-  acknowledgment_status: 'signed',
-  submitted_date: dateOnly(-10),
-  approved_date: dateOnly(-3),
-  declined_date: null,
-  advisor: 'Sarah Chen',
-  days_in_stage: 0,
-  business_purpose: 'Working capital expansion',
-  decline_reason: null,
-  documents: [
-    { id: 'doc_001', name: 'Chase Approval Letter', type: 'approval_letter', uploaded_at: daysFromNow(-3), uploaded_by: 'System', url: '/documents/app_0091_approval.pdf' },
-    { id: 'doc_002', name: 'Business Financial Statement', type: 'financial_statement', uploaded_at: daysFromNow(-12), uploaded_by: 'James Harrington', url: '/documents/app_0091_financials.pdf' },
-  ],
-  compliance: {
-    score: 95,
-    status: 'pass',
-    checks: [
-      { name: 'TCPA Consent', status: 'pass', detail: 'Valid consent on file' },
-      { name: 'E-Sign Agreement', status: 'pass', detail: 'Signed by all owners' },
-      { name: 'Product Reality Acknowledgment', status: 'pass', detail: 'Signed and witnessed' },
-      { name: 'State Disclosure', status: 'pass', detail: 'NY disclosure filed' },
-    ],
-  },
-};
-
-const MOCK_TIMELINE = [
-  { id: 'evt_001', type: 'status_change', title: 'Application approved', timestamp: daysFromNow(-3), actor: 'System', detail: 'Approved for $45,000 credit limit' },
-  { id: 'evt_002', type: 'review', title: 'Underwriting review completed', timestamp: daysFromNow(-5), actor: 'Marcus Reid', detail: 'Risk assessment passed — tier 1 approval' },
-  { id: 'evt_003', type: 'submission', title: 'Application submitted to issuer', timestamp: daysFromNow(-10), actor: 'Sarah Chen', detail: 'Submitted via Chase business portal' },
-  { id: 'evt_004', type: 'consent', title: 'All consents verified', timestamp: daysFromNow(-11), actor: 'System', detail: 'TCPA, E-Sign, and Product Reality acknowledgments confirmed' },
-  { id: 'evt_005', type: 'creation', title: 'Application created', timestamp: daysFromNow(-14), actor: 'Sarah Chen', detail: 'Draft created for Round 2 — Ink Business Preferred' },
-];
-
 // ── Router ────────────────────────────────────────────────────
 
 export const applicationDetailRouter = Router({ mergeParams: true });
 
-// GET / — application detail
-applicationDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { appId } = req.params;
-  logger.debug('GET application detail', { appId });
-
-  // TODO: replace with Prisma query when model is available
-  ok(res, { ...MOCK_APPLICATION, id: appId });
-});
-
-// GET /timeline — application timeline events
+// GET /timeline — projected from the canonical ledger
 applicationDetailRouter.get('/timeline', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { appId } = req.params;
-  logger.debug('GET application timeline', { appId });
+  const tenantId = getTenantId(req);
 
-  // TODO: replace with Prisma query when model is available
-  ok(res, MOCK_TIMELINE, { total: MOCK_TIMELINE.length });
-});
+  try {
+    // Confirm the application belongs to this tenant before returning its
+    // history: the ledger is queried by aggregate id, which on its own would
+    // not scope the result.
+    const application = await prisma.cardApplication.findFirst({
+      where: { id: appId, business: { tenantId } },
+      select: { id: true },
+    });
 
-// POST /submit — submit application to issuer
-applicationDetailRouter.post('/submit', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { appId } = req.params;
-  logger.info('POST submit application', { appId });
+    if (!application) {
+      err(res, 404, 'APPLICATION_NOT_FOUND', `No application found with ID "${appId}".`);
+      return;
+    }
 
-  // TODO: implement actual submission logic
-  ok(res, {
-    id: appId,
-    status: 'submitted',
-    submitted_date: new Date().toISOString(),
-    submitted_by: 'current_user',
-    message: 'Application submitted successfully',
-  });
-});
+    const events = await prisma.ledgerEvent.findMany({
+      where: { tenantId, aggregateType: AGGREGATE_TYPES.APPLICATION, aggregateId: appId },
+      orderBy: { publishedAt: 'desc' },
+      take: 100,
+    });
 
-// PATCH / — update application fields
-applicationDetailRouter.patch('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { appId } = req.params;
-  const updates = req.body;
+    const timeline = events.map((event) => {
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      return {
+        id: event.id,
+        type: event.eventType,
+        timestamp: event.publishedAt.toISOString(),
+        actor:
+          typeof payload['createdBy'] === 'string' ? (payload['createdBy'] as string) : 'System',
+        detail: payload,
+      };
+    });
 
-  if (!updates || Object.keys(updates).length === 0) {
-    err(res, 400, 'INVALID_BODY', 'Request body must contain fields to update');
-    return;
+    // An application created before the ledger writer was attached has no
+    // events. That is an empty timeline, not sample history.
+    ok(res, timeline, { total: timeline.length });
+  } catch (error) {
+    logger.error('Failed to load application timeline', { appId, tenantId, error });
+    err(res, 500, 'APPLICATION_TIMELINE_FAILED', 'Unable to load the application timeline.');
   }
-
-  logger.debug('PATCH application', { appId, fields: Object.keys(updates) });
-
-  // TODO: replace with Prisma update when model is available
-  ok(res, { ...MOCK_APPLICATION, id: appId, ...updates, updatedAt: new Date().toISOString() });
 });

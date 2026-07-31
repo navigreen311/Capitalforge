@@ -15,13 +15,7 @@ import { PrismaClient } from '@prisma/client';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
-import { okStub, registerStub } from './_stub-response.js';
 
-registerStub(
-  'fundingRound.exportDossier',
-  'Dossier cards, costs and APR timeline are fabricated constants — only the '
-  + 'round status/number/businessId come from the database.',
-)
 
 // ── Lazy Prisma singleton ────────────────────────────────────
 
@@ -73,7 +67,12 @@ function handleUnexpected(err: unknown, res: Response, context: string): void {
 }
 
 // ── POST /api/funding-rounds/:id/export-dossier ─────────────
-// Returns a mock JSON summary of the funding round: cards, costs, APR timeline.
+// Builds a funding-round dossier from the round and its applications.
+//
+// This is a client-facing financial record, so every figure is read from the
+// database. It previously assembled card names, credit limits, an advisor fee
+// and an APR timeline entirely from constants, with only the round status and
+// number coming from real data.
 
 fundingRoundActionsRouter.post(
   '/funding-rounds/:id/export-dossier',
@@ -89,76 +88,127 @@ fundingRoundActionsRouter.post(
     try {
       const prisma = getPrisma();
 
-      // Only the summary fields below come from the database. Everything
-      // else in this dossier is a fabricated constant, which is why the
-      // response is flagged as a stub — an exported dossier reads as a
-      // client-facing financial record.
-      let round: Record<string, unknown> | null = null;
-      try {
-        round = await prisma.fundingRound.findFirst({
-          where: { id: roundId },
-        });
-      } catch (lookupError) {
-        logger.warn('[FundingRoundActionsRoutes] Round lookup failed for dossier', {
-          roundId,
-          error: lookupError instanceof Error ? lookupError.message : String(lookupError),
-        });
+      const round = await prisma.fundingRound.findFirst({
+        where: { id: roundId, business: { tenantId } },
+        include: {
+          business: { select: { id: true, legalName: true, ein: true, entityType: true } },
+          applications: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+
+      if (!round) {
+        sendError(res, 404, 'NOT_FOUND', `No funding round found with ID "${roundId}".`);
+        return;
       }
+
+      const approved = round.applications.filter(
+        (a) => a.status === 'approved' || a.status === 'active',
+      );
+
+      const cards = approved.map((a) => ({
+        applicationId: a.id,
+        cardName:      a.cardProduct,
+        issuer:        a.issuer,
+        creditLimit:   a.creditLimit === null ? null : Number(a.creditLimit),
+        introApr:      a.introApr === null ? null : Number(a.introApr),
+        aprExpiresAt:  a.introAprExpiry?.toISOString() ?? null,
+        regularApr:    a.regularApr === null ? null : Number(a.regularApr),
+        annualFee:     a.annualFee === null ? null : Number(a.annualFee),
+        status:        a.status,
+        decidedAt:     a.decidedAt?.toISOString() ?? null,
+      }));
+
+      const totalCreditObtained = cards.reduce((sum, c) => sum + (c.creditLimit ?? 0), 0);
+      const totalAnnualFees     = cards.reduce((sum, c) => sum + (c.annualFee ?? 0), 0);
+
+      // An APR timeline built from the expiry dates actually on record: each
+      // entry is a month in which at least one card leaves its intro rate.
+      const expiries = cards
+        .filter((c) => c.aprExpiresAt !== null)
+        .map((c) => ({ month: c.aprExpiresAt!.slice(0, 7), regularApr: c.regularApr }))
+        .sort((a, b) => a.month.localeCompare(b.month));
+
+      const byMonth = new Map<string, { month: string; cardsLeavingIntroApr: number; regularAprs: number[] }>();
+      for (const e of expiries) {
+        const entry = byMonth.get(e.month) ?? { month: e.month, cardsLeavingIntroApr: 0, regularAprs: [] };
+        entry.cardsLeavingIntroApr += 1;
+        if (e.regularApr !== null) entry.regularAprs.push(e.regularApr);
+        byMonth.set(e.month, entry);
+      }
+
+      let remainingAtIntro = cards.filter((c) => c.aprExpiresAt !== null).length;
+      const aprTimeline = [...byMonth.values()].map((entry) => {
+        remainingAtIntro -= entry.cardsLeavingIntroApr;
+        return {
+          month: entry.month,
+          cardsLeavingIntroApr: entry.cardsLeavingIntroApr,
+          cardsStillAtIntroApr: remainingAtIntro,
+          avgRegularAprOfExpiring:
+            entry.regularAprs.length > 0
+              ? Number(
+                  (entry.regularAprs.reduce((s, n) => s + n, 0) / entry.regularAprs.length).toFixed(2),
+                )
+              : null,
+        };
+      });
+
+      const cardsWithApr = cards.filter((c) => c.regularApr !== null);
 
       const dossier = {
         roundId,
         tenantId,
         exportedAt: new Date().toISOString(),
+
+        business: {
+          id:         round.business.id,
+          legalName:  round.business.legalName,
+          ein:        round.business.ein,
+          entityType: round.business.entityType,
+        },
+
         summary: {
-          status: (round as Record<string, unknown>)?.status ?? 'in_progress',
-          roundNumber: (round as Record<string, unknown>)?.roundNumber ?? 1,
-          businessId: (round as Record<string, unknown>)?.businessId ?? 'biz_mock_001',
+          status:            round.status,
+          roundNumber:       round.roundNumber,
+          businessId:        round.businessId,
+          targetCredit:      round.targetCredit === null ? null : Number(round.targetCredit),
+          targetCardCount:   round.targetCardCount,
+          startedAt:         round.startedAt?.toISOString() ?? null,
+          completedAt:       round.completedAt?.toISOString() ?? null,
+          applicationCount:  round.applications.length,
+          approvedCount:     approved.length,
+          declinedCount:     round.applications.filter((a) => a.status === 'declined').length,
         },
-        cards: [
-          {
-            cardName: 'Chase Ink Business Unlimited',
-            issuer: 'Chase',
-            creditLimit: 50000,
-            apr: 0.0,
-            aprExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-            status: 'approved',
-          },
-          {
-            cardName: 'Amex Blue Business Plus',
-            issuer: 'American Express',
-            creditLimit: 35000,
-            apr: 0.0,
-            aprExpiresAt: new Date(Date.now() + 270 * 24 * 60 * 60 * 1000).toISOString(),
-            status: 'approved',
-          },
-          {
-            cardName: 'US Bank Business Triple Cash',
-            issuer: 'US Bank',
-            creditLimit: 25000,
-            apr: 0.0,
-            aprExpiresAt: new Date(Date.now() + 456 * 24 * 60 * 60 * 1000).toISOString(),
-            status: 'pending',
-          },
-        ],
+
+        cards,
+
         costs: {
-          totalCreditObtained: 110000,
-          totalAnnualFees: 0,
-          estimatedInterestSaved: 8250,
-          advisorFee: 3500,
-          netBenefit: 4750,
+          totalCreditObtained,
+          totalAnnualFees,
+          // Exposure once the intro rates lapse, over the cards whose regular
+          // APR is on record. The count is reported alongside so a partial
+          // figure is not mistaken for a complete one.
+          annualisedInterestAtRegularApr: cardsWithApr.reduce(
+            (sum, c) => sum + Math.round((c.creditLimit ?? 0) * ((c.regularApr ?? 0) / 100)),
+            0,
+          ),
+          basedOnCards:            cardsWithApr.length,
+          cardsMissingRegularApr:  cards.length - cardsWithApr.length,
+          // Advisor fees are not modelled, so none is asserted. This used to
+          // report a flat $3,500 and a derived "net benefit" built on it.
+          advisorFee:              null,
         },
-        aprTimeline: [
-          { month: '2026-04', avgApr: 0.0, cardsAtZero: 3 },
-          { month: '2026-07', avgApr: 0.0, cardsAtZero: 3 },
-          { month: '2026-10', avgApr: 4.2, cardsAtZero: 2 },
-          { month: '2027-01', avgApr: 8.5, cardsAtZero: 1 },
-          { month: '2027-04', avgApr: 14.9, cardsAtZero: 0 },
-        ],
+
+        aprTimeline,
       };
 
-      logger.info('[FundingRoundActionsRoutes] Stub dossier exported', { roundId, tenantId });
+      logger.info('[FundingRoundActionsRoutes] Dossier exported', {
+        roundId,
+        tenantId,
+        cards: cards.length,
+      });
 
-      okStub(res, dossier, 'fundingRound.exportDossier');
+      const body: ApiResponse<typeof dossier> = { success: true, data: dossier };
+      res.status(200).json(body);
     } catch (err) {
       handleUnexpected(err, res, 'POST /funding-rounds/:id/export-dossier');
     }
