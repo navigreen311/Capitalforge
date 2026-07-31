@@ -31,6 +31,22 @@ import {
 
 /** Slice colours by rank, since the analytics endpoint returns no colour. */
 const SLICE_COLORS = ['#ef4444', '#C9A84C', '#f97316', '#3b82f6', '#8b5cf6'];
+
+/** The list endpoint's own maximum. */
+const SERVER_PAGE_SIZE = 100;
+
+/**
+ * How many pages the register will pull before it stops.
+ *
+ * The figures above the table count every row loaded, so the whole register
+ * has to be here for them to mean anything — but not at the cost of an
+ * unbounded burst of requests. Past this the page says what it is showing
+ * rather than implying it has everything.
+ */
+const MAX_PAGES = 20;
+
+/** Rows per page in the table itself. */
+const ROWS_PER_PAGE = 25;
 import {
   toInquiryViews,
   deadlineLabel,
@@ -470,6 +486,22 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
     });
   }, [complaints, filterSev, filterStatus, search, rootCauseFilter]);
 
+  const [page, setPage] = useState(1);
+
+  // Any change to the filters can shrink the list under the current page, so
+  // the view returns to the first — otherwise a filter that matches three
+  // rows while on page 4 renders as an empty table.
+  useEffect(() => {
+    setPage(1);
+  }, [filterSev, filterStatus, search, rootCauseFilter, complaints.length]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const visible = filtered.slice(
+    (currentPage - 1) * ROWS_PER_PAGE,
+    currentPage * ROWS_PER_PAGE,
+  );
+
   // One instant for the whole table, so two rows cannot be measured against
   // different "nows".
   const now = currentTime();
@@ -524,7 +556,7 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {filtered.map((c) => {
+            {visible.map((c) => {
               const dueDate = getSLADueDate(c);
               const daysLeft = dueDate ? daysBetween(now, dueDate) : null;
               const overdue = daysLeft !== null && daysLeft < 0;
@@ -573,6 +605,44 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
             )}
           </tbody>
         </table>
+
+        {/* Counts describe the filtered set, not the page, so the table never
+            implies the register is smaller than it is. */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-800">
+          <p className="text-xs text-gray-500">
+            {filtered.length === 0
+              ? 'No complaints match these filters.'
+              : `Showing ${(currentPage - 1) * ROWS_PER_PAGE + 1}\u2013${
+                  (currentPage - 1) * ROWS_PER_PAGE + visible.length
+                } of ${filtered.length}`}
+          </p>
+
+          {pageCount > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-gray-700 text-xs text-gray-300
+                  hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-gray-500 tabular-nums">
+                Page {currentPage} of {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                disabled={currentPage === pageCount}
+                className="px-3 py-1.5 rounded-lg border border-gray-700 text-xs text-gray-300
+                  hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1428,26 +1498,53 @@ export default function ComplaintsPage() {
     const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
     try {
-      const [listRes, analyticsRes] = await Promise.all([
-        fetch('/api/complaints?pageSize=100', { headers: auth }),
+      const [firstRes, analyticsRes] = await Promise.all([
+        fetch(`/api/complaints?pageSize=${SERVER_PAGE_SIZE}`, { headers: auth }),
         fetch('/api/complaints/analytics', { headers: auth }),
       ]);
 
-      const listJson = (await listRes.json()) as {
+      const firstJson = (await firstRes.json()) as {
         success?: boolean;
         data?: { total?: number } | unknown;
       };
-      if (!listRes.ok || listJson.success !== true) {
+      if (!firstRes.ok || firstJson.success !== true) {
         setLoadState('error');
         return;
       }
 
-      // The endpoint caps a page at 100. Every figure on this screen is
-      // counted from the rows that loaded, so beyond that they describe a
-      // subset — which would otherwise read as the whole register.
-      const reported = (listJson.data as { total?: number } | undefined)?.total;
-      setTotalOnServer(typeof reported === 'number' ? reported : null);
-      setComplaints(toComplaintViews(listJson.data));
+      const reported = (firstJson.data as { total?: number } | undefined)?.total;
+      const total = typeof reported === 'number' ? reported : null;
+      setTotalOnServer(total);
+
+      let rows = toComplaintViews(firstJson.data);
+
+      // The endpoint caps a page at 100, and every figure above the table is
+      // counted from the rows that loaded — so paginating the view alone
+      // would leave the KPIs describing whichever page happened to be open.
+      // The remaining pages are fetched here and the table paginates locally.
+      if (total !== null && total > rows.length) {
+        const pagesNeeded = Math.ceil(total / SERVER_PAGE_SIZE);
+        // Bounded: a tenant with a very large register should not fire an
+        // unbounded burst of requests on page load.
+        const lastPage = Math.min(pagesNeeded, MAX_PAGES);
+
+        const rest = await Promise.all(
+          Array.from({ length: lastPage - 1 }, (_, i) =>
+            fetch(`/api/complaints?pageSize=${SERVER_PAGE_SIZE}&page=${i + 2}`, { headers: auth })
+              .then(async (res) => {
+                if (!res.ok) return [];
+                const json = (await res.json()) as { success?: boolean; data?: unknown };
+                return json.success === true ? toComplaintViews(json.data) : [];
+              })
+              // One failed page must not discard the pages that did load.
+              .catch(() => []),
+          ),
+        );
+
+        rows = [...rows, ...rest.flat()];
+      }
+
+      setComplaints(rows);
 
       // Analytics failing on its own leaves the register usable rather than
       // taking the whole page down with it.
@@ -1661,10 +1758,13 @@ export default function ComplaintsPage() {
         <section className="xl:col-span-2" aria-label="Complaints Table">
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">All Complaints</h2>
 
+          {/* Only when the register is larger than the fetch cap. Every page
+              up to that is loaded, so below it the figures cover everything. */}
           {loadState === 'ready' && totalOnServer !== null && totalOnServer > complaints.length && (
             <p className="mb-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Showing the {complaints.length} most recent of {totalOnServer} complaints. The
-              figures above count these only.
+              Showing the {complaints.length} most recent of {totalOnServer} complaints — the
+              register is larger than this page loads. The figures above count the
+              {' '}{complaints.length} shown.
             </p>
           )}
 

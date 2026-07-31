@@ -18,6 +18,54 @@ const API = 'http://127.0.0.1:4000/api';
  * "Resolved (30d)" contains a 3 and a 0, so the assertion passes on the label
  * alone. This targets the value element and compares it exactly.
  */
+interface ApiComplaint {
+  id: string;
+  status: string;
+  severity: string;
+  description: string;
+  resolvedAt: string | null;
+  evidenceDocIds: string[];
+}
+
+/**
+ * Every complaint, not the first page.
+ *
+ * The register loads all pages and its figures count all of them, so a test
+ * that reads one page and compares would be measuring different sets.
+ */
+async function fetchAllComplaints(headers: Record<string, string>): Promise<ApiComplaint[]> {
+  const first = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
+    r.json(),
+  )) as { data?: { complaints?: ApiComplaint[]; total?: number } };
+
+  const rows = first.data?.complaints ?? [];
+  const total = first.data?.total ?? rows.length;
+
+  for (let page = 2; rows.length < total && page <= 20; page++) {
+    const next = (await fetch(`${API}/complaints?pageSize=100&page=${page}`, { headers }).then(
+      (r) => r.json(),
+    )) as { data?: { complaints?: ApiComplaint[] } };
+    const batch = next.data?.complaints ?? [];
+    if (batch.length === 0) break;
+    rows.push(...batch);
+  }
+
+  return rows;
+}
+
+/**
+ * Bring a complaint into view by searching for its id.
+ *
+ * The table pages at 25 rows, so a newly created complaint is not necessarily
+ * on the page that happens to be open.
+ */
+async function findRow(page: import('@playwright/test').Page, id: string) {
+  await page.getByPlaceholder('Search ID, client, category...').fill(id);
+  const row = page.getByRole('row').filter({ hasText: id });
+  await expect(row).toBeVisible({ timeout: 15000 });
+  return row;
+}
+
 function kpiValue(page: import('@playwright/test').Page, label: string) {
   return page
     .locator('div')
@@ -56,7 +104,7 @@ test.describe('Complaints register', () => {
 
     // The register lists ids, so that is what proves the row came from the API.
     await page.reload();
-    await expect(page.getByText(createdId as string).first()).toBeVisible({ timeout: 15000 });
+    await findRow(page, createdId as string);
 
     // And none of the sample rows survive.
     await expect(page.getByText('Marcus Bell')).toHaveCount(0);
@@ -86,14 +134,11 @@ test.describe('Complaints register', () => {
     // the form produced is on screen after a reload — so it reached the
     // database rather than living in local state.
     const headers = await authHeaders(page);
-    const listed = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
-      r.json(),
-    )) as { data?: { complaints?: { id: string; description: string }[] } };
-    const saved = (listed.data?.complaints ?? []).find((c) => c.description === description);
+    const saved = (await fetchAllComplaints(headers)).find((c) => c.description === description);
     expect(saved, 'the complaint was not persisted').toBeTruthy();
 
     await page.reload();
-    await expect(page.getByText(saved!.id).first()).toBeVisible({ timeout: 15000 });
+    await findRow(page, saved!.id);
   });
 
   test('refuses to submit a description the API would reject', async ({ signedInPage: page }) => {
@@ -131,7 +176,7 @@ test.describe('Complaints register', () => {
     expect(id, 'the probe complaint was not created').toBeTruthy();
 
     await page.reload();
-    await page.getByText(id as string).first().click();
+    await (await findRow(page, id as string)).click();
 
     await page.getByRole('button', { name: 'Start Investigation' }).click();
 
@@ -140,10 +185,7 @@ test.describe('Complaints register', () => {
     await expect
       .poll(
         async () => {
-          const listed = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
-            r.json(),
-          )) as { data?: { complaints?: { id: string; status: string }[] } };
-          return (listed.data?.complaints ?? []).find((c) => c.id === id)?.status;
+          return (await fetchAllComplaints(headers)).find((c) => c.id === id)?.status;
         },
         { timeout: 10000 },
       )
@@ -154,11 +196,7 @@ test.describe('Complaints register', () => {
     await page.goto('/complaints');
     const headers = await authHeaders(page);
 
-    const listed = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
-      r.json(),
-    )) as { data?: { complaints?: { status: string; severity: string }[] } };
-
-    const rows = listed.data?.complaints ?? [];
+    const rows = await fetchAllComplaints(headers);
     const open = rows.filter((c) => c.status === 'open' || c.status === 'investigating').length;
     const critical = rows.filter((c) => c.severity === 'critical').length;
 
@@ -196,8 +234,7 @@ test.describe('Attach evidence', () => {
 
     // Scoped to the row: the name also appears in the client filter's hidden
     // <option> list, which is not evidence that the row rendered.
-    const row = page.getByRole('row').filter({ hasText: id as string });
-    await expect(row).toBeVisible({ timeout: 15000 });
+    const row = await findRow(page, id as string);
     await expect(row).toContainText('Apex Digital Solutions LLC');
   });
 
@@ -226,7 +263,7 @@ test.describe('Attach evidence', () => {
     expect(id, 'the probe complaint was not created').toBeTruthy();
 
     await page.reload();
-    await page.getByText(id as string).first().click();
+    await (await findRow(page, id as string)).click();
     await page.getByRole('button', { name: '+ Attach Evidence' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Attach Evidence' });
@@ -244,10 +281,7 @@ test.describe('Attach evidence', () => {
     await expect
       .poll(
         async () => {
-          const listed = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
-            r.json(),
-          )) as { data?: { complaints?: { id: string; evidenceDocIds: string[] }[] } };
-          return (listed.data?.complaints ?? []).find((c) => c.id === id)?.evidenceDocIds;
+          return (await fetchAllComplaints(headers)).find((c) => c.id === id)?.evidenceDocIds;
         },
         { timeout: 10000 },
       )
@@ -273,7 +307,7 @@ test.describe('Attach evidence', () => {
     }).then((r) => r.json())) as { data?: { id?: string } };
 
     await page.reload();
-    await page.getByText(created.data?.id as string).first().click();
+    await (await findRow(page, created.data?.id as string)).click();
     await page.getByRole('button', { name: '+ Attach Evidence' }).click();
 
     await expect(
@@ -287,12 +321,8 @@ test.describe('Resolved (30d)', () => {
     await page.goto('/complaints');
     const headers = await authHeaders(page);
 
-    const before = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
-      r.json(),
-    )) as { data?: { complaints?: { resolvedAt: string | null }[] } };
-
     const cutoff = Date.now() - 30 * 86_400_000;
-    const baseline = (before.data?.complaints ?? []).filter(
+    const baseline = (await fetchAllComplaints(headers)).filter(
       (c) => c.resolvedAt !== null && new Date(c.resolvedAt).getTime() >= cutoff,
     ).length;
 
@@ -330,5 +360,85 @@ test.describe('Resolved (30d)', () => {
     await expect(kpiValue(page, 'Resolved (30d)')).toHaveText(String(baseline + 1), {
       timeout: 15000,
     });
+  });
+});
+
+test.describe('Pagination', () => {
+  // Creating a register larger than one server page takes a moment.
+  test.setTimeout(120_000);
+
+  test('loads every page, so the figures cover the whole register', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/complaints');
+    const headers = await authHeaders(page);
+
+    const countAll = async () => {
+      const first = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
+        r.json(),
+      )) as { data?: { total?: number } };
+      return first.data?.total ?? 0;
+    };
+
+    // Push the register past a single server page of 100.
+    const existing = await countAll();
+    const toCreate = Math.max(0, 105 - existing);
+
+    const stamp = Date.now();
+    for (let batch = 0; batch < Math.ceil(toCreate / 15); batch++) {
+      await Promise.all(
+        Array.from({ length: Math.min(15, toCreate - batch * 15) }, (_, i) =>
+          fetch(`${API}/complaints`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              category: 'other',
+              source: 'other',
+              severity: 'low',
+              description: `E2E pagination filler ${stamp}-${batch}-${i}`,
+            }),
+          }),
+        ),
+      );
+    }
+
+    const total = await countAll();
+    expect(total, 'the register should now exceed one server page').toBeGreaterThan(100);
+
+    const listed = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
+      r.json(),
+    )) as { data?: { complaints?: { status: string }[] } };
+    // A single page can only ever see 100 of them.
+    expect((listed.data?.complaints ?? []).length).toBe(100);
+
+    await page.reload();
+
+    // Every page is fetched, so the open count exceeds what one page holds.
+    // Before this it was pinned at whatever the first 100 rows contained.
+    const openKpi = kpiValue(page, 'Open / Escalated');
+    await expect(openKpi).not.toHaveText('100', { timeout: 30000 });
+    await expect
+      .poll(async () => Number((await openKpi.textContent()) ?? '0'), { timeout: 30000 })
+      .toBeGreaterThan(100);
+  });
+
+  test('pages through the table without changing the totals', async ({ signedInPage: page }) => {
+    await page.goto('/complaints');
+
+    // The count describes the filtered set, not the page.
+    const summary = page.getByText(/^Showing \d+–\d+ of \d+$/);
+    await expect(summary).toBeVisible({ timeout: 30000 });
+    await expect(summary).toContainText('Showing 1–25 of');
+
+    const openBefore = await kpiValue(page, 'Open / Escalated').textContent();
+
+    await page.getByRole('button', { name: 'Next' }).click();
+    await expect(summary).toContainText('Showing 26–50 of');
+
+    // Turning a page must not move a figure that describes the whole register.
+    await expect(kpiValue(page, 'Open / Escalated')).toHaveText(openBefore ?? '');
+
+    await page.getByRole('button', { name: 'Previous' }).click();
+    await expect(summary).toContainText('Showing 1–25 of');
   });
 });
