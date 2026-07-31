@@ -25,16 +25,9 @@ interface TimelineRound {
 }
 
 export interface AprExpiryTimelineProps {
-  rounds: Array<{
-    round: number;
-    label: string;
-    cards: Array<{
-      name: string;
-      introAprMonths: number | null;
-      isChargeCard?: boolean;
-    }>;
-    waitDays: number | null;
-  }>;
+  // Was an inline duplicate of TimelineRound, which only the removed
+  // placeholder data referenced. One shape, declared once.
+  rounds: TimelineRound[];
 }
 
 // ── Colors ──────────────────────────────────────────────────────────────────
@@ -97,37 +90,6 @@ function urgencyColor(months: number | null): { bar: string; text: string } {
   return { bar: COLORS.green, text: COLORS.green };
 }
 
-// ── Placeholder Data ────────────────────────────────────────────────────────
-
-const PLACEHOLDER_ROUNDS: TimelineRound[] = [
-  {
-    round: 1,
-    label: 'Foundation Round',
-    cards: [
-      { name: 'Chase Ink Business Unlimited', introAprMonths: 12 },
-      { name: 'Amex Blue Business Plus', introAprMonths: 12 },
-    ],
-    waitDays: 90,
-  },
-  {
-    round: 2,
-    label: 'Growth Round',
-    cards: [
-      { name: 'Capital One Spark Cash Plus', introAprMonths: null, isChargeCard: true },
-      { name: 'US Bank Business Triple Cash', introAprMonths: 15 },
-    ],
-    waitDays: 91,
-  },
-  {
-    round: 3,
-    label: 'Expansion Round',
-    cards: [
-      { name: 'Chase Ink Business Cash', introAprMonths: 12 },
-      { name: 'Amex Business Gold', introAprMonths: null, isChargeCard: true },
-    ],
-    waitDays: null,
-  },
-];
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
@@ -244,7 +206,11 @@ function CardBar({ card, applicationDate, maxMonths }: CardBarProps) {
 // ── Main Component ──────────────────────────────────────────────────────────
 
 export function AprExpiryTimeline({ rounds }: AprExpiryTimelineProps) {
-  const data = rounds.length > 0 ? rounds : PLACEHOLDER_ROUNDS;
+  // An empty plan renders as an empty plan. Three fabricated rounds used to
+  // stand in whenever `rounds` was empty, naming real card products and
+  // computing application and expiry dates from today — a schedule an advisor
+  // could read as advice and act on. Nothing was planned, so nothing is shown.
+  const data = rounds;
 
   const { timeline, actionDates, maxMonths } = useMemo(() => {
     const today = new Date();
@@ -307,6 +273,26 @@ export function AprExpiryTimeline({ rounds }: AprExpiryTimelineProps) {
 
     return { timeline: entries, actionDates: actions, maxMonths: globalMax };
   }, [data]);
+
+  if (data.length === 0) {
+    return (
+      <div
+        style={{
+          backgroundColor: COLORS.bg,
+          border: `1px solid ${COLORS.border}`,
+          borderRadius: 12,
+          padding: 24,
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          color: COLORS.textDim,
+          fontSize: 14,
+          textAlign: 'center',
+        }}
+      >
+        No funding rounds planned yet. The timeline appears once a stacking
+        plan has rounds.
+      </div>
+    );
+  }
 
   return (
     <div

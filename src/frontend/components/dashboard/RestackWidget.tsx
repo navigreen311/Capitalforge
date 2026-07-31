@@ -136,35 +136,6 @@ function EligibleRow({ item, onStartRound }: { item: RestackEligible; onStartRou
   );
 }
 
-// ── Fallback data for mock/demo mode ────────────────────────
-
-const MOCK_ELIGIBLE: RestackEligible[] = [
-  {
-    businessId: 'biz_001', businessName: 'Blue Ridge Consulting', eligible: true,
-    reasons: ['Readiness score 88 meets threshold', '120 days since last application'],
-    readinessScore: 88, daysSinceLastApp: 120, currentUtilization: 0.22,
-    activeApplicationCount: 0, recommendedRoundNumber: 3,
-  },
-  {
-    businessId: 'biz_002', businessName: 'Summit Capital Group', eligible: true,
-    reasons: ['Readiness score 82 meets threshold', '95 days since last application'],
-    readinessScore: 82, daysSinceLastApp: 95, currentUtilization: 0.35,
-    activeApplicationCount: 1, recommendedRoundNumber: 2,
-  },
-  {
-    businessId: 'biz_003', businessName: 'Apex Ventures LLC', eligible: true,
-    reasons: ['Readiness score 76 meets threshold', '110 days since last application'],
-    readinessScore: 76, daysSinceLastApp: 110, currentUtilization: 0.28,
-    activeApplicationCount: 0, recommendedRoundNumber: 4,
-  },
-  {
-    businessId: 'biz_004', businessName: 'Westbrook Partners', eligible: true,
-    reasons: ['Readiness score 61 meets threshold', '150 days since last application'],
-    readinessScore: 61, daysSinceLastApp: 150, currentUtilization: 0.30,
-    activeApplicationCount: 0, recommendedRoundNumber: 2,
-  },
-];
-
 // ── Main component ──────────────────────────────────────────
 
 interface RestackWidgetProps {
@@ -176,17 +147,21 @@ export function RestackWidget({ onStartRound }: RestackWidgetProps = {}) {
     '/api/restack/eligible',
   );
 
-  // Use API data if available, fallback to mocks for demo
-  const eligible = data?.eligible ?? MOCK_ELIGIBLE;
-  const total = data?.total ?? eligible.length;
+  // No fallback. Four fabricated clients used to stand in whenever the API
+  // returned nothing, which made the "no clients meet restack criteria" branch
+  // below unreachable — an advisor saw four names to call either way.
+  const eligible = data?.eligible ?? [];
+  const total = data?.total ?? 0;
   const sorted = [...eligible].sort((a, b) => b.readinessScore - a.readinessScore);
   const displayItems = sorted.slice(0, 5);
 
-  const headerAction = (
+  // The count is a fact about loaded data, so it appears only once there is
+  // some: "0 eligible" while still loading is a claim, not a placeholder.
+  const headerAction = data ? (
     <span className="text-sm font-semibold text-[#C9A84C]">
       {total} eligible
     </span>
-  );
+  ) : undefined;
 
   return (
     <SectionCard

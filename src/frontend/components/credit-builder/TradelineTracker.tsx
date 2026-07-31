@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
-import { toTradelines, reportingCount, type TradelineView } from '@/lib/credit-view';
+import { toTradelines, reportingCount } from '@/lib/credit-view';
 import { loadJson, toLoadError } from '@/lib/load-json';
 import { useToast } from '@/components/global/ToastProvider';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
@@ -42,12 +42,6 @@ interface Tradeline {
   status: TradelineStatus;
 }
 
-interface TradelinesResponse {
-  tradelines: Tradeline[];
-  reporting_count: number;
-  reporting_target: number;
-  avg_payment_status: string;
-}
 
 interface NewTradelineForm {
   vendor: string;
@@ -94,49 +88,6 @@ const STATUS_BADGE: Record<TradelineStatus, string> = {
   Approved: 'bg-emerald-500/20 text-emerald-300',
   Reporting: 'bg-green-500/20 text-green-300',
   Late: 'bg-red-500/20 text-red-300',
-};
-
-// ── Placeholder data ────────────────────────────────────────────────────────
-
-const PLACEHOLDER_DATA: TradelinesResponse = {
-  tradelines: [
-    {
-      id: 'pl-1',
-      vendor: 'Uline',
-      applied_date: '2025-11-15',
-      approved: true,
-      credit_limit: 5000,
-      balance: 1200,
-      payments_made: 3,
-      payments_total: 3,
-      status: 'Reporting',
-    },
-    {
-      id: 'pl-2',
-      vendor: 'Quill',
-      applied_date: '2025-12-01',
-      approved: true,
-      credit_limit: 3000,
-      balance: 800,
-      payments_made: 2,
-      payments_total: 2,
-      status: 'Reporting',
-    },
-    {
-      id: 'pl-3',
-      vendor: 'Crown Office Supplies',
-      applied_date: '2026-03-10',
-      approved: false,
-      credit_limit: 0,
-      balance: 0,
-      payments_made: 0,
-      payments_total: 0,
-      status: 'Applied',
-    },
-  ],
-  reporting_count: 2,
-  reporting_target: 5,
-  avg_payment_status: 'On Time',
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

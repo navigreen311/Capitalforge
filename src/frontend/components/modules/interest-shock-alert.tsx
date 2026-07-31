@@ -281,7 +281,11 @@ function AlertCard({ card, days, severity }: { card: PromoCard; days: number; se
 // ---------------------------------------------------------------------------
 
 export default function InterestShockAlert({
-  cards = PLACEHOLDER_PROMO_CARDS,
+  // Defaults to nothing, not to the sample cards. A caller that omitted
+  // `cards` used to get four fabricated promo expirations, complete with a
+  // summed monthly interest shock presented as this client's exposure. The
+  // empty branch below already says nothing needs attention.
+  cards = [],
   minSeverity = 'warning',
   compact = false,
   className = '',

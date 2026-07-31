@@ -165,7 +165,10 @@ function PaymentPill({ payment }: { payment: PaymentDue }) {
 // ---------------------------------------------------------------------------
 
 export default function PaymentCalendar({
-  payments = PLACEHOLDER_PAYMENTS,
+  // Defaults to an empty calendar rather than the sample schedule. A caller
+  // that omitted `payments` used to render invented due dates and amounts,
+  // which on a payment calendar reads as money genuinely owed.
+  payments = [],
   today: todayProp,
   className = '',
   onMarkPaid,

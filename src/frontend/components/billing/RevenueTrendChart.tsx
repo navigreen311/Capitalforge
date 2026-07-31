@@ -36,19 +36,6 @@ export interface RevenueTrendChartProps {
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder data (6 months)
-// ---------------------------------------------------------------------------
-
-const PLACEHOLDER_DATA: MonthlyRevenue[] = [
-  { month: 'Nov',  flatFee: 9750,  revShare: 18500, mca: 12000, loc: 4200 },
-  { month: 'Dec',  flatFee: 7200,  revShare: 22000, mca: 15600, loc: 5800 },
-  { month: 'Jan',  flatFee: 11500, revShare: 14200, mca: 18900, loc: 3500 },
-  { month: 'Feb',  flatFee: 8400,  revShare: 31250, mca: 9800,  loc: 7800 },
-  { month: 'Mar',  flatFee: 14000, revShare: 18500, mca: 42000, loc: 5200 },
-  { month: 'Apr',  flatFee: 5200,  revShare: 24600, mca: 8700,  loc: 6100 },
-];
-
-// ---------------------------------------------------------------------------
 // Colors matching spec
 // ---------------------------------------------------------------------------
 
@@ -146,7 +133,14 @@ function CustomLegend() {
 
 export default function RevenueTrendChart({ data }: RevenueTrendChartProps) {
   const [expanded, setExpanded] = useState(false);
-  const chartData = data ?? PLACEHOLDER_DATA;
+  // No placeholder series. Six months of invented revenue used to stand in
+  // when `data` was absent, and the KPIs above the chart — six-month total,
+  // average, month-over-month growth — were then computed from it and shown
+  // as figures. Fabricated revenue is not a loading state.
+  // Memoised so the empty default is a stable reference: `data ?? []` built a
+  // fresh array every render, re-running each useMemo below it.
+  const chartData = useMemo(() => data ?? [], [data]);
+  const hasData = chartData.length > 0;
 
   // Summary stats
   const totalRevenue = useMemo(
@@ -181,9 +175,13 @@ export default function RevenueTrendChart({ data }: RevenueTrendChartProps) {
           <span className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
             Revenue Analytics
           </span>
-          <span className="text-xs font-semibold text-[#C9A84C] bg-[#0A1628] border border-[#C9A84C]/30 px-2 py-0.5 rounded">
-            6 months
-          </span>
+          {/* Reflects the series actually supplied, rather than asserting a
+              fixed six-month window the data may not cover. */}
+          {hasData && (
+            <span className="text-xs font-semibold text-[#C9A84C] bg-[#0A1628] border border-[#C9A84C]/30 px-2 py-0.5 rounded">
+              {chartData.length} month{chartData.length === 1 ? '' : 's'}
+            </span>
+          )}
         </div>
         <span className={`text-gray-500 text-xs font-semibold transition-transform ${expanded ? 'rotate-180' : ''}`}>
           &#9660;
@@ -191,7 +189,15 @@ export default function RevenueTrendChart({ data }: RevenueTrendChartProps) {
       </button>
 
       {/* Collapsible content */}
-      {expanded && (
+      {expanded && !hasData && (
+        <div className="px-5 pb-5">
+          <p className="text-sm text-gray-500 py-8 text-center">
+            No revenue recorded for this period.
+          </p>
+        </div>
+      )}
+
+      {expanded && hasData && (
         <div className="px-5 pb-5">
           {/* Summary KPIs */}
           <div className="grid grid-cols-3 gap-4 mb-5">

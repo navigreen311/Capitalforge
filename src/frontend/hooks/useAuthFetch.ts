@@ -1,7 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient, ApiRequestError } from '@/lib/api-client';
-import { shouldUseMocks, getMockData } from '@/lib/dashboard-mocks';
 
 export interface AuthFetchError {
   type: 'auth_required' | 'server_error' | 'network_error' | 'not_configured';
@@ -29,22 +28,11 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
     setIsLoading(true);
     setError(null);
 
-    // ── Mock data shortcut — checked FIRST, before any auth logic ──
-    if (shouldUseMocks()) {
-      const mock = getMockData(path);
-      if (mock !== null) {
-        // Simulate realistic network delay
-        await new Promise((r) => setTimeout(r, 300 + Math.random() * 200));
-        setData(mock as T);
-        setIsLoading(false);
-        setIsAuthLoading(false);
-        return;
-      }
-      // No mock found for this path — fall through to real API
-      console.warn(`[useAuthFetch] No mock data for: ${path}`);
-    }
-
-    // ── Real API call ──
+    // Every path below reaches the API. There is no mock branch: this hook
+    // used to answer from a fixture set before any auth logic ran, which meant
+    // a screen could render a full, confident dashboard while signed out and
+    // pointed at nothing. Data on screen now came from the server or the
+    // component shows why it did not.
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
       setIsAuthLoading(false);

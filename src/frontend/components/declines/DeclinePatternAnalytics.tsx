@@ -43,21 +43,6 @@ function barColorForReason(reason: string): string {
 
 // ── Placeholder Data ────────────────────────────────────────────────────────
 
-export const PLACEHOLDER_PATTERNS: DeclinePattern[] = [
-  { reason: 'Too many inquiries',                count: 34, pct: 38, avgCooldown: 90 },
-  { reason: 'High utilization',                   count: 22, pct: 24, avgCooldown: 60 },
-  { reason: 'Velocity — too many new accounts',   count: 18, pct: 20, avgCooldown: 120 },
-  { reason: 'Insufficient income',                count: 11, pct: 12, avgCooldown: 180 },
-  { reason: 'Derogatory marks',                   count: 5,  pct: 6,  avgCooldown: 365 },
-];
-
-export const PLACEHOLDER_PROPS: DeclinePatternAnalyticsProps = {
-  patterns: PLACEHOLDER_PATTERNS,
-  winRate: 32,
-  totalRecons: 19,
-  mostReceptiveIssuer: 'Chase',
-  mostBlockedIssuer: 'Citi',
-};
 
 // ── Component ───────────────────────────────────────────────────────────────
 

@@ -696,14 +696,27 @@ export default function OptimizerPage() {
   }, [form.selectedBusinessId, clients]);
 
   const handleSaveStrategy = useCallback(async () => {
+    // Both guards used to be defaults: no client became the literal id
+    // 'mock-client', and no plan became `{ mock: true }` with a card count
+    // taken from the sample panel. Each wrote a fabricated strategy to a real
+    // client profile, which is worse than refusing.
+    if (!form.selectedBusinessId) {
+      toast.error('Select a client before saving a strategy.');
+      return;
+    }
+    if (!stackingPlan) {
+      toast.error('Run the optimizer before saving: there is no strategy to save yet.');
+      return;
+    }
+
     setSavingStrategy(true);
     try {
       const res = await fetch('/api/optimizer/save-strategy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
-          clientId: form.selectedBusinessId || 'mock-client',
-          results: stackingPlan ?? { mock: true, cards: MOCK_RESULTS.length },
+          clientId: form.selectedBusinessId,
+          results: stackingPlan,
         }),
       });
       const json = await res.json();
@@ -713,24 +726,39 @@ export default function OptimizerPage() {
         toast.error(json.error?.message || 'Failed to save strategy');
       }
     } catch {
-      toast.success(`Strategy saved to ${selectedClientName} profile`);
+      // Reporting success here was the bug: a network failure told the user
+      // the strategy had been saved to a client profile it never reached.
+      toast.error('Could not reach the server; the strategy was not saved.');
     } finally {
       setSavingStrategy(false);
     }
   }, [form.selectedBusinessId, stackingPlan, selectedClientName, toast]);
 
   const handleCreateRound = useCallback(async () => {
+    // A funding round is a real record. Its size used to fall back to the
+    // length of the sample recommendations panel and a flat $100,000 target,
+    // so clicking this without running the optimizer created a round whose
+    // numbers came from nowhere.
+    if (!form.selectedBusinessId) {
+      toast.error('Select a client before creating a funding round.');
+      return;
+    }
+    if (!stackingPlan) {
+      toast.error('Run the optimizer before creating a round: its size comes from the plan.');
+      return;
+    }
+
     setCreatingRound(true);
-    const roundNumber = stackingPlan ? stackingPlan.recommendations.length : MOCK_RESULTS.length;
-    const targetCredit = stackingPlan?.totalEstimatedCreditTypical ?? 100000;
-    const cardsPlanned = stackingPlan?.cardCount ?? MOCK_RESULTS.length;
+    const roundNumber = stackingPlan.recommendations.length;
+    const targetCredit = stackingPlan.totalEstimatedCreditTypical;
+    const cardsPlanned = stackingPlan.cardCount;
 
     try {
       const res = await fetch('/api/optimizer/create-round', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
-          clientId: form.selectedBusinessId || 'mock-client',
+          clientId: form.selectedBusinessId,
           roundNumber,
           targetCredit,
           cardsPlanned,
@@ -744,8 +772,9 @@ export default function OptimizerPage() {
         toast.error(json.error?.message || 'Failed to create round');
       }
     } catch {
-      toast.success(`Funding Round ${roundNumber} created for ${selectedClientName}`);
-      setTimeout(() => router.push('/funding-rounds'), 800);
+      // This branch used to report the round created and navigate to the
+      // funding-rounds list, where it would not be. The request failed.
+      toast.error('Could not reach the server; no funding round was created.');
     } finally {
       setCreatingRound(false);
     }
@@ -1569,12 +1598,20 @@ export default function OptimizerPage() {
                 </div>
               </div>
 
-              {/* ── Card Recommendations (Mock) ─────────────── */}
+              {/* ── Card Recommendations ────────────────────────
+                  Still a fixed sample list, not derived from the selected
+                  client. The subtitle used to claim it was ranked "given your
+                  profile", which described analysis that had not happened.
+                  Labelled until it is wired to the optimizer response. */}
               <SectionCard
                 title="Card Recommendations"
-                subtitle="Ranked by modeled approval probability given your profile"
+                subtitle="Example ranking — not calculated from this client's profile"
               >
                 <div className="space-y-4 p-0">
+                  <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Sample data. These cards and approval probabilities are a
+                    fixed illustration and do not reflect the selected client.
+                  </p>
                   {MOCK_RESULTS.map((card, i) => {
                     const timing = i < 2 ? 'Week 1' : 'Week 3';
                     return (
