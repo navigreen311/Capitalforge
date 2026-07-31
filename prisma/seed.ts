@@ -617,6 +617,131 @@ const SEED_PHONES = {
   });
   console.log('  ✓ Decline recovery records created');
 
+  // ── Section 1071 / Fair Lending Records ───────────────────
+  //
+  // One per credit decision, which is what Regulation B requires and what the
+  // fair-lending dashboard reports on. The page used to display an approval
+  // rate by race, gender and ownership from ten hardcoded buckets while this
+  // table was empty.
+  //
+  // Demographic data is deliberately present on some records and absent on
+  // others: collection is voluntary for the applicant, so a completion rate
+  // below 100% is the normal state, and it is the figure the dashboard exists
+  // to surface. Every value here is synthetic.
+  const fairLending: {
+    id: string;
+    businessId: string;
+    applicationId: string;
+    creditPurpose: string;
+    actionTaken: string;
+    actionDate: Date;
+    // Prisma.InputJsonValue rather than string[] / Record: the Json columns
+    // will not accept a bare structural type through a conditional spread.
+    adverseReasons?: Prisma.InputJsonValue;
+    demographicData?: Prisma.InputJsonValue;
+    businessType: string;
+  }[] = [
+    {
+      id: 'seed-1071-001',
+      businessId: biz1.id,
+      applicationId: 'seed-app-001',
+      creditPurpose: 'working_capital',
+      actionTaken: 'approved_and_originated',
+      actionDate: d('2025-09-08'),
+      demographicData: {
+        ownerSex: 'declined_to_provide',
+        ownerEthnicity: 'declined_to_provide',
+        numberOfOwners: 2,
+        lgbtqiOwned: null,
+      },
+      businessType: 'llc',
+    },
+    {
+      id: 'seed-1071-002',
+      businessId: biz1.id,
+      applicationId: 'seed-app-002',
+      creditPurpose: 'working_capital',
+      actionTaken: 'approved_and_originated',
+      actionDate: d('2025-09-10'),
+      // The applicant did not answer. Recorded as absent rather than guessed.
+      businessType: 'llc',
+    },
+    {
+      id: 'seed-1071-003',
+      businessId: biz1.id,
+      applicationId: 'seed-app-004',
+      creditPurpose: 'equipment',
+      actionTaken: 'denied',
+      actionDate: d('2026-01-25'),
+      adverseReasons: ['Too many recent inquiries'],
+      demographicData: {
+        ownerSex: 'declined_to_provide',
+        ownerEthnicity: 'declined_to_provide',
+        numberOfOwners: 2,
+        lgbtqiOwned: null,
+      },
+      businessType: 'llc',
+    },
+    {
+      id: 'seed-1071-004',
+      businessId: biz2.id,
+      applicationId: 'seed-app-005',
+      creditPurpose: 'working_capital',
+      actionTaken: 'denied',
+      actionDate: d('2026-02-28'),
+      adverseReasons: ['Personal revolving utilization above issuer threshold'],
+      businessType: 's_corp',
+    },
+    {
+      id: 'seed-1071-005',
+      businessId: biz1.id,
+      applicationId: 'seed-app-006',
+      creditPurpose: 'working_capital',
+      actionTaken: 'approved_and_originated',
+      actionDate: d('2026-02-05'),
+      demographicData: {
+        ownerSex: 'declined_to_provide',
+        ownerEthnicity: 'declined_to_provide',
+        numberOfOwners: 2,
+        lgbtqiOwned: null,
+      },
+      businessType: 'llc',
+    },
+    {
+      id: 'seed-1071-006',
+      businessId: biz2.id,
+      applicationId: 'seed-app-003',
+      creditPurpose: 'expansion',
+      actionTaken: 'withdrawn_by_applicant',
+      actionDate: d('2026-03-11'),
+      businessType: 's_corp',
+    },
+  ];
+
+  for (const record of fairLending) {
+    await prisma.fairLendingRecord.upsert({
+      where: { id: record.id },
+      update: {},
+      create: {
+        id: record.id,
+        tenantId: tenant.id,
+        businessId: record.businessId,
+        applicationId: record.applicationId,
+        creditPurpose: record.creditPurpose,
+        actionTaken: record.actionTaken,
+        actionDate: record.actionDate,
+        businessType: record.businessType,
+        ...(record.adverseReasons === undefined ? {} : { adverseReasons: record.adverseReasons }),
+        ...(record.demographicData === undefined
+          ? {}
+          : { demographicData: record.demographicData }),
+        // Firewalled from underwriting, per Regulation B.
+        isFirewalled: true,
+      },
+    });
+  }
+  console.log(`  ✓ Fair lending (1071) records created: ${fairLending.length}`);
+
   // ── Consent Records ───────────────────────────────────────
 
   await prisma.consentRecord.upsert({

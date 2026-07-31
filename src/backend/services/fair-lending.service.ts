@@ -226,10 +226,20 @@ export class FairLendingService {
     const yearStart = new Date(reportingYear, 0, 1);
     const yearEnd   = new Date(reportingYear + 1, 0, 1);
 
+    // Windowed on the date of the action, not on when the row was written.
+    // The adverse action report below already windows on actionDate, so with
+    // createdAt here the same reporting year produced two different totals: a
+    // decision made in December and recorded in January counted in one year
+    // for the dashboard and the other for the report. Section 1071 reports by
+    // action date. createdAt is the fallback for rows that carry no
+    // actionDate at all, which would otherwise vanish from every year.
     const records = await this.prisma.fairLendingRecord.findMany({
       where: {
         tenantId,
-        createdAt: { gte: yearStart, lt: yearEnd },
+        OR: [
+          { actionDate: { gte: yearStart, lt: yearEnd } },
+          { AND: [{ actionDate: null }, { createdAt: { gte: yearStart, lt: yearEnd } }] },
+        ],
       },
     });
 
@@ -313,8 +323,16 @@ export class FairLendingService {
     const yearStart = new Date(reportingYear, 0, 1);
     const yearEnd   = new Date(reportingYear + 1, 0, 1);
 
+    // The same window as the dashboard, so the coverage gauge and the
+    // application count it is drawn against cannot disagree.
     const count = await this.prisma.fairLendingRecord.count({
-      where: { tenantId, createdAt: { gte: yearStart, lt: yearEnd } },
+      where: {
+        tenantId,
+        OR: [
+          { actionDate: { gte: yearStart, lt: yearEnd } },
+          { AND: [{ actionDate: null }, { createdAt: { gte: yearStart, lt: yearEnd } }] },
+        ],
+      },
     });
 
     const triggered          = count >= SECTION_1071_COVERAGE_THRESHOLD;
