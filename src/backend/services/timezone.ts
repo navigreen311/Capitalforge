@@ -82,6 +82,22 @@ assign('America/Edmonton', ['403','587','780','825','867']);
 assign('America/Vancouver', ['236','250','604','672','778']);
 
 /**
+ * Coerce a stored phone number into the E.164 form the lookups expect.
+ *
+ * Numbers are stored however they were entered, so a lookup against the raw
+ * value would miss most of them.
+ */
+export function normaliseForLookup(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('+')) return `+${trimmed.slice(1).replace(/\D/g, '')}`;
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return null;
+}
+
+/**
  * Timezone implied by an E.164 North American number.
  *
  * Returns null for anything outside the NANP: a country code alone does not
@@ -149,4 +165,98 @@ export function hourInZone(instant: Date, zone: string): number {
   // 'en-US' with hour12:false renders midnight as '24' in some runtimes.
   const hour = Number.parseInt(formatted, 10);
   return hour === 24 ? 0 : hour;
+}
+
+// ── US state → timezone ──────────────────────────────────────
+
+/**
+ * States lying wholly within one timezone.
+ *
+ * Split states are deliberately absent: assigning one on a state code alone
+ * would be a coin flip for anyone near the line, and this value decides
+ * whether someone is contacted at 3am.
+ */
+const UNAMBIGUOUS_STATE_ZONES: Record<string, KnownZone> = {
+  // Eastern
+  CT: 'America/New_York', DE: 'America/New_York', DC: 'America/New_York',
+  GA: 'America/New_York', ME: 'America/New_York', MD: 'America/New_York',
+  MA: 'America/New_York', NH: 'America/New_York', NJ: 'America/New_York',
+  NY: 'America/New_York', NC: 'America/New_York', OH: 'America/New_York',
+  PA: 'America/New_York', RI: 'America/New_York', SC: 'America/New_York',
+  VT: 'America/New_York', VA: 'America/New_York', WV: 'America/New_York',
+
+  // Central
+  AL: 'America/Chicago', AR: 'America/Chicago', IL: 'America/Chicago',
+  IA: 'America/Chicago', LA: 'America/Chicago', MN: 'America/Chicago',
+  MS: 'America/Chicago', MO: 'America/Chicago', OK: 'America/Chicago',
+  WI: 'America/Chicago',
+
+  // Mountain
+  CO: 'America/Denver', MT: 'America/Denver', NM: 'America/Denver',
+  UT: 'America/Denver', WY: 'America/Denver',
+
+  // Mountain, no daylight saving
+  AZ: 'America/Phoenix',
+
+  // Pacific
+  CA: 'America/Los_Angeles', WA: 'America/Los_Angeles',
+
+  HI: 'Pacific/Honolulu',
+  PR: 'America/Puerto_Rico',
+};
+
+/**
+ * Major cities in states that straddle a timezone boundary.
+ *
+ * Only cities far enough from the line to be unambiguous are listed. A state
+ * in this group with an unlisted city resolves to null rather than to
+ * whichever zone holds most of its population.
+ */
+const SPLIT_STATE_CITY_ZONES: Record<string, Record<string, KnownZone>> = {
+  TX: {
+    houston: 'America/Chicago', dallas: 'America/Chicago', austin: 'America/Chicago',
+    'san antonio': 'America/Chicago', 'fort worth': 'America/Chicago',
+    'el paso': 'America/Denver',
+  },
+  FL: {
+    miami: 'America/New_York', orlando: 'America/New_York', tampa: 'America/New_York',
+    jacksonville: 'America/New_York', 'st petersburg': 'America/New_York',
+    pensacola: 'America/Chicago',
+  },
+  MI: { detroit: 'America/New_York', 'grand rapids': 'America/New_York', lansing: 'America/New_York' },
+  IN: { indianapolis: 'America/New_York', 'fort wayne': 'America/New_York', evansville: 'America/Chicago' },
+  KY: { louisville: 'America/New_York', lexington: 'America/New_York', 'bowling green': 'America/Chicago' },
+  TN: { nashville: 'America/Chicago', memphis: 'America/Chicago', knoxville: 'America/New_York', chattanooga: 'America/New_York' },
+  KS: { wichita: 'America/Chicago', topeka: 'America/Chicago', 'kansas city': 'America/Chicago' },
+  NE: { omaha: 'America/Chicago', lincoln: 'America/Chicago' },
+  ND: { fargo: 'America/Chicago', bismarck: 'America/Chicago' },
+  SD: { 'sioux falls': 'America/Chicago', 'rapid city': 'America/Denver' },
+  OR: { portland: 'America/Los_Angeles', eugene: 'America/Los_Angeles', salem: 'America/Los_Angeles' },
+  ID: { boise: 'America/Denver', 'coeur d alene': 'America/Los_Angeles' },
+  NV: { 'las vegas': 'America/Los_Angeles', reno: 'America/Los_Angeles' },
+  AK: { anchorage: 'America/Anchorage', juneau: 'America/Anchorage', fairbanks: 'America/Anchorage' },
+};
+
+/**
+ * Timezone implied by a postal address.
+ *
+ * Returns null for a split state whose city is not recognised, rather than
+ * picking the more populous side.
+ */
+export function zoneFromAddress(
+  state: string | null | undefined,
+  city?: string | null,
+): KnownZone | null {
+  const code = state?.trim().toUpperCase();
+  if (!code) return null;
+
+  const unambiguous = UNAMBIGUOUS_STATE_ZONES[code];
+  if (unambiguous) return unambiguous;
+
+  const cities = SPLIT_STATE_CITY_ZONES[code];
+  if (!cities) return null;
+
+  const key = city?.trim().toLowerCase().replace(/[.]/g, '');
+  if (!key) return null;
+  return cities[key] ?? null;
 }

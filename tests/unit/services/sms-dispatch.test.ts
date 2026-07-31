@@ -17,7 +17,7 @@ import {
   withinQuietHours,
   smsConfigStatus,
 } from '../../../src/backend/services/sms-dispatch.service.js';
-import { resolveTimezone } from '../../../src/backend/services/timezone.js';
+import { resolveTimezone, zoneFromAddress, normaliseForLookup } from '../../../src/backend/services/timezone.js';
 
 // ── Phone normalisation ─────────────────────────────────────────────────────
 
@@ -158,6 +158,53 @@ describe('resolveTimezone', () => {
     // An unassigned NANP area code resolves to nothing rather than to a
     // neighbouring zone.
     expect(resolveTimezone(null, '+19995550123')).toEqual({ zone: null, source: 'none' });
+  });
+});
+
+// ── Address → timezone (used by the backfill) ───────────────────────────────
+
+describe('zoneFromAddress', () => {
+  it('resolves states that lie wholly in one zone', () => {
+    expect(zoneFromAddress('DE', 'Wilmington')).toBe('America/New_York');
+    expect(zoneFromAddress('CA', 'Oakland')).toBe('America/Los_Angeles');
+    expect(zoneFromAddress('IL', null)).toBe('America/Chicago');
+    // Arizona keeps its own zone because it does not observe DST.
+    expect(zoneFromAddress('AZ', 'Tucson')).toBe('America/Phoenix');
+  });
+
+  it('uses the city to settle a split state', () => {
+    expect(zoneFromAddress('TX', 'Houston')).toBe('America/Chicago');
+    expect(zoneFromAddress('TX', 'El Paso')).toBe('America/Denver');
+    expect(zoneFromAddress('FL', 'Miami')).toBe('America/New_York');
+    expect(zoneFromAddress('FL', 'Pensacola')).toBe('America/Chicago');
+  });
+
+  it('refuses to guess a split state from the code alone', () => {
+    // Assigning the more populous side would be a coin flip for anyone near
+    // the line, and this value decides whether they are contacted at 3am.
+    expect(zoneFromAddress('TX', null)).toBeNull();
+    expect(zoneFromAddress('FL', undefined)).toBeNull();
+    expect(zoneFromAddress('TX', 'Lubbock')).toBeNull();
+  });
+
+  it('handles casing and absent input', () => {
+    expect(zoneFromAddress('tx', 'houston')).toBe('America/Chicago');
+    expect(zoneFromAddress('  DE ', '')).toBe('America/New_York');
+    expect(zoneFromAddress(null, 'Houston')).toBeNull();
+    expect(zoneFromAddress('ZZ', 'Nowhere')).toBeNull();
+  });
+});
+
+describe('normaliseForLookup', () => {
+  it('coerces stored formats into E.164', () => {
+    expect(normaliseForLookup('(512) 555-0123')).toBe('+15125550123');
+    expect(normaliseForLookup('512.555.0123')).toBe('+15125550123');
+    expect(normaliseForLookup('+1 212 555 0100')).toBe('+12125550100');
+  });
+
+  it('returns null rather than a half-parsed number', () => {
+    expect(normaliseForLookup(null)).toBeNull();
+    expect(normaliseForLookup('ext 4471')).toBeNull();
   });
 });
 
