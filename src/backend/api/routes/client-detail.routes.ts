@@ -24,10 +24,23 @@
 
 import { Router, type Response, type NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
-import { okStub, registerStub } from './_stub-response.js';
+import { ComplianceService } from '../../services/compliance.service.js';
+import { emailService } from '../../services/email.service.js';
+import type { ComplianceCheckType } from '../../../shared/types/index.js';
+
+const complianceService = new ComplianceService();
+
+const VALID_CHECK_TYPES = new Set<ComplianceCheckType>([
+  'udap',
+  'state_law',
+  'vendor',
+  'kyb',
+  'kyc',
+  'aml',
+]);
 
 // ── Dependency setup ──────────────────────────────────────────
 
@@ -84,64 +97,64 @@ function scoreFromChecks(checks: { riskScore: number | null }[]): number | null 
   return Math.max(0, Math.min(100, Math.round(100 - averageRisk)));
 }
 
-function daysFromNow(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
+
+
+// ── Credit recommendations ────────────────────────────────────
+//
+// Deterministic rules over the figures a bureau pull actually carries.
+// Each recommendation names the observation that produced it, so an advisor
+// can see why it was raised rather than being handed an unexplained list.
+
+interface CreditRecommendation {
+  id: string;
+  priority: 'high' | 'medium' | 'low';
+  title: string;
+  basis: string;
 }
 
-function dateOnly(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().split('T')[0];
+function buildCreditRecommendations(profile: {
+  id: string;
+  utilization: Prisma.Decimal | null;
+  inquiryCount: number | null;
+  derogatoryCount: number | null;
+  score: number | null;
+  scoreType: string | null;
+}): CreditRecommendation[] {
+  const out: CreditRecommendation[] = [];
+  const utilization = profile.utilization === null ? null : Number(profile.utilization);
+
+  if (utilization !== null && utilization > 0.3) {
+    out.push({
+      id: `${profile.id}:utilization`,
+      priority: utilization > 0.5 ? 'high' : 'medium',
+      title: 'Reduce revolving utilisation below 30%',
+      basis: `Utilisation is ${Math.round(utilization * 100)}% on the latest pull.`,
+    });
+  }
+
+  if ((profile.derogatoryCount ?? 0) > 0) {
+    out.push({
+      id: `${profile.id}:derogatory`,
+      priority: 'high',
+      title: 'Review and dispute derogatory marks',
+      basis: `${profile.derogatoryCount} derogatory mark(s) on the latest pull.`,
+    });
+  }
+
+  if ((profile.inquiryCount ?? 0) >= 6) {
+    out.push({
+      id: `${profile.id}:inquiries`,
+      priority: 'medium',
+      title: 'Pause new applications to let inquiries age',
+      basis: `${profile.inquiryCount} inquiries on the latest pull.`,
+    });
+  }
+
+  // No point-impact estimates are attached. Predicting a score change requires
+  // a model this system does not have, and the previous sample data asserted
+  // ranges like "25-40 points" with nothing behind them.
+  return out;
 }
-
-// ── Sample payloads for the endpoints that are still stubs ────
-// These are reached only through okStub(), which flags them in the response.
-
-registerStub('client.credit.history', 'No Prisma model for historical score snapshots yet.');
-registerStub('client.credit.recommendations', 'Requires the credit-optimization pipeline.');
-registerStub('client.repayment', 'Requires aggregation across card/payment sources.');
-registerStub('client.compliance.run', 'Does not start a compliance run; no job runner wired.');
-registerStub('client.consent.request', 'Does not send anything; no email/SMS provider wired.');
-
-const STUB_CREDIT_HISTORY = {
-  months: Array.from({ length: 12 }, (_, i) => {
-    const d = new Date(); d.setMonth(d.getMonth() - (11 - i));
-    return { month: d.toISOString().slice(0, 7), experian: 680 + i * 5, equifax: 695 + i * 4, transunion: 670 + i * 6 };
-  }),
-};
-
-const STUB_RECOMMENDATIONS = [
-  { id: 'rec_001', priority: 'high', title: 'Reduce credit utilization below 30%', estimatedPointImpact: { min: 25, max: 40 } },
-  { id: 'rec_002', priority: 'high', title: 'Dispute inaccurate late payment on Experian', estimatedPointImpact: { min: 15, max: 20 } },
-  { id: 'rec_003', priority: 'medium', title: 'Add authorized user on a seasoned card', estimatedPointImpact: { min: 10, max: 15 } },
-];
-
-const STUB_REPAYMENT = {
-  nextPayment: { date: dateOnly(3), amount: 8750, cards: 3, autopay: true },
-  totalMonthlyObligations: 34200,
-  autopayPct: 72,
-  cardsAtRisk: 1,
-  paymentCalendar: Array.from({ length: 30 }, (_, i) => ({ date: dateOnly(i), amount: i % 3 === 0 ? 0 : 2500, cardCount: i % 3 === 0 ? 0 : 2 })),
-  aprExpirySchedule: [
-    { issuer: 'Chase', cardLast4: '4821', expiryDate: dateOnly(5), currentApr: 0, postExpiryApr: 24.99, creditLimit: 75000 },
-    { issuer: 'American Express', cardLast4: '9173', expiryDate: dateOnly(22), currentApr: 0, postExpiryApr: 21.99, creditLimit: 150000 },
-  ],
-  payoffWaterfall: [
-    { issuer: 'Chase', cardLast4: '4821', balance: 62000, minimumPayment: 1240, suggestedPayment: 5000, priority: 1, reason: 'APR expiry in 5 days' },
-    { issuer: 'American Express', cardLast4: '9173', balance: 95000, minimumPayment: 1900, suggestedPayment: 2500, priority: 2, reason: '0% APR for 22 more days' },
-  ],
-};
-
-const STUB_COMPLIANCE_RUN = {
-  complianceScore: 78, maxScore: 100, overallStatus: 'needs_attention',
-  checks: [
-    { id: 'chk_001', name: 'KYC — All Owners Verified', status: 'warning', detail: '2 of 3 owners verified' },
-    { id: 'chk_002', name: 'TCPA Consent Active', status: 'pass', detail: 'Valid consent on file' },
-    { id: 'chk_003', name: 'Cash Advance Restriction', status: 'fail', detail: 'Not yet signed' },
-  ],
-};
 
 // ── Router ────────────────────────────────────────────────────
 
@@ -235,19 +248,177 @@ clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _
   }
 });
 
-// GET /credit/history — STUB
-clientDetailRouter.get('/credit/history', async (_req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  okStub(res, STUB_CREDIT_HISTORY, 'client.credit.history');
+// GET /credit/history — score movement across the pulls on record
+clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+  const { clientId } = req.params;
+  const tenantId = getTenantId(req);
+
+  try {
+    // CreditProfile rows are individual bureau pulls stamped with pulledAt, so
+    // history is the pulls themselves. No separate snapshot model is needed —
+    // which is what this endpoint previously claimed while serving a
+    // synthesised twelve-month curve identical for every client.
+    const profiles = await prisma.creditProfile.findMany({
+      where: { businessId: clientId },
+      orderBy: { pulledAt: 'asc' },
+    });
+
+    // One point per bureau per month, so a month with two pulls from the same
+    // bureau reports the later one rather than double-counting.
+    const byMonth = new Map<string, Record<string, number | null>>();
+    for (const p of profiles) {
+      const month = p.pulledAt.toISOString().slice(0, 7);
+      const entry = byMonth.get(month) ?? {};
+      entry[p.bureau] = p.score;
+      byMonth.set(month, entry);
+    }
+
+    const months = [...byMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, scores]) => ({ month, ...scores }));
+
+    const bureaus = [...new Set(profiles.map((p) => p.bureau))];
+    const latest = profiles.length > 0 ? profiles[profiles.length - 1] : null;
+    const first = profiles.length > 0 ? profiles[0] : null;
+
+    ok(res, {
+      months,
+      bureaus,
+      pullCount: profiles.length,
+      // Movement is only meaningful across two pulls from the same bureau.
+      changeSinceFirstPull:
+        latest && first && latest.bureau === first.bureau && latest.score !== null && first.score !== null
+          ? latest.score - first.score
+          : null,
+      latestPullAt: latest?.pulledAt.toISOString() ?? null,
+    }, { total: months.length });
+  } catch (error) {
+    logger.error('Prisma query failed for credit history', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_CREDIT_HISTORY_FAILED', 'Unable to load credit history.');
+  }
 });
 
-// GET /credit/recommendations — STUB
-clientDetailRouter.get('/credit/recommendations', async (_req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  okStub(res, STUB_RECOMMENDATIONS, 'client.credit.recommendations', { total: STUB_RECOMMENDATIONS.length });
+// GET /credit/recommendations — derived from the credit profile on record
+clientDetailRouter.get('/credit/recommendations', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+  const { clientId } = req.params;
+  const tenantId = getTenantId(req);
+
+  try {
+    const profiles = await prisma.creditProfile.findMany({
+      where: { businessId: clientId },
+      orderBy: { pulledAt: 'desc' },
+    });
+
+    if (profiles.length === 0) {
+      // No pull, no basis. Previously three confident recommendations were
+      // returned regardless, including a specific point-impact range.
+      ok(res, [], { total: 0, basis: 'no_credit_profile_on_record' });
+      return;
+    }
+
+    const latest = profiles[0];
+    const recommendations = buildCreditRecommendations(latest);
+
+    ok(res, recommendations, {
+      total: recommendations.length,
+      basis: 'latest_credit_profile',
+      pulledAt: latest.pulledAt.toISOString(),
+      bureau: latest.bureau,
+    });
+  } catch (error) {
+    logger.error('Prisma query failed for credit recommendations', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_CREDIT_RECOMMENDATIONS_FAILED', 'Unable to load recommendations.');
+  }
 });
 
-// GET /repayment — STUB
-clientDetailRouter.get('/repayment', async (_req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  okStub(res, STUB_REPAYMENT, 'client.repayment');
+// GET /repayment — obligations aggregated from the plan and the cards
+clientDetailRouter.get('/repayment', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+  const { clientId } = req.params;
+  const tenantId = getTenantId(req);
+
+  try {
+    const [plan, cards] = await Promise.all([
+      prisma.repaymentPlan.findFirst({
+        where: { businessId: clientId, tenantId, status: 'active' },
+        include: { schedules: { orderBy: { dueDate: 'asc' } } },
+      }),
+      prisma.cardApplication.findMany({
+        where: { businessId: clientId, status: { in: ['approved', 'active'] } },
+        orderBy: { introAprExpiry: 'asc' },
+      }),
+    ]);
+
+    const schedules = plan?.schedules ?? [];
+    const upcoming = schedules.filter((s) => s.status !== 'paid');
+    const nextPayment = upcoming[0] ?? null;
+    const withAutopay = upcoming.filter((s) => s.autopayEnabled).length;
+
+    const aprExpirySchedule = cards
+      .filter((c) => c.introAprExpiry !== null)
+      .map((c) => ({
+        applicationId: c.id,
+        issuer: c.issuer,
+        cardProduct: c.cardProduct,
+        expiryDate: c.introAprExpiry!.toISOString(),
+        daysRemaining: Math.ceil((c.introAprExpiry!.getTime() - Date.now()) / 86_400_000),
+        currentApr: c.introApr === null ? null : Number(c.introApr),
+        postExpiryApr: c.regularApr === null ? null : Number(c.regularApr),
+        creditLimit: c.creditLimit === null ? null : Number(c.creditLimit),
+      }));
+
+    // Payoff order: the card whose intro rate lapses soonest carries the
+    // nearest cost, so it is paid first. Cards with no expiry on record sort
+    // last rather than being given an invented date.
+    const payoffWaterfall = [...aprExpirySchedule]
+      .sort((a, b) => a.daysRemaining - b.daysRemaining)
+      .map((c, index) => ({
+        applicationId: c.applicationId,
+        issuer: c.issuer,
+        cardProduct: c.cardProduct,
+        creditLimit: c.creditLimit,
+        priority: index + 1,
+        reason:
+          c.daysRemaining <= 0
+            ? 'Intro APR has already lapsed'
+            : `Intro APR lapses in ${c.daysRemaining} days`,
+      }));
+
+    ok(res, {
+      hasPlan: plan !== null,
+      planId: plan?.id ?? null,
+      strategy: plan?.strategy ?? null,
+      totalBalance: plan ? Number(plan.totalBalance) : null,
+      // Null rather than 0 when there is no plan: no obligation on record is
+      // not the same claim as a zero monthly obligation.
+      totalMonthlyObligations: plan?.monthlyPayment == null ? null : Number(plan.monthlyPayment),
+      nextPayment: nextPayment
+        ? {
+            id: nextPayment.id,
+            issuer: nextPayment.issuer,
+            date: nextPayment.dueDate.toISOString(),
+            amount: Number(nextPayment.minimumPayment),
+            recommendedPayment:
+              nextPayment.recommendedPayment === null ? null : Number(nextPayment.recommendedPayment),
+            autopay: nextPayment.autopayEnabled,
+          }
+        : null,
+      autopayPct: upcoming.length > 0 ? Math.round((withAutopay / upcoming.length) * 100) : null,
+      cardsAtRisk: aprExpirySchedule.filter((c) => c.daysRemaining <= 30).length,
+      paymentCalendar: upcoming.map((s) => ({
+        id: s.id,
+        date: s.dueDate.toISOString(),
+        issuer: s.issuer,
+        amount: Number(s.minimumPayment),
+        status: s.status,
+        autopayEnabled: s.autopayEnabled,
+      })),
+      aprExpirySchedule,
+      payoffWaterfall,
+    });
+  } catch (error) {
+    logger.error('Prisma query failed for repayment', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_REPAYMENT_FAILED', 'Unable to load repayment detail.');
+  }
 });
 
 // GET /timeline
@@ -323,38 +494,120 @@ clientDetailRouter.get('/documents', async (req: Request, res: Response, _next: 
   }
 });
 
-// POST /compliance/run — STUB (starts nothing)
+// POST /compliance/run — runs the compliance service and persists the result
 clientDetailRouter.post('/compliance/run', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { clientId } = req.params;
   const tenantId = getTenantId(req);
-  logger.info('POST compliance run requested against stub endpoint', { clientId, tenantId });
+  const { checkType, stateCode } = (req.body ?? {}) as { checkType?: string; stateCode?: string };
 
-  okStub(res, {
-    ...STUB_COMPLIANCE_RUN,
-    runId: `run_${Date.now()}`,
-    triggeredAt: new Date().toISOString(),
-    status: 'completed',
-  }, 'client.compliance.run');
+  const requested = (checkType ?? 'kyb') as ComplianceCheckType;
+  if (!VALID_CHECK_TYPES.has(requested)) {
+    err(
+      res,
+      400,
+      'INVALID_CHECK_TYPE',
+      `checkType must be one of: ${[...VALID_CHECK_TYPES].join(', ')}.`,
+    );
+    return;
+  }
+
+  try {
+    const business = await prisma.business.findFirst({
+      where: { id: clientId, tenantId },
+      select: { id: true },
+    });
+    if (!business) {
+      err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
+      return;
+    }
+
+    // This actually runs and persists a check, and emits the ledger event the
+    // service publishes. It previously returned a fixed "completed" result
+    // with three sample findings and started nothing.
+    const result = await complianceService.runComplianceCheck({
+      businessId: clientId,
+      tenantId,
+      checkType: requested,
+      ...(stateCode ? { stateCode } : {}),
+    });
+
+    logger.info('Compliance check completed', { clientId, tenantId, checkType: requested });
+    ok(res, result);
+  } catch (error) {
+    logger.error('Compliance run failed', { clientId, tenantId, checkType: requested, error });
+    err(res, 500, 'COMPLIANCE_RUN_FAILED', 'Unable to run the compliance check.');
+  }
 });
 
-// POST /consent/request — STUB (sends nothing)
+// POST /consent/request — sends a re-consent request by email
 clientDetailRouter.post('/consent/request', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { clientId } = req.params;
   const tenantId = getTenantId(req);
-  const { consentType, recipientEmail } = req.body ?? {};
-  logger.info('POST consent request against stub endpoint', { clientId, tenantId, consentType });
+  const { channel, recipientEmail } = (req.body ?? {}) as {
+    channel?: string;
+    recipientEmail?: string;
+  };
 
-  // `status: 'sent'` below is sample data — nothing is dispatched. The stub
-  // markers are what stop this from reading as a real consent request.
-  okStub(res, {
-    requestId: `cr_${Date.now()}`,
-    clientId,
-    consentType: consentType ?? 'general',
-    recipientEmail: recipientEmail ?? null,
-    status: 'sent',
-    sentAt: new Date().toISOString(),
-    expiresAt: daysFromNow(7),
-  }, 'client.consent.request');
+  const requestedChannel = channel ?? 'email';
+
+  try {
+    const business = await prisma.business.findFirst({
+      where: { id: clientId, tenantId },
+      include: { owners: { orderBy: { ownershipPercent: 'desc' }, take: 1 } },
+    });
+
+    if (!business) {
+      err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
+      return;
+    }
+
+    const owner = business.owners[0];
+    const to = recipientEmail?.trim() || null;
+
+    if (!to) {
+      // The schema holds no client contact address — User.email belongs to
+      // staff, and BusinessOwner has no email column — so the caller has to
+      // supply one. Saying so beats reporting a send that could not happen,
+      // which is what this endpoint used to do.
+      err(
+        res,
+        422,
+        'RECIPIENT_EMAIL_REQUIRED',
+        'recipientEmail is required: no client contact address is stored against a business or its owners.',
+      );
+      return;
+    }
+
+    const result = await emailService.sendConsentRequest(
+      {
+        id: business.id,
+        email: to,
+        name: owner ? `${owner.firstName} ${owner.lastName}`.trim() : business.legalName,
+        businessName: business.legalName,
+      },
+      requestedChannel,
+    );
+
+    const mode = await emailService.getMode();
+
+    logger.info('Consent request dispatched', { clientId, tenantId, channel: requestedChannel, mode });
+
+    ok(res, {
+      clientId,
+      channel: requestedChannel,
+      recipientEmail: to,
+      messageId: result.id ?? null,
+      // `delivered` distinguishes a real send from the console fallback used
+      // when no email provider is configured, so a developer-mode dispatch is
+      // never reported as having reached the client.
+      delivered: mode === 'resend',
+      transport: mode,
+      sentAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('Consent request failed', { clientId, tenantId, error });
+    err(res, 500, 'CONSENT_REQUEST_FAILED', 'Unable to send the consent request.');
+  }
 });
 
 // PATCH / — update business fields
