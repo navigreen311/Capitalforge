@@ -10,7 +10,16 @@
 //   Step 5: Review & Submit
 // ============================================================
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useId,
+  cloneElement,
+  isValidElement,
+  type ReactElement,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../lib/api-client';
 import SuitabilityPanel, { type SuitabilityResultData } from '../../../components/suitability/SuitabilityPanel';
@@ -186,20 +195,63 @@ function StepIndicator({ current, steps }: { current: number; steps: string[] })
 // Field components
 // ---------------------------------------------------------------------------
 
+/**
+ * A labelled form control.
+ *
+ * The label used to be a sibling of the input with no htmlFor, and the inputs
+ * carried no id, so nothing connected the two. Visually it read as a label;
+ * programmatically the control was anonymous — a screen reader announced
+ * "edit text, blank" with no indication of what the field was, clicking the
+ * label did not focus the input, and the error text below it was never
+ * announced because nothing pointed at it.
+ *
+ * The id is generated here and injected into the child, so the 30 call sites
+ * stay as they are and no field can be added later without an association.
+ */
 function Field({ label, required, children, error }: {
   label: string;
   required?: boolean;
   children: React.ReactNode;
   error?: string;
 }) {
+  const generatedId = useId();
+  const errorId = `${generatedId}-error`;
+
+  const control = isValidElement(children)
+    ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+        // A caller that sets its own id keeps it; the label follows.
+        id: (children.props as { id?: string }).id ?? generatedId,
+        // aria-required rather than the native attribute: the wizard is not a
+        // <form>, so native validation would never fire, but it would still
+        // apply :invalid styling to every empty field on arrival.
+        'aria-required': required ? true : undefined,
+        'aria-invalid': error ? true : undefined,
+        // Points the control at its error text, which is what makes the
+        // message reachable rather than merely visible.
+        'aria-describedby': error ? errorId : undefined,
+      })
+    : children;
+
+  const controlId = isValidElement(children)
+    ? ((children.props as { id?: string }).id ?? generatedId)
+    : generatedId;
+
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-300 mb-1">
+      <label htmlFor={controlId} className="block text-sm font-medium text-gray-300 mb-1">
         {label}
-        {required && <span className="text-red-400 ml-0.5">*</span>}
+        {/* Decorative: the requirement is conveyed by aria-required, so the
+            asterisk would otherwise be read out as "star" after every label. */}
+        {required && <span className="text-red-400 ml-0.5" aria-hidden="true">*</span>}
       </label>
-      {children}
-      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+      {control}
+      {/* role="alert" so a validation message that appears after a failed
+          Continue is announced, rather than sitting silently on screen. */}
+      {error && (
+        <p id={errorId} role="alert" className="text-xs text-red-400 mt-1">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
