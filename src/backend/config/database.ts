@@ -76,16 +76,51 @@ declare global {
   var __prisma: PrismaClient | undefined;
 }
 
-export const prisma: PrismaClient =
-  global.__prisma ?? buildPrismaClient();
-
-if (!IS_PRODUCTION) {
-  global.__prisma = prisma;
+/**
+ * The client, built on first use rather than on import.
+ *
+ * This module used to call buildPrismaClient() while it was being evaluated,
+ * so importing it — for any symbol, from any module — constructed a client and
+ * attached its log listeners. That is a side effect no importer asked for: it
+ * runs in processes that never query, and it broke the server test, which
+ * mocks PrismaClient and therefore has no `$on`, the moment a newly mounted
+ * route pulled a service that imports this file into the server's graph.
+ */
+function resolveClient(): PrismaClient {
+  if (!global.__prisma) {
+    global.__prisma = buildPrismaClient();
+  }
+  return global.__prisma;
 }
+
+/**
+ * The shared client.
+ *
+ * A proxy, so that `import { prisma }` costs nothing until a property is
+ * actually read. Methods are bound to the real client — Prisma's own
+ * internals rely on `this`, and handing back an unbound `$queryRaw` would
+ * fail in a way that looks like a database fault.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    const client = resolveClient();
+    const value = Reflect.get(client, prop, receiver) as unknown;
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+  set(_target, prop, value) {
+    return Reflect.set(resolveClient(), prop, value);
+  },
+  has(_target, prop) {
+    return Reflect.has(resolveClient(), prop);
+  },
+});
 
 // ── Graceful shutdown ─────────────────────────────────────────
 export async function disconnectPrisma(): Promise<void> {
-  await prisma.$disconnect();
+  // Nothing to disconnect if nothing ever connected — and asking would build
+  // a client during shutdown purely to close it.
+  if (!global.__prisma) return;
+  await global.__prisma.$disconnect();
   logger.info('Prisma client disconnected');
 }
 

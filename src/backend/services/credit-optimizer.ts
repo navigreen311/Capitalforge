@@ -1,3 +1,4 @@
+import { toTradelines } from './credit-intelligence.service.js';
 // ============================================================
 // CapitalForge Credit Optimizer Service
 //
@@ -323,7 +324,7 @@ export class CreditOptimizerService {
         bureauDerogatories.set(profile.bureau, Math.max(existing, count));
       }
 
-      const tradelines = (profile.tradelines ?? []) as Tradeline[];
+      const tradelines = toTradelines(profile.tradelines);
       for (const tl of tradelines) {
         if (tl.isDerogatory) {
           if (tl.accountType === 'collection') {
@@ -350,7 +351,7 @@ export class CreditOptimizerService {
     // Use the bureau with the most tradelines as our best data point
     let maxCount = 0;
     for (const profile of profiles) {
-      const tradelines = (profile.tradelines ?? []) as Tradeline[];
+      const tradelines = toTradelines(profile.tradelines);
       const activeCount = tradelines.filter((tl) => !tl.closedAt).length;
       if (activeCount > maxCount) maxCount = activeCount;
     }

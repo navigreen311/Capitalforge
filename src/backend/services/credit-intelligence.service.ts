@@ -168,6 +168,24 @@ const CREDIT_EVENTS = {
 
 // ── Service ───────────────────────────────────────────────────
 
+/**
+ * The tradelines on a credit profile, when there are any.
+ *
+ * `tradelines` is a Json column and has been written two ways: an array of
+ * per-account records, which is what the type says, and a summary object like
+ * `{ accounts: 18, avgAge: 9.4, revolving: 6 }`, which is what the seeded
+ * profiles carry. Every reader cast it to Tradeline[] and iterated, so a
+ * summary object reached `for...of` and threw "tradelines is not iterable" —
+ * a 500 on the credit roadmap endpoint.
+ *
+ * A summary carries no per-account balance or limit, so it yields nothing to
+ * iterate. Callers that aggregate over it then report null, meaning unknown,
+ * which is the honest answer: the figures they need were never stored.
+ */
+export function toTradelines(value: unknown): Tradeline[] {
+  return Array.isArray(value) ? (value as Tradeline[]) : [];
+}
+
 export class CreditIntelligenceService {
   private readonly optimizer: CreditOptimizerService;
 
@@ -312,7 +330,7 @@ export class CreditIntelligenceService {
     let hasData = false;
 
     for (const profile of latestProfiles) {
-      const tradelines = (profile.tradelines as Tradeline[] | null) ?? [];
+      const tradelines = toTradelines(profile.tradelines);
 
       for (const tl of tradelines) {
         if (typeof tl.creditLimit === 'number' && typeof tl.balance === 'number') {
@@ -571,7 +589,14 @@ export class CreditIntelligenceService {
           : null,
       inquiryCount: record.inquiryCount,
       derogatoryCount: record.derogatoryCount,
-      tradelines: (record.tradelines as Tradeline[]) ?? null,
+      // Passed through as stored, narrowed rather than cast. This column
+      // holds either an array of tradelines or a summary object, and
+      // flattening one into the other here would hide which a caller has.
+      tradelines: Array.isArray(record.tradelines)
+        ? (record.tradelines as Tradeline[])
+        : typeof record.tradelines === 'object' && record.tradelines !== null
+          ? (record.tradelines as Record<string, unknown>)
+          : null,
       rawData: (record.rawData as Record<string, unknown>) ?? null,
       pulledAt: record.pulledAt.toISOString(),
       createdAt: record.createdAt.toISOString(),

@@ -369,6 +369,19 @@ import { platformDataLineageRouter } from './platform-data-lineage.routes.js';
 apiRouter.use('/platform/data-lineage', platformDataLineageRouter);
 
 // ── Issuer Rules Engine ──────────────────────────────────────────
+// ── CRM, portfolio analytics and issuer contacts ────────────
+// GET  /api/crm/pipeline, /api/crm/revenue, /api/crm/advisors/:id/performance
+// GET  /api/portfolio/benchmarks, /heatmap, /promo-survival, /complaint-rates
+// GET  /api/issuers/contacts, /api/issuers/:issuer/trends
+//
+// Mounted BEFORE issuerRulesRouter, which registers /issuers/:id. Express
+// matches in registration order, so with this router last a request for
+// /api/issuers/contacts bound id="contacts" and answered 404 from the issuer
+// lookup — reachable route, unreachable endpoint, exactly as /declines/stats
+// was.
+import { crmRouter } from './crm.routes.js';
+apiRouter.use('/', crmRouter);
+
 import { issuerRulesRouter } from './issuer-rules.routes.js';
 apiRouter.use('/', issuerRulesRouter);
 
@@ -513,3 +526,73 @@ apiRouter.use('/', hardshipRouter);
 // GET /api/portal/:clientId/summary — funding status, APR countdowns, payments, docs
 import { portalRouter } from './portal.routes.js';
 apiRouter.use('/portal', portalRouter);
+
+// ============================================================
+// Routers that were written, tested and never mounted
+//
+// Each of the files below exports a working router that index.ts did not
+// import, so every one of its endpoints answered 404 — implemented backend
+// that no request could reach, behind pages that had given up and hardcoded
+// their data instead.
+//
+// Auth is not a concern here: requireAuth runs above on apiRouter for every
+// path outside the public allowlist and populates req.tenant from the JWT,
+// which is what these handlers read.
+//
+// Mount paths are taken from each file's own header, and the parameterised
+// mounts sit after the literal ones for the reason /declines/stats used to
+// 404: Express matches in registration order.
+// ============================================================
+
+// ── Regulatory intelligence and funds-flow classification ───
+// GET  /api/regulatory/alerts, /api/regulatory/impact/:ruleId
+// GET  /api/funds-flow/classifications, /api/funds-flow/licensing-status
+import { regulatoryRouter } from './regulatory.routes.js';
+apiRouter.use('/', regulatoryRouter);
+
+// ── Deal committee reviews and decision explainability ──────
+// GET  /api/deal-reviews, POST /api/deal-reviews/:id/vote
+// GET  /api/decisions/:id/audit-trail
+import { dealCommitteeRouter } from './deal-committee.routes.js';
+apiRouter.use('/', dealCommitteeRouter);
+
+// ── Workflow, policy rules and rule versioning ──────────────
+// GET/POST /api/workflow/rules, /api/policy/rules
+// POST /api/rules/versions/:id/deploy, /rollback
+import { workflowRouter } from './workflow.routes.js';
+apiRouter.use('/', workflowRouter);
+
+// ── ACH authorizations and debit tolerance ──────────────────
+// POST /api/businesses/:id/ach/authorize, GET /api/businesses/:id/ach
+// POST /api/ach/debit-event
+import { achRouter } from './ach.routes.js';
+apiRouter.use('/', achRouter);
+
+// ── Client graduation and credit-builder milestones ─────────
+// GET  /api/businesses/:id/graduation/status
+// GET  /api/businesses/:id/credit-builder/roadmap
+import { graduationRouter } from './graduation.routes.js';
+apiRouter.use('/businesses/:id', graduationRouter);
+
+// ── Tax reporting and column-level lineage ──────────────────
+// GET  /api/businesses/:id/tax/163j-report, /year-end-summary, /export
+// GET  /api/businesses/:id/tax/lineage/graph, /tax/lineage/:fieldPath
+import { taxReportsRouter } from './tax-reports.routes.js';
+apiRouter.use('/businesses/:id/tax', taxReportsRouter);
+
+// ── Credit profiles, pulls and optimization roadmap ─────────
+// GET  /api/businesses/:id/credit, POST /api/businesses/:id/credit/pull
+import { createCreditRouter } from './credit.routes.js';
+apiRouter.use('/businesses/:id/credit', createCreditRouter());
+
+// ── repayment.routes.ts is deliberately NOT mounted ─────────
+//
+// Its five endpoints are backed by repayment.service.ts, which makes no
+// database call of any kind: two module-level Maps and an incrementing
+// counter hold every plan and schedule it is given. Mounting it would publish
+// POST /plan and PUT /schedule/:id/paid — a client recording a payment made
+// against a repayment plan — and lose all of it on the next restart, silently
+// and per process.
+//
+// The repayment page reads /api/v1/clients/:id/repayment, which is backed by
+// Prisma, and is unaffected by this.

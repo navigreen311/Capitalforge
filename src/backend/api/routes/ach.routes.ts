@@ -42,8 +42,28 @@ export function configureAchRouter(
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function tenantId(req: Request): string {
-  return req.tenant?.tenantId ?? 'unknown';
+/**
+ * The tenant this request belongs to, or null.
+ *
+ * This used to answer the literal string 'unknown' when req.tenant was
+ * absent. These endpoints create and revoke ACH debit authorizations — a
+ * mandate to take money from a client's account — and one written under a
+ * tenant id of "unknown" belongs to nobody, is invisible to the tenant that
+ * created it, and cannot be revoked through the endpoint that revokes them.
+ *
+ * requireAuth populates req.tenant for every non-public path, so this should
+ * not arise; it returns null and each caller refuses, rather than inventing
+ * an owner for a payment mandate.
+ */
+function tenantId(req: Request): string | null {
+  return req.tenant?.tenantId ?? null;
+}
+
+function missingTenant(res: Response): void {
+  res.status(400).json({
+    success: false,
+    error: { code: 'INVALID_PARAMS', message: 'Tenant context is required.' },
+  } satisfies ApiResponse);
 }
 
 function handleError(res: Response, err: unknown, context: string): void {
@@ -97,6 +117,10 @@ achRouter.post(
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     const businessId = req.params.id;
     const tid = tenantId(req);
+    if (tid === null) {
+      missingTenant(res);
+      return;
+    }
 
     try {
       const {
@@ -185,6 +209,10 @@ achRouter.delete(
     const businessId = req.params.id;
     const authorizationId = req.params.authId;
     const tid = tenantId(req);
+    if (tid === null) {
+      missingTenant(res);
+      return;
+    }
     const revokedBy = req.tenant?.userId ?? 'system';
 
     try {
@@ -226,6 +254,10 @@ achRouter.get(
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     const businessId = req.params.id;
     const tid = tenantId(req);
+    if (tid === null) {
+      missingTenant(res);
+      return;
+    }
 
     try {
       const authorizations =
@@ -340,6 +372,10 @@ achRouter.get(
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     const businessId = req.params.id;
     const tid = tenantId(req);
+    if (tid === null) {
+      missingTenant(res);
+      return;
+    }
 
     try {
       const alerts = await getAchService().getUnauthorizedAlerts(tid, businessId);

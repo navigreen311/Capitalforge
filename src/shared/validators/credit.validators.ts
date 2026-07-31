@@ -80,7 +80,13 @@ export const CreditProfileSchema = z.object({
   utilization: UtilizationSchema.nullable(),
   inquiryCount: z.number().int().nonnegative().nullable(),
   derogatoryCount: z.number().int().nonnegative().nullable(),
-  tradelines: z.array(TradelineSchema).nullable(),
+  // Either an array of per-account tradelines or a summary object such as
+  // `{ accounts: 18, avgAge: 9.4, revolving: 6 }`. Both shapes are in the
+  // column today. The schema said array-or-null, so a stored summary failed
+  // validation here and threw "tradelines is not iterable" in the readers
+  // that trusted the same claim. Widened to describe what is actually there,
+  // rather than asserting a shape the data does not have.
+  tradelines: z.union([z.array(TradelineSchema), z.record(z.unknown())]).nullable(),
   rawData: z.record(z.unknown()).nullable(),
   pulledAt: z.string().datetime(),
   createdAt: z.string().datetime(),
