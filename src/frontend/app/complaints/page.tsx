@@ -8,6 +8,27 @@
 
 import { useState, useEffect, useMemo, useCallback, type FormEvent } from 'react';
 import {
+  toComplaintView,
+  toComplaintViews,
+  toAnalyticsView,
+  resolvedWithin,
+  slaDueDate,
+  CATEGORY_LABELS,
+  SOURCE_LABELS,
+  SEVERITY_LABELS,
+  STATUS_LABELS as COMPLAINT_STATUS_LABELS,
+  type ComplaintView,
+  type ComplaintAnalyticsView,
+  type ComplaintCategory,
+  type ComplaintSource,
+  type ComplaintSeverity,
+  type RootCauseSlice,
+  type ComplaintStatus as ComplaintStatusValue,
+} from '@/lib/complaint-view';
+
+/** Slice colours by rank, since the analytics endpoint returns no colour. */
+const SLICE_COLORS = ['#ef4444', '#C9A84C', '#f97316', '#3b82f6', '#8b5cf6'];
+import {
   toInquiryViews,
   deadlineLabel,
   MATTER_TYPE_LABELS,
@@ -20,22 +41,14 @@ import {
 
 // ─── Types & Mock data ────────────────────────────────────────────────────────
 
-type Severity = 'Critical' | 'High' | 'Medium' | 'Low';
-type ComplaintStatus = 'Open' | 'In Review' | 'Escalated' | 'Resolved' | 'Closed';
-type Category = 'Billing' | 'Disclosure' | 'Fair Lending' | 'Product Mismatch' | 'Advisor Conduct' | 'Data Privacy' | 'Approval Denial' | 'Other';
+// The page used a wider vocabulary than the model — eight categories against
+// the API's five, and an "Escalated" status the model does not have. See
+// lib/complaint-view for why those could not round-trip.
+type Severity = ComplaintSeverity;
+type ComplaintStatus = ComplaintStatusValue;
+type Category = ComplaintCategory;
+type Complaint = ComplaintView;
 
-interface Complaint {
-  id: string;
-  clientName: string;
-  category: Category;
-  severity: Severity;
-  status: ComplaintStatus;
-  submittedAt: string;
-  description: string;
-  evidence: string[];
-  rootCause: string;
-  assignee: string;
-}
 
 interface RegulatoryInquiry {
   id: string;
@@ -53,13 +66,11 @@ interface ActivityEvent {
   user: string;
 }
 
-const CLIENTS = ['Marcus Bell', 'Aisha Johnson', 'Derek Huang', 'Priya Mehta', 'James Osei'] as const;
-const ADVISORS = ['Sarah Chen', 'Michael Torres', 'Emily Park'] as const;
-const CATEGORIES: Category[] = ['Billing', 'Fair Lending', 'Disclosure', 'Advisor Conduct', 'Product Mismatch', 'Data Privacy', 'Other'];
-const SEVERITIES: Severity[] = ['Critical', 'High', 'Medium', 'Low'];
-const STATUSES: ComplaintStatus[] = ['Open', 'In Review', 'Escalated', 'Resolved', 'Closed'];
+const CATEGORIES: Category[] = ['billing', 'service', 'unauthorized_debit', 'compliance', 'other'];
+const SOURCES: ComplaintSource[] = ['portal', 'email', 'phone', 'regulator_referral', 'legal', 'other'];
+const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low'];
+const STATUSES: ComplaintStatus[] = ['open', 'investigating', 'resolved', 'closed'];
 
-const SLA_DAYS: Record<Severity, number> = { Critical: 5, High: 10, Medium: 20, Low: 30 };
 
 const ROOT_CAUSE_OPTIONS = [
   'Fee disclosure gap',
@@ -95,42 +106,24 @@ const MOCK_ACTIVITIES: Record<string, ActivityEvent[]> = {
   ],
 };
 
-const INITIAL_COMPLAINTS: Complaint[] = [
-  { id: 'CMP-001', clientName: 'Marcus Bell',         category: 'Billing',          severity: 'High',     status: 'Open',      submittedAt: '2026-03-28', description: 'Charged origination fee not disclosed in agreement.', evidence: ['contract_v2.pdf', 'statement_mar26.pdf'], rootCause: 'Fee disclosure gap in onboarding template v3.1.', assignee: 'Sarah Chen' },
-  { id: 'CMP-002', clientName: 'Aisha Johnson',       category: 'Fair Lending',     severity: 'Critical', status: 'Escalated', submittedAt: '2026-03-25', description: 'Alleges denial was based on zip code, not creditworthiness.', evidence: ['denial_letter.pdf', 'fico_report.pdf', 'geo_analysis.csv'], rootCause: 'Geographic proxy variable in legacy model flagged by ECOA audit.', assignee: 'Michael Torres' },
-  { id: 'CMP-003', clientName: 'Derek Huang',         category: 'Disclosure',       severity: 'Medium',   status: 'In Review', submittedAt: '2026-03-22', description: 'APR not clearly stated in digital consent flow.', evidence: ['consent_screenshot.png'], rootCause: 'Mobile disclosure screen truncated APR on small viewports.', assignee: 'Emily Park' },
-  { id: 'CMP-004', clientName: 'Priya Mehta',         category: 'Advisor Conduct',  severity: 'High',     status: 'In Review', submittedAt: '2026-03-20', description: 'Advisor recommended card without explaining terms.', evidence: ['call_recording_id_8821.mp3'], rootCause: 'Suitability checklist skipped during high-volume period.', assignee: 'Sarah Chen' },
-  { id: 'CMP-005', clientName: 'James Osei',          category: 'Product Mismatch', severity: 'Low',      status: 'Resolved',  submittedAt: '2026-03-15', description: 'Recommended business card rejected by issuer.', evidence: ['application_pdf.pdf'], rootCause: 'Issuer eligibility data stale (24h lag).', assignee: 'Michael Torres' },
-  { id: 'CMP-006', clientName: 'Sandra Liu',          category: 'Data Privacy',     severity: 'Critical', status: 'Escalated', submittedAt: '2026-03-12', description: 'Personal data shared with third-party without consent.', evidence: ['data_sharing_log.csv', 'consent_audit.pdf'], rootCause: 'Consent flag misconfiguration in partner API v1.8.', assignee: 'Emily Park' },
-  { id: 'CMP-007', clientName: 'Carlos Rivera',       category: 'Approval Denial',  severity: 'Medium',   status: 'Closed',    submittedAt: '2026-03-08', description: 'Adverse action notice not received within 30 days.', evidence: ['timeline_log.pdf'], rootCause: 'Email delivery failure; SMTP retry logic misconfigured.', assignee: 'Sarah Chen' },
-  { id: 'CMP-008', clientName: 'Fatima Al-Hassan',    category: 'Billing',          severity: 'Low',      status: 'Open',      submittedAt: '2026-03-05', description: 'Double-charged for program fee in February.', evidence: ['invoice_feb26.pdf'], rootCause: 'Duplicate webhook event triggered billing system twice.', assignee: 'Michael Torres' },
-];
 
 
-const ROOT_CAUSE_ANALYTICS = [
-  { category: 'Disclosure Gaps',       count: 14, pct: 32, color: '#ef4444' },
-  { category: 'Model / Data Quality',  count: 9,  pct: 20, color: '#C9A84C' },
-  { category: 'Advisor Process',       count: 8,  pct: 18, color: '#f97316' },
-  { category: 'System / API Bug',      count: 7,  pct: 16, color: '#3b82f6' },
-  { category: 'Partner Integration',   count: 6,  pct: 14, color: '#8b5cf6' },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const TODAY = new Date('2026-04-01');
 
 function severityBadge(s: Severity): string {
-  if (s === 'Critical') return 'bg-red-900/60 text-red-300 border border-red-700';
-  if (s === 'High')     return 'bg-orange-900/50 text-orange-300 border border-orange-700';
-  if (s === 'Medium')   return 'bg-yellow-900/50 text-yellow-300 border border-yellow-700';
+  if (s === 'critical') return 'bg-red-900/60 text-red-300 border border-red-700';
+  if (s === 'high')     return 'bg-orange-900/50 text-orange-300 border border-orange-700';
+  if (s === 'medium')   return 'bg-yellow-900/50 text-yellow-300 border border-yellow-700';
   return 'bg-gray-800 text-gray-400 border border-gray-700';
 }
 
 function statusBadge(s: ComplaintStatus): string {
-  if (s === 'Escalated') return 'bg-red-900/40 text-red-300';
-  if (s === 'Open')      return 'bg-orange-900/40 text-orange-300';
-  if (s === 'In Review') return 'bg-blue-900/40 text-blue-300';
-  if (s === 'Resolved')  return 'bg-emerald-900/40 text-emerald-300';
+  if (s === 'open')          return 'bg-orange-900/40 text-orange-300';
+  if (s === 'investigating') return 'bg-blue-900/40 text-blue-300';
+  if (s === 'resolved')      return 'bg-emerald-900/40 text-emerald-300';
   return 'bg-gray-800 text-gray-400';
 }
 
@@ -153,10 +146,10 @@ function deadlineColor(days: number): string {
   return 'text-emerald-400';
 }
 
-function getSLADueDate(submittedAt: string, severity: Severity): Date {
-  const d = new Date(submittedAt);
-  d.setDate(d.getDate() + SLA_DAYS[severity]);
-  return d;
+// Kept as a thin wrapper so the existing call sites read the same; the rule
+// itself lives in lib/complaint-view alongside the rest of the mapping.
+function getSLADueDate(complaint: Complaint): Date | null {
+  return slaDueDate(complaint);
 }
 
 function formatDate(d: Date): string {
@@ -200,35 +193,71 @@ interface LogModalProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (c: Complaint) => void;
+  /** Real businesses, so a complaint can be attached to one that exists. */
+  clients: { id: string; name: string }[];
 }
 
-function LogComplaintModal({ open, onClose, onSubmit }: LogModalProps) {
-  const [client, setClient] = useState<string>(CLIENTS[0]);
-  const [category, setCategory] = useState<Category>(CATEGORIES[0]);
-  const [severity, setSeverity] = useState<Severity>('Medium');
+function LogComplaintModal({ open, onClose, onSubmit, clients }: LogModalProps) {
+  const [businessId, setBusinessId] = useState<string>('');
+  const [category, setCategory] = useState<Category>('billing');
+  const [source, setSource] = useState<ComplaintSource>('portal');
+  const [severity, setSeverity] = useState<Severity>('medium');
   const [description, setDescription] = useState('');
-  const [assignee, setAssignee] = useState<string>(ADVISORS[0]);
+  const [assignee, setAssignee] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
-  const handleSubmit = () => {
-    if (!description.trim()) return;
-    const nextId = `CMP-${String(Date.now()).slice(-3).padStart(3, '0')}`;
-    const complaint: Complaint = {
-      id: nextId,
-      clientName: client,
-      category,
-      severity,
-      status: 'Open',
-      submittedAt: formatDate(TODAY),
-      description: description.trim(),
-      evidence: [],
-      rootCause: '',
-      assignee,
-    };
-    onSubmit(complaint);
-    setDescription('');
-    onClose();
+  // The API requires 10+ characters; the form mirrors that rather than
+  // sending a request already known to fail.
+  const descriptionOk = description.trim().length >= 10;
+
+  const handleSubmit = async () => {
+    if (!descriptionOk || saving) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      const token =
+        typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch('/api/complaints', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          category,
+          source,
+          severity,
+          description: description.trim(),
+          ...(assignee ? { assignedTo: assignee } : {}),
+          ...(businessId ? { businessId } : {}),
+        }),
+      });
+
+      const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: unknown;
+        error?: { message?: string };
+      };
+
+      if (!res.ok || json.success !== true) {
+        setError(json.error?.message ?? `The complaint was not saved (HTTP ${res.status}).`);
+        return;
+      }
+
+      const saved = toComplaintView(json.data);
+      if (saved) onSubmit(saved);
+      setDescription('');
+      onClose();
+    } catch {
+      // Nothing reached the server, so nothing is claimed to have been logged.
+      setError('Could not reach the server; the complaint was not saved.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -242,8 +271,18 @@ function LogComplaintModal({ open, onClose, onSubmit }: LogModalProps) {
         <div className="space-y-4">
           <div>
             <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-client">Client</label>
-            <select id="complaints-client" value={client} onChange={(e) => setClient(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
-              {CLIENTS.map((c) => <option key={c}>{c}</option>)}
+            <select
+              id="complaints-client"
+              value={businessId}
+              onChange={(e) => setBusinessId(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
+            >
+              {/* Optional on the API, so "not attributed" is a real choice
+                  rather than forcing an arbitrary client onto the record. */}
+              <option value="">Not attributed to a client</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </select>
           </div>
 
@@ -251,15 +290,35 @@ function LogComplaintModal({ open, onClose, onSubmit }: LogModalProps) {
             <div>
               <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-category">Category</label>
               <select id="complaints-category" value={category} onChange={(e) => setCategory(e.target.value as Category)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
-                {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                {CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>{CATEGORY_LABELS[cat]}</option>
+              ))}
               </select>
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-severity">Severity</label>
               <select id="complaints-severity" value={severity} onChange={(e) => setSeverity(e.target.value as Severity)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
-                {SEVERITIES.map((s) => <option key={s}>{s}</option>)}
+                {SEVERITIES.map((sev) => (
+                  <option key={sev} value={sev}>{SEVERITY_LABELS[sev]}</option>
+                ))}
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-source">
+              How was it received?
+            </label>
+            <select
+              id="complaints-source"
+              value={source}
+              onChange={(e) => setSource(e.target.value as ComplaintSource)}
+              className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]"
+            >
+              {SOURCES.map((src) => (
+                <option key={src} value={src}>{SOURCE_LABELS[src]}</option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -269,15 +328,30 @@ function LogComplaintModal({ open, onClose, onSubmit }: LogModalProps) {
 
           <div>
             <label className="block text-xs text-gray-400 mb-1 font-medium" htmlFor="complaints-assignee">Assignee</label>
-            <select id="complaints-assignee" value={assignee} onChange={(e) => setAssignee(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:border-[#C9A84C]">
-              {ADVISORS.map((a) => <option key={a}>{a}</option>)}
-            </select>
+            {/* Free text: the three names offered here before — Sarah Chen,
+                Michael Torres, Emily Park — are not users of this system, and
+                picking one wrote a name that matched nobody. */}
+            <input
+              id="complaints-assignee"
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+              placeholder="Who owns this complaint?"
+              className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-[#C9A84C]"
+            />
           </div>
         </div>
 
+        {error && (
+          <p role="alert" className="text-xs text-red-400 bg-red-950/40 border border-red-800 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
+
         <div className="flex justify-end gap-3 pt-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-700 text-gray-400 text-sm hover:bg-gray-800 transition-colors">Cancel</button>
-          <button onClick={handleSubmit} disabled={!description.trim()} className="px-5 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] disabled:opacity-40 disabled:cursor-not-allowed text-[#0A1628] text-sm font-semibold transition-colors">Log Complaint</button>
+          <button onClick={handleSubmit} disabled={!descriptionOk || saving} className="px-5 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] disabled:opacity-40 disabled:cursor-not-allowed text-[#0A1628] text-sm font-semibold transition-colors">
+            {saving ? 'Saving...' : 'Log Complaint'}
+          </button>
         </div>
       </div>
     </div>
@@ -287,9 +361,10 @@ function LogComplaintModal({ open, onClose, onSubmit }: LogModalProps) {
 // ─── Regulatory Response Generator ───────────────────────────────────────────
 
 function RegulatoryResponseGenerator({ complaint, onClose }: { complaint: Complaint; onClose: () => void }) {
-  const template = `Dear ${complaint.clientName},
+  const filedOn = complaint.createdAt ? formatDate(new Date(complaint.createdAt)) : 'an unrecorded date';
+  const template = `Dear ${complaint.clientName ?? 'Client'},
 
-We are writing to acknowledge receipt of your complaint (Reference: ${complaint.id}), filed on ${complaint.submittedAt}, regarding ${complaint.category.toLowerCase()} concerns.
+We are writing to acknowledge receipt of your complaint (Reference: ${complaint.id}), filed on ${filedOn}, regarding ${CATEGORY_LABELS[complaint.category].toLowerCase()} concerns.
 
 We take all client complaints seriously and are committed to resolving this matter in a fair and timely manner.
 
@@ -370,10 +445,13 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
     return complaints.filter((c) => {
       const matchSev = filterSev === 'All' || c.severity === filterSev;
       const matchStatus = filterStatus === 'All' || c.status === filterStatus;
-      const matchSearch = c.clientName.toLowerCase().includes(search.toLowerCase()) ||
-        c.category.toLowerCase().includes(search.toLowerCase()) ||
-        c.id.toLowerCase().includes(search.toLowerCase());
-      const matchRoot = !rootCauseFilter || c.rootCause.toLowerCase().includes(rootCauseFilter.toLowerCase());
+      const haystack = `${c.clientName ?? ''} ${CATEGORY_LABELS[c.category]} ${c.id}`.toLowerCase();
+      const matchSearch = haystack.includes(search.toLowerCase());
+      // A complaint with no root cause recorded does not match a root-cause
+      // filter, rather than matching everything.
+      const matchRoot =
+        !rootCauseFilter ||
+        (c.rootCause ?? '').toLowerCase().includes(rootCauseFilter.toLowerCase());
       return matchSev && matchStatus && matchSearch && matchRoot;
     });
   }, [complaints, filterSev, filterStatus, search, rootCauseFilter]);
@@ -429,9 +507,9 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
           </thead>
           <tbody className="divide-y divide-gray-800">
             {filtered.map((c) => {
-              const dueDate = getSLADueDate(c.submittedAt, c.severity);
-              const daysLeft = daysBetween(TODAY, dueDate);
-              const overdue = daysLeft < 0;
+              const dueDate = getSLADueDate(c);
+              const daysLeft = dueDate ? daysBetween(TODAY, dueDate) : null;
+              const overdue = daysLeft !== null && daysLeft < 0;
               const isSelected = selectedId === c.id;
               return (
                 <tr
@@ -444,20 +522,29 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
                   <td className="px-4 py-3 text-gray-400 text-xs">{c.category}</td>
                   <td className="px-4 py-3">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${severityBadge(c.severity)}`}>
-                      {c.severity}
+                      {SEVERITY_LABELS[c.severity]}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${statusBadge(c.status)}`}>
-                      {c.status}
+                      {COMPLAINT_STATUS_LABELS[c.status]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-500 text-xs tabular-nums">{c.submittedAt}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs tabular-nums">
+                    {c.createdAt ? formatDate(new Date(c.createdAt)) : '—'}
+                  </td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs font-semibold tabular-nums ${overdue ? 'text-red-400' : daysLeft <= 2 ? 'text-red-400' : 'text-gray-400'}`}>
-                      {formatDate(dueDate)}
-                      {overdue && <span className="ml-1 text-[10px]">({Math.abs(daysLeft)}d late)</span>}
-                      {!overdue && daysLeft <= 2 && <span className="ml-1 text-[10px]">({daysLeft}d)</span>}
+                    <span className={`text-xs font-semibold tabular-nums ${
+                      overdue || (daysLeft !== null && daysLeft <= 2) ? 'text-red-400' : 'text-gray-400'
+                    }`}>
+                      {/* No filing date means no deadline to state. */}
+                      {dueDate === null ? '—' : formatDate(dueDate)}
+                      {overdue && daysLeft !== null && (
+                        <span className="ml-1 text-[10px]">({Math.abs(daysLeft)}d late)</span>
+                      )}
+                      {!overdue && daysLeft !== null && daysLeft <= 2 && (
+                        <span className="ml-1 text-[10px]">({daysLeft}d)</span>
+                      )}
                     </span>
                   </td>
                 </tr>
@@ -473,19 +560,48 @@ function ComplaintsTable({ complaints, onSelect, selectedId, filterSev, setFilte
   );
 }
 
-function RootCauseAnalytics({ onCategoryClick }: { onCategoryClick: (cat: string) => void }) {
+function RootCauseAnalytics({
+  slices,
+  onCategoryClick,
+}: {
+  slices: RootCauseSlice[];
+  onCategoryClick: (cat: string) => void;
+}) {
+  // Empty until complaints have a root cause recorded. The five fixed
+  // categories shown here before — "Disclosure Gaps 32%" and so on — were a
+  // constant, and no investigation could change them.
+  if (slices.length === 0) {
+    return (
+      <p className="text-xs text-gray-500 py-4">
+        No root causes recorded yet. They appear here once complaints are
+        investigated and a cause is set.
+      </p>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-      {ROOT_CAUSE_ANALYTICS.map((item) => (
+      {slices.map((item) => (
         <div
           key={item.category}
           onClick={() => onCategoryClick(item.category)}
           className="rounded-xl border border-gray-800 bg-gray-900 p-4 space-y-2 cursor-pointer hover:border-gray-600 transition-colors"
         >
           <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">{item.category}</p>
-          <p className="text-2xl font-bold tabular-nums" style={{ color: item.color }}>{item.count}</p>
+          <p
+            className="text-2xl font-bold tabular-nums"
+            style={{ color: SLICE_COLORS[slices.indexOf(item) % SLICE_COLORS.length] }}
+          >
+            {item.count}
+          </p>
           <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
-            <div className="h-full rounded-full" style={{ width: `${item.pct}%`, backgroundColor: item.color }} />
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${item.pct}%`,
+                backgroundColor: SLICE_COLORS[slices.indexOf(item) % SLICE_COLORS.length],
+              }}
+            />
           </div>
           <p className="text-[10px] text-gray-600">{item.pct}% of total</p>
         </div>
@@ -520,34 +636,34 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
     );
   }
 
-  const dueDate = getSLADueDate(complaint.submittedAt, complaint.severity);
-  const daysLeft = daysBetween(TODAY, dueDate);
-  const overdue = daysLeft < 0;
-  const activities = MOCK_ACTIVITIES[complaint.id] || [{ date: complaint.submittedAt, action: 'Complaint logged', user: 'System' }];
+  const dueDate = getSLADueDate(complaint);
+  const daysLeft = dueDate ? daysBetween(TODAY, dueDate) : null;
+  const overdue = daysLeft !== null && daysLeft < 0;
+  const filedOnLabel = complaint.createdAt ? formatDate(new Date(complaint.createdAt)) : '—';
+  const activities = MOCK_ACTIVITIES[complaint.id] || [
+    { date: filedOnLabel, action: 'Complaint logged', user: 'System' },
+  ];
 
   const handleStartInvestigation = () => {
-    onUpdateComplaint({ ...complaint, status: 'In Review' });
-    onShowToast(`${complaint.id} moved to In Review`);
+    onUpdateComplaint({ ...complaint, status: 'investigating' });
+    onShowToast('Moved to in review');
   };
 
+  // Escalation is a field on the record, not a status. Treating it as a
+  // status meant the change either failed against the API's four values or
+  // landed as a different one.
   const handleEscalate = () => {
-    onUpdateComplaint({ ...complaint, status: 'Escalated' });
-    onShowToast(`${complaint.id} escalated`);
+    onUpdateComplaint({ ...complaint, status: 'investigating', escalatedTo: 'Compliance' });
+    onShowToast('Escalated to compliance');
   };
 
   const handleResolve = () => {
-    onUpdateComplaint({ ...complaint, status: 'Resolved' });
-    onShowToast(`${complaint.id} marked as Resolved`);
+    onUpdateComplaint({ ...complaint, status: 'resolved' });
+    onShowToast('Marked as resolved');
   };
 
   const handleRootCauseChange = (value: string) => {
-    onUpdateComplaint({ ...complaint, rootCause: value });
-  };
-
-  const handleAttachEvidence = () => {
-    const newFile = `evidence_${Date.now().toString(36)}.pdf`;
-    onUpdateComplaint({ ...complaint, evidence: [...complaint.evidence, newFile] });
-    onShowToast('Evidence file attached');
+    onUpdateComplaint({ ...complaint, rootCause: value === '' ? null : value });
   };
 
   return (
@@ -558,22 +674,37 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-xs text-[#C9A84C]">{complaint.id}</span>
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${severityBadge(complaint.severity)}`}>{complaint.severity}</span>
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${statusBadge(complaint.status)}`}>{complaint.status}</span>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${severityBadge(complaint.severity)}`}>{SEVERITY_LABELS[complaint.severity]}</span>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${statusBadge(complaint.status)}`}>{COMPLAINT_STATUS_LABELS[complaint.status]}</span>
             </div>
             <p className="text-sm font-semibold text-gray-100 mt-1">{complaint.clientName} — {complaint.category}</p>
           </div>
         </div>
 
         {/* SLA Countdown */}
-        <div className={`flex items-center gap-3 px-3 py-2 rounded-lg ${overdue ? 'bg-red-900/30 border border-red-800' : daysLeft <= 2 ? 'bg-red-900/20 border border-red-800/50' : 'bg-gray-800 border border-gray-700'}`}>
+        <div className={`flex items-center gap-3 px-3 py-2 rounded-lg ${
+          overdue
+            ? 'bg-red-900/30 border border-red-800'
+            : daysLeft !== null && daysLeft <= 2
+              ? 'bg-red-900/20 border border-red-800/50'
+              : 'bg-gray-800 border border-gray-700'
+        }`}>
           <div className="flex-1">
             <p className="text-[10px] text-gray-400 uppercase font-medium">SLA Response Due</p>
-            <p className="text-sm font-semibold text-gray-200 tabular-nums">{formatDate(dueDate)}</p>
+            <p className="text-sm font-semibold text-gray-200 tabular-nums">
+              {dueDate === null ? '—' : formatDate(dueDate)}
+            </p>
           </div>
           <div className="text-right">
-            <p className={`text-xl font-black tabular-nums ${overdue || daysLeft <= 2 ? 'text-red-400' : 'text-emerald-400'}`}>
-              {overdue ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
+            <p className={`text-xl font-black tabular-nums ${
+              overdue || (daysLeft !== null && daysLeft <= 2) ? 'text-red-400' : 'text-emerald-400'
+            }`}>
+              {/* No filing date, so no countdown to state. */}
+              {daysLeft === null
+                ? 'No filing date'
+                : overdue
+                  ? `${Math.abs(daysLeft)}d overdue`
+                  : `${daysLeft}d left`}
             </p>
           </div>
         </div>
@@ -587,16 +718,28 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
         {/* Evidence Files */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-500 font-medium">Evidence Files ({complaint.evidence.length})</p>
-            <button onClick={handleAttachEvidence} className="text-[10px] px-2 py-1 rounded bg-[#C9A84C]/20 text-[#C9A84C] font-medium hover:bg-[#C9A84C]/30 transition-colors">
+            <p className="text-xs text-gray-500 font-medium">
+              Evidence Files ({complaint.evidenceDocIds.length})
+            </p>
+            {/* This used to mint a filename — evidence_lx8f2k.pdf — and add it
+                to the list. Attaching for real needs a document to attach,
+                which this panel has no way to choose yet. */}
+            <button
+              type="button"
+              disabled
+              title="Attaching evidence needs a document picker, which is not built yet"
+              className="text-[10px] px-2 py-1 rounded bg-gray-800 text-gray-600 cursor-not-allowed"
+            >
               + Attach Evidence
             </button>
           </div>
           <div className="space-y-1.5">
-            {complaint.evidence.map((file) => (
-              <div key={file} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors cursor-pointer">
-                <span className="text-xs font-mono text-gray-300">{file}</span>
-                <button className="text-xs text-[#C9A84C] hover:underline">Download</button>
+            {complaint.evidenceDocIds.length === 0 && (
+              <p className="text-[11px] text-gray-600 px-1">No evidence attached.</p>
+            )}
+            {complaint.evidenceDocIds.map((docId) => (
+              <div key={docId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800">
+                <span className="text-xs font-mono text-gray-300">{docId}</span>
               </div>
             ))}
           </div>
@@ -606,7 +749,7 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
         <div className="space-y-1">
           <p className="text-xs text-gray-500 font-medium">Root Cause</p>
           <select aria-label="Root cause"
-            value={complaint.rootCause}
+            value={complaint.rootCause ?? ''}
             onChange={(e) => handleRootCauseChange(e.target.value)}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-amber-300 text-sm focus:outline-none focus:border-[#C9A84C]"
           >
@@ -622,12 +765,12 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
 
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-2 pt-1">
-          {complaint.status === 'Open' && (
+          {complaint.status === 'open' && (
             <button onClick={handleStartInvestigation} className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors">
               Start Investigation
             </button>
           )}
-          {complaint.status === 'In Review' && (
+          {complaint.status === 'investigating' && (
             <>
               <button onClick={handleEscalate} className="px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-600 text-white text-xs font-semibold transition-colors">
                 Escalate
@@ -636,11 +779,6 @@ function EvidencePanel({ complaint, onUpdateComplaint, onShowToast }: EvidencePa
                 Mark Resolved
               </button>
             </>
-          )}
-          {(complaint.status === 'Escalated') && (
-            <button onClick={handleResolve} className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors">
-              Mark Resolved
-            </button>
           )}
           <button onClick={() => setShowResponseGen(true)} className="px-3 py-1.5 rounded-lg border border-[#C9A84C]/50 text-[#C9A84C] text-xs font-semibold hover:bg-[#C9A84C]/10 transition-colors">
             Generate Response
@@ -1034,7 +1172,10 @@ function RegulatoryInquiries({
 }
 
 export default function ComplaintsPage() {
-  const [complaints, setComplaints] = useState<Complaint[]>(INITIAL_COMPLAINTS);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [analytics, setAnalytics] = useState<ComplaintAnalyticsView | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [showLogModal, setShowLogModal] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -1048,18 +1189,102 @@ export default function ComplaintsPage() {
     return complaints.filter((c) => c.clientName === selectedClient);
   }, [complaints, selectedClient]);
 
-  const open       = clientFiltered.filter((c) => c.status === 'Open' || c.status === 'Escalated').length;
-  const critical   = clientFiltered.filter((c) => c.severity === 'Critical').length;
+  // Counted from the rows on screen, so the figures agree with the table
+  // beneath them. Null while loading rather than 0, which would be a claim.
+  const open =
+    loadState === 'ready'
+      ? clientFiltered.filter((c) => c.status === 'open' || c.status === 'investigating').length
+      : null;
+  const critical =
+    loadState === 'ready' ? clientFiltered.filter((c) => c.severity === 'critical').length : null;
+  // Resolved in the trailing 30 days, from resolvedAt. This was a hard-coded
+  // 12 that never moved.
+  const resolved30d =
+    loadState === 'ready' ? resolvedWithin(clientFiltered, 30, TODAY) : null;
   // Reported by the inquiries panel once it has loaded, rather than counted
   // from a constant. Null until then: "0 open matters" is a claim, and it was
   // previously a fixed 3 regardless of what the tenant actually had.
   const [regulatory, setRegulatory] = useState<number | null>(null);
 
+  const load = useCallback(async () => {
+    setLoadState('loading');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+    const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+    try {
+      const [listRes, analyticsRes] = await Promise.all([
+        fetch('/api/complaints?pageSize=100', { headers: auth }),
+        fetch('/api/complaints/analytics', { headers: auth }),
+      ]);
+
+      const listJson = (await listRes.json()) as { success?: boolean; data?: unknown };
+      if (!listRes.ok || listJson.success !== true) {
+        setLoadState('error');
+        return;
+      }
+      setComplaints(toComplaintViews(listJson.data));
+
+      // Analytics failing on its own leaves the register usable rather than
+      // taking the whole page down with it.
+      if (analyticsRes.ok) {
+        const aJson = (await analyticsRes.json()) as { success?: boolean; data?: unknown };
+        setAnalytics(aJson.success === true ? toAnalyticsView(aJson.data) : null);
+      } else {
+        setAnalytics(null);
+      }
+
+      setLoadState('ready');
+    } catch {
+      setLoadState('error');
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Real businesses for the log form, so a complaint attaches to one that
+  // exists rather than to a name typed into a list.
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+    fetch('/api/v1/clients', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => r.json())
+      .then((j: { success?: boolean; data?: unknown }) => {
+        if (j.success !== true || !Array.isArray(j.data)) return;
+        setClients(
+          j.data
+            .map((row) => row as Record<string, unknown>)
+            .filter((row) => typeof row['id'] === 'string')
+            .map((row) => ({
+              id: row['id'] as string,
+              name:
+                (typeof row['businessName'] === 'string' && row['businessName']) ||
+                (typeof row['legalName'] === 'string' && row['legalName']) ||
+                'Unnamed business',
+            })),
+        );
+      })
+      .catch(() => undefined);
+  }, []);
+
   const handleExportCSV = () => {
     const headers = ['ID', 'Client', 'Category', 'Severity', 'Status', 'Submitted', 'SLA Due', 'Description', 'Root Cause', 'Assignee'];
     const rows = clientFiltered.map((c) => {
-      const due = formatDate(getSLADueDate(c.submittedAt, c.severity));
-      return [c.id, c.clientName, c.category, c.severity, c.status, c.submittedAt, due, `"${c.description.replace(/"/g, '""')}"`, `"${c.rootCause.replace(/"/g, '""')}"`, c.assignee];
+      const due = slaDueDate(c);
+      // Blank where the record carries nothing, rather than "undefined" or an
+      // invented date landing in an exported compliance report.
+      return [
+        c.id,
+        c.clientName ?? '',
+        CATEGORY_LABELS[c.category],
+        SEVERITY_LABELS[c.severity],
+        COMPLAINT_STATUS_LABELS[c.status],
+        c.createdAt ? formatDate(new Date(c.createdAt)) : '',
+        due ? formatDate(due) : '',
+        `"${c.description.replace(/"/g, '""')}"`,
+        `"${(c.rootCause ?? '').replace(/"/g, '""')}"`,
+        c.assignedTo ?? '',
+      ];
     });
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     downloadBlob(csv, `complaints_export_${formatDate(TODAY)}.csv`, 'text/csv');
@@ -1067,13 +1292,55 @@ export default function ComplaintsPage() {
   };
 
   const handleLogComplaint = (c: Complaint) => {
+    // Already persisted by the modal; reloading keeps the analytics and the
+    // register in step rather than diverging from the server.
     setComplaints((prev) => [c, ...prev]);
-    setToastMsg(`Complaint ${c.id} logged`);
+    setToastMsg('Complaint logged');
+    void load();
   };
 
-  const handleUpdateComplaint = (updated: Complaint) => {
-    setComplaints((prev) => prev.map((c) => c.id === updated.id ? updated : c));
+  const handleUpdateComplaint = async (updated: Complaint) => {
+    const previous = complaints.find((c) => c.id === updated.id) ?? null;
+
+    // Optimistic, then reconciled: the panel stays responsive, but a rejected
+    // write is rolled back rather than left on screen looking saved.
+    setComplaints((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     setSelectedComplaint(updated);
+
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const res = await fetch(`/api/complaints/${updated.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          status: updated.status,
+          severity: updated.severity,
+          ...(updated.rootCause ? { rootCause: updated.rootCause } : {}),
+          ...(updated.resolution ? { resolution: updated.resolution } : {}),
+          ...(updated.assignedTo ? { assignedTo: updated.assignedTo } : {}),
+        }),
+      });
+
+      if (!res.ok) {
+        if (previous) {
+          setComplaints((prev) => prev.map((c) => (c.id === previous.id ? previous : c)));
+          setSelectedComplaint(previous);
+        }
+        setToastMsg('That change was not saved.');
+        return;
+      }
+
+      void load();
+    } catch {
+      if (previous) {
+        setComplaints((prev) => prev.map((c) => (c.id === previous.id ? previous : c)));
+        setSelectedComplaint(previous);
+      }
+      setToastMsg('Could not reach the server; the change was not saved.');
+    }
   };
 
   const handleRootCauseClick = (analyticsCategory: string) => {
@@ -1084,7 +1351,9 @@ export default function ComplaintsPage() {
   };
 
   const allClients = useMemo(() => {
-    const names = new Set(complaints.map((c) => c.clientName));
+    const names = new Set(
+      complaints.map((c) => c.clientName).filter((n): n is string => n !== null),
+    );
     return ['All Clients', ...Array.from(names).sort()];
   }, [complaints]);
 
@@ -1127,7 +1396,7 @@ export default function ComplaintsPage() {
           { label: 'Open / Escalated',       value: open,       color: 'text-red-400'     },
           { label: 'Critical Severity',       value: critical,   color: 'text-orange-400'  },
           { label: 'Active Reg. Inquiries',   value: regulatory, color: 'text-yellow-400'  },
-          { label: 'Resolved (30d)',          value: 12,         color: 'text-emerald-400' },
+          { label: 'Resolved (30d)',          value: resolved30d, color: 'text-emerald-400' },
         ].map((c) => (
           <div key={c.label} className="rounded-xl border border-gray-800 bg-gray-900 p-4 space-y-1">
             <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">{c.label}</p>
@@ -1144,13 +1413,33 @@ export default function ComplaintsPage() {
       {/* ── Root Cause Analytics ────────────────────────────────── */}
       <section aria-label="Root Cause Analytics">
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Root Cause Analytics (YTD) — click to filter</h2>
-        <RootCauseAnalytics onCategoryClick={handleRootCauseClick} />
+        <RootCauseAnalytics slices={analytics?.topRootCauses ?? []} onCategoryClick={handleRootCauseClick} />
       </section>
 
       {/* ── Complaints table + Evidence panel ──────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <section className="xl:col-span-2" aria-label="Complaints Table">
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">All Complaints</h2>
+
+          {loadState === 'loading' && (
+            <p className="text-xs text-gray-500 py-10 text-center">Loading complaints...</p>
+          )}
+
+          {/* A failed load must not look like a clean register. */}
+          {loadState === 'error' && (
+            <div className="rounded-xl border border-red-900 bg-red-950/30 px-4 py-6 text-center">
+              <p className="text-xs text-red-300">Could not load complaints.</p>
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="mt-2 px-3 py-1.5 rounded-lg border border-red-800 text-xs text-red-200 hover:bg-red-900/40"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {loadState === 'ready' && (
           <ComplaintsTable
             complaints={clientFiltered}
             onSelect={setSelectedComplaint}
@@ -1162,6 +1451,7 @@ export default function ComplaintsPage() {
             rootCauseFilter={rootCauseFilter}
             clearRootCauseFilter={() => setRootCauseFilter(null)}
           />
+          )}
         </section>
 
         <section aria-label="Evidence Panel">
@@ -1180,7 +1470,12 @@ export default function ComplaintsPage() {
       </section>
 
       {/* ── Log Complaint Modal ─────────────────────────────────── */}
-      <LogComplaintModal open={showLogModal} onClose={() => setShowLogModal(false)} onSubmit={handleLogComplaint} />
+      <LogComplaintModal
+        open={showLogModal}
+        onClose={() => setShowLogModal(false)}
+        onSubmit={handleLogComplaint}
+        clients={clients}
+      />
 
       {/* ── Toast ───────────────────────────────────────────────── */}
       {toastMsg && <Toast message={toastMsg} onClose={() => setToastMsg(null)} />}

@@ -133,8 +133,11 @@ export interface ComplaintRecord {
   updatedAt: Date;
 }
 
+/** A listed complaint carries the client's name; the single-record read does not. */
+export type ComplaintListItem = ComplaintRecord & { businessName: string | null };
+
 export interface ComplaintListResult {
-  complaints: ComplaintRecord[];
+  complaints: ComplaintListItem[];
   total: number;
   page: number;
   pageSize: number;
@@ -280,9 +283,27 @@ export class ComplaintService {
       this.prisma.complaint.count({ where }),
     ]);
 
+    // The complaints table shows and filters by client, but Complaint has no
+    // relation to Business — only a nullable businessId — so the names are
+    // resolved in one extra query rather than by adding a relation and a
+    // migration. A complaint whose business has since been deleted keeps a
+    // null name rather than borrowing another client's.
+    const businessIds = [...new Set(rows.map((r) => r.businessId).filter((id): id is string => !!id))];
+    const names = new Map<string, string>();
+    if (businessIds.length > 0) {
+      const businesses = await this.prisma.business.findMany({
+        where: { id: { in: businessIds }, tenantId: filters.tenantId },
+        select: { id: true, legalName: true },
+      });
+      for (const b of businesses) names.set(b.id, b.legalName);
+    }
+
     return {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      complaints: rows.map((r: any) => this._toRecord(r)),
+      complaints: rows.map((r) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...this._toRecord(r as any),
+        businessName: r.businessId ? (names.get(r.businessId) ?? null) : null,
+      })),
       total,
       page,
       pageSize,

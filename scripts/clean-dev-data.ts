@@ -102,6 +102,23 @@ async function main(): Promise<void> {
 
   console.log(`\nledger events total      : ${allEvents.length}`);
 
+  // ── Complaints left by the browser suite ────────────────
+  //
+  // The complaints spec writes real rows tagged "E2E" in the description.
+  // Most have no businessId, so the non-seeded-business sweep never reaches
+  // them, and they inflate the register's own KPI counts.
+  const e2eComplaints = await prisma.complaint.findMany({
+    where: { description: { startsWith: 'E2E' } },
+    select: { id: true, description: true },
+  });
+
+  if (e2eComplaints.length > 0) {
+    console.log(`
+e2e complaints             : ${e2eComplaints.length}`);
+    for (const c of e2eComplaints.slice(0, 5)) console.log(`   drop  ${c.description.slice(0, 60)}`);
+    if (e2eComplaints.length > 5) console.log(`   ...and ${e2eComplaints.length - 5} more`);
+  }
+
   // ── Regulator inquiries left by the browser suite ───────
   //
   // The log-inquiry spec writes a real inquiry every run, tagged with an
@@ -194,6 +211,12 @@ e2e regulator inquiries    : ${e2eInquiries.length}`);
     })).count);
 
     note('businesses', (await prisma.business.deleteMany({ where: { id: { in: ids } } })).count);
+  }
+
+  if (e2eComplaints.length > 0) {
+    note('e2eComplaints', (await prisma.complaint.deleteMany({
+      where: { id: { in: e2eComplaints.map((c) => c.id) } },
+    })).count);
   }
 
   if (e2eInquiries.length > 0) {

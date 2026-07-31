@@ -768,6 +768,85 @@ const SEED_PHONES = {
   });
   console.log('  ✓ Ledger events created');
 
+  // ── Complaints ────────────────────────────────────────────
+  //
+  // The complaints register reads /api/complaints, which starts empty. A few
+  // rows make the page, its SLA countdown and its root-cause analytics
+  // exercisable in development; without them every figure is legitimately
+  // zero and nothing on the screen can be checked.
+  const complaints: Array<{
+    id: string;
+    businessId: string;
+    category: string;
+    source: string;
+    severity: string;
+    status: string;
+    description: string;
+    rootCause?: string;
+    resolution?: string;
+    assignedTo?: string;
+    resolvedAt?: string;
+  }> = [
+    {
+      id: 'seed-cmp-001',
+      businessId: biz1.id,
+      category: 'billing',
+      source: 'portal',
+      severity: 'high',
+      status: 'open',
+      description:
+        'Client disputes a $95 annual fee charged after the card was reported closed.',
+      assignedTo: 'Marcus Whitfield',
+    },
+    {
+      id: 'seed-cmp-002',
+      businessId: biz2.id,
+      category: 'compliance',
+      source: 'email',
+      severity: 'critical',
+      status: 'investigating',
+      description:
+        'Client states the APR expiry disclosure was not presented before signing.',
+      rootCause: 'Fee disclosure gap',
+      assignedTo: 'Marcus Whitfield',
+    },
+    {
+      id: 'seed-cmp-003',
+      businessId: biz3.id,
+      category: 'service',
+      source: 'phone',
+      severity: 'medium',
+      status: 'resolved',
+      description: 'Repeated hold times when calling the advisor line.',
+      rootCause: 'Advisor process',
+      resolution: 'Callback scheduling introduced; client confirmed resolved.',
+      assignedTo: 'Marcus Whitfield',
+      resolvedAt: '2026-07-20',
+    },
+  ];
+
+  for (const c of complaints) {
+    await prisma.complaint.upsert({
+      where: { id: c.id },
+      update: {},
+      create: {
+        id: c.id,
+        tenantId: tenant.id,
+        businessId: c.businessId,
+        category: c.category,
+        source: c.source,
+        severity: c.severity,
+        status: c.status,
+        description: c.description,
+        ...(c.rootCause ? { rootCause: c.rootCause } : {}),
+        ...(c.resolution ? { resolution: c.resolution } : {}),
+        ...(c.assignedTo ? { assignedTo: c.assignedTo } : {}),
+        ...(c.resolvedAt ? { resolvedAt: d(c.resolvedAt) } : {}),
+      },
+    });
+  }
+  console.log(`  ✓ Complaints: ${complaints.length}`);
+
   // ── Repayment Plan + Schedule ─────────────────────────────
   //
   // Without this, every client returns hasPlan:false and the repayment page
