@@ -1415,26 +1415,27 @@ A client with no personal pull on record returns `scores: []` and `total: 0`.
 
 Score movement over time, one scale at a time.
 
-**Always pass `profileType`.** Personal FICO runs 300–850 and business PAYDEX
-runs 0–100. Omitting the parameter does not default to either — it returns both
-scales in one series:
-
-```json
-{ "months": [ { "month": "2026-03", "dnb": 80, "experian": 762 } ],
-  "bureaus": ["dnb", "experian"], "pullCount": 2, "changeSinceFirstPull": null }
-```
-
-A caller that reads `months` per bureau key is fine; one that plots the values
-on a single axis is charting 80 against 762 as though they were comparable.
-`changeSinceFirstPull` is `null` in this case rather than a nonsense delta.
-
-An unrecognised value is a `400 INVALID_PROFILE_TYPE`.
+**`profileType` is required.** Personal FICO runs 300–850 and business PAYDEX
+runs 0–100, so the two are never returned in one series — a response carrying
+both would put 80 next to 762 under the same `month`, and a caller plotting it
+on one axis would show a 682-point collapse that never happened.
 
 | Field | Value |
 |-------|-------|
 | Method | `GET` |
 | Path | `/api/v1/clients/:clientId/credit/history?profileType=personal\|business` |
 | Auth Required | Yes |
+| `profileType` | Required. `personal` or `business`. |
+
+**Response 400** — `PROFILE_TYPE_REQUIRED` when the parameter is absent,
+`INVALID_PROFILE_TYPE` when it is not one of the two values. Neither reaches
+the database.
+
+The parameter is required rather than defaulted on purpose. It was previously
+optional, and omitting it returned both scales together; defaulting to one of
+them would have replaced a visibly odd chart with a confidently wrong one, and
+a caller that has not said which scale it wants cannot read either answer
+correctly.
 
 **Response 200**
 ```json

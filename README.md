@@ -500,7 +500,7 @@ records. Those worth knowing about because they are new rather than changed:
 
 ```
 GET    /api/v1/clients/:id/credit/personal              — personal bureau scores
-GET    /api/v1/clients/:id/credit/history?profileType=  — score movement, one scale at a time
+GET    /api/v1/clients/:id/credit/history?profileType=  — score movement (profileType required)
 POST   /api/v1/clients/:id/compliance/run               — runs a compliance check and persists it
 POST   /api/v1/clients/:id/consent/request              — sends a re-consent email
 

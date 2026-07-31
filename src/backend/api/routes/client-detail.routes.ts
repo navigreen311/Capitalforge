@@ -311,14 +311,34 @@ clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _n
     // Personal and business scores run on different scales — FICO 300-850,
     // PAYDEX 0-100 — so charting them on one axis is meaningless. The caller
     // asks for the set it is plotting.
+    //
+    // Required, not defaulted. Omitting it used to return both scales in one
+    // series — PAYDEX 80 sitting next to FICO 762 under the same `month` — and
+    // a caller plotting `months` on one axis got a chart that looked like a
+    // 682-point collapse. Defaulting to one type would have hidden the same
+    // mistake behind a plausible answer; a caller that has not said which
+    // scale it wants is a caller that cannot read the response correctly.
     const profileType = typeof req.query['profileType'] === 'string' ? req.query['profileType'] : null;
-    if (profileType && profileType !== 'personal' && profileType !== 'business') {
+
+    if (profileType === null) {
+      err(
+        res,
+        400,
+        'PROFILE_TYPE_REQUIRED',
+        'profileType is required and must be "personal" or "business". '
+          + 'Personal (FICO 300-850) and business (PAYDEX 0-100) scores are not comparable, '
+          + 'so they are never returned in one series.',
+      );
+      return;
+    }
+
+    if (profileType !== 'personal' && profileType !== 'business') {
       err(res, 400, 'INVALID_PROFILE_TYPE', 'profileType must be "personal" or "business".');
       return;
     }
 
     const profiles = await prisma.creditProfile.findMany({
-      where: { businessId: clientId, ...(profileType ? { profileType } : {}) },
+      where: { businessId: clientId, profileType },
       orderBy: { pulledAt: 'asc' },
     });
 
