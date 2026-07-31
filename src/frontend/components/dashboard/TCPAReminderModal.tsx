@@ -108,26 +108,58 @@ export function TCPAReminderModal({ onClose, onSent }: TCPAReminderModalProps) {
         }),
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
 
-      if (json.success) {
-        const { sent_count, skipped_count } = json.data;
-        const skippedNote = ineligible.length > 0
-          ? ` (${ineligible.length} skipped \u2014 TCPA consent required)`
-          : '';
-        onSent(`Reminders sent to ${sent_count} client${sent_count !== 1 ? 's' : ''}${skippedNote}`);
-        onClose();
-      } else {
-        throw new Error(json.error?.message ?? 'Campaign failed');
+      if (!res.ok || !json.success) {
+        // The API refuses rather than pretending: 503 when no SMS provider is
+        // configured, 501 when credentials exist but no dispatch client is
+        // wired. Both carry a message that says what is missing, and showing
+        // it beats "HTTP 503" — which reads as a fault rather than a setup
+        // step someone has to take.
+        setError(json?.error?.message ?? `Reminders were not sent (HTTP ${res.status}).`);
+        return;
       }
+
+      const { sent_count, blocked_count, failed_count, results } = json.data as {
+        sent_count: number;
+        blocked_count: number;
+        failed_count: number;
+        results?: { blocked_reason: string | null }[];
+      };
+
+      // Recipients can be withheld for reasons the eligibility list cannot
+      // know in advance — an opt-out recorded since, no phone number, or the
+      // local contact window having closed. Naming them beats a bare count.
+      const reasons = new Map<string, number>();
+      for (const r of results ?? []) {
+        if (r.blocked_reason) reasons.set(r.blocked_reason, (reasons.get(r.blocked_reason) ?? 0) + 1);
+      }
+      const REASON_LABELS: Record<string, string> = {
+        dnc: 'on the do-not-call list',
+        no_consent: 'no TCPA consent',
+        no_phone: 'no phone number',
+        quiet_hours: 'outside their local contact window',
+        unknown_timezone: 'no timezone on record',
+      };
+      const blockedNote = reasons.size > 0
+        ? ` — withheld: ${[...reasons.entries()]
+            .map(([reason, n]) => `${n} ${REASON_LABELS[reason] ?? reason}`)
+            .join(', ')}`
+        : '';
+      const failedNote = failed_count > 0 ? `, ${failed_count} failed to send` : '';
+
+      onSent(
+        `Reminders sent to ${sent_count} client${sent_count !== 1 ? 's' : ''}` +
+        `${blocked_count > 0 ? blockedNote : ''}${failedNote}`,
+      );
+      onClose();
     } catch (err) {
       console.error('[TCPAReminderModal] send failed:', err);
-      setError('Failed to send reminders. Please try again.');
+      setError('Could not reach the server. No reminders were sent.');
     } finally {
       setSending(false);
     }
-  }, [eligible, ineligible, onClose, onSent]);
+  }, [eligible, onClose, onSent]);
 
   // ── Render ─────────────────────────────────────────────────────
 

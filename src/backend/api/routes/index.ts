@@ -139,6 +139,9 @@ apiRouter.use('/', fundingRoundRouter);
 // -- Funding Round Detail (per-round sub-routes) --
 import { fundingRoundDetailRouter } from './funding-round-detail.routes.js';
 apiRouter.use('/funding-rounds/:roundId', fundingRoundDetailRouter);
+// Versioned alias, matching /v1/clients. The frontend calls the /v1 form, and
+// without this it 404s.
+apiRouter.use('/v1/funding-rounds/:roundId', fundingRoundDetailRouter);
 
 // -- Funding Round Actions (export-dossier, status update) --
 import { fundingRoundActionsRouter } from './funding-round-actions.routes.js';

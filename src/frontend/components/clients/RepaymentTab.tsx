@@ -5,7 +5,9 @@
 // APR expiry schedule, and payoff waterfall recommendation.
 // ============================================================
 
+import { useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { toRepaymentView, formatAmountOrDash } from '@/lib/repayment-view';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard, StatCard } from '@/components/ui/card';
 
@@ -163,9 +165,11 @@ function TypeBadge({ type }: { type: PaymentEntry['type'] }) {
 // ---------------------------------------------------------------------------
 
 export function RepaymentTab({ clientId }: RepaymentTabProps) {
-  const { data, isLoading, error, refetch } = useAuthFetch<RepaymentData>(
+  const { data, isLoading, error, refetch } = useAuthFetch<unknown>(
     `/api/v1/clients/${clientId}/repayment`,
   );
+
+  const view = useMemo(() => toRepaymentView(data), [data]);
 
   if (isLoading) return <RepaymentSkeleton />;
 
@@ -173,9 +177,22 @@ export function RepaymentTab({ clientId }: RepaymentTabProps) {
     return <DashboardErrorState error={error} onRetry={refetch} />;
   }
 
-  if (!data) return null;
+  const { payments, aprExpiry, payoffWaterfall, nextPayment } = view;
 
-  const { summary, payments, aprExpiry, interestShockMonthly, payoffWaterfall } = data;
+  // No plan on record is a real state, and a different one from a plan with
+  // nothing due. It used to render as a set of zeroes.
+  if (!view.hasPlan && payments.length === 0 && aprExpiry.length === 0) {
+    return (
+      <SectionCard title="Repayment">
+        <div className="rounded-lg border border-dashed border-surface-border bg-gray-50 p-6 text-center">
+          <p className="text-sm font-medium text-gray-700">No repayment plan on record</p>
+          <p className="mt-1 text-xs text-gray-500">
+            Nothing is scheduled for this client, and no approved card carries an intro APR.
+          </p>
+        </div>
+      </SectionCard>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -183,34 +200,34 @@ export function RepaymentTab({ clientId }: RepaymentTabProps) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Next Payment Due"
-          value={formatCurrency(summary.nextPaymentAmount)}
-          subtitle={`${formatDate(summary.nextPaymentDate)} - ${summary.nextPaymentCard}`}
+          value={nextPayment ? formatCurrency(nextPayment.amount) : '—'}
+          subtitle={nextPayment ? `${formatDate(nextPayment.date)} - ${nextPayment.issuer}` : 'Nothing scheduled'}
           icon="$"
           iconBg="bg-blue-50"
           iconColor="text-blue-600"
         />
         <StatCard
           title="Total Monthly Obligations"
-          value={formatCurrency(summary.totalMonthlyObligations)}
+          value={formatAmountOrDash(view.totalMonthlyObligations)}
           icon="$"
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
         />
         <StatCard
           title="On Autopay"
-          value={`${summary.autopayPercent}%`}
+          value={view.autopayPercent === null ? '—' : `${view.autopayPercent}%`}
           icon="AP"
           iconBg="bg-purple-50"
           iconColor="text-purple-600"
         />
         <StatCard
           title="Cards at Risk"
-          value={String(summary.cardsAtRisk)}
+          value={String(view.cardsAtRisk)}
           subtitle="Utilization > 80%"
           icon="!!"
-          iconBg={summary.cardsAtRisk > 0 ? 'bg-red-50' : 'bg-emerald-50'}
-          iconColor={summary.cardsAtRisk > 0 ? 'text-red-600' : 'text-emerald-600'}
-          trendDirection={summary.cardsAtRisk > 0 ? 'down' : 'flat'}
+          iconBg={view.cardsAtRisk > 0 ? 'bg-red-50' : 'bg-emerald-50'}
+          iconColor={view.cardsAtRisk > 0 ? 'text-red-600' : 'text-emerald-600'}
+          trendDirection={view.cardsAtRisk > 0 ? 'down' : 'flat'}
         />
       </div>
 
@@ -225,25 +242,25 @@ export function RepaymentTab({ clientId }: RepaymentTabProps) {
             <thead>
               <tr className="border-b border-surface-border bg-gray-50/50">
                 <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Date</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Card</th>
                 <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Issuer</th>
                 <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Amount</th>
-                <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Type</th>
+                <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Autopay</th>
                 <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {payments.map((payment, idx) => (
                 <tr
-                  key={`${payment.date}-${payment.card}-${idx}`}
+                  key={payment.id}
                   className={payment.status === 'overdue' ? 'bg-red-50' : 'hover:bg-gray-50'}
                 >
                   <td className="px-6 py-3 text-gray-700 whitespace-nowrap">{formatDate(payment.date)}</td>
-                  <td className="px-4 py-3 text-gray-900 font-medium">{payment.card}</td>
-                  <td className="px-4 py-3 text-gray-500">{payment.issuer}</td>
+                  <td className="px-4 py-3 text-gray-900 font-medium">{payment.issuer}</td>
                   <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{formatCurrency(payment.amount)}</td>
-                  <td className="px-4 py-3 text-center"><TypeBadge type={payment.type} /></td>
-                  <td className="px-6 py-3 text-center"><StatusBadge status={payment.status} /></td>
+                  <td className="px-4 py-3 text-center">
+                    <TypeBadge type={payment.autopayEnabled ? 'autopay' : 'manual'} />
+                  </td>
+                  <td className="px-6 py-3 text-center"><StatusBadge status={payment.status as never} /></td>
                 </tr>
               ))}
             </tbody>
@@ -270,28 +287,36 @@ export function RepaymentTab({ clientId }: RepaymentTabProps) {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {aprExpiry.map((entry) => (
-                <tr key={entry.cardName} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 text-gray-900 font-medium">{entry.cardName}</td>
-                  <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{formatCurrency(entry.limit)}</td>
-                  <td className="px-4 py-3 text-gray-700">{formatDate(entry.expiryDate)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums ${getDaysLeftColor(entry.daysLeft)}`}>
-                    {entry.daysLeft} days
+                <tr key={entry.applicationId} className="hover:bg-gray-50">
+                  <td className="px-6 py-3 text-gray-900 font-medium">
+                    {entry.cardProduct}
+                    <span className="block text-xs text-gray-500">{entry.issuer}</span>
                   </td>
-                  <td className="px-6 py-3 text-right text-gray-700 tabular-nums">{entry.regularApr.toFixed(1)}%</td>
+                  <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{formatAmountOrDash(entry.creditLimit)}</td>
+                  <td className="px-4 py-3 text-gray-700">{formatDate(entry.expiryDate)}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums ${getDaysLeftColor(entry.daysRemaining)}`}>
+                    {entry.daysRemaining} days
+                  </td>
+                  <td className="px-6 py-3 text-right text-gray-700 tabular-nums">
+                    {entry.postExpiryApr === null ? '—' : `${entry.postExpiryApr.toFixed(1)}%`}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        {/* Interest shock forecast */}
-        {interestShockMonthly > 0 && (
+        {/* An interest forecast needs carried balances, which no issuer
+            integration supplies. The figure shown here was invented, so the
+            exposure is expressed in terms of what is actually known: the
+            limits whose intro rate is about to lapse. */}
+        {aprExpiry.some((e) => e.severity !== 'ok') && (
           <div className="mx-6 my-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200">
             <p className="text-sm text-amber-800">
-              <span className="font-semibold">Interest Shock Forecast:</span>{' '}
-              If balances carry past promo: estimated{' '}
-              <span className="font-bold">{formatCurrency(interestShockMonthly)}/month</span>{' '}
-              in interest.
+              <span className="font-semibold">Intro APR lapsing soon.</span>{' '}
+              {aprExpiry.filter((e) => e.severity !== 'ok').length} card(s) leave their
+              introductory rate within 60 days. Interest exposure cannot be forecast —
+              carried balances are not available from the issuer.
             </p>
           </div>
         )}
@@ -309,29 +334,24 @@ export function RepaymentTab({ clientId }: RepaymentTabProps) {
               <tr className="border-b border-surface-border bg-gray-50/50">
                 <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 w-16">#</th>
                 <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Card</th>
-                <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Balance</th>
-                <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">APR</th>
-                <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Monthly Min</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Recommendation</th>
+                <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Credit Limit</th>
+                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Why this order</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {payoffWaterfall.map((entry) => (
-                <tr key={entry.priority} className="hover:bg-gray-50">
+                <tr key={entry.applicationId} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-center">
                     <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand-navy/10 text-brand-navy text-xs font-bold">
                       {entry.priority}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-900 font-medium">{entry.card}</td>
-                  <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{formatCurrency(entry.balance)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    <span className={entry.apr >= 20 ? 'text-red-600 font-semibold' : 'text-gray-700'}>
-                      {entry.apr.toFixed(1)}%
-                    </span>
+                  <td className="px-4 py-3 text-gray-900 font-medium">
+                    {entry.cardProduct}
+                    <span className="block text-xs text-gray-500">{entry.issuer}</span>
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{formatCurrency(entry.monthlyMinimum)}</td>
-                  <td className="px-6 py-3 text-gray-600 text-xs">{entry.payoffRecommendation}</td>
+                  <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{formatAmountOrDash(entry.creditLimit)}</td>
+                  <td className="px-6 py-3 text-gray-600 text-xs">{entry.reason}</td>
                 </tr>
               ))}
             </tbody>

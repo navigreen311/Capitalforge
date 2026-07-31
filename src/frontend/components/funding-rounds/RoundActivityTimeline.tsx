@@ -116,9 +116,43 @@ function TimelineSkeleton() {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function RoundActivityTimeline({ roundId }: RoundActivityTimelineProps) {
-  const { data, isLoading, error, refetch } = useAuthFetch<TimelineData>(
+  const { data, isLoading, error, refetch } = useAuthFetch<unknown>(
     `/api/v1/funding-rounds/${roundId}/timeline`,
   );
+
+  // The endpoint returns a bare array of ledger events. Reading `.events` off
+  // it yields undefined, so the list rendered empty regardless of history.
+  const apiEvents = useMemo(() => {
+    const rows = Array.isArray(data)
+      ? data
+      : Array.isArray((data as { events?: unknown[] } | null)?.events)
+        ? ((data as { events: unknown[] }).events)
+        : [];
+
+    return rows
+      .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+      .map((e) => {
+        const detail = (e['detail'] ?? {}) as Record<string, unknown>;
+        return {
+          id: String(e['id'] ?? ''),
+          event_type: String(e['type'] ?? e['eventType'] ?? 'unknown'),
+          title: String(e['type'] ?? 'Event')
+            .split(/[._]/)
+            .filter(Boolean)
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' '),
+          detail:
+            typeof detail['businessName'] === 'string'
+              ? String(detail['businessName'])
+              : typeof detail['status'] === 'string'
+                ? `Status: ${detail['status']}`
+                : '',
+          actor: String(e['actor'] ?? 'System'),
+          timestamp: String(e['timestamp'] ?? ''),
+        };
+      })
+      .filter((e) => e.id !== '');
+  }, [data]);
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
@@ -143,7 +177,7 @@ export function RoundActivityTimeline({ roundId }: RoundActivityTimelineProps) {
 
   // Merge API events with optimistic ones
   const events = useMemo(() => {
-    const apiEvents = data?.events ?? buildPlaceholderEvents();
+    // An empty round history is a real state; it used to render sample events.
     return [...optimisticEvents, ...apiEvents];
   }, [data, optimisticEvents]);
 

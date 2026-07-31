@@ -21,20 +21,31 @@ interface RoundRepaymentSectionProps {
 }
 
 interface CardRepaymentEntry {
-  card: string;
-  nextDueDate: string;
-  amount: number;
-  type: 'autopay' | 'manual';
-  status: 'confirmed' | 'pending';
+  applicationId: string;
+  issuer: string;
+  cardProduct: string;
+  creditLimit: number | null;
+  introAprExpiry: string | null;
+  daysRemaining: number | null;
+  regularApr: number | null;
+  annualFee: number | null;
+  severity: 'critical' | 'warning' | 'ok' | null;
 }
 
+/**
+ * The exposure when intro rates lapse.
+ *
+ * Expressed against credit limits, not balances: no issuer integration
+ * supplies a carried balance, so a balance-based interest cost cannot be
+ * computed. `basedOnCards` and `cardsMissingApr` are reported so a partial
+ * figure is not read as a complete one.
+ */
 interface AprWindow {
   daysRemaining: number;
-  balance: number;
   deadlineDate: string;
-  monthlyInterestCost: number;
-  annualInterestCost: number;
-  actionRequiredBy: string;
+  annualisedExposure: number;
+  basedOnCards: number;
+  cardsMissingApr: number;
 }
 
 interface RoundRepaymentData {
@@ -45,25 +56,6 @@ interface RoundRepaymentData {
 // ---------------------------------------------------------------------------
 // Placeholder / fallback data
 // ---------------------------------------------------------------------------
-
-const PLACEHOLDER_CARDS: CardRepaymentEntry[] = [
-  {
-    card: 'Ink Business Preferred',
-    nextDueDate: '2026-04-15',
-    amount: 1200,
-    type: 'autopay',
-    status: 'confirmed',
-  },
-];
-
-const PLACEHOLDER_APR_WINDOW: AprWindow = {
-  daysRemaining: 49,
-  balance: 12400,
-  deadlineDate: '2026-05-20',
-  monthlyInterestCost: 309,
-  annualInterestCost: 3709,
-  actionRequiredBy: '2026-05-05',
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,36 +120,6 @@ function RepaymentSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// Badges
-// ---------------------------------------------------------------------------
-
-function TypeBadge({ type }: { type: CardRepaymentEntry['type'] }) {
-  const styles: Record<CardRepaymentEntry['type'], string> = {
-    autopay: 'bg-purple-50 text-purple-700',
-    manual: 'bg-gray-100 text-gray-600',
-  };
-
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${styles[type]}`}>
-      {type === 'autopay' ? 'Autopay' : 'Manual'}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: CardRepaymentEntry['status'] }) {
-  const styles: Record<CardRepaymentEntry['status'], string> = {
-    confirmed: 'bg-emerald-50 text-emerald-700',
-    pending: 'bg-amber-50 text-amber-700',
-  };
-
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${styles[status]}`}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // APR Window Callout
 // ---------------------------------------------------------------------------
 
@@ -174,21 +136,26 @@ function AprWindowCallout({ aprWindow }: { aprWindow: AprWindow }) {
         APR WINDOW: {aprWindow.daysRemaining} days remaining
       </p>
       <p className={`text-sm ${textColor} mb-3`}>
-        If balance of {formatCurrency(aprWindow.balance)} is not paid by{' '}
-        {formatDate(aprWindow.deadlineDate)}:
+        If balances carry past {formatDate(aprWindow.deadlineDate)}:
       </p>
       <ul className={`text-sm ${textColor} space-y-1 list-disc list-inside`}>
         <li>
           Monthly interest cost:{' '}
-          <span className="font-semibold">{formatCurrency(aprWindow.monthlyInterestCost)}/month</span>
+          <span className="font-semibold">{formatCurrency(aprWindow.annualisedExposure)}/year</span>
         </li>
         <li>
           Annual interest cost:{' '}
-          <span className="font-semibold">{formatCurrency(aprWindow.annualInterestCost)}/year</span>
+          <span className="font-semibold">
+            {aprWindow.basedOnCards} card{aprWindow.basedOnCards !== 1 ? 's' : ''}
+          </span>
         </li>
         <li>
           Action required by:{' '}
-          <span className="font-semibold">{formatDate(aprWindow.actionRequiredBy)}</span>
+          <span className="font-semibold">
+            {aprWindow.cardsMissingApr > 0
+              ? `${aprWindow.cardsMissingApr} card(s) have no APR on record`
+              : 'all cards have an APR on record'}
+          </span>
         </li>
       </ul>
     </div>
@@ -200,9 +167,15 @@ function AprWindowCallout({ aprWindow }: { aprWindow: AprWindow }) {
 // ---------------------------------------------------------------------------
 
 export function RoundRepaymentSection({ roundId, clientId }: RoundRepaymentSectionProps) {
-  const { data, isLoading, error, refetch } = useAuthFetch<RoundRepaymentData>(
-    `/api/v1/funding-rounds/${roundId}/repayment`,
-  );
+  const { data, isLoading, error, refetch } = useAuthFetch<{
+    cards?: CardRepaymentEntry[];
+    totals?: {
+      interestShockAnnualised?: number;
+      interestShockBasedOnCards?: number;
+      cardsMissingRegularApr?: number;
+    };
+    nextAprExpiry?: { introAprExpiry?: string | null; daysRemaining?: number | null } | null;
+  }>(`/api/v1/funding-rounds/${roundId}/repayment`);
 
   if (isLoading) {
     return (
@@ -221,8 +194,22 @@ export function RoundRepaymentSection({ roundId, clientId }: RoundRepaymentSecti
   }
 
   // Use fetched data or fall back to placeholders
-  const cards = data?.cards ?? PLACEHOLDER_CARDS;
-  const aprWindow = data?.aprWindow ?? PLACEHOLDER_APR_WINDOW;
+  // No cards on the round is a real answer; this used to substitute a
+  // sample card with a due date and an amount.
+  const cards = data?.cards ?? [];
+
+  const next = data?.nextAprExpiry ?? null;
+  const totals = data?.totals ?? {};
+  const aprWindow: AprWindow | null =
+    next && next.introAprExpiry && typeof next.daysRemaining === 'number'
+      ? {
+          daysRemaining: next.daysRemaining,
+          deadlineDate: next.introAprExpiry,
+          annualisedExposure: totals.interestShockAnnualised ?? 0,
+          basedOnCards: totals.interestShockBasedOnCards ?? 0,
+          cardsMissingApr: totals.cardsMissingRegularApr ?? 0,
+        }
+      : null;
 
   return (
     <SectionCard title="Repayment Schedule" flushBody>
@@ -231,41 +218,45 @@ export function RoundRepaymentSection({ roundId, clientId }: RoundRepaymentSecti
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-surface-border bg-gray-50/50">
-              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">
-                Card
-              </th>
-              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                Next Due
-              </th>
-              <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                Amount
-              </th>
-              <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                Type
-              </th>
-              <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">
-                Status
-              </th>
+              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Card</th>
+              <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Credit Limit</th>
+              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Intro APR Ends</th>
+              <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Days Left</th>
+              <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Regular APR</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {cards.map((entry, idx) => (
-              <tr
-                key={`${entry.card}-${idx}`}
-                className="hover:bg-gray-50"
-              >
-                <td className="px-6 py-3 text-gray-900 font-medium">{entry.card}</td>
+            {cards.map((entry) => (
+              <tr key={entry.applicationId} className="hover:bg-gray-50">
+                <td className="px-6 py-3 text-gray-900 font-medium">
+                  {entry.cardProduct}
+                  <span className="block text-xs text-gray-500">{entry.issuer}</span>
+                </td>
+                <td className="px-4 py-3 text-right text-gray-700 tabular-nums">
+                  {entry.creditLimit === null ? '\u2014' : formatCurrency(entry.creditLimit)}
+                </td>
                 <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
-                  {formatShortDate(entry.nextDueDate)}
+                  {entry.introAprExpiry ? formatShortDate(entry.introAprExpiry) : '\u2014'}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">
-                  {formatCurrency(entry.amount)}
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {entry.daysRemaining === null ? (
+                    '\u2014'
+                  ) : (
+                    <span
+                      className={
+                        entry.severity === 'critical'
+                          ? 'text-red-600 font-semibold'
+                          : entry.severity === 'warning'
+                            ? 'text-amber-600'
+                            : 'text-gray-700'
+                      }
+                    >
+                      {entry.daysRemaining} days
+                    </span>
+                  )}
                 </td>
-                <td className="px-4 py-3 text-center">
-                  <TypeBadge type={entry.type} />
-                </td>
-                <td className="px-6 py-3 text-center">
-                  <StatusBadge status={entry.status} />
+                <td className="px-6 py-3 text-right text-gray-700 tabular-nums">
+                  {entry.regularApr === null ? '\u2014' : `${entry.regularApr.toFixed(1)}%`}
                 </td>
               </tr>
             ))}

@@ -7,6 +7,13 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import {
+  toScoreCards,
+  toCreditHistory,
+  toRecommendations,
+  type ScoreCardView,
+  type RecommendationView,
+} from '@/lib/credit-view';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import CreditScoreCard from '@/components/modules/credit-score-card';
 import CreditUnionMemberships from '@/components/clients/CreditUnionMemberships';
@@ -46,29 +53,11 @@ interface CreditHistoryMonth {
   transunion: number | null;
 }
 
-interface CreditHistoryData {
-  history: CreditHistoryMonth[];
-}
-
-interface CreditRecommendation {
-  id: string;
-  description: string;
-  estimatedPointImpact: number;
-  priority: 'high' | 'medium' | 'low';
-  category: string;
-}
-
-interface CreditRecommendationsData {
-  recommendations: CreditRecommendation[];
-}
+// Response shapes are normalised in lib/credit-view.ts; these hooks take the
+// raw envelope so a change on either side surfaces there rather than here.
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const PERSONAL_SCORES = [
-  { bureau: 'experian' as const, scoreType: 'fico' as const, score: 742, maxScore: 850, pullDate: '2026-03-15', utilization: 0.23 },
-  { bureau: 'equifax' as const,  scoreType: 'fico' as const, score: 735, maxScore: 850, pullDate: '2026-03-15', utilization: 0.31 },
-  { bureau: 'transunion' as const, scoreType: 'fico' as const, score: 750, maxScore: 850, pullDate: '2026-03-15', utilization: 0.18 },
-] as const;
 
 const PORTFOLIO_STATS = [
   { label: 'Total Credit Limit', value: '$284,500', icon: 'CL' },
@@ -461,7 +450,7 @@ function ScoreTrendChart({ history }: { history: CreditHistoryMonth[] }) {
 
 // ─── Recommendation Card ───────────────────────────────────────────────────
 
-function RecommendationItem({ rec }: { rec: CreditRecommendation }) {
+function RecommendationItem({ rec }: { rec: RecommendationView }) {
   const priorityColors = {
     high: 'bg-red-100 text-red-700',
     medium: 'bg-amber-100 text-amber-700',
@@ -470,17 +459,14 @@ function RecommendationItem({ rec }: { rec: CreditRecommendation }) {
 
   return (
     <div className="flex items-start gap-4 py-3 border-b border-gray-100 last:border-0">
-      <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 flex-shrink-0 whitespace-nowrap">
-        +{rec.estimatedPointImpact} pts
+      {/* No point-impact badge: predicting a score change needs a model this
+          system does not have, and the figure shown here was invented. */}
+      <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${priorityColors[rec.priority]}`}>
+        {rec.priority}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-800">{rec.description}</p>
-        <div className="flex items-center gap-2 mt-1">
-          <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${priorityColors[rec.priority]}`}>
-            {rec.priority}
-          </span>
-          <span className="text-xs text-gray-400">{rec.category}</span>
-        </div>
+        <p className="text-sm text-gray-800">{rec.title}</p>
+        {rec.basis && <p className="text-xs text-gray-500 mt-1">{rec.basis}</p>}
       </div>
     </div>
   );
@@ -507,14 +493,26 @@ export default function CreditTab({ clientId, clientName }: CreditTabProps) {
     isLoading: historyLoading,
     error: historyError,
     refetch: refetchHistory,
-  } = useAuthFetch<CreditHistoryData>(`/api/v1/clients/${clientId}/credit/history`);
+  } = useAuthFetch<unknown>(`/api/v1/clients/${clientId}/credit/history?profileType=personal`);
 
   const {
     data: recsData,
     isLoading: recsLoading,
     error: recsError,
     refetch: refetchRecs,
-  } = useAuthFetch<CreditRecommendationsData>(`/api/v1/clients/${clientId}/credit/recommendations`);
+  } = useAuthFetch<unknown>(`/api/v1/clients/${clientId}/credit/recommendations`);
+
+  const {
+    data: personalRaw,
+    isLoading: personalLoading,
+    error: personalError,
+    refetch: refetchPersonal,
+  } = useAuthFetch<unknown>(`/api/v1/clients/${clientId}/credit/personal`);
+
+  // Normalised once, so every render site reads one shape.
+  const personalScores = useMemo(() => toScoreCards(personalRaw), [personalRaw]);
+  const history = useMemo(() => toCreditHistory(historyData), [historyData]);
+  const recommendations = useMemo(() => toRecommendations(recsData), [recsData]);
 
   // ── Pull Fresh Report ──
   const handlePullReport = useCallback(async () => {
@@ -594,19 +592,36 @@ export default function CreditTab({ clientId, clientName }: CreditTabProps) {
       {/* ─── Section 1: Personal Credit Scores ──────────────────────────── */}
       <section>
         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Personal Credit Scores</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {PERSONAL_SCORES.map((ps) => (
-            <CreditScoreCard
-              key={ps.bureau}
-              score={ps.score}
-              maxScore={ps.maxScore}
-              bureau={ps.bureau}
-              scoreType={ps.scoreType}
-              pullDate={ps.pullDate}
-              utilization={ps.utilization}
-            />
-          ))}
-        </div>
+        {personalError && <DashboardErrorState error={personalError} onRetry={refetchPersonal} />}
+
+        {personalLoading && !personalError && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[1, 2, 3].map((i) => <ScoreCardSkeleton key={i} />)}
+          </div>
+        )}
+
+        {!personalLoading && !personalError && personalScores.length === 0 && (
+          <div className="rounded-xl border border-dashed border-surface-border bg-gray-50 p-6 text-center">
+            <p className="text-sm font-medium text-gray-700">No personal credit on file</p>
+            <p className="mt-1 text-xs text-gray-500">No bureau has been pulled for this client&apos;s owners.</p>
+          </div>
+        )}
+
+        {!personalLoading && !personalError && personalScores.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {personalScores.map((ps) => (
+              <CreditScoreCard
+                key={ps.id}
+                score={ps.score ?? 0}
+                maxScore={ps.maxScore}
+                bureau={ps.bureau as never}
+                scoreType={(ps.scoreType ?? 'fico') as never}
+                pullDate={ps.pullDate ?? ''}
+                utilization={ps.utilization ?? 0}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* ─── Section 2: Business Credit Scores ──────────────────────────── */}
@@ -681,8 +696,17 @@ export default function CreditTab({ clientId, clientName }: CreditTabProps) {
 
         {historyLoading && !historyError && <ChartSkeleton />}
 
-        {historyData && !historyError && historyData.history.length > 0 && (
-          <ScoreTrendChart history={historyData.history} />
+        {!historyLoading && !historyError && history.points.length === 0 && (
+          <div className="rounded-xl border border-dashed border-surface-border bg-gray-50 p-6 text-center">
+            <p className="text-sm font-medium text-gray-700">No score history yet</p>
+            <p className="mt-1 text-xs text-gray-500">
+              A trend needs more than one pull; there {history.pullCount === 1 ? 'is 1' : `are ${history.pullCount}`} on record.
+            </p>
+          </div>
+        )}
+
+        {!historyError && history.points.length > 0 && (
+          <ScoreTrendChart history={history.points as never} />
         )}
       </section>
 
@@ -694,14 +718,14 @@ export default function CreditTab({ clientId, clientName }: CreditTabProps) {
 
         {recsLoading && !recsError && <RecommendationSkeleton />}
 
-        {recsData && !recsError && (
+        {!recsLoading && !recsError && (
           <div className="rounded-xl border border-surface-border bg-white p-6">
-            {recsData.recommendations.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">No recommendations at this time.</p>
+            {recommendations.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-4">
+                No recommendations — nothing in the latest pull raises one.
+              </p>
             ) : (
-              recsData.recommendations.map((rec) => (
-                <RecommendationItem key={rec.id} rec={rec} />
-              ))
+              recommendations.map((rec) => <RecommendationItem key={rec.id} rec={rec} />)
             )}
           </div>
         )}

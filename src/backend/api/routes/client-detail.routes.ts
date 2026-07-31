@@ -273,6 +273,31 @@ clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _
   }
 });
 
+// GET /credit/personal — personal bureau scores for the owners
+clientDetailRouter.get('/credit/personal', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+  const { clientId } = req.params;
+  const tenantId = getTenantId(req);
+
+  try {
+    const profiles = await prisma.creditProfile.findMany({
+      where: { businessId: clientId, profileType: 'personal' },
+      orderBy: { pulledAt: 'desc' },
+    });
+
+    // Latest pull per bureau. Personal and business scores run on different
+    // scales, so they are served separately rather than merged into one list.
+    const latestByBureau = new Map<string, (typeof profiles)[number]>();
+    for (const p of profiles) {
+      if (!latestByBureau.has(p.bureau)) latestByBureau.set(p.bureau, p);
+    }
+
+    ok(res, { scores: [...latestByBureau.values()] }, { total: latestByBureau.size });
+  } catch (error) {
+    logger.error('Prisma query failed for personal credit', { clientId, tenantId, error });
+    err(res, 500, 'CLIENT_PERSONAL_CREDIT_FAILED', 'Unable to load personal credit.');
+  }
+});
+
 // GET /credit/history — score movement across the pulls on record
 clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const { clientId } = req.params;
@@ -283,8 +308,17 @@ clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _n
     // history is the pulls themselves. No separate snapshot model is needed —
     // which is what this endpoint previously claimed while serving a
     // synthesised twelve-month curve identical for every client.
+    // Personal and business scores run on different scales — FICO 300-850,
+    // PAYDEX 0-100 — so charting them on one axis is meaningless. The caller
+    // asks for the set it is plotting.
+    const profileType = typeof req.query['profileType'] === 'string' ? req.query['profileType'] : null;
+    if (profileType && profileType !== 'personal' && profileType !== 'business') {
+      err(res, 400, 'INVALID_PROFILE_TYPE', 'profileType must be "personal" or "business".');
+      return;
+    }
+
     const profiles = await prisma.creditProfile.findMany({
-      where: { businessId: clientId },
+      where: { businessId: clientId, ...(profileType ? { profileType } : {}) },
       orderBy: { pulledAt: 'asc' },
     });
 
