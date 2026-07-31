@@ -8,6 +8,7 @@
 //   POST /api/credit-builder/:clientId/tradelines         — open a tradeline
 //   POST /api/credit-builder/:clientId/tradeline-disputes — dispute a tradeline
 //   POST /api/credit-builder/:clientId/tradeline-payments  — log a payment
+//   PATCH /api/credit-builder/:clientId/tradelines/:id     — update status
 //
 // Tradelines and disputes are persisted. They previously lived in two
 // process-memory objects, so anything a client added disappeared on the next
@@ -489,6 +490,104 @@ creditBuilderRouter.post(
     } catch (error) {
       logger.error('Failed to log tradeline payment', { clientId, tenantId, error });
       err(res, 500, 'PAYMENT_CREATE_FAILED', 'Unable to log the payment.');
+    }
+  },
+);
+
+// ── PATCH /tradelines/:tradelineId ───────────────────────────
+
+/**
+ * Fields this endpoint may change.
+ *
+ * Only status, deliberately. Balance is derived from logged payments, and
+ * letting it be set directly would let the figure disagree with the payment
+ * history behind it.
+ */
+const UPDATABLE_TRADELINE_FIELDS = new Set(['status']);
+
+creditBuilderRouter.patch(
+  '/:clientId/tradelines/:tradelineId',
+  async (req: Request, res: Response): Promise<void> => {
+    const clientId = param(req, 'clientId');
+    const tradelineId = param(req, 'tradelineId');
+    const tenantId = getTenantId(req);
+    const updates = (req.body ?? {}) as Record<string, unknown>;
+
+    const fields = Object.keys(updates);
+    if (fields.length === 0) {
+      err(res, 400, 'INVALID_BODY', 'Request body must contain fields to update.');
+      return;
+    }
+
+    const rejected = fields.filter((f) => !UPDATABLE_TRADELINE_FIELDS.has(f));
+    if (rejected.length > 0) {
+      err(
+        res,
+        400,
+        'FIELD_NOT_UPDATABLE',
+        `These fields cannot be updated: ${rejected.join(', ')}. `
+          + 'Balance follows from the payments logged against the tradeline.',
+      );
+      return;
+    }
+
+    const { status } = updates;
+    if (typeof status !== 'string' || !TRADELINE_STATUSES.has(status)) {
+      err(
+        res,
+        422,
+        'VALIDATION_ERROR',
+        `status must be one of: ${[...TRADELINE_STATUSES].join(', ')}.`,
+      );
+      return;
+    }
+
+    try {
+      // Scoped to the caller's client, or a tradeline belonging to another
+      // tenant could be closed by id.
+      const existing = await prisma.vendorTradeline.findFirst({
+        where: { id: tradelineId, businessId: clientId, tenantId },
+        select: { id: true, status: true },
+      });
+
+      if (!existing) {
+        err(res, 404, 'TRADELINE_NOT_FOUND', `No tradeline "${tradelineId}" for this client.`);
+        return;
+      }
+
+      const updated = await prisma.vendorTradeline.update({
+        where: { id: tradelineId },
+        data: { status },
+        include: { payments: true, disputes: true },
+      });
+
+      logger.info('Tradeline status updated', {
+        clientId,
+        tenantId,
+        tradelineId,
+        from: existing.status,
+        to: status,
+      });
+
+      ok(res, {
+        id: updated.id,
+        vendor: updated.vendor,
+        previousStatus: existing.status,
+        status: updated.status,
+        creditLimit: num(updated.creditLimit),
+        balance: Number(updated.balance),
+        paymentTerms: updated.paymentTerms,
+        reportsTo: updated.reportsTo ?? [],
+        // A closed line keeps its payment history: the record of how it was
+        // paid is what it contributed to the client's credit, and closing it
+        // does not undo that.
+        paymentCount: updated.payments.length,
+        onTimeCount: updated.payments.filter((p) => p.onTime === true).length,
+        disputeCount: updated.disputes.length,
+      });
+    } catch (error) {
+      logger.error('Failed to update tradeline status', { clientId, tenantId, tradelineId, error });
+      err(res, 500, 'TRADELINE_UPDATE_FAILED', 'Unable to update the tradeline.');
     }
   },
 );

@@ -620,10 +620,7 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
         setDisputeTarget(target);
         break;
       case 'mark_inactive':
-        // No endpoint updates a tradeline's status. This used to rewrite
-        // local state, which after the add path began persisting meant it
-        // silently did nothing at all.
-        toast.error('Changing a tradeline status is not available yet — nothing was changed.');
+        void handleSetStatus(tradelineId, 'closed');
         break;
     }
   }, [apiTradelines, toast]);
@@ -678,6 +675,32 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
         info.type === 'auth_required'
           ? 'Your session has expired. Sign in again to add a tradeline.'
           : 'Could not add the tradeline. Nothing was saved.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSetStatus(tradelineId: string, status: 'open' | 'closed' | 'delinquent') {
+    if (!clientId) return;
+
+    setSaving(true);
+    try {
+      // Persisted. This used to rewrite a local list which, once adds began
+      // saving to the server, was always empty — so the button did nothing.
+      await loadJson(`/api/credit-builder/${clientId}/tradelines/${tradelineId}`, {
+        method: 'PATCH',
+        body: { status },
+      });
+
+      await refetch();
+      toast.success(status === 'closed' ? 'Tradeline marked inactive' : `Tradeline set to ${status}`);
+    } catch (err) {
+      const info = toLoadError(err);
+      toast.error(
+        info.type === 'auth_required'
+          ? 'Your session has expired. Sign in again to change a tradeline.'
+          : 'Could not update the tradeline. Nothing was changed.',
       );
     } finally {
       setSaving(false);
