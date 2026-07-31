@@ -1,8 +1,18 @@
 // ============================================================
 // Issuer Reconsideration Guidance
 // ============================================================
-// Per-issuer guidance data for reconsideration calls including
-// phone numbers, best times, talking points, and success rates.
+// Per-issuer reference for reconsideration calls: published recon line,
+// department, when it is staffed, and what to raise on the call.
+//
+// This is a static reference list, not measurement. It used to carry
+// `historicalSuccessRate` and `avgReversalDays` per issuer — 35%, 7 days —
+// displayed as "Historical success". Nothing measured them; they were
+// written here. An advisor quoting them to a client is repeating a number
+// that came from nowhere.
+//
+// The board now shows this tenant's own win rate per issuer, from
+// GET /api/declines/analytics, which is counted from real outcomes and is
+// blank until there are some.
 // ============================================================
 
 export interface IssuerReconGuidance {
@@ -11,8 +21,6 @@ export interface IssuerReconGuidance {
   department: string;
   bestTimeToCall: string;
   talkingPoints: string[];
-  historicalSuccessRate: number; // 0-100
-  avgReversalDays: number;
 }
 
 export const ISSUER_RECON_GUIDANCE: Record<string, IssuerReconGuidance> = {
@@ -28,8 +36,6 @@ export const ISSUER_RECON_GUIDANCE: Record<string, IssuerReconGuidance> = {
       'Offer to move credit from an existing Chase card to the new product.',
       'Ask to speak with a senior analyst if the first rep cannot override.',
     ],
-    historicalSuccessRate: 35,
-    avgReversalDays: 7,
   },
   Amex: {
     issuer: 'Amex',
@@ -43,8 +49,6 @@ export const ISSUER_RECON_GUIDANCE: Record<string, IssuerReconGuidance> = {
       'Amex values relationship tenure -- mention how long you have been a member.',
       'Request a manual review if the decline was automated.',
     ],
-    historicalSuccessRate: 40,
-    avgReversalDays: 5,
   },
   'Capital One': {
     issuer: 'Capital One',
@@ -58,8 +62,6 @@ export const ISSUER_RECON_GUIDANCE: Record<string, IssuerReconGuidance> = {
       'Mention any existing Capital One accounts in good standing.',
       'Ask if additional documentation (tax returns, bank statements) would help the review.',
     ],
-    historicalSuccessRate: 20,
-    avgReversalDays: 10,
   },
   Citi: {
     issuer: 'Citi',
@@ -73,8 +75,6 @@ export const ISSUER_RECON_GUIDANCE: Record<string, IssuerReconGuidance> = {
       'Ask for a supervisor review if the initial analyst cannot approve.',
       'Offer to provide 2 years of business tax returns as supporting evidence.',
     ],
-    historicalSuccessRate: 30,
-    avgReversalDays: 8,
   },
   'Bank of America': {
     issuer: 'Bank of America',
@@ -88,8 +88,6 @@ export const ISSUER_RECON_GUIDANCE: Record<string, IssuerReconGuidance> = {
       'Offer to consolidate business banking to BofA to strengthen the relationship.',
       'Ask about the Business Advantage Relationship Rewards tier for better terms.',
     ],
-    historicalSuccessRate: 25,
-    avgReversalDays: 12,
   },
   'US Bank': {
     issuer: 'US Bank',
@@ -103,8 +101,6 @@ export const ISSUER_RECON_GUIDANCE: Record<string, IssuerReconGuidance> = {
       'US Bank is conservative -- be prepared with strong financials and a clear business case.',
       'Ask if a secured deposit or CD could offset the risk concern.',
     ],
-    historicalSuccessRate: 22,
-    avgReversalDays: 14,
   },
   'Wells Fargo': {
     issuer: 'Wells Fargo',
@@ -118,8 +114,6 @@ export const ISSUER_RECON_GUIDANCE: Record<string, IssuerReconGuidance> = {
       'Wells Fargo may offer a secured business card as an alternative -- ask about options.',
       'Request that the analyst review your full file, not just the automated score.',
     ],
-    historicalSuccessRate: 18,
-    avgReversalDays: 15,
   },
 };
 

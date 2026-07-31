@@ -393,13 +393,18 @@ apiRouter.use('/portfolio/health', portfolioHealthRouter);
 import { readinessRouter } from './readiness.routes.js';
 apiRouter.use('/readiness', readinessRouter);
 
+// ── Decline Actions (create, analytics) ─────────────────────────
+// Mounted BEFORE declineRecoveryRouter, which registers /declines/:id.
+// Express matches in registration order, so with the old order that
+// parameterised route answered /declines/analytics with a 404 reading
+// "Decline recovery record analytics not found" — the endpoint existed and
+// was unreachable.
+import { declineActionsRouter } from './decline-actions.routes.js';
+apiRouter.use('/', declineActionsRouter);
+
 // ── Decline Recovery Workflow ────────────────────────────────────
 import { declineRecoveryRouter } from './decline-recovery.routes.js';
 apiRouter.use('/', declineRecoveryRouter);
-
-// ── Decline Actions (create, analytics, reminders) ──────────────
-import { declineActionsRouter } from './decline-actions.routes.js';
-apiRouter.use('/', declineActionsRouter);
 
 // ── Re-Stack Eligibility ─────────────────────────────────────────
 import { restackRouter } from './restack.routes.js';

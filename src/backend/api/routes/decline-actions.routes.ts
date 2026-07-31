@@ -42,11 +42,10 @@ const CreateDeclineSchema = z.object({
   decline_reason: z.string().min(1, 'decline_reason is required'),
   requested_limit: z.number().positive().optional(),
   notes: z.string().max(2000).optional(),
-});
-
-const ReminderSchema = z.object({
-  reapply_date: z.string().datetime().optional(),
-  note: z.string().max(500).optional(),
+  // Optional, and empty when absent. It used to be filled with
+  // `app_decline_${Date.now()}`, which looked like a link to an application
+  // and resolved to nothing.
+  application_id: z.string().min(1).max(255).optional(),
 });
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -105,41 +104,39 @@ declineActionsRouter.post(
       const prisma = getPrisma();
       const data = parsed.data;
 
-      let record: Record<string, unknown>;
-
-      try {
-        record = await prisma.declineRecovery.create({
-          data: {
-            tenantId,
-            businessId: data.client_id,
-            applicationId: `app_decline_${Date.now()}`,
-            issuer: data.issuer,
-            declineReasons: {
-              primary: data.decline_reason,
-              card_name: data.card_name,
-              requested_limit: data.requested_limit ?? null,
-              declined_at: data.declined_at ?? new Date().toISOString(),
-            },
-            reconsiderationNotes: data.notes ?? null,
-            recoveryStage: 'new',
-          },
-        });
-      } catch {
-        // If Prisma model doesn't support all fields, return mock record
-        record = {
-          id: `decline_${Date.now()}`,
-          tenantId,
-          client_id: data.client_id,
-          issuer: data.issuer,
-          card_name: data.card_name,
-          declined_at: data.declined_at ?? new Date().toISOString(),
-          decline_reason: data.decline_reason,
-          requested_limit: data.requested_limit ?? null,
-          notes: data.notes ?? null,
-          recovery_stage: 'new',
-          createdAt: new Date().toISOString(),
-        };
+      // The client must exist and belong to this tenant. Without the check a
+      // typo produced a decline record attached to a business id that names
+      // nothing, which then appears on the recovery board as a client nobody
+      // can open.
+      const business = await prisma.business.findFirst({
+        where: { id: data.client_id, tenantId },
+        select: { id: true },
+      });
+      if (!business) {
+        sendError(res, 404, 'NOT_FOUND', 'No client with that id in this tenant.');
+        return;
       }
+
+      // A failure here used to be caught and answered with a fabricated
+      // record and 201 Created: an id that was never written, which the
+      // caller then held as a real decline. Nothing is invented now — a write
+      // that fails is reported as a failure.
+      const record = await prisma.declineRecovery.create({
+        data: {
+          tenantId,
+          businessId: data.client_id,
+          applicationId: data.application_id ?? '',
+          issuer: data.issuer,
+          declineReasons: {
+            primary: data.decline_reason,
+            card_name: data.card_name,
+            requested_limit: data.requested_limit ?? null,
+            declined_at: data.declined_at ?? new Date().toISOString(),
+          },
+          reconsiderationNotes: data.notes ?? null,
+          recoveryStage: 'new',
+        },
+      });
 
       logger.info('[DeclineActionsRoutes] Decline record created', {
         declineId: (record as Record<string, unknown>).id,
@@ -170,83 +167,72 @@ declineActionsRouter.get(
     try {
       const prisma = getPrisma();
 
-      let analytics: Record<string, unknown>;
+      const all = await prisma.declineRecovery.findMany({ where: { tenantId } });
 
-      try {
-        const all = await prisma.declineRecovery.findMany({ where: { tenantId } });
-
-        // Group by decline reason (declineReasons is a JSON field)
-        const reasonMap = new Map<string, { total: number; won: number; lost: number }>();
-        for (const r of all) {
-          const reasons = r.declineReasons as Record<string, unknown> | null;
-          const reason = (reasons?.primary as string) ?? 'unknown';
-          const stage = r.recoveryStage;
-          if (!reasonMap.has(reason)) {
-            reasonMap.set(reason, { total: 0, won: 0, lost: 0 });
-          }
-          const entry = reasonMap.get(reason)!;
-          entry.total += 1;
-          if (stage === 'won') entry.won += 1;
-          if (stage === 'lost') entry.lost += 1;
+      // Group by decline reason (declineReasons is a JSON field)
+      const reasonMap = new Map<string, { total: number; won: number; lost: number }>();
+      for (const r of all) {
+        const reasons = r.declineReasons as Record<string, unknown> | null;
+        const reason = (reasons?.primary as string) ?? 'unknown';
+        const stage = r.recoveryStage;
+        if (!reasonMap.has(reason)) {
+          reasonMap.set(reason, { total: 0, won: 0, lost: 0 });
         }
-
-        const breakdown = Array.from(reasonMap.entries()).map(([reason, counts]) => ({
-          reason,
-          total: counts.total,
-          won: counts.won,
-          lost: counts.lost,
-          winRate: counts.won + counts.lost > 0
-            ? Math.round((counts.won / (counts.won + counts.lost)) * 100)
-            : null,
-        }));
-
-        // Issuer breakdown
-        const issuerMap = new Map<string, { total: number; won: number }>();
-        for (const r of all) {
-          const issuer = r.issuer ?? 'unknown';
-          const stage = r.recoveryStage;
-          if (!issuerMap.has(issuer)) {
-            issuerMap.set(issuer, { total: 0, won: 0 });
-          }
-          const entry = issuerMap.get(issuer)!;
-          entry.total += 1;
-          if (stage === 'won') entry.won += 1;
-        }
-
-        const issuerBreakdown = Array.from(issuerMap.entries()).map(([issuer, counts]) => ({
-          issuer,
-          total: counts.total,
-          won: counts.won,
-          winRate: counts.total > 0
-            ? Math.round((counts.won / counts.total) * 100)
-            : 0,
-        }));
-
-        analytics = {
-          totalDeclines: all.length,
-          reasonBreakdown: breakdown,
-          issuerBreakdown,
-        };
-      } catch {
-        // Mock analytics when DB not available
-        analytics = {
-          totalDeclines: 47,
-          reasonBreakdown: [
-            { reason: 'Too many recent inquiries', total: 15, won: 4, lost: 3, winRate: 57 },
-            { reason: 'Insufficient business history', total: 12, won: 2, lost: 5, winRate: 29 },
-            { reason: 'High utilization ratio', total: 8, won: 3, lost: 1, winRate: 75 },
-            { reason: 'Low personal credit score', total: 7, won: 1, lost: 4, winRate: 20 },
-            { reason: 'Recent derogatory marks', total: 5, won: 0, lost: 3, winRate: 0 },
-          ],
-          issuerBreakdown: [
-            { issuer: 'Chase', total: 14, won: 4, winRate: 29 },
-            { issuer: 'American Express', total: 11, won: 3, winRate: 27 },
-            { issuer: 'Capital One', total: 9, won: 2, winRate: 22 },
-            { issuer: 'US Bank', total: 7, won: 1, winRate: 14 },
-            { issuer: 'Citi', total: 6, won: 0, winRate: 0 },
-          ],
-        };
+        const entry = reasonMap.get(reason)!;
+        entry.total += 1;
+        if (stage === 'won') entry.won += 1;
+        if (stage === 'lost') entry.lost += 1;
       }
+
+      // Win rate is won over *resolved*, and null when nothing is resolved
+      // yet. Counting recoveries still in progress as losses would report a
+      // failure rate for work that has not finished.
+      const winRateOf = (won: number, lost: number): number | null =>
+        won + lost > 0 ? Math.round((won / (won + lost)) * 100) : null;
+
+      const breakdown = Array.from(reasonMap.entries()).map(([reason, counts]) => ({
+        reason,
+        total: counts.total,
+        won: counts.won,
+        lost: counts.lost,
+        winRate: winRateOf(counts.won, counts.lost),
+      }));
+
+      // Issuer breakdown
+      const issuerMap = new Map<string, { total: number; won: number; lost: number }>();
+      for (const r of all) {
+        const issuer = r.issuer ?? 'unknown';
+        const stage = r.recoveryStage;
+        if (!issuerMap.has(issuer)) {
+          issuerMap.set(issuer, { total: 0, won: 0, lost: 0 });
+        }
+        const entry = issuerMap.get(issuer)!;
+        entry.total += 1;
+        if (stage === 'won') entry.won += 1;
+        if (stage === 'lost') entry.lost += 1;
+      }
+
+      // This used to divide by total rather than by resolved, and fall back to
+      // 0 — so one response carried two different figures both labelled
+      // "winRate", and an issuer with three recoveries in progress and none
+      // resolved reported 0%.
+      const issuerBreakdown = Array.from(issuerMap.entries()).map(([issuer, counts]) => ({
+        issuer,
+        total: counts.total,
+        won: counts.won,
+        lost: counts.lost,
+        winRate: winRateOf(counts.won, counts.lost),
+      }));
+
+      // A read failure used to be caught here and answered with an invented
+      // breakdown — 47 declines, per-issuer win rates — returned as this
+      // tenant's own figures with a 200, so a tenant with no declines saw a
+      // busy chart. The query now stands on its own; a failure is a failure.
+      const analytics = {
+        totalDeclines: all.length,
+        reasonBreakdown: breakdown,
+        issuerBreakdown,
+      };
 
       const body: ApiResponse = { success: true, data: analytics };
       res.status(200).json(body);
@@ -257,7 +243,15 @@ declineActionsRouter.get(
 );
 
 // ── POST /api/declines/:id/reminder ─────────────────────────
-// Create a reminder task for a reapply date on a specific decline.
+//
+// Answers 501. This endpoint used to return 201 Created with
+// `{ id: "reminder_<timestamp>", status: "scheduled" }` and write nothing —
+// there is no reminder table, no scheduler and no delivery path, so the
+// reapply date it claimed to be watching would pass unnoticed. A caller that
+// believed it lost the reapply window.
+//
+// Kept, rather than deleted, so the route reports its own absence instead of
+// answering 404 as though the address were wrong.
 
 declineActionsRouter.post(
   '/declines/:id/reminder',
@@ -270,46 +264,13 @@ declineActionsRouter.post(
       return;
     }
 
-    const parsed = ReminderSchema.safeParse(req.body);
-    if (!parsed.success) {
-      sendError(
-        res,
-        422,
-        'VALIDATION_ERROR',
-        'Invalid request body.',
-        parsed.error.flatten().fieldErrors,
-      );
-      return;
-    }
-
-    try {
-      // Default reapply date is 90 days from now if not specified
-      const reapplyDate = parsed.data.reapply_date
-        ? new Date(parsed.data.reapply_date)
-        : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
-
-      const reminder = {
-        id: `reminder_${Date.now()}`,
-        declineId,
-        tenantId,
-        reapplyDate: reapplyDate.toISOString(),
-        note: parsed.data.note ?? 'Reapply eligibility window opens on this date.',
-        status: 'scheduled',
-        createdAt: new Date().toISOString(),
-      };
-
-      logger.info('[DeclineActionsRoutes] Reapply reminder created', {
-        declineId,
-        reminderId: reminder.id,
-        reapplyDate: reminder.reapplyDate,
-        tenantId,
-      });
-
-      const body: ApiResponse<typeof reminder> = { success: true, data: reminder };
-      res.status(201).json(body);
-    } catch (err) {
-      handleUnexpected(err, res, 'POST /declines/:id/reminder');
-    }
+    sendError(
+      res,
+      501,
+      'NOT_IMPLEMENTED',
+      'Reapply reminders are not available. Nothing schedules or delivers them yet, ' +
+        'so the reapply date is shown on the decline instead.',
+    );
   },
 );
 

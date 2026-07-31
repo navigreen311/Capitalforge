@@ -495,7 +495,127 @@ const SEED_PHONES = {
       decidedAt: d('2026-01-25'),
     },
   });
+  // Two further declines, so the recovery board has a resolved outcome at
+  // each end and a win rate that means something. Both are real declined
+  // applications; the recovery records below point at them.
+  await prisma.cardApplication.upsert({
+    where: { id: 'seed-app-005' },
+    update: {},
+    create: {
+      id: 'seed-app-005',
+      businessId: biz2.id,
+      fundingRoundId: round2.id,
+      issuer: 'US Bank',
+      cardProduct: 'Business Altitude Connect',
+      status: 'declined',
+      creditLimit: dec('18000'),
+      declineReason: 'Personal revolving utilization above issuer threshold',
+      consentCapturedAt: d('2026-02-25'),
+      submittedAt: d('2026-02-26'),
+      decidedAt: d('2026-02-28'),
+    },
+  });
+
+  // Declined, taken to reconsideration, and reversed — so this one is
+  // approved now. The decline recovery record below records how it got here.
+  await prisma.cardApplication.upsert({
+    where: { id: 'seed-app-006' },
+    update: {},
+    create: {
+      id: 'seed-app-006',
+      businessId: biz1.id,
+      fundingRoundId: round2.id,
+      issuer: 'Citi',
+      cardProduct: 'Citi Business Platinum',
+      status: 'approved',
+      creditLimit: dec('15000'),
+      regularApr: dec('0.2199'),
+      annualFee: dec('0'),
+      consentCapturedAt: d('2026-01-10'),
+      submittedAt: d('2026-01-11'),
+      decidedAt: d('2026-02-05'),
+    },
+  });
   console.log('  ✓ Card applications created');
+
+  // ── Decline Recovery ──────────────────────────────────────
+  //
+  // One record per declined application, which is what the recovery board
+  // reads. The board used to carry seven of these hardcoded in the page
+  // component, for clients that do not exist.
+
+  await prisma.declineRecovery.upsert({
+    where: { id: 'seed-decline-001' },
+    update: {},
+    create: {
+      id: 'seed-decline-001',
+      tenantId: tenant.id,
+      businessId: biz1.id,
+      applicationId: 'seed-app-004',
+      issuer: 'Bank of America',
+      declineReasons: {
+        primary: 'Too many recent inquiries',
+        card_name: 'Business Advantage Unlimited',
+        requested_limit: 20000,
+        declined_at: '2026-01-25T00:00:00.000Z',
+      },
+      adverseActionRaw:
+        'Excessive inquiries in last 12 months. Credit bureau: Experian.',
+      reconsiderationStatus: 'letter_sent',
+      letterGenerated: true,
+      // Bank of America asks for 30 days before a reapplication.
+      reapplyCooldownDate: d('2026-02-24'),
+      recoveryStage: 'letter_sent',
+    },
+  });
+
+  await prisma.declineRecovery.upsert({
+    where: { id: 'seed-decline-002' },
+    update: {},
+    create: {
+      id: 'seed-decline-002',
+      tenantId: tenant.id,
+      businessId: biz2.id,
+      applicationId: 'seed-app-005',
+      issuer: 'US Bank',
+      declineReasons: {
+        primary: 'High utilization',
+        card_name: 'Business Altitude Connect',
+        requested_limit: 18000,
+        declined_at: '2026-02-28T00:00:00.000Z',
+      },
+      reconsiderationStatus: 'denied',
+      reconsiderationNotes: 'Reconsideration call declined; utilization unchanged at review.',
+      letterGenerated: true,
+      reapplyCooldownDate: d('2026-05-29'),
+      recoveryStage: 'lost',
+      resolvedAt: d('2026-03-14'),
+    },
+  });
+
+  await prisma.declineRecovery.upsert({
+    where: { id: 'seed-decline-003' },
+    update: {},
+    create: {
+      id: 'seed-decline-003',
+      tenantId: tenant.id,
+      businessId: biz1.id,
+      applicationId: 'seed-app-006',
+      issuer: 'Citi',
+      declineReasons: {
+        primary: 'Thin business credit file',
+        card_name: 'Citi Business Platinum',
+        requested_limit: 15000,
+        declined_at: '2026-01-14T00:00:00.000Z',
+      },
+      reconsiderationStatus: 'approved',
+      reconsiderationNotes: 'Reversed on reconsideration after trade references supplied.',
+      letterGenerated: true,
+      recoveryStage: 'won',
+      resolvedAt: d('2026-02-05'),
+    },
+  });
+  console.log('  ✓ Decline recovery records created');
 
   // ── Consent Records ───────────────────────────────────────
 

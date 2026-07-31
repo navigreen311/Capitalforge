@@ -136,6 +136,24 @@ e2e complaints             : ${e2eComplaints.length}`);
     if (e2eComplaints.length > 5) console.log(`   ...and ${e2eComplaints.length - 5} more`);
   }
 
+  // ── Decline recoveries left by the browser suite ────────
+  //
+  // The declines spec logs a decline against a real seeded client each run,
+  // so the seeded-business sweep will not touch it. Left alone they
+  // accumulate one per run and move the recovery board's win rate, stage
+  // counts and per-issuer breakdown.
+  const e2eDeclines = await prisma.declineRecovery.findMany({
+    where: { issuer: { startsWith: 'E2E' } },
+    select: { id: true, issuer: true, businessId: true },
+  });
+
+  if (e2eDeclines.length > 0) {
+    console.log(`
+e2e decline recoveries     : ${e2eDeclines.length}`);
+    for (const d of e2eDeclines.slice(0, 5)) console.log(`   drop  ${d.id} (${d.issuer})`);
+    if (e2eDeclines.length > 5) console.log(`   ...and ${e2eDeclines.length - 5} more`);
+  }
+
   // ── Regulator inquiries left by the browser suite ───────
   //
   // The log-inquiry spec writes a real inquiry every run, tagged with an
@@ -239,6 +257,12 @@ e2e regulator inquiries    : ${e2eInquiries.length}`);
   if (e2eComplaints.length > 0) {
     note('e2eComplaints', (await prisma.complaint.deleteMany({
       where: { id: { in: e2eComplaints.map((c) => c.id) } },
+    })).count);
+  }
+
+  if (e2eDeclines.length > 0) {
+    note('e2eDeclineRecoveries', (await prisma.declineRecovery.deleteMany({
+      where: { id: { in: e2eDeclines.map((d) => d.id) } },
     })).count);
   }
 

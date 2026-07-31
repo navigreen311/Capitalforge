@@ -442,6 +442,70 @@ export async function getDeclineRecovery(
 
 // ── Service: Generate and Store Reconsideration Letter ───────
 
+/**
+ * Read the stored declineReasons JSON, whatever shape it is in.
+ *
+ * Three writers have populated this column with three different shapes:
+ *   - DeclineReason[]                      — what this module writes
+ *   - [{ code, text }]                     — the adverse action parser
+ *   - { primary, card_name, ... }          — POST /api/declines
+ *
+ * The letter generator assumed the first and called .map on it, so a decline
+ * created through the API — the only route the recovery board offers — threw
+ * on "declineReasons.map is not a function" and answered 500. Reading all
+ * three is the change that costs least; unifying the writers would migrate
+ * live rows for no gain to the caller.
+ */
+export function normaliseDeclineReasons(raw: unknown): DeclineReason[] {
+  // REASON_PATTERN_MAP above is the classifier this module already uses, so
+  // a reason is bucketed the same way however it arrived.
+  const categorise = (text: string): DeclineCategory =>
+    REASON_PATTERN_MAP.find((entry) => entry.pattern.test(text))?.category ?? 'other';
+
+  const fromText = (text: string, code?: string): DeclineReason => ({
+    ...(code === undefined ? {} : { code }),
+    rawText: text,
+    category: categorise(text),
+    label: text,
+  });
+
+  if (Array.isArray(raw)) {
+    return raw.flatMap((entry) => {
+      if (typeof entry === 'string') return [fromText(entry)];
+      if (typeof entry !== 'object' || entry === null) return [];
+      const e = entry as Record<string, unknown>;
+      const text =
+        (typeof e['label'] === 'string' && e['label']) ||
+        (typeof e['rawText'] === 'string' && e['rawText']) ||
+        (typeof e['text'] === 'string' && e['text']) ||
+        null;
+      if (text === null) return [];
+      const code = typeof e['code'] === 'string' ? e['code'] : undefined;
+      // A recognised ECOA/FCRA code carries its own label and category, which
+      // beat anything inferred from the issuer's wording.
+      const known = code !== undefined ? REASON_CODE_MAP[code] : undefined;
+      if (known !== undefined) {
+        return [{ code, rawText: text, category: known.category, label: known.label }];
+      }
+      const category =
+        typeof e['category'] === 'string' &&
+        ['credit', 'utilization', 'velocity', 'fraud', 'other'].includes(e['category'])
+          ? (e['category'] as DeclineCategory)
+          : categorise(text);
+      return [{ ...(code === undefined ? {} : { code }), rawText: text, category, label: text }];
+    });
+  }
+
+  if (typeof raw === 'object' && raw !== null) {
+    const primary = (raw as Record<string, unknown>)['primary'];
+    if (typeof primary === 'string' && primary.trim() !== '') return [fromText(primary)];
+  }
+
+  // No reason on file. The letter says so rather than arguing against a
+  // reason the issuer never gave.
+  return [];
+}
+
 export interface GenerateLetterResult {
   letter:        ReconsiderationLetter;
   recoveryId:    string;
@@ -463,7 +527,7 @@ export async function generateAndStoreReconsiderationLetter(
     throw new Error(`DeclineRecovery record ${recoveryId} not found.`);
   }
 
-  const reasons = record.declineReasons as unknown as DeclineReason[];
+  const reasons = normaliseDeclineReasons(record.declineReasons);
   const letter  = generateReconsiderationLetter(
     record.businessId,
     businessName,

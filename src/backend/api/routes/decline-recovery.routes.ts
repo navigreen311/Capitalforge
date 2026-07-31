@@ -60,8 +60,6 @@ const RECOVERY_STAGES = [
   'lost',
 ] as const;
 
-type RecoveryStage = typeof RECOVERY_STAGES[number];
-
 const StageAdvanceSchema = z.object({
   stage: z.enum(RECOVERY_STAGES),
 });
@@ -122,36 +120,6 @@ declineRecoveryRouter.get(
       res.status(200).json(body);
     } catch (err) {
       handleUnexpected(err, res, 'GET /businesses/:id/declines');
-    }
-  },
-);
-
-// ── GET /api/declines/:id ────────────────────────────────────
-// Retrieve a single decline recovery record with full reason detail.
-
-declineRecoveryRouter.get(
-  '/declines/:id',
-  async (req: Request, res: Response): Promise<void> => {
-    const recoveryId = req.params['id'] as string;
-    const tenantId   = req.tenant?.tenantId;
-
-    if (!recoveryId || !tenantId) {
-      sendError(res, 400, 'INVALID_PARAMS', 'Recovery ID and tenant context are required.');
-      return;
-    }
-
-    try {
-      const record = await getDeclineRecovery(recoveryId, tenantId);
-
-      if (!record) {
-        sendError(res, 404, 'NOT_FOUND', `Decline recovery record ${recoveryId} not found.`);
-        return;
-      }
-
-      const body: ApiResponse<typeof record> = { success: true, data: record };
-      res.status(200).json(body);
-    } catch (err) {
-      handleUnexpected(err, res, 'GET /declines/:id');
     }
   },
 );
@@ -258,7 +226,23 @@ declineRecoveryRouter.get(
         orderBy: { createdAt: 'desc' },
       });
 
-      const body: ApiResponse = { success: true, data: records, meta: { total: records.length } };
+      // The board names the client on every row, and the recovery record
+      // carries only a businessId. Resolved here in one query rather than
+      // leaving the client to fetch a business per row — and left null when
+      // the id resolves to nothing, so a missing client reads as missing
+      // rather than as a blank name.
+      const businesses = await prisma.business.findMany({
+        where: { tenantId, id: { in: records.map((r) => r.businessId) } },
+        select: { id: true, legalName: true, dba: true },
+      });
+      const nameOf = new Map(businesses.map((b) => [b.id, b.dba ?? b.legalName]));
+
+      const data = records.map((r) => ({
+        ...r,
+        businessName: nameOf.get(r.businessId) ?? null,
+      }));
+
+      const body: ApiResponse = { success: true, data, meta: { total: data.length } };
       res.status(200).json(body);
     } catch (err) {
       handleUnexpected(err, res, 'GET /declines');
@@ -292,34 +276,46 @@ declineRecoveryRouter.get(
         stageCounts[stage] = (stageCounts[stage] ?? 0) + 1;
       }
 
-      // Win rate: won / (won + lost)
+      // Win rate: won / (won + lost), and null until something is resolved.
+      // It used to be 0 in that case, which reads as losing every one.
       const resolved = all.filter(
-        (r) => {
-          const stage = (r as Record<string, unknown>).recoveryStage as string;
-          return stage === 'won' || stage === 'lost';
-        },
+        (r) => r.recoveryStage === 'won' || r.recoveryStage === 'lost',
       );
-      const wonCount = resolved.filter(
-        (r) => (r as Record<string, unknown>).recoveryStage === 'won',
-      ).length;
-      const winRate = resolved.length > 0 ? Math.round((wonCount / resolved.length) * 100) : 0;
+      const wonCount = resolved.filter((r) => r.recoveryStage === 'won').length;
+      const winRate =
+        resolved.length > 0 ? Math.round((wonCount / resolved.length) * 100) : null;
 
-      // Avg recovery time (days from createdAt to resolvedAt for resolved records)
-      let avgRecoveryDays = 0;
-      const resolvedWithDates = resolved.filter(
-        (r) => (r as Record<string, unknown>).resolvedAt,
-      );
-      if (resolvedWithDates.length > 0) {
-        const totalDays = resolvedWithDates.reduce((sum, r) => {
-          const resolvedAt = (r as Record<string, unknown>).resolvedAt as Date;
-          const created = r.createdAt;
-          const days = Math.ceil(
-            (new Date(resolvedAt).getTime() - new Date(created).getTime()) / (1000 * 60 * 60 * 24),
+      // Average days to resolve, measured from the date of the decline.
+      //
+      // This used to measure from createdAt — when the row was written. A
+      // decline logged after the fact, which the log-decline form exists to
+      // do, then produced a recovery that finished before it started: the
+      // seeded records reported an average of -157 days. The decline date is
+      // carried on declineReasons.declined_at; createdAt is the fallback for
+      // records written at the time of the decline.
+      const spans = resolved
+        .filter((r) => r.resolvedAt !== null)
+        .map((r) => {
+          const reasons = r.declineReasons as Record<string, unknown> | null;
+          const declaredAt = typeof reasons?.['declined_at'] === 'string'
+            ? new Date(reasons['declined_at'] as string)
+            : null;
+          const start =
+            declaredAt !== null && !Number.isNaN(declaredAt.getTime())
+              ? declaredAt
+              : r.createdAt;
+          return Math.ceil(
+            (new Date(r.resolvedAt as Date).getTime() - start.getTime()) / 86_400_000,
           );
-          return sum + days;
-        }, 0);
-        avgRecoveryDays = Math.round(totalDays / resolvedWithDates.length);
-      }
+        })
+        // A negative span means the dates disagree, not a recovery that took
+        // less than no time. Excluded rather than averaged in.
+        .filter((days) => days >= 0);
+
+      const avgRecoveryDays =
+        spans.length > 0
+          ? Math.round(spans.reduce((sum, d) => sum + d, 0) / spans.length)
+          : null;
 
       const body: ApiResponse = {
         success: true,
@@ -330,6 +326,9 @@ declineRecoveryRouter.get(
           wonCount,
           lostCount: resolved.length - wonCount,
           avgRecoveryDays,
+          // How many resolved records the average is actually drawn from, so
+          // a mean over one record is not read as a mean over the board.
+          avgRecoveryBasedOn: spans.length,
         },
       };
       res.status(200).json(body);
@@ -338,6 +337,40 @@ declineRecoveryRouter.get(
     }
   },
 );
+
+// ── GET /api/declines/:id ────────────────────────────────────
+// Registered after /declines and /declines/stats deliberately. Express
+// matches in registration order, so while this sat above them a request for
+// /api/declines/stats bound id="stats" and answered 404 with "Decline
+// recovery record stats not found" — an endpoint that existed, was mounted,
+// and could not be reached.
+declineRecoveryRouter.get(
+  '/declines/:id',
+  async (req: Request, res: Response): Promise<void> => {
+    const recoveryId = req.params['id'] as string;
+    const tenantId   = req.tenant?.tenantId;
+
+    if (!recoveryId || !tenantId) {
+      sendError(res, 400, 'INVALID_PARAMS', 'Recovery ID and tenant context are required.');
+      return;
+    }
+
+    try {
+      const record = await getDeclineRecovery(recoveryId, tenantId);
+
+      if (!record) {
+        sendError(res, 404, 'NOT_FOUND', `Decline recovery record ${recoveryId} not found.`);
+        return;
+      }
+
+      const body: ApiResponse<typeof record> = { success: true, data: record };
+      res.status(200).json(body);
+    } catch (err) {
+      handleUnexpected(err, res, 'GET /declines/:id');
+    }
+  },
+);
+
 
 // ── PATCH /api/declines/:id/stage ───────────────────────────
 // Advance the recovery stage for a decline record.
