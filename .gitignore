@@ -18,3 +18,7 @@ Thumbs.db
 *.db-journal
 *.sqlite
 *.sqlite3
+
+# Playwright run output — traces and screenshots from local runs.
+test-results/
+playwright-report/

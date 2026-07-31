@@ -241,8 +241,11 @@ export const applicationsApi = {
   submit: (id: string, declarations: boolean[]) =>
     request('POST', `/applications/${id}/submit`, { body: { declarations } }),
 
-  updateStatus: (id: string, status: string) =>
-    request('PATCH', `/applications/${id}/status`, { body: { status } }),
+  // updateStatus removed: it PATCHed /applications/:id/status, which the API
+  // does not register and answers 404. Its only caller was the pipeline
+  // board's drag-and-drop, which swallowed the failure. Status changes go
+  // through submit() and the decision workflow, both of which run the
+  // compliance steps a bare status write skips.
 
   complianceGate: (businessId: string) =>
     request('GET', `/applications/compliance-gate/${businessId}`),

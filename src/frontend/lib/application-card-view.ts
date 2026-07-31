@@ -167,3 +167,77 @@ export function advisorInitials(name: string | null): string | null {
     .slice(0, 2);
   return initials === '' ? null : initials;
 }
+
+// ── Pipeline figures ────────────────────────────────────────
+
+export interface PipelineSummary {
+  total: number;
+  /**
+   * Credit still in play. Declined applications are excluded: refused credit
+   * is not pipeline, and counting it overstated the board by the value of
+   * every application an issuer had already turned down.
+   */
+  pipelineValue: number;
+  /** How many applications contributed an amount to pipelineValue. */
+  pipelineBasedOn: number;
+  /**
+   * Applications still open — the pool pipelineValue is drawn from. The
+   * comparison that matters is pipelineBasedOn against this, not against
+   * total: a declined application is left out because it was declined, not
+   * because it carries no amount.
+   */
+  liveCount: number;
+  /**
+   * Credit actually approved — from approvedLimit alone. This used to fall
+   * back to the requested limit, which reported what was asked for as what
+   * was granted.
+   */
+  approvedValue: number;
+  approvedBasedOn: number;
+  /** Approved as a share of decided. Null until something has been decided. */
+  approvalRate: number | null;
+  decidedCount: number;
+  /** Mean days in status, over the applications whose age is known. */
+  avgDaysInStatus: number | null;
+  agedCount: number;
+}
+
+/** Applications an issuer has finished with, one way or the other. */
+const DECIDED = new Set<ApplicationStatus>(['approved', 'declined']);
+
+export function summarisePipeline(cards: ApplicationCardView[]): PipelineSummary {
+  const live = cards.filter((c) => c.status !== 'declined');
+  const withAmount = live.filter((c) => c.requestedLimit !== null || c.approvedLimit !== null);
+
+  const approvedCards = cards.filter((c) => c.status === 'approved');
+  const approvedWithLimit = approvedCards.filter((c) => c.approvedLimit !== null);
+
+  const decided = cards.filter((c) => DECIDED.has(c.status));
+  const aged = cards.filter((c) => c.daysInStatus !== null);
+
+  return {
+    total: cards.length,
+    pipelineValue: withAmount.reduce(
+      (sum, c) => sum + (c.approvedLimit ?? c.requestedLimit ?? 0),
+      0,
+    ),
+    pipelineBasedOn: withAmount.length,
+    liveCount: live.length,
+    approvedValue: approvedWithLimit.reduce((sum, c) => sum + (c.approvedLimit ?? 0), 0),
+    approvedBasedOn: approvedWithLimit.length,
+    // Null, not 0. A board where nothing has been decided has no approval
+    // rate; "0%" reads as "we approve nothing".
+    approvalRate:
+      decided.length === 0
+        ? null
+        : (approvedCards.length / decided.length) * 100,
+    decidedCount: decided.length,
+    // Null for the same reason: counting an unknown age as zero pulls the
+    // average towards "same day" for records that carry no timestamp.
+    avgDaysInStatus:
+      aged.length === 0
+        ? null
+        : aged.reduce((sum, c) => sum + (c.daysInStatus ?? 0), 0) / aged.length,
+    agedCount: aged.length,
+  };
+}

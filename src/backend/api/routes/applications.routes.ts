@@ -107,7 +107,12 @@ router.get(
         issuer: app.issuer,
         cardProduct: app.cardProduct,
         status: app.status,
-        requestedLimit: app.creditLimit ? Number(app.creditLimit) : 0,
+        // Null, not 0, when no limit was recorded — matching the detail routes
+        // below. An application with no amount on file is not an application
+        // for nothing, and the board counts how many applications its money
+        // figures actually cover: a 0 here inflated that count with rows
+        // carrying no amount at all.
+        requestedLimit: app.creditLimit ? Number(app.creditLimit) : null,
         approvedLimit: app.status === 'approved' && app.creditLimit ? Number(app.creditLimit) : undefined,
         fundingRoundId: app.fundingRoundId,
         roundNumber: app.fundingRound?.roundNumber,

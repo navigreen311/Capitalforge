@@ -10,13 +10,13 @@
 
 import { fetchAllPages } from '@/lib/fetch-all-pages';
 import {
+  summarisePipeline,
   toApplicationCards,
   advisorInitials,
   type ApplicationCardView,
   type ConsentStatus,
 } from '@/lib/application-card-view';
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { applicationsApi } from '../../lib/api-client';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { ApplicationDetailDrawer } from '../../components/applications/ApplicationDetailDrawer';
 import { ApplicationFilterBar } from '../../components/applications/ApplicationFilterBar';
 import type { ApplicationFilters } from '../../components/applications/ApplicationFilterBar';
@@ -91,31 +91,18 @@ function daysInStatusClasses(days: number | null): string {
 
 function AppCard({
   card,
-  onDragStart,
   onClick,
 }: {
   card: ApplicationCard;
-  onDragStart: (e: React.DragEvent, id: string) => void;
   onClick: () => void;
 }) {
-  // Distinguish drag from click
-  const mouseDown = useRef({ x: 0, y: 0 });
-  const dragged = useRef(false);
-
   // An unrecognised value falls through to 'unknown', not to 'missing':
   // asserting a compliance failure we have not established is its own error.
   const consent = CONSENT_DOT[card.consentStatus];
 
   return (
     <div
-      draggable
-      onDragStart={(e) => { dragged.current = true; onDragStart(e, card.id); }}
-      onMouseDown={(e) => { mouseDown.current = { x: e.clientX, y: e.clientY }; dragged.current = false; }}
-      onMouseUp={(e) => {
-        const dx = Math.abs(e.clientX - mouseDown.current.x);
-        const dy = Math.abs(e.clientY - mouseDown.current.y);
-        if (dx < 5 && dy < 5 && !dragged.current) onClick();
-      }}
+      onClick={onClick}
       className="relative rounded-xl border border-surface-border bg-white shadow-card hover:shadow-card-hover p-4 cursor-pointer transition-shadow group"
     >
       {/* Round badge — top-right pill */}
@@ -253,8 +240,6 @@ export default function ApplicationsPage() {
   const [truncated, setTruncated] = useState(false);
   const [search, setSearch] = useState('');
   const [activeChip, setActiveChip] = useState<PipelineFilter>(null);
-  const dragId = useRef<string | null>(null);
-
   // View mode state: kanban or table
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
 
@@ -314,58 +299,26 @@ export default function ApplicationsPage() {
     fetchApps();
   }, [fetchApps]);
 
-  const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
-    dragId.current = id;
-    e.dataTransfer.effectAllowed = 'move';
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent, targetStatus: ApplicationStatus) => {
-      e.preventDefault();
-      const id = dragId.current;
-      if (!id) return;
-
-      setApps((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: targetStatus } : a)),
-      );
-      dragId.current = null;
-
-      try {
-        await applicationsApi.updateStatus(id, targetStatus);
-      } catch { /* optimistic update stands */ }
-    },
-    [],
-  );
-
-  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
+  // Cards used to be draggable between columns. The drop handler moved the
+  // card optimistically and called applicationsApi.updateStatus, which PATCHes
+  // /applications/:id/status — a route that does not exist and answers 404.
+  // The catch swallowed it with the comment "optimistic update stands", so a
+  // card dropped on Approved stayed there, and every figure on this board —
+  // Approved, Pipeline Value, Approval Rate — recomputed from an approval that
+  // had not happened, until the next reload silently undid it.
+  //
+  // Dragging is not restored here rather than fixed, because a status change
+  // on a credit application is not a UI move: submission runs a compliance
+  // gate and requires the applicant's declarations, and a decline carries a
+  // reason and an adverse action notice. Those belong to the application's own
+  // workflow. The board reports status; it does not set it.
 
   // ── Computed stats ──────────────────────────────────────────
-  // A card carrying neither an approved nor a requested figure contributes
-  // nothing, rather than a zero that quietly drags the totals down.
-  const amountOf = (a: ApplicationCard): number | null => a.approvedLimit ?? a.requestedLimit;
-
-  const totalApproved = apps
-    .filter((a) => a.status === 'approved')
-    .reduce((sum, a) => sum + (amountOf(a) ?? 0), 0);
-
-  const pipelineValue = apps.reduce((sum, a) => sum + (amountOf(a) ?? 0), 0);
-
-  const decidedApps = apps.filter(
-    (a) => a.status === 'approved' || a.status === 'declined',
-  );
-  const approvalRate =
-    decidedApps.length > 0
-      ? ((apps.filter((a) => a.status === 'approved').length / decidedApps.length) * 100)
-      : 0;
-
-  // Averaged over the cards whose age is known. Counting an unknown age as 0
-  // would pull the headline average towards "same day" for records that simply
-  // carry no timestamp; null instead, rendered as a dash.
-  const agedCards = apps.filter((a) => a.daysInStatus !== null);
-  const avgTime =
-    agedCards.length > 0
-      ? agedCards.reduce((sum, a) => sum + (a.daysInStatus ?? 0), 0) / agedCards.length
-      : null;
+  // Computed in lib/application-card-view, where it is tested. Three of these
+  // figures were wrong in ways the seeded data hid: Pipeline Value counted
+  // declined applications, Approved fell back to the requested limit, and
+  // Approval Rate read 0% when nothing had been decided.
+  const summary = useMemo(() => summarisePipeline(apps), [apps]);
 
   // ── Chip-based filtering ──────────────────────────────────
   function chipFilter(a: ApplicationCard): boolean {
@@ -376,8 +329,11 @@ export default function ApplicationsPage() {
       case 'approval_rate':
         return a.status === 'approved' || a.status === 'declined';
       case 'avg_time':
-        return a.daysInStatus !== null && a.daysInStatus > 0;
+        // The cards the average is actually computed over.
+        return a.daysInStatus !== null;
       case 'pipeline_value':
+        // Matches the figure: declined credit is not pipeline.
+        return a.status !== 'declined';
       case 'total':
       default:
         return true;
@@ -413,11 +369,21 @@ export default function ApplicationsPage() {
 
   // ── Chip definitions ──────────────────────────────────────
   const chipDefs: { key: PipelineFilter; label: string; value: string }[] = [
-    { key: 'total',          label: 'Total',          value: `${apps.length}` },
-    { key: 'pipeline_value', label: 'Pipeline Value', value: formatCurrency(pipelineValue) },
-    { key: 'approved_value', label: 'Approved',       value: formatCurrency(totalApproved) },
-    { key: 'avg_time',       label: 'Avg Time',       value: avgTime === null ? '—' : `${avgTime.toFixed(1)}d` },
-    { key: 'approval_rate',  label: 'Approval Rate',  value: `${approvalRate.toFixed(0)}%` },
+    { key: 'total',          label: 'Total',          value: `${summary.total}` },
+    { key: 'pipeline_value', label: 'Pipeline Value', value: formatCurrency(summary.pipelineValue) },
+    { key: 'approved_value', label: 'Approved',       value: formatCurrency(summary.approvedValue) },
+    {
+      key: 'avg_time',
+      label: 'Avg Time',
+      value: summary.avgDaysInStatus === null ? '—' : `${summary.avgDaysInStatus.toFixed(1)}d`,
+    },
+    {
+      key: 'approval_rate',
+      label: 'Approval Rate',
+      // A dash until an issuer has decided something. "0%" reads as a
+      // rejection rate of one hundred percent.
+      value: summary.approvalRate === null ? '—' : `${summary.approvalRate.toFixed(0)}%`,
+    },
   ];
 
   function handleChipClick(key: PipelineFilter) {
@@ -491,6 +457,17 @@ export default function ApplicationsPage() {
         <p className="text-center text-gray-400 py-12">Loading pipeline...</p>
       )}
 
+      {/* Pipeline Value skips applications carrying no amount, so the coverage
+          is stated rather than left for a reader to assume. Measured against
+          open applications: declined ones are absent by definition, not for
+          want of a figure. */}
+      {!loading && !truncated && summary.pipelineBasedOn < summary.liveCount && (
+        <p className="text-xs text-gray-500">
+          Pipeline Value covers {summary.pipelineBasedOn} of {summary.liveCount} open
+          applications; the rest carry no requested or approved amount.
+        </p>
+      )}
+
       {!loading && truncated && (
         <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           Showing the {apps.length} most recent applications — the pipeline is
@@ -558,12 +535,7 @@ export default function ApplicationsPage() {
             {COLUMNS.map((col) => {
               const cards = byStatus(col.status);
               return (
-                <div
-                  key={col.status}
-                  onDrop={(e) => handleDrop(e, col.status)}
-                  onDragOver={handleDragOver}
-                  className="w-64 flex flex-col gap-2 flex-shrink-0"
-                >
+                <div key={col.status} className="w-64 flex flex-col gap-2 flex-shrink-0">
                   {/* Column header */}
                   <div className="flex items-center gap-2 pb-2 mb-1 border-b border-surface-border">
                     <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
@@ -581,14 +553,13 @@ export default function ApplicationsPage() {
                       <AppCard
                         key={card.id}
                         card={card}
-                        onDragStart={handleDragStart}
                         onClick={() => setSelectedAppId(card.id)}
                       />
                     ))}
 
                     {cards.length === 0 && (
                       <div className="rounded-xl border-2 border-dashed border-gray-200 p-4 text-center text-xs text-gray-400">
-                        Drop here
+                        None
                       </div>
                     )}
                   </div>

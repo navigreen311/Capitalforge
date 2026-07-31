@@ -170,3 +170,89 @@ test.describe('Pipeline size', () => {
     );
   });
 });
+
+test.describe('Board figures', () => {
+  const API = 'http://127.0.0.1:4000/api';
+
+  test('declined credit is not counted as pipeline', async ({ signedInPage: page }) => {
+    await page.goto('/applications');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+    const rows = (await fetch(`${API}/applications?pageSize=100`, { headers }).then((r) =>
+      r.json(),
+    )) as {
+      data?: { id: string; status: string; requestedLimit: number; approvedLimit?: number }[];
+    };
+    const apps = rows.data ?? [];
+
+    const currency = (n: number) =>
+      new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 0,
+      }).format(n);
+
+    // What the board should show: everything not declined.
+    const expectedPipeline = apps
+      .filter((a) => a.status !== 'declined')
+      .reduce((sum, a) => sum + (a.approvedLimit ?? a.requestedLimit ?? 0), 0);
+
+    // Approved credit only, from the approved limit.
+    const expectedApproved = apps
+      .filter((a) => a.status === 'approved')
+      .reduce((sum, a) => sum + (a.approvedLimit ?? 0), 0);
+
+    await expect(page.getByRole('button', { name: /^Pipeline Value: / })).toHaveText(
+      `Pipeline Value: ${currency(expectedPipeline)}`,
+      { timeout: 30000 },
+    );
+    await expect(page.getByRole('button', { name: /^Approved: / })).toHaveText(
+      `Approved: ${currency(expectedApproved)}`,
+    );
+
+    // And the declined value is genuinely excluded, so this is not a
+    // coincidence of the two sums being equal.
+    const declinedValue = apps
+      .filter((a) => a.status === 'declined')
+      .reduce((sum, a) => sum + (a.requestedLimit ?? 0), 0);
+    expect(declinedValue, 'no declined application carries a limit to exclude').toBeGreaterThan(0);
+  });
+
+  test('says how much of the board the pipeline figure covers', async ({ signedInPage: page }) => {
+    await page.goto('/applications');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+
+    const rows = (await fetch(`${API}/applications?pageSize=100`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => r.json())) as {
+      data?: { status: string; requestedLimit: number | null; approvedLimit?: number }[];
+    };
+    const apps = rows.data ?? [];
+
+    const open = apps.filter((a) => a.status !== 'declined');
+    const withAmount = open.filter(
+      (a) => a.requestedLimit !== null || a.approvedLimit !== undefined,
+    );
+
+    // The seed carries a submitted application with no amount on file, so this
+    // is a live case rather than a hypothetical one.
+    expect(withAmount.length, 'every open application carries an amount').toBeLessThan(open.length);
+
+    await expect(
+      page.getByText(
+        `Pipeline Value covers ${withAmount.length} of ${open.length} open applications`,
+      ),
+    ).toBeVisible({ timeout: 30000 });
+  });
+
+  test('does not offer to move a card between columns', async ({ signedInPage: page }) => {
+    await page.goto('/applications');
+    await expect(page.getByText('Applications', { exact: false }).first()).toBeVisible();
+
+    // Dragging called a 404 route and swallowed the failure, leaving the board
+    // showing a status change that was never recorded.
+    await expect(page.locator('[draggable="true"]')).toHaveCount(0);
+    await expect(page.getByText('Drop here')).toHaveCount(0);
+  });
+});

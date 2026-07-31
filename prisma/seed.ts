@@ -479,6 +479,11 @@ const SEED_PHONES = {
       issuer: 'Bank of America',
       cardProduct: 'Business Advantage Unlimited',
       status: 'declined',
+      // The amount this application was for. A declined application still had
+      // a figure attached, and the pipeline board must leave it out of
+      // Pipeline Value — refused credit is not credit in play. Seeded with an
+      // amount so that exclusion is observable rather than assumed.
+      creditLimit: dec('20000'),
       declineReason: 'Too many recent inquiries',
       adverseActionNotice: {
         reason: 'Excessive inquiries in last 12 months',
