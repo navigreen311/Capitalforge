@@ -768,6 +768,99 @@ const SEED_PHONES = {
   });
   console.log('  ✓ Ledger events created');
 
+  // ── Repayment Plan + Schedule ─────────────────────────────
+  //
+  // Without this, every client returns hasPlan:false and the repayment page
+  // and client Repayment tab have nothing to show — the balance, monthly
+  // obligation and autopay figures are all plan-derived, so neither surface
+  // could be exercised in development.
+  //
+  // Schedules are linked to the seeded card applications so a payment can be
+  // lined up with the card it belongs to. totalBalance is plan-level, which is
+  // the only balance the schema carries: there is no per-card balance to seed.
+  const repaymentPlan = await prisma.repaymentPlan.upsert({
+    where: { id: 'seed-plan-001' },
+    update: {},
+    create: {
+      id: 'seed-plan-001',
+      tenantId: tenant.id,
+      businessId: biz1.id,
+      totalBalance: dec('38500'),
+      monthlyPayment: dec('2400'),
+      strategy: 'avalanche',
+      status: 'active',
+      interestShockDate: d('2026-10-12'),
+      interestShockAmount: dec('681'),
+      nextPaymentDate: d('2026-08-15'),
+    },
+  });
+
+  const schedules: Array<{
+    id: string;
+    cardApplicationId: string;
+    issuer: string;
+    dueDate: string;
+    minimumPayment: string;
+    recommendedPayment: string;
+    status: string;
+    autopayEnabled: boolean;
+    autopayVerified: boolean;
+  }> = [
+    {
+      id: 'seed-sched-001',
+      cardApplicationId: 'seed-app-001',
+      issuer: 'Chase',
+      dueDate: '2026-08-15',
+      minimumPayment: '450',
+      recommendedPayment: '1400',
+      status: 'upcoming',
+      autopayEnabled: true,
+      autopayVerified: true,
+    },
+    {
+      id: 'seed-sched-002',
+      cardApplicationId: 'seed-app-002',
+      issuer: 'American Express',
+      dueDate: '2026-08-22',
+      minimumPayment: '310',
+      recommendedPayment: '1000',
+      status: 'upcoming',
+      autopayEnabled: false,
+      autopayVerified: false,
+    },
+    {
+      id: 'seed-sched-003',
+      cardApplicationId: 'seed-app-001',
+      issuer: 'Chase',
+      dueDate: '2026-09-15',
+      minimumPayment: '450',
+      recommendedPayment: '1400',
+      status: 'upcoming',
+      autopayEnabled: true,
+      autopayVerified: true,
+    },
+  ];
+
+  for (const entry of schedules) {
+    await prisma.paymentSchedule.upsert({
+      where: { id: entry.id },
+      update: {},
+      create: {
+        id: entry.id,
+        repaymentPlanId: repaymentPlan.id,
+        cardApplicationId: entry.cardApplicationId,
+        issuer: entry.issuer,
+        dueDate: d(entry.dueDate),
+        minimumPayment: dec(entry.minimumPayment),
+        recommendedPayment: dec(entry.recommendedPayment),
+        status: entry.status,
+        autopayEnabled: entry.autopayEnabled,
+        autopayVerified: entry.autopayVerified,
+      },
+    });
+  }
+  console.log(`  ✓ Repayment plan: ${repaymentPlan.id} (${schedules.length} schedules)`);
+
   // ── Issuer Rules Engine ────────────────────────────────────
   await seedIssuerRules(prisma);
 

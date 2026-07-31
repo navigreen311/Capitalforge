@@ -25,7 +25,12 @@ export interface PaymentRow {
   id: string;
   date: string;
   issuer: string;
+  /** Null when the schedule carries no card link, so callers cannot mis-join. */
+  cardApplicationId: string | null;
+  /** Null for the same reason — never inferred from the issuer. */
+  cardProduct: string | null;
   amount: number;
+  recommendedPayment: number | null;
   status: string;
   autopayEnabled: boolean;
 }
@@ -96,7 +101,11 @@ export function toRepaymentView(data: unknown): RepaymentView {
       id: str(p['id']),
       date: str(p['date']),
       issuer: str(p['issuer'], 'Unknown issuer'),
+      cardApplicationId:
+        typeof p['cardApplicationId'] === 'string' ? p['cardApplicationId'] : null,
+      cardProduct: typeof p['cardProduct'] === 'string' ? p['cardProduct'] : null,
       amount: num(p['amount']) ?? 0,
+      recommendedPayment: num(p['recommendedPayment']),
       status: str(p['status'], 'upcoming'),
       autopayEnabled: p['autopayEnabled'] === true,
     }))
@@ -161,4 +170,71 @@ export function formatAmountOrDash(value: number | null): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+// ── Cards, joined and ordered ────────────────────────────────
+
+/**
+ * One row per approved card carrying an intro APR.
+ *
+ * Deliberately carries no balance, utilisation or months-to-payoff: nothing
+ * supplies a per-card balance, so those columns have no source. Adding them as
+ * zeros would render a client who owes nothing.
+ */
+export interface CardRow {
+  applicationId: string;
+  /** Null when the card is absent from the payoff waterfall. */
+  priority: number | null;
+  issuer: string;
+  cardProduct: string;
+  creditLimit: number | null;
+  introApr: number | null;
+  postExpiryApr: number | null;
+  expiryDate: string;
+  daysRemaining: number;
+  severity: AprExpiryRow['severity'];
+  /** The soonest unpaid payment for this card, or null if none is scheduled. */
+  nextPayment: PaymentRow | null;
+}
+
+/**
+ * Join the APR schedule, the payoff waterfall and the payment calendar into
+ * one row per card, ordered by payoff priority.
+ *
+ * Payments are matched on cardApplicationId, never on issuer: a client with
+ * two Chase cards has two schedules that are identical by issuer, and matching
+ * on it would attach one card's payment to the other.
+ */
+export function toCardRows(view: RepaymentView): CardRow[] {
+  const priorityFor = new Map(view.payoffWaterfall.map((p) => [p.applicationId, p]));
+
+  // The API returns payments ordered by due date, so the first match per card
+  // is the next one due.
+  const nextPaymentFor = new Map<string, PaymentRow>();
+  for (const payment of view.payments) {
+    if (payment.cardApplicationId && !nextPaymentFor.has(payment.cardApplicationId)) {
+      nextPaymentFor.set(payment.cardApplicationId, payment);
+    }
+  }
+
+  return view.aprExpiry
+    .map((card) => ({
+      applicationId: card.applicationId,
+      priority: priorityFor.get(card.applicationId)?.priority ?? null,
+      issuer: card.issuer,
+      cardProduct: card.cardProduct,
+      creditLimit: card.creditLimit,
+      introApr: card.currentApr,
+      postExpiryApr: card.postExpiryApr,
+      expiryDate: card.expiryDate,
+      daysRemaining: card.daysRemaining,
+      severity: card.severity,
+      nextPayment: nextPaymentFor.get(card.applicationId) ?? null,
+    }))
+    // Cards missing from the waterfall sort last rather than first, which is
+    // what an unguarded null would do.
+    .sort(
+      (a, b) =>
+        (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER),
+    );
 }

@@ -483,14 +483,28 @@ clientDetailRouter.get('/repayment', async (req: Request, res: Response, _next: 
         : null,
       autopayPct: upcoming.length > 0 ? Math.round((withAutopay / upcoming.length) * 100) : null,
       cardsAtRisk: aprExpirySchedule.filter((c) => c.daysRemaining <= 30).length,
-      paymentCalendar: upcoming.map((s) => ({
-        id: s.id,
-        date: s.dueDate.toISOString(),
-        issuer: s.issuer,
-        amount: Number(s.minimumPayment),
-        status: s.status,
-        autopayEnabled: s.autopayEnabled,
-      })),
+      // cardApplicationId and cardProduct let a caller line a payment up with
+      // the card it belongs to. Issuer alone does not: a client with two Chase
+      // cards has two schedules that look identical.
+      paymentCalendar: upcoming.map((s) => {
+        const card = s.cardApplicationId
+          ? (cards.find((c) => c.id === s.cardApplicationId) ?? null)
+          : null;
+        return {
+          id: s.id,
+          date: s.dueDate.toISOString(),
+          issuer: s.issuer,
+          cardApplicationId: s.cardApplicationId,
+          // Null when the schedule predates the card link or the card is not
+          // among this client's approved cards — not guessed from the issuer.
+          cardProduct: card?.cardProduct ?? null,
+          amount: Number(s.minimumPayment),
+          recommendedPayment:
+            s.recommendedPayment === null ? null : Number(s.recommendedPayment),
+          status: s.status,
+          autopayEnabled: s.autopayEnabled,
+        };
+      }),
       aprExpirySchedule,
       payoffWaterfall,
     });

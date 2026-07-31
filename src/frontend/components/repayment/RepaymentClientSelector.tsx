@@ -18,15 +18,24 @@ export interface RepaymentClientSelectorProps {
   selectedClient: RepaymentClient | null;
 }
 
-// ─── Placeholder clients ─────────────────────────────────────────────────────
+// ─── Client source ───────────────────────────────────────────────────────────
+//
+// Five invented clients used to populate this combobox. Selecting one set a
+// name in the page header and nothing else, because no id here matched a real
+// business — the repayment view keyed off it could never have loaded.
 
-const PLACEHOLDER_CLIENTS: RepaymentClient[] = [
-  { id: 'rp_001', legal_name: 'Summit Ridge Partners', entity_type: 'LLC', state: 'TX' },
-  { id: 'rp_002', legal_name: 'Ironclad Industries', entity_type: 'S-Corp', state: 'CA' },
-  { id: 'rp_003', legal_name: 'Verdant Growth Co', entity_type: 'C-Corp', state: 'NY' },
-  { id: 'rp_004', legal_name: 'Coastline Ventures', entity_type: 'LLC', state: 'FL' },
-  { id: 'rp_005', legal_name: 'Pinehurst Capital', entity_type: 'C-Corp', state: 'DE' },
-];
+/** Maps a /api/v1/clients row onto the shape this combobox renders. */
+function toRepaymentClient(row: Record<string, unknown>): RepaymentClient | null {
+  const id = typeof row['id'] === 'string' ? row['id'] : null;
+  if (!id) return null;
+  const name = row['businessName'] ?? row['legalName'];
+  return {
+    id,
+    legal_name: typeof name === 'string' && name.trim() !== '' ? name : 'Unnamed business',
+    entity_type: typeof row['entityType'] === 'string' ? row['entityType'] : '',
+    state: typeof row['state'] === 'string' ? row['state'] : '',
+  };
+}
 
 // ─── Debounce hook ──────────────────────────────────────────────────────────
 
@@ -57,15 +66,55 @@ export function RepaymentClientSelector({
   // Debounce the search query by 300ms
   const debouncedQuery = useDebouncedValue(query, 300);
 
-  const filtered = PLACEHOLDER_CLIENTS.filter((c) =>
+  const [clients, setClients] = useState<RepaymentClient[]>([]);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const token =
+          typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+        const res = await fetch('/api/v1/clients', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = (await res.json()) as { success?: boolean; data?: unknown };
+        if (cancelled) return;
+
+        if (!res.ok || json.success !== true || !Array.isArray(json.data)) {
+          // An empty combobox that silently shows nothing is indistinguishable
+          // from a tenant with no clients, so the failure is kept distinct.
+          setLoadState('error');
+          return;
+        }
+
+        setClients(
+          json.data
+            .map((row) => toRepaymentClient(row as Record<string, unknown>))
+            .filter((c): c is RepaymentClient => c !== null),
+        );
+        setLoadState('ready');
+      } catch {
+        if (!cancelled) setLoadState('error');
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filtered = clients.filter((c) =>
     c.legal_name.toLowerCase().includes(debouncedQuery.toLowerCase()),
   );
 
-  // Auto-select from ?client=X query param on mount
+  // Auto-select from ?client=X once the real list has arrived.
   useEffect(() => {
     const clientParam = searchParams.get('client');
-    if (clientParam && !selectedClient) {
-      const match = PLACEHOLDER_CLIENTS.find(
+    if (clientParam && !selectedClient && clients.length > 0) {
+      const match = clients.find(
         (c) =>
           c.id === clientParam ||
           c.legal_name.toLowerCase() === clientParam.toLowerCase(),
@@ -74,9 +123,9 @@ export function RepaymentClientSelector({
         onClientSelect(match);
       }
     }
-    // Only run on mount / when searchParams change
+    // Only run on mount / when searchParams or the loaded list change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, clients]);
 
   // Close on click-outside
   useEffect(() => {
@@ -143,7 +192,18 @@ export function RepaymentClientSelector({
                 border-gray-700 bg-gray-900 shadow-xl"
             >
               {filtered.length === 0 ? (
-                <li className="px-3 py-2 text-sm text-gray-500">No clients found</li>
+                // Three different reasons for an empty list, kept apart:
+                // still loading, the request failed, or this tenant genuinely
+                // has no client matching the query.
+                <li className="px-3 py-2 text-sm text-gray-500">
+                  {loadState === 'loading'
+                    ? 'Loading clients…'
+                    : loadState === 'error'
+                      ? 'Could not load clients. Check that you are signed in, then retry.'
+                      : clients.length === 0
+                        ? 'No clients on this tenant yet.'
+                        : 'No clients match that search.'}
+                </li>
               ) : (
                 filtered.map((client) => (
                   <li key={client.id}>

@@ -24,7 +24,14 @@ export interface PromoCard {
   promoExpiresAt: string; // ISO date
   promoApr: number;       // e.g. 0 for 0% promo
   regularApr: number;     // e.g. 24.99
-  balance: number;
+  /**
+   * Optional: card balances are not modelled — no issuer integration supplies
+   * them. When absent the expiry and rate are still shown, because those are
+   * real, but every figure derived from a balance is rendered as unavailable
+   * rather than computed from a zero. A "+$0/mo" interest shock reads as
+   * reassurance, and would be the one number a reader acts on.
+   */
+  balance?: number | null;
 }
 
 export type AlertSeverity = 'critical' | 'warning' | 'safe';
@@ -38,56 +45,6 @@ interface InterestShockAlertProps {
   className?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Placeholder data
-// ---------------------------------------------------------------------------
-
-function addDays(base: Date, n: number): Date {
-  const d = new Date(base);
-  d.setDate(d.getDate() + n);
-  return d;
-}
-
-const now = new Date();
-
-export const PLACEHOLDER_PROMO_CARDS: PromoCard[] = [
-  {
-    id: 'promo_001',
-    cardName: 'Ink Business Cash',
-    issuer: 'Chase',
-    promoExpiresAt: addDays(now, -3).toISOString(),
-    promoApr: 0,
-    regularApr: 21.99,
-    balance: 18_400,
-  },
-  {
-    id: 'promo_002',
-    cardName: 'Business Gold Card',
-    issuer: 'Amex',
-    promoExpiresAt: addDays(now, 18).toISOString(),
-    promoApr: 0,
-    regularApr: 27.49,
-    balance: 12_200,
-  },
-  {
-    id: 'promo_003',
-    cardName: 'Spark Cash Plus',
-    issuer: 'Capital One',
-    promoExpiresAt: addDays(now, 44).toISOString(),
-    promoApr: 0,
-    regularApr: 24.99,
-    balance: 8_750,
-  },
-  {
-    id: 'promo_004',
-    cardName: 'Venture X Business',
-    issuer: 'Capital One',
-    promoExpiresAt: addDays(now, 72).toISOString(),
-    promoApr: 0,
-    regularApr: 22.49,
-    balance: 5_300,
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -160,26 +117,44 @@ function monthlyInterest(balance: number, apr: number): number {
   return (balance * (apr / 100)) / 12;
 }
 
+/** The extra monthly interest once the promo lapses, or null with no balance. */
+function monthlyIncreaseFor(card: PromoCard): number | null {
+  if (card.balance === null || card.balance === undefined) return null;
+  return monthlyInterest(card.balance, card.regularApr) - monthlyInterest(card.balance, card.promoApr);
+}
+
+/** Currency, or an explicit dash for a figure that has no source. */
+function currencyOrDash(value: number | null): string {
+  return value === null ? '—' : formatCurrency(value);
+}
+
 // ---------------------------------------------------------------------------
 // Compact row variant
 // ---------------------------------------------------------------------------
 
 function CompactRow({ card, days, severity }: { card: PromoCard; days: number; severity: AlertSeverity }) {
   const cfg = SEVERITY_CONFIG[severity];
-  const monthlyIncrease = monthlyInterest(card.balance, card.regularApr) - monthlyInterest(card.balance, card.promoApr);
+  const monthlyIncrease = monthlyIncreaseFor(card);
 
   return (
     <div className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${cfg.bg} ${cfg.border}`}>
       <span className={`text-base ${cfg.valueText}`} aria-hidden="true">{cfg.icon}</span>
       <div className="flex-1 min-w-0">
         <p className={`text-sm font-semibold truncate ${cfg.titleText}`}>{card.cardName}</p>
-        <p className="text-xs text-gray-400">{card.issuer} · {formatCurrency(card.balance)} balance</p>
+        <p className="text-xs text-gray-400">
+          {card.issuer}
+          {card.balance === null || card.balance === undefined
+            ? ' · balance not tracked'
+            : ` · ${formatCurrency(card.balance)} balance`}
+        </p>
       </div>
       <div className="text-right flex-shrink-0">
         <p className={`text-sm font-bold ${cfg.valueText}`}>
           {days <= 0 ? 'Expired' : `${days}d left`}
         </p>
-        <p className="text-[10px] text-gray-500">+{formatCurrency(monthlyIncrease)}/mo</p>
+        <p className="text-[10px] text-gray-500">
+          {monthlyIncrease === null ? 'increase unknown' : `+${formatCurrency(monthlyIncrease)}/mo`}
+        </p>
       </div>
       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${cfg.badgeClass}`}>
         {cfg.badgeLabel}
@@ -194,9 +169,11 @@ function CompactRow({ card, days, severity }: { card: PromoCard; days: number; s
 
 function AlertCard({ card, days, severity }: { card: PromoCard; days: number; severity: AlertSeverity }) {
   const cfg = SEVERITY_CONFIG[severity];
-  const currentMonthly  = monthlyInterest(card.balance, card.promoApr);
-  const projectedMonthly = monthlyInterest(card.balance, card.regularApr);
-  const monthlyIncrease  = projectedMonthly - currentMonthly;
+  const hasBalance = card.balance !== null && card.balance !== undefined;
+  const currentMonthly  = hasBalance ? monthlyInterest(card.balance as number, card.promoApr) : null;
+  const projectedMonthly = hasBalance ? monthlyInterest(card.balance as number, card.regularApr) : null;
+  const monthlyIncrease  =
+    projectedMonthly === null || currentMonthly === null ? null : projectedMonthly - currentMonthly;
 
   // Progress bar: fill = % of promo period remaining (cap at 90-day window)
   const maxWindow = 90;
@@ -243,7 +220,11 @@ function AlertCard({ card, days, severity }: { card: PromoCard; days: number; se
         <div className="grid grid-cols-2 gap-2 pt-1">
           <div className="rounded-lg bg-gray-900/60 px-3 py-2">
             <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Current Balance</p>
-            <p className="text-base font-bold text-white">{formatCurrency(card.balance)}</p>
+            <p className="text-base font-bold text-white">
+              {card.balance === null || card.balance === undefined
+                ? '—'
+                : formatCurrency(card.balance)}
+            </p>
           </div>
           <div className="rounded-lg bg-gray-900/60 px-3 py-2">
             <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Promo → Regular APR</p>
@@ -253,11 +234,11 @@ function AlertCard({ card, days, severity }: { card: PromoCard; days: number; se
           </div>
           <div className="rounded-lg bg-gray-900/60 px-3 py-2">
             <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Current Monthly Int.</p>
-            <p className="text-base font-bold text-green-400">{formatCurrency(currentMonthly)}</p>
+            <p className="text-base font-bold text-green-400">{currencyOrDash(currentMonthly)}</p>
           </div>
           <div className={`rounded-lg px-3 py-2 ${cfg.bg} border ${cfg.border}`}>
             <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Projected Monthly Int.</p>
-            <p className={`text-base font-bold ${cfg.valueText}`}>{formatCurrency(projectedMonthly)}</p>
+            <p className={`text-base font-bold ${cfg.valueText}`}>{currencyOrDash(projectedMonthly)}</p>
           </div>
         </div>
 
@@ -265,10 +246,16 @@ function AlertCard({ card, days, severity }: { card: PromoCard; days: number; se
         <div className={`rounded-lg border px-3 py-2.5 ${cfg.bg} ${cfg.border}`}>
           <p className={`text-xs font-semibold ${cfg.valueText}`}>
             {days <= 0
-              ? `Regular APR now in effect. Monthly interest: ${formatCurrency(projectedMonthly)} — pay down or transfer immediately.`
+              ? projectedMonthly === null
+                ? `Regular APR of ${card.regularApr}% now in effect — pay down or transfer immediately.`
+                : `Regular APR now in effect. Monthly interest: ${formatCurrency(projectedMonthly)} — pay down or transfer immediately.`
               : severity === 'critical'
-              ? `Only ${days} days left. Monthly interest will increase by ${formatCurrency(monthlyIncrease)} — act now.`
-              : `${days} days remaining. Plan to pay down or transfer this balance to avoid +${formatCurrency(monthlyIncrease)}/mo.`}
+              ? monthlyIncrease === null
+                ? `Only ${days} days left before the rate rises to ${card.regularApr}% — act now.`
+                : `Only ${days} days left. Monthly interest will increase by ${formatCurrency(monthlyIncrease)} — act now.`
+              : monthlyIncrease === null
+                ? `${days} days remaining. Plan to pay down or transfer this balance before the rate rises to ${card.regularApr}%.`
+                : `${days} days remaining. Plan to pay down or transfer this balance to avoid +${formatCurrency(monthlyIncrease)}/mo.`}
           </p>
         </div>
       </div>
@@ -317,9 +304,14 @@ export default function InterestShockAlert({
 
   const criticalCount = annotated.filter(a => a.severity === 'critical').length;
   const warningCount  = annotated.filter(a => a.severity === 'warning').length;
-  const totalShock    = annotated.reduce((sum, { card }) =>
-    sum + monthlyInterest(card.balance, card.regularApr) - monthlyInterest(card.balance, card.promoApr), 0
-  );
+  // Summed over the cards whose balance is known. `shockBasedOn` says how many
+  // that is, so a small total is not read as small exposure when it is really
+  // partial coverage.
+  const withBalance   = annotated.filter(({ card }) => monthlyIncreaseFor(card) !== null);
+  const shockBasedOn  = withBalance.length;
+  const totalShock    = shockBasedOn === 0
+    ? null
+    : withBalance.reduce((sum, { card }) => sum + (monthlyIncreaseFor(card) ?? 0), 0);
 
   return (
     <div className={`rounded-xl border border-gray-800 bg-[#0A1628] overflow-hidden ${className}`}>
@@ -333,7 +325,21 @@ export default function InterestShockAlert({
             <p className="text-xs text-gray-400 mt-0.5">
               {criticalCount > 0 && <span className="text-red-400 font-medium">{criticalCount} critical · </span>}
               {warningCount > 0  && <span className="text-yellow-400 font-medium">{warningCount} warning · </span>}
-              Projected increase: <span className="text-white font-semibold">{formatCurrency(totalShock)}/mo</span>
+              {totalShock === null ? (
+                <span className="text-gray-500">
+                  Projected increase unavailable — no balances tracked
+                </span>
+              ) : (
+                <>
+                  Projected increase:{' '}
+                  <span className="text-white font-semibold">{formatCurrency(totalShock)}/mo</span>
+                  {shockBasedOn < annotated.length && (
+                    <span className="text-gray-500">
+                      {' '}(across {shockBasedOn} of {annotated.length} cards with balances)
+                    </span>
+                  )}
+                </>
+              )}
             </p>
           </div>
           <span className={`text-sm font-bold px-3 py-1 rounded-full border ${
