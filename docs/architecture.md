@@ -83,7 +83,7 @@ Every resource in CapitalForge is scoped to a `tenantId`. Isolation is enforced 
 
 ```
 Layer 1: HTTP Middleware
-  ├── X-Tenant-ID header validated on every authenticated request
+  ├── Tenant read from the verified access token (no tenant header)
   ├── Tenant record loaded and cached (Redis TTL: 60s)
   └── req.tenant injected into request context
 

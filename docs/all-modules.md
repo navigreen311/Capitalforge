@@ -28,7 +28,7 @@ Provides secure user authentication and enforces strict tenant isolation across 
 - Six RBAC roles: `super_admin`, `tenant_admin`, `advisor`, `compliance_officer`, `client`, `readonly`
 - Thirteen fine-grained permissions mapped to roles (e.g. `application:submit`, `compliance:write`)
 - JTI-based token blocklist in Redis for immediate refresh token revocation on logout
-- Multi-tenant middleware validates `X-Tenant-ID` header and injects tenant context into every request
+- Multi-tenant middleware takes the tenant from the verified access token and injects tenant context into every request (there is no tenant header; `X-Tenant-ID` is ignored)
 - Full audit logging of login, register, refresh, and logout events
 
 ### Data Models

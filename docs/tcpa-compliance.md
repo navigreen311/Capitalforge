@@ -251,7 +251,6 @@ Under TCPA and FCC rules, consumers have the right to revoke consent at any time
 ```http
 DELETE /api/consent/:consentId
 Authorization: Bearer <token>
-X-Tenant-ID: <tenant-uuid>
 Content-Type: application/json
 
 {

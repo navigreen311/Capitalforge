@@ -342,7 +342,6 @@ npm install -g autocannon
 # Run 30-second load test — 10 concurrent connections
 autocannon -c 10 -d 30 -m GET \
   -H "Authorization: Bearer $TEST_TOKEN" \
-  -H "X-Tenant-ID: $TEST_TENANT" \
   http://localhost:4000/api/businesses
 ```
 

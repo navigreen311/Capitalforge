@@ -493,9 +493,49 @@ For a quick one-page endpoint reference, see [`docs/api-quick-reference.md`](doc
 
 For the full annotated API reference with request/response examples, see [`docs/api.md`](docs/api.md).
 
+### Recently added
+
+Endpoints that previously returned sample data now read and write real
+records. Those worth knowing about because they are new rather than changed:
+
+```
+GET    /api/v1/clients/:id/credit/personal              — personal bureau scores
+GET    /api/v1/clients/:id/credit/history?profileType=  — score movement, one scale at a time
+POST   /api/v1/clients/:id/compliance/run               — runs a compliance check and persists it
+POST   /api/v1/clients/:id/consent/request              — sends a re-consent email
+
+GET    /api/credit-builder/:clientId/scores             — latest business bureau scores
+GET    /api/credit-builder/:clientId/score-history      — movement across the pulls on record
+GET    /api/credit-builder/:clientId/tradelines         — vendor tradelines with payments and disputes
+POST   /api/credit-builder/:clientId/tradelines         — open a vendor tradeline
+PATCH  /api/credit-builder/:clientId/tradelines/:id     — update status (open | closed | delinquent)
+POST   /api/credit-builder/:clientId/tradeline-payments — log a payment against a tradeline
+POST   /api/credit-builder/:clientId/tradeline-disputes — dispute a tradeline
+
+GET    /api/v1/funding-rounds/:roundId/repayment        — APR exposure across the round's cards
+GET    /api/v1/funding-rounds/:roundId/timeline         — round history from the canonical ledger
+POST   /api/funding-rounds/:id/export-dossier           — funding dossier for the round
+
+POST   /api/voiceforge/webhooks/sms-inbound             — inbound SMS, incl. STOP (public, HMAC-verified)
+POST   /api/voiceforge/webhooks/sms-status              — delivery receipts (public, HMAC-verified)
+```
+
+Two behaviours are worth knowing before calling them:
+
+- **`POST /api/v1/voiceforge/sms-campaign` refuses rather than pretending.** It
+  answers `503` when no SMS provider is configured and `501` when credentials
+  exist but no dispatch client is wired, both naming what is missing. Each
+  recipient is reported individually with the reason anything was withheld —
+  do-not-call, missing consent, no phone, outside the local contact window, or
+  no timezone on record.
+- **A client with no timezone is never messaged.** Quiet hours are judged in
+  the recipient's own zone, so `Business.timezone` has to be set or derivable
+  from the phone number's area code. `npm run backfill:timezone` fills it from
+  data already held.
+
 **Base URL:** `http://localhost:4000/api`
 **Auth:** `Authorization: Bearer <access_token>` on all authenticated routes
-**Tenant:** `X-Tenant-ID: <tenant_uuid>` on all authenticated routes
+**Tenant:** taken from the access token. There is no tenant header — `X-Tenant-ID` is ignored, and honouring it previously let a caller read and write another tenant's data by setting it.
 
 ---
 

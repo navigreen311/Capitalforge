@@ -68,7 +68,10 @@ CapitalForge uses a dual-token scheme:
 - Access tokens are short-lived (15 min).
 - Refresh tokens are rotated on every use.
 - JTI blocklist prevents replay of stolen refresh tokens.
-- `X-Tenant-ID` header is validated server-side — a token from tenant A cannot access tenant B's resources.
+- The tenant is read from the verified access token, so a token issued for tenant A cannot reach tenant B's
+  resources. There is no tenant header: `X-Tenant-ID` is ignored. It was previously honoured as a fallback,
+  which meant a caller could select the tenant they wanted by setting it — the header was the hole, not the
+  control.
 
 ---
 
@@ -152,7 +155,7 @@ Tenant data is isolated at three independent layers:
 
 ```
 Layer 1: HTTP Middleware
-  ├── X-Tenant-ID header validated on every authenticated request
+  ├── Tenant read from the verified access token (no tenant header)
   ├── Tenant record loaded from Redis cache (60s TTL) or DB
   └── req.tenant injected into request context
 

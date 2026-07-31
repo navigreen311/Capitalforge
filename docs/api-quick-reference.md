@@ -2,7 +2,7 @@
 
 **Base URL:** `http://localhost:4000/api`
 **Auth:** `Authorization: Bearer <access_token>` on all authenticated routes
-**Tenant:** `X-Tenant-ID: <tenant_uuid>` on all authenticated routes
+**Tenant:** taken from the access token. There is no tenant header — `X-Tenant-ID` is ignored, and honouring it previously let a caller read and write another tenant's data by setting it.
 **Response envelope:** `{ success: true, data: {...} }` / `{ success: false, error: { code, message } }`
 
 Full interactive docs: `http://localhost:4000/api/docs` (OpenAPI)
@@ -255,7 +255,20 @@ POST   /api/businesses/:id/credit-optimization/refresh          — Recompute op
 GET    /api/businesses/:id/credit-builder                       — Get credit builder program status
 POST   /api/businesses/:id/credit-builder/enroll                — Enroll in credit builder track
 PATCH  /api/businesses/:id/credit-builder/milestone/:milestoneId — Update milestone completion
+
+GET    /api/credit-builder/:clientId/scores                     — Latest business bureau score per bureau
+GET    /api/credit-builder/:clientId/score-history              — Score movement across the pulls on record
+GET    /api/credit-builder/:clientId/tradelines                 — Vendor tradelines with payments and disputes
+POST   /api/credit-builder/:clientId/tradelines                 — Open a vendor tradeline
+PATCH  /api/credit-builder/:clientId/tradelines/:tradelineId    — Update status (open | closed | delinquent)
+POST   /api/credit-builder/:clientId/tradeline-payments         — Log a payment, reduces the balance
+POST   /api/credit-builder/:clientId/tradeline-disputes         — File a dispute against a tradeline
 ```
+
+A logged payment is marked on time only when a due date is known — supplied
+directly, or derived from the vendor's `paymentTerms` and the opening date.
+With neither it is recorded as `onTime: null`, never `true`: `onTimeCount`
+counts payments actually confirmed on time, and is what a lender reads.
 
 ---
 
@@ -264,6 +277,13 @@ PATCH  /api/businesses/:id/credit-builder/milestone/:milestoneId — Update mile
 ### Funding Rounds
 
 ```
+GET    /api/funding-rounds/:roundId                             — Round detail with derived progress
+PATCH  /api/funding-rounds/:roundId                             — Update status, targets, APR date
+GET    /api/funding-rounds/:roundId/repayment                   — APR exposure across the round's cards
+GET    /api/funding-rounds/:roundId/timeline                    — Round history from the canonical ledger
+POST   /api/funding-rounds/:id/export-dossier                   — Funding dossier for the round
+       (all of the above also served under /api/v1/funding-rounds/...)
+
 POST   /api/businesses/:id/funding-rounds                       — Create funding round
 GET    /api/businesses/:id/funding-rounds                       — List funding rounds
 GET    /api/businesses/:id/funding-rounds/:roundId              — Get round with application summary
@@ -632,7 +652,6 @@ GET    /api/businesses/:id/evidence-bundles/:bundleId           — Get evidence
 |------|------|---------|
 | `UNAUTHORIZED` | 401 | Missing or invalid JWT |
 | `FORBIDDEN` | 403 | Valid token but insufficient permission |
-| `TENANT_MISMATCH` | 403 | Token tenant does not match X-Tenant-ID |
 | `NOT_FOUND` | 404 | Resource does not exist in this tenant |
 | `VALIDATION_ERROR` | 422 | Zod validation failed — see `details` |
 | `CONFLICT` | 409 | Duplicate resource or state conflict |

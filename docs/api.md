@@ -8,11 +8,11 @@
 Authorization: Bearer <access_token>
 ```
 
-**Tenant Context:** All authenticated endpoints require the `X-Tenant-ID` header:
+**Tenant Context:** Taken from the access token. There is no tenant header.
 
-```
-X-Tenant-ID: <tenant_uuid>
-```
+`X-Tenant-ID` is ignored. It was previously honoured as a fallback, which let
+a caller read and write another tenant's data by setting it — sending it now
+has no effect, and no endpoint requires it.
 
 **Response Envelope:**
 
