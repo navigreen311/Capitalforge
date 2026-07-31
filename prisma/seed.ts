@@ -87,11 +87,33 @@ async function main(): Promise<void> {
   // ── Businesses ────────────────────────────────────────────
 
   // Business 1 — Established LLC, ready for stacking
+
+// ── Seed phone numbers ───────────────────────────────────────
+//
+// Every number below is in 555-0100–555-0199, the block the North American
+// Numbering Plan reserves for fiction. They are guaranteed never to be
+// assigned to a real subscriber, which matters here because this system can
+// now send SMS: a plausible-looking real number in seed data is one campaign
+// away from texting a stranger.
+//
+// The area codes match each business's owner address, so the timezone
+// inferred from the number agrees with the one stored on the record.
+
+const SEED_PHONES = {
+  biz1: '+13025550101', // Wilmington, DE  → America/New_York
+  biz2: '+13055550102', // Miami, FL       → America/New_York
+  biz3: '+17135550103', // Houston, TX     → America/Chicago
+} as const;
+
   const biz1 = await prisma.business.upsert({
     where: { id: 'seed-biz-001' },
-    update: {},
+    // Applied on re-seed as well as on create: rows that predate these
+    // columns need them, and without a timezone a client is never messaged.
+    update: { phoneNumber: SEED_PHONES.biz1, timezone: 'America/New_York' },
     create: {
       id: 'seed-biz-001',
+      phoneNumber: SEED_PHONES.biz1,
+      timezone: 'America/New_York',
       tenantId: tenant.id,
       advisorId: advisorUser.id,
       legalName: 'Apex Digital Solutions LLC',
@@ -112,9 +134,13 @@ async function main(): Promise<void> {
   // Business 2 — S-Corp, mid-stage onboarding
   const biz2 = await prisma.business.upsert({
     where: { id: 'seed-biz-002' },
-    update: {},
+    // Applied on re-seed as well as on create: rows that predate these
+    // columns need them, and without a timezone a client is never messaged.
+    update: { phoneNumber: SEED_PHONES.biz2, timezone: 'America/New_York' },
     create: {
       id: 'seed-biz-002',
+      phoneNumber: SEED_PHONES.biz2,
+      timezone: 'America/New_York',
       tenantId: tenant.id,
       advisorId: advisorUser.id,
       legalName: 'Meridian Health & Wellness S Corp',
@@ -135,9 +161,13 @@ async function main(): Promise<void> {
   // Business 3 — C-Corp, early intake
   const biz3 = await prisma.business.upsert({
     where: { id: 'seed-biz-003' },
-    update: {},
+    // Applied on re-seed as well as on create: rows that predate these
+    // columns need them, and without a timezone a client is never messaged.
+    update: { phoneNumber: SEED_PHONES.biz3, timezone: 'America/Chicago' },
     create: {
       id: 'seed-biz-003',
+      phoneNumber: SEED_PHONES.biz3,
+      timezone: 'America/Chicago',
       tenantId: tenant.id,
       advisorId: null,
       legalName: 'Ironclad Logistics Inc',

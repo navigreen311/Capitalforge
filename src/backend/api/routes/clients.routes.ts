@@ -12,6 +12,7 @@ import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
+import { isValidTimezone } from '../../services/timezone.js';
 
 // ── Dependency setup ──────────────────────────────────────────
 
@@ -164,6 +165,18 @@ clientsRouter.post('/', async (req: Request, res: Response, _next: NextFunction)
     return;
   }
 
+  if (body.timezone !== undefined && body.timezone !== null) {
+    if (typeof body.timezone !== 'string' || !isValidTimezone(body.timezone)) {
+      err(
+        res,
+        422,
+        'INVALID_TIMEZONE',
+        'timezone must be an IANA name such as "America/Chicago".',
+      );
+      return;
+    }
+  }
+
   try {
     logger.info('POST create client', { tenantId, legalName: body.legalName });
     const business = await prisma.business.create({
@@ -177,6 +190,12 @@ clientsRouter.post('/', async (req: Request, res: Response, _next: NextFunction)
         industry: body.industry ?? null,
         annualRevenue: body.annualRevenue ?? null,
         monthlyRevenue: body.monthlyRevenue ?? null,
+        // Accepted at creation because a client with neither is unreachable
+        // for outreach: SMS needs a number, and quiet hours need a timezone.
+        // Both were silently dropped here, so every client created through
+        // the API could never be messaged until someone patched it.
+        phoneNumber: body.phoneNumber ?? null,
+        timezone: body.timezone ?? null,
         status: 'intake',
       },
     });
