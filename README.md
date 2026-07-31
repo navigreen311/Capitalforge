@@ -523,9 +523,10 @@ POST   /api/voiceforge/webhooks/sms-status              — delivery receipts (p
 Two behaviours are worth knowing before calling them:
 
 - **`POST /api/v1/voiceforge/sms-campaign` refuses rather than pretending.** It
-  answers `503` when no SMS provider is configured and `501` when credentials
-  exist but no dispatch client is wired, both naming what is missing. Each
-  recipient is reported individually with the reason anything was withheld —
+  answers `503 SMS_PROVIDER_NOT_CONFIGURED` when no SMS provider is configured,
+  naming the missing variables. When it does dispatch, a `200` does not mean
+  anything was sent: read `sent_count`. Each recipient is reported individually
+  as `sent`, `blocked` or `failed`, with the reason anything was withheld —
   do-not-call, missing consent, no phone, outside the local contact window, or
   no timezone on record.
 - **A client with no timezone is never messaged.** Quiet hours are judged in
