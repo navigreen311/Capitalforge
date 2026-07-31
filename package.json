@@ -25,6 +25,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "walk": "tsx scripts/lifecycle-walk.ts",
     "backfill:timezone": "tsx scripts/backfill-business-timezone.ts",
+    "clean:dev-data": "tsx scripts/clean-dev-data.ts",
     "db:studio": "prisma studio",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
