@@ -381,10 +381,16 @@ describe('Risk Register — high-risk business inputs', () => {
     expect(cat!.score).toBeGreaterThan(1);
   });
 
-  it('vendor in enforcement DB raises reputational score', () => {
+  it('an unscreened vendor is reported as unscreened, not scored clean', () => {
+    // This asserted that 'vendor-critical-001' raised the reputational score,
+    // which it did — from a table of three invented enforcement records with
+    // docket numbers. There is no screening source, so no vendor raises it,
+    // and the factor says why rather than leaving a baseline score to read
+    // as a clean bill of health.
     const result = scoreRiskRegister({ ...BASE_RISK_INPUT, vendorIds: ['vendor-critical-001'] });
     const cat = result.categoryScores.find((c) => c.category === 'reputational');
-    expect(cat!.score).toBeGreaterThan(1);
+    expect(cat!.factors.join(' ')).toMatch(/not screened/);
+    expect(cat!.factors.join(' ')).not.toMatch(/enforcement history/);
   });
 
   it('critical overall score has at least one critical category', () => {
@@ -540,7 +546,12 @@ describe('ComplianceService — runComplianceCheck (state_law)', () => {
 });
 
 describe('ComplianceService — runComplianceCheck (vendor)', () => {
-  it('returns vendor enforcement history for a known high-risk vendor', async () => {
+  it('reports a vendor as unscreened, with no enforcement history', async () => {
+    // This expected riskLevel 'critical' and enforcement actions for
+    // 'vendor-critical-001' — "Pinnacle Business Capital (Stub)", an FTC
+    // civil money penalty of $5,000,000 under docket FTC-X-2021-0041. None
+    // of it could be verified and the same respondent appears elsewhere in
+    // this codebase as a stub vendor name.
     const mock = makePrismaMock();
     const svc = new ComplianceService(mock as never);
 
@@ -552,12 +563,15 @@ describe('ComplianceService — runComplianceCheck (vendor)', () => {
     });
 
     expect(result.vendorHistory).toBeDefined();
-    expect(result.vendorHistory!.riskLevel).toBe('critical');
-    expect(result.vendorHistory!.enforcementActions.length).toBeGreaterThan(0);
-    expect(result.riskLevel).toBe('critical');
+    expect(result.vendorHistory!.screened).toBe(false);
+    expect(result.vendorHistory!.riskLevel).toBeNull();
+    expect(result.vendorHistory!.enforcementActions).toHaveLength(0);
   });
 
-  it('returns low-risk vendor record for unknown vendor', async () => {
+  it('does not report an unscreened vendor as low risk', async () => {
+    // The old behaviour: any vendor outside the invented table came back
+    // riskLevel 'low', scored 15, and the check reported low risk — a pass
+    // issued by a search that never ran.
     const mock = makePrismaMock();
     const svc = new ComplianceService(mock as never);
 
@@ -568,11 +582,11 @@ describe('ComplianceService — runComplianceCheck (vendor)', () => {
       vendorId:   'vendor-unknown-xyz',
     });
 
-    expect(result.vendorHistory!.riskLevel).toBe('low');
-    expect(result.vendorHistory!.enforcementActions).toHaveLength(0);
+    expect(result.riskLevel).toBe('unknown');
+    expect(result.riskLevel).not.toBe('low');
   });
 
-  it('findings include enforcement action details for critical vendor', async () => {
+  it('says the vendor was not screened, and cites no docket', async () => {
     const mock = makePrismaMock();
     const svc = new ComplianceService(mock as never);
 
@@ -583,9 +597,15 @@ describe('ComplianceService — runComplianceCheck (vendor)', () => {
       vendorId:   'vendor-critical-001',
     });
 
-    const criticalFinding = result.findings.find((f) => f.severity === 'critical');
-    expect(criticalFinding).toBeDefined();
-    expect(criticalFinding!.description).toMatch(/Pinnacle Business Capital/);
+    const finding = result.findings.find((f) => f.category === 'vendor.not_screened');
+    expect(finding).toBeDefined();
+    expect(finding!.description).toMatch(/has not been screened/);
+
+    // The finding used to carry `Docket: FTC-X-2021-0041` as its legal
+    // citation, and the whole check was written to compliance_checks with it.
+    const raw = JSON.stringify(result.findings);
+    expect(raw).not.toMatch(/Docket:/);
+    expect(raw).not.toMatch(/Pinnacle/);
   });
 });
 
@@ -628,22 +648,29 @@ describe('ComplianceService — runComplianceCheck (kyb/aml)', () => {
 });
 
 describe('ComplianceService — getVendorHistory', () => {
-  it('returns known vendor record from stub DB', async () => {
+  it('has no enforcement records to return, for any vendor', async () => {
+    // Three were held here, invented, with agencies, dates, penalties and
+    // docket numbers, and sourceUrls pointing at the real FTC and CFPB
+    // enforcement pages.
     const mock = makePrismaMock();
     const svc = new ComplianceService(mock as never);
 
-    const history = await svc.getVendorHistory('vendor-high-risk-001');
-    expect(history.riskLevel).toBe('high');
-    expect(history.enforcementActions[0].agency).toBe('CFPB');
+    for (const vendorId of ['vendor-high-risk-001', 'vendor-critical-001', 'vendor-99-unknown']) {
+      const history = await svc.getVendorHistory(vendorId);
+      expect(history.enforcementActions).toHaveLength(0);
+      expect(history.screened).toBe(false);
+      expect(history.isStubData).toBe(true);
+    }
   });
 
-  it('returns clean stub for unknown vendor', async () => {
+  it('returns no risk level rather than a clean one', async () => {
     const mock = makePrismaMock();
     const svc = new ComplianceService(mock as never);
 
     const history = await svc.getVendorHistory('vendor-99-unknown');
-    expect(history.riskLevel).toBe('low');
-    expect(history.isStubData).toBe(true);
+    // Was 'low'. An empty result from a source that was never queried is the
+    // absence of a search, not the absence of a finding.
+    expect(history.riskLevel).toBeNull();
   });
 });
 

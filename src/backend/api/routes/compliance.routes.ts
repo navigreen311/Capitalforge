@@ -291,7 +291,11 @@ complianceRouter.get(
 // Returns enforcement history for a vendor.
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.get(
-  '/vendor-history/:vendorId',
+  // Was '/vendor-history/:vendorId'. This router mounts at '/', and every
+  // other route in it carries the /compliance prefix, so the path the header
+  // of this file documents — and the only one a caller would try — answered
+  // 404. Nothing called it, which is how it went unnoticed.
+  '/compliance/vendor-history/:vendorId',
   tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

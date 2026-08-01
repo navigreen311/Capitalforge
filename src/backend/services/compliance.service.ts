@@ -80,7 +80,16 @@ export interface VendorEnforcementRecord {
   vendorId: string;
   vendorName: string;
   enforcementActions: EnforcementAction[];
-  riskLevel: RiskLevel;
+  /**
+   * Null when the vendor was never screened, which is currently always.
+   *
+   * It was 'low' for any vendor not in a table of three invented ones — an
+   * empty result from a source that was never queried, reported as a clean
+   * record. A risk level has to come from a search that happened.
+   */
+  riskLevel: RiskLevel | null;
+  /** False until an enforcement source is connected. */
+  screened: boolean;
   lastCheckedAt: Date;
   /** STUB — in production, integrate with CFPB enforcement database, FTC actions, and state AG records */
   isStubData: boolean;
@@ -105,7 +114,13 @@ export interface ComplianceCheckResult {
   tenantId: string;
   checkType: ComplianceCheckType;
   riskScore: number;
-  riskLevel: RiskLevel;
+  /**
+   * 'unknown' when nothing in the check produced a score.
+   *
+   * scoreToRiskLevel(0) is 'low', so a vendor check with no screening source
+   * behind it used to return the reassuring end of the scale.
+   */
+  riskLevel: RiskLevel | 'unknown';
   findings: ComplianceFinding[];
   riskRegister?: RiskRegisterResult;
   udapResult?: UdapScorerOutput;
@@ -185,61 +200,26 @@ const CATEGORY_WEIGHTS: Record<RiskCategory, number> = {
 // In production, replace with live CFPB/FTC API lookups and a
 // maintained internal vendor risk database.
 
-const VENDOR_ENFORCEMENT_DB: Record<string, VendorEnforcementRecord> = {
-  'vendor-high-risk-001': {
-    vendorId: 'vendor-high-risk-001',
-    vendorName: 'Apex Funding Solutions (Stub)',
-    enforcementActions: [
-      {
-        id: uuidv4(),
-        agency: 'CFPB',
-        actionType: 'consent_order',
-        date: '2022-03-15',
-        amount: 1250000,
-        description:
-          'CFPB consent order for misleading fee representations and UDAAP violations in ' +
-          'commercial financing context. Required refund of fees and implementation of ' +
-          'enhanced disclosure programme.',
-        docketNumber: 'CFPB-2022-0003',
-        sourceUrl: 'https://www.consumerfinance.gov/enforcement/actions/',
-      },
-    ],
-    riskLevel: 'high',
-    lastCheckedAt: new Date('2026-01-01'),
-    isStubData: true,
-  },
-  'vendor-critical-001': {
-    vendorId: 'vendor-critical-001',
-    vendorName: 'Pinnacle Business Capital (Stub)',
-    enforcementActions: [
-      {
-        id: uuidv4(),
-        agency: 'FTC',
-        actionType: 'civil_money_penalty',
-        date: '2021-07-22',
-        amount: 5000000,
-        description:
-          'FTC action for deceptive marketing of business funding programs including ' +
-          '"no upfront fee" and government affiliation claims. Prohibited from commercial ' +
-          'financing activities.',
-        docketNumber: 'FTC-X-2021-0041',
-        sourceUrl: 'https://www.ftc.gov/enforcement/cases-proceedings',
-      },
-      {
-        id: uuidv4(),
-        agency: 'State_AG',
-        actionType: 'cease_and_desist',
-        date: '2021-09-10',
-        amount: 750000,
-        description: 'California AG cease-and-desist for UCL violations mirroring FTC findings.',
-        docketNumber: 'CA-AG-2021-1192',
-      },
-    ],
-    riskLevel: 'critical',
-    lastCheckedAt: new Date('2026-01-01'),
-    isStubData: true,
-  },
-};
+/**
+ * No vendor enforcement data.
+ *
+ * This held three vendors with invented enforcement actions — "Pinnacle
+ * Business Capital (Stub)", an FTC civil money penalty of $5,000,000 dated
+ * 2021-07-22 under docket FTC-X-2021-0041, a California AG cease-and-desist
+ * under CA-AG-2021-1192 — each with a sourceUrl pointing at the real FTC and
+ * CFPB enforcement pages, which is what made them read as substantiated.
+ *
+ * They reached users: a compliance check of type "vendor" turned each action
+ * into a finding whose legalCitation was `Docket: FTC-X-2021-0041`, and the
+ * check was written to compliance_checks with that citation in it. The same
+ * respondent name and docket number had been copied into the training
+ * service's enforcement library.
+ *
+ * Screening a vendor means querying the CFPB enforcement database, FTC
+ * actions and state AG records. Nothing here does. So there is no data, and
+ * getVendorHistory says so rather than answering from a table of inventions.
+ */
+const VENDOR_ENFORCEMENT_DB: Record<string, VendorEnforcementRecord> = {};
 
 // ── Risk level mapping ────────────────────────────────────────────
 
@@ -423,6 +403,14 @@ export function scoreRiskRegister(input: RiskRegisterInput): RiskRegisterResult 
         if (vendor) {
           if (vendor.riskLevel === 'critical') { raw += 4; factors.push(`Vendor ${vendor.vendorName} has CRITICAL enforcement history`); }
           else if (vendor.riskLevel === 'high') { raw += 2; factors.push(`Vendor ${vendor.vendorName} has HIGH enforcement history`); }
+        } else {
+          // Says so rather than scoring the vendor clean. The lookup used to
+          // resolve against three invented records, and everything else fell
+          // through this branch silently at the baseline score.
+          factors.push(
+            `Vendor ${vid} not screened — no enforcement source is connected, so this score ` +
+            'reflects no check of its record',
+          );
         }
       }
     }
@@ -567,7 +555,11 @@ export class ComplianceService {
 
     if (input.checkType === 'vendor' && input.vendorId) {
       vendorHistory = await this.getVendorHistory(input.vendorId);
-      riskScore = this._vendorRiskToScore(vendorHistory.riskLevel);
+      // No screening, no score. Scoring an unscreened vendor produced 15,
+      // which reads as low risk — a pass issued by a check that never ran.
+      if (vendorHistory.riskLevel !== null) {
+        riskScore = this._vendorRiskToScore(vendorHistory.riskLevel);
+      }
       this._vendorToFindings(vendorHistory, findings);
     }
 
@@ -586,7 +578,12 @@ export class ComplianceService {
       if (riskScore === 0) riskScore = riskRegister.overallScore;
     }
 
-    const riskLevel = scoreToRiskLevel(riskScore);
+    // 'unknown' where nothing produced a score. scoreToRiskLevel(0) is 'low',
+    // and a check that could not run must not answer with the reassuring end
+    // of the scale.
+    const vendorUnscreened =
+      input.checkType === 'vendor' && vendorHistory !== undefined && !vendorHistory.screened;
+    const riskLevel: RiskLevel | 'unknown' = vendorUnscreened ? 'unknown' : scoreToRiskLevel(riskScore);
 
     // ── Persist to database ───────────────────────────────────────
 
@@ -683,12 +680,15 @@ export class ComplianceService {
     const known = VENDOR_ENFORCEMENT_DB[vendorId];
     if (known) return known;
 
-    // Unknown vendor — return clean record
+    // Not "clean" — unscreened. An empty enforcement list from a source that
+    // was never queried is the absence of a search, not the absence of a
+    // finding, and it used to come back as riskLevel 'low'.
     return {
       vendorId,
       vendorName: 'Unknown Vendor',
       enforcementActions: [],
-      riskLevel: 'low',
+      riskLevel: null,
+      screened: false,
       lastCheckedAt: new Date(),
       isStubData: true,
     };
@@ -780,6 +780,22 @@ export class ComplianceService {
     vendor: VendorEnforcementRecord,
     findings: ComplianceFinding[],
   ): void {
+    if (vendor.enforcementActions.length === 0) {
+      findings.push({
+        id: uuidv4(),
+        severity: 'warning',
+        category: 'vendor.not_screened',
+        description:
+          `Vendor "${vendor.vendorName}" has not been screened. No enforcement source is ` +
+          'connected — not the CFPB enforcement database, not FTC actions, not state AG ' +
+          'records — so this check neither clears the vendor nor finds anything against it.',
+        remediation:
+          'Screen the vendor against the CFPB and FTC enforcement records directly before ' +
+          'relying on this check.',
+      });
+      return;
+    }
+
     for (const action of vendor.enforcementActions) {
       const severity = vendor.riskLevel === 'critical' ? 'critical' : 'violation';
       findings.push({

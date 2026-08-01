@@ -50,7 +50,6 @@ export interface CallBannedClaimViolation {
   matchedText: string;
   position: number;
   compliantAlternative: string | undefined;
-  enforcementExample: string | undefined;
 }
 
 export interface RequiredDisclosureInsertion {
@@ -413,7 +412,6 @@ export class VoiceForgeComplianceService {
           matchedText: match[0] ?? '',
           position: match.index ?? 0,
           compliantAlternative: claim.compliantAlternative,
-          enforcementExample: claim.enforcementExample,
         });
       }
     }

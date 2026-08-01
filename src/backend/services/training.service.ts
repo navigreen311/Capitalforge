@@ -43,113 +43,79 @@ export interface TrainingModule {
   /** Key banned-claim categories this module addresses */
   bannedClaimCategories: BannedClaimCategory[];
   /** Relevant enforcement cases for context */
-  enforcementCases: EnforcementCase[];
+  rules: ComplianceRule[];
   estimatedMinutes: number;
 }
 
-export interface EnforcementCase {
-  caseId: string;
-  parties: string;
-  agency: string;
-  year: number;
-  penalty?: string;
-  summary: string;
+/**
+ * A rule an advisor has to follow, and the law it comes from.
+ *
+ * This replaces a library of six enforcement cases — "FTC v. Pinnacle
+ * Business Capital (2021), $5,000,000 civil money penalty", "CFPB v.
+ * Consumer Assistance Services LLC (2020), $2,700,000 redress", each with a
+ * paragraph of findings and a docket-style reference like FTC-X-2021-0041.
+ *
+ * None of it could be verified, and one of the respondents — Pinnacle
+ * Business Capital — appears elsewhere in this codebase as the name of an
+ * explicitly stubbed vendor, which is where it most likely came from. A
+ * compliance product citing case law it cannot substantiate is worse than
+ * one that cites none: an advisor repeats it, and the fabrication travels.
+ *
+ * The lessons survive because they do not depend on the cases. What an
+ * advisor must not say is fixed by the statutes named in `authority`, which
+ * are real and checkable, and the guidance was sound regardless of the
+ * docket numbers attached to it.
+ */
+export interface ComplianceRule {
+  ruleId: string;
+  /** What to do, or not do. */
   lesson: string;
-  sourceRef?: string;
+  /** The provision it rests on. A statute, not a case. */
+  authority: string;
 }
 
-// ── Enforcement case library ──────────────────────────────────────
-
-const ENFORCEMENT_CASES: EnforcementCase[] = [
+const COMPLIANCE_RULES: ComplianceRule[] = [
   {
-    caseId: 'case-001',
-    parties: 'FTC v. Pinnacle Business Capital',
-    agency: 'FTC',
-    year: 2021,
-    penalty: '$5,000,000 civil money penalty',
-    summary:
-      'Respondent marketed a business credit stacking programme using "$0 upfront", ' +
-      '"government-backed", and "guaranteed approval" language across web, email, and ' +
-      'phone channels. The FTC found these claims to be materially deceptive under ' +
-      'Section 5 of the FTC Act.',
+    ruleId: 'rule-guaranteed-approval',
     lesson:
       'Never use "guaranteed approval", "government-backed", or "no upfront fee" language. ' +
       'All fees must be disclosed before any commitment.',
-    sourceRef: 'FTC-X-2021-0041',
+    authority: 'FTC Act § 5 (deceptive acts or practices)',
   },
   {
-    caseId: 'case-002',
-    parties: 'CFPB v. Consumer Assistance Services LLC',
-    agency: 'CFPB',
-    year: 2020,
-    penalty: '$2,700,000 redress + injunction',
-    summary:
-      'Advisors described mandatory coaching services as "free consulting included with ' +
-      'your programme" while the fee was embedded in a non-transparent retainer. CFPB ' +
-      'found the representation abusive under Dodd-Frank § 1031.',
+    ruleId: 'rule-fee-disclosure',
     lesson:
       'Always disclose all fees explicitly. If advisory services are included in a ' +
       'programme fee, describe them as "included in the programme fee", not "free".',
-    sourceRef: 'CFPB-2020-0012',
+    authority: 'Dodd-Frank § 1031 (unfair, deceptive or abusive acts or practices)',
   },
   {
-    caseId: 'case-003',
-    parties: 'CFPB Supervisory Highlights — Commercial Credit Stacking',
-    agency: 'CFPB',
-    year: 2022,
-    summary:
-      'CFPB examiners found that advisors at multiple credit-stacking firms routinely used ' +
-      '"no personal risk", "zero downside", and "risk-free capital" language in sales calls. ' +
-      'Personal guarantee obligations were not disclosed until after verbal commitment.',
+    ruleId: 'rule-personal-guarantee',
     lesson:
       'Personal guarantee risk must be disclosed at the first substantive discussion ' +
       'of credit products — not after a client verbally commits.',
-    sourceRef: 'CFPB-SUP-2022-H',
+    authority: 'Dodd-Frank § 1031 (unfair, deceptive or abusive acts or practices)',
   },
   {
-    caseId: 'case-004',
-    parties: 'FTC v. Business Advisors Inc.',
-    agency: 'FTC',
-    year: 2019,
-    penalty: '$1,200,000 disgorgement',
-    summary:
-      'Firm represented itself as an "SBA-certified partner" and "government-approved ' +
-      'business funding agency" on its website and in advisor scripts. No actual SBA ' +
-      'relationship existed.',
+    ruleId: 'rule-government-affiliation',
     lesson:
       'SBA affiliation requires formal written authorisation from the SBA. ' +
       'Any government affiliation claim must be verified and documented before use.',
-    sourceRef: 'FTC-BUS-2019-ADV',
+    authority: 'FTC Act § 5 (deceptive acts or practices)',
   },
   {
-    caseId: 'case-005',
-    parties: 'FTC v. Credit Secrets Inc.',
-    agency: 'FTC',
-    year: 2020,
-    penalty: '$5,200,000 redress order',
-    summary:
-      'Advisors projected specific income ("earn $50k/month") achievable through credit ' +
-      'stacking strategies without substantiation. FTC deemed these "testimonial-style" ' +
-      'projections deceptive earnings claims under the Income Disclosure Rule.',
+    ruleId: 'rule-earnings-claims',
     lesson:
       'Never project specific income figures. Refer clients to their own financial ' +
       'advisors for ROI analysis.',
-    sourceRef: 'FTC-CRD-2020-SEC',
+    authority: 'FTC Act § 5 (deceptive acts or practices)',
   },
   {
-    caseId: 'case-006',
-    parties: 'CFPB Enforcement Action — Urgency Tactics',
-    agency: 'CFPB',
-    year: 2021,
-    penalty: 'Consent order + $800,000 civil penalty',
-    summary:
-      'Sales advisors used "decide today or lose your spot" and "offer expires midnight" ' +
-      'scripts to pressure clients into signing. CFPB classified this as an abusive ' +
-      'practice that exploited consumers\' time pressure.',
+    ruleId: 'rule-urgency',
     lesson:
       'Give clients adequate time to review all terms. Urgency scripts that create ' +
       'artificial pressure are abusive practices.',
-    sourceRef: 'CFPB-ENF-2021-URG',
+    authority: 'Dodd-Frank § 1031 (unfair, deceptive or abusive acts or practices)',
   },
 ];
 
@@ -199,7 +165,7 @@ export function withoutEnforcementCases(track: TrackDefinition): PublishedTrack 
       topics: module.topics,
       bannedClaimCategories: module.bannedClaimCategories,
       estimatedMinutes: module.estimatedMinutes,
-      lessons: module.enforcementCases.map((c) => c.lesson),
+      lessons: module.rules.map((r) => r.lesson),
     })),
   };
 }
@@ -227,7 +193,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'Regulatory enforcement landscape',
         ],
         bannedClaimCategories: ['guaranteed_approval', 'government_affiliation', 'sba_affiliation'],
-        enforcementCases: [ENFORCEMENT_CASES[0]!, ENFORCEMENT_CASES[3]!],
+        rules: [COMPLIANCE_RULES[0]!, COMPLIANCE_RULES[3]!],
         estimatedMinutes: 30,
       },
       {
@@ -254,7 +220,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'coaching_misrepresentation',
           'upfront_fee_concealment',
         ],
-        enforcementCases: ENFORCEMENT_CASES,
+        rules: COMPLIANCE_RULES,
         estimatedMinutes: 45,
       },
       {
@@ -270,7 +236,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'Non-affiliation disclaimer',
         ],
         bannedClaimCategories: ['upfront_fee_concealment', 'coaching_misrepresentation', 'no_risk_claim'],
-        enforcementCases: [ENFORCEMENT_CASES[2]!, ENFORCEMENT_CASES[1]!],
+        rules: [COMPLIANCE_RULES[2]!, COMPLIANCE_RULES[1]!],
         estimatedMinutes: 25,
       },
       {
@@ -284,7 +250,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'Documenting client interactions',
         ],
         bannedClaimCategories: [],
-        enforcementCases: [],
+        rules: [],
         estimatedMinutes: 20,
       },
     ],
@@ -311,7 +277,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'Updated FTC guidance on income claims',
         ],
         bannedClaimCategories: ['guaranteed_approval', 'income_projection', 'government_affiliation'],
-        enforcementCases: ENFORCEMENT_CASES,
+        rules: COMPLIANCE_RULES,
         estimatedMinutes: 20,
       },
       {
@@ -330,7 +296,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'coaching_misrepresentation',
           'upfront_fee_concealment',
         ],
-        enforcementCases: [ENFORCEMENT_CASES[1]!, ENFORCEMENT_CASES[2]!, ENFORCEMENT_CASES[5]!],
+        rules: [COMPLIANCE_RULES[1]!, COMPLIANCE_RULES[2]!, COMPLIANCE_RULES[5]!],
         estimatedMinutes: 20,
       },
       {
@@ -344,7 +310,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'Client revocation handling',
         ],
         bannedClaimCategories: [],
-        enforcementCases: [],
+        rules: [],
         estimatedMinutes: 15,
       },
     ],
@@ -372,7 +338,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'Multi-state deal structuring',
         ],
         bannedClaimCategories: ['government_affiliation', 'sba_affiliation'],
-        enforcementCases: [ENFORCEMENT_CASES[3]!],
+        rules: [COMPLIANCE_RULES[3]!],
         estimatedMinutes: 60,
       },
       {
@@ -386,7 +352,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'Documenting override decisions',
         ],
         bannedClaimCategories: [],
-        enforcementCases: ENFORCEMENT_CASES.slice(0, 3),
+        rules: COMPLIANCE_RULES.slice(0, 3),
         estimatedMinutes: 40,
       },
       {
@@ -400,7 +366,7 @@ export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
           'AI decision log review',
         ],
         bannedClaimCategories: [],
-        enforcementCases: [],
+        rules: [],
         estimatedMinutes: 30,
       },
     ],
@@ -812,24 +778,26 @@ export class TrainingService {
    * for training display.
    */
   getBannedClaimsLibrary() {
-    return BANNED_CLAIMS.map(({ pattern: _p, ...claim }) => ({
-      ...claim,
-      enforcementCases: ENFORCEMENT_CASES.filter((ec) =>
-        (claim.enforcementExample ?? '').includes(ec.parties.split(' ')[2] ?? ''),
-      ),
-    }));
+    // The claim and the statute behind it. This used to attach the
+    // enforcement case whose respondent name appeared in the claim's own
+    // example string — a join between two invented fields.
+    return BANNED_CLAIMS.map(({ pattern: _p, ...claim }) => ({ ...claim }));
   }
 
   /**
-   * Return enforcement case examples for a specific banned claim category.
+   * The rules that bear on a banned-claim category.
+   *
+   * This returned enforcement cases — parties, penalties, docket references —
+   * none of which could be verified. What an advisor needs is the rule and
+   * the statute, and both survive.
    */
-  getEnforcementCasesForCategory(category: BannedClaimCategory): EnforcementCase[] {
+  getRulesForCategory(category: BannedClaimCategory): ComplianceRule[] {
     const relevantTrack = this._findTrackForCategory(category);
     if (!relevantTrack) return [];
 
     const track = TRACK_CATALOGUE[relevantTrack.trackName];
     const module = track.modules.find((m) => m.id === relevantTrack.moduleId);
-    return module?.enforcementCases ?? [];
+    return module?.rules ?? [];
   }
 
   /**

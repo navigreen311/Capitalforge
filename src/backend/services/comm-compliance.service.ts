@@ -56,7 +56,6 @@ export interface BannedClaim {
   /** Optional example of an acceptable alternative */
   compliantAlternative?: string;
   /** Enforcement case example for training */
-  enforcementExample?: string;
 }
 
 export const BANNED_CLAIMS: BannedClaim[] = [
@@ -70,8 +69,6 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5; Dodd-Frank § 1031 (UDAAP)',
     severityWeight: 10,
     compliantAlternative: 'Many of our clients are approved — results depend on your credit profile.',
-    enforcementExample:
-      'FTC v. Pinnacle Business Capital (2021): $5M penalty for guaranteed approval claims in commercial financing marketing.',
   },
   {
     id: 'banned-002',
@@ -82,8 +79,6 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5; UDAAP',
     severityWeight: 10,
     compliantAlternative: 'We have a strong track record of approvals for well-qualified businesses.',
-    enforcementExample:
-      'CFPB Supervisory Highlights (2023): flagged "virtually guaranteed" approval language as deceptive.',
   },
   {
     id: 'banned-003',
@@ -106,8 +101,6 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5; 15 U.S.C. § 1125 (Lanham Act); SBA Reg. 13 C.F.R. § 120',
     severityWeight: 10,
     compliantAlternative: 'We work with lenders who offer SBA loan products — but we are a private service.',
-    enforcementExample:
-      'FTC v. Business Advisors Inc. (2019): consent order for falsely claiming SBA certification.',
   },
   {
     id: 'banned-005',
@@ -139,8 +132,6 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5; UDAAP',
     severityWeight: 9,
     compliantAlternative: 'We will walk you through the risks and personal guarantee requirements in detail.',
-    enforcementExample:
-      'CFPB Supervisory Highlights (2022): "no personal risk" claims in commercial credit stacking flagged as deceptive.',
   },
   {
     id: 'banned-008',
@@ -171,8 +162,6 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5; FTC Income Disclosure Guidelines',
     severityWeight: 8,
     compliantAlternative: 'Results vary — we focus on helping you access capital, not guarantee returns.',
-    enforcementExample:
-      'FTC v. Credit Secrets (2020): income projection claims in credit-building context led to $5.2M redress order.',
   },
   {
     id: 'banned-011',
@@ -203,8 +192,6 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5; CFPB UDAAP guidance',
     severityWeight: 7,
     compliantAlternative: 'Take your time to review everything — we are here when you are ready.',
-    enforcementExample:
-      'CFPB Enforcement Action (2021): "decide today" language cited as abusive in commercial financing context.',
   },
   {
     id: 'banned-014',
@@ -235,8 +222,6 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5; UDAAP',
     severityWeight: 8,
     compliantAlternative: 'Our advisory services are included as part of the programme fee.',
-    enforcementExample:
-      'CFPB v. Consumer Assistance Services (2020): "free consulting" language where fees were embedded.',
   },
   {
     id: 'banned-017',
@@ -259,8 +244,6 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5; Regulation Z; UDAAP',
     severityWeight: 9,
     compliantAlternative: 'Our programme fee is [amount] — disclosed fully before you sign anything.',
-    enforcementExample:
-      'FTC v. Pinnacle Business Capital (2021): "$0 upfront" claims with embedded fees led to $5M civil penalty.',
   },
   {
     id: 'banned-019',
@@ -365,7 +348,6 @@ export interface BannedClaimViolation {
   severityWeight: number;
   legalCitation: string;
   compliantAlternative?: string;
-  enforcementExample?: string;
 }
 
 export interface CommComplianceScanResult {
@@ -601,7 +583,6 @@ export class CommComplianceService {
           severityWeight:      claim.severityWeight,
           legalCitation:       claim.legalCitation,
           compliantAlternative: claim.compliantAlternative,
-          enforcementExample:  claim.enforcementExample,
         });
         // Prevent infinite loop on zero-length matches
         if (match.index === regex.lastIndex) regex.lastIndex++;
@@ -715,7 +696,6 @@ export class CommComplianceService {
           severityWeight:      claim.severityWeight,
           legalCitation:       claim.legalCitation,
           compliantAlternative: claim.compliantAlternative,
-          enforcementExample:  claim.enforcementExample,
         });
         if (match.index === regex.lastIndex) regex.lastIndex++;
       }

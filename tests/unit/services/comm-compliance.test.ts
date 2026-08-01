@@ -715,10 +715,21 @@ describe('Regulation training triggers', () => {
     expect(trigger.requiredByDate).toBe(requiredByDate);
   });
 
-  it('getEnforcementCasesForCategory returns cases for guaranteed_approval', () => {
-    const cases = svc.getEnforcementCasesForCategory('guaranteed_approval');
-    // Returns what enforcement examples are tied to that category via modules
-    expect(Array.isArray(cases)).toBe(true);
+  it('getRulesForCategory returns rules with a statute, and no case law', () => {
+    const rules = svc.getRulesForCategory('guaranteed_approval');
+    expect(Array.isArray(rules)).toBe(true);
+
+    // This returned invented enforcement cases — "FTC v. Pinnacle Business
+    // Capital (2021), $5,000,000 civil money penalty", with a docket-style
+    // reference. What survives is the rule and the provision behind it.
+    for (const rule of rules) {
+      expect(rule.lesson.length).toBeGreaterThan(0);
+      expect(rule.authority).toMatch(/FTC Act|Dodd-Frank/);
+      const asRecord = rule as unknown as Record<string, unknown>;
+      for (const gone of ['parties', 'penalty', 'sourceRef', 'agency', 'year']) {
+        expect(asRecord[gone]).toBeUndefined();
+      }
+    }
   });
 
   it('getTrackCatalogue returns all three tracks', () => {
