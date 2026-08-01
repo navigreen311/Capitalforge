@@ -473,6 +473,7 @@ describe('OffboardingService', () => {
     prisma.offboardingWorkflow.findFirst.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'pending' });
     await expect(svc.deleteData({
       workflowId: 'wf-001',
+      tenantId: 'tenant-001',
       jurisdiction: 'ccpa',
       requestedBy: 'user-001',
       confirmationToken: 'INVALID-TOKEN',
@@ -491,6 +492,7 @@ describe('OffboardingService', () => {
 
     const report = await svc.deleteData({
       workflowId: 'wf-001',
+      tenantId: 'tenant-001',
       jurisdiction: 'ccpa',
       requestedBy: 'user-001',
       confirmationToken: token,
@@ -500,6 +502,55 @@ describe('OffboardingService', () => {
     expect(report.proofHash).toHaveLength(64); // sha256 hex
     expect(report.reportSignature).toBeDefined();
     expect(report.jurisdiction).toBe('ccpa');
+  });
+
+  // ── Tenant scoping ────────────────────────────────────────
+
+  it('deleteData — scopes the lookup to the calling tenant', async () => {
+    prisma.offboardingWorkflow.findFirst.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'pending' });
+    prisma.offboardingWorkflow.update.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'completed' });
+    prisma.businessOwner.findMany.mockResolvedValue([]);
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.fairLendingRecord.findMany.mockResolvedValue([]);
+
+    await svc.deleteData({
+      workflowId: 'wf-001', tenantId: 'tenant-001', jurisdiction: 'ccpa',
+      requestedBy: 'user-001',
+      confirmationToken: svc.generateConfirmationToken('tenant-001', 'wf-001'),
+    });
+
+    // It used to look the workflow up by id alone.
+    expect(prisma.offboardingWorkflow.findFirst).toHaveBeenCalledWith({
+      where: { id: 'wf-001', tenantId: 'tenant-001' },
+    });
+  });
+
+  it('deleteData — will not touch a workflow belonging to another tenant', async () => {
+    // The mock answers the where clause honestly, so an unscoped lookup finds
+    // tenant-001's workflow exactly as the database would have. The caller is
+    // tenant-002 holding the token for it — which, before the commit that
+    // required a real secret, anyone could derive from the two ids.
+    prisma.offboardingWorkflow.findFirst.mockImplementation(
+      async (args: { where: { id?: string; tenantId?: string } }) => {
+        const wf = { ...WF_FIXTURE, dataDeletionStatus: 'pending' };
+        if (args.where.id !== wf.id) return null;
+        if (args.where.tenantId !== undefined && args.where.tenantId !== wf.tenantId) return null;
+        return wf;
+      },
+    );
+
+    // Scoped lookup, so the row is simply not found — reported the same way a
+    // workflow that does not exist is, rather than confirming the id is real.
+    await expect(svc.deleteData({
+      workflowId: 'wf-001', tenantId: 'tenant-002', jurisdiction: 'ccpa',
+      requestedBy: 'user-002',
+      confirmationToken: svc.generateConfirmationToken('tenant-001', 'wf-001'),
+    })).rejects.toThrow('not found');
+
+    expect(prisma.offboardingWorkflow.update).not.toHaveBeenCalled();
+    expect(prisma.businessOwner.update).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(prisma.tenant.update).not.toHaveBeenCalled();
   });
 
   // ── Fail-closed on the deletion secrets ───────────────────
@@ -540,7 +591,7 @@ describe('OffboardingService', () => {
     delete process.env['DELETION_CONFIRM_SECRET'];
 
     await expect(svc.deleteData({
-      workflowId: 'wf-001', jurisdiction: 'ccpa',
+      workflowId: 'wf-001', tenantId: 'tenant-001', jurisdiction: 'ccpa',
       requestedBy: 'user-001', confirmationToken: token,
     })).rejects.toThrow('DELETION_CONFIRM_SECRET is not set');
 
@@ -557,7 +608,7 @@ describe('OffboardingService', () => {
     delete process.env['DELETION_PROOF_SECRET'];
 
     await expect(svc.deleteData({
-      workflowId: 'wf-001', jurisdiction: 'ccpa',
+      workflowId: 'wf-001', tenantId: 'tenant-001', jurisdiction: 'ccpa',
       requestedBy: 'user-001', confirmationToken: token,
     })).rejects.toThrow('DELETION_PROOF_SECRET is not set');
 
@@ -574,7 +625,8 @@ describe('OffboardingService', () => {
     prisma.consentRecord.deleteMany.mockResolvedValue({ count: 0 });
 
     const report = await svc.deleteData({
-      workflowId: 'wf-001', jurisdiction: 'ccpa', requestedBy: 'user-001',
+      workflowId: 'wf-001', tenantId: 'tenant-001', jurisdiction: 'ccpa',
+      requestedBy: 'user-001',
       confirmationToken: svc.generateConfirmationToken('tenant-001', 'wf-001'),
     });
 
@@ -592,7 +644,7 @@ describe('OffboardingService', () => {
     const token = svc.generateConfirmationToken('tenant-001', 'wf-001');
     prisma.offboardingWorkflow.findFirst.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'completed' });
     await expect(svc.deleteData({
-      workflowId: 'wf-001', jurisdiction: 'gdpr',
+      workflowId: 'wf-001', tenantId: 'tenant-001', jurisdiction: 'gdpr',
       requestedBy: 'user-001', confirmationToken: token,
     })).rejects.toThrow('already completed');
   });

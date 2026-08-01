@@ -412,6 +412,11 @@ adminRouter.post(
       const report = await getOffboardingSvc().deleteData({
         workflowId: req.params['id']!,
         ...input,
+        // The caller's own tenant, and only ever that. GET /:id lets a
+        // super_admin read across tenants; a deletion does not follow it —
+        // nothing here supplies a tenant other than the one in the token, so
+        // acting on another tenant's data means holding that tenant's token.
+        tenantId: req.tenant!.tenantId,
         requestedBy: req.tenant!.userId,
       });
       ok(res, report);

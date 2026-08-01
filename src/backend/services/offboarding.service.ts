@@ -16,7 +16,7 @@ import crypto from 'crypto';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import { eventBus } from '../events/event-bus.js';
 import logger from '../config/logger.js';
-import { AppError } from '../middleware/error-handler.js';
+import { AppError, notFound } from '../middleware/error-handler.js';
 
 // ── Prisma singleton ──────────────────────────────────────────
 
@@ -55,6 +55,11 @@ export interface ExitInterviewInput {
 
 export interface DataDeletionInput {
   workflowId: string;
+  /**
+   * The caller's tenant. Required, and the lookup is scoped to it: a
+   * deletion may only ever reach the tenant the caller belongs to.
+   */
+  tenantId: string;
   jurisdiction: DeletionJurisdiction;
   requestedBy: string;
   confirmationToken: string;
@@ -413,8 +418,16 @@ export class OffboardingService {
     const proofSecret = deletionSecret('DELETION_PROOF_SECRET');
     deletionSecret('DELETION_CONFIRM_SECRET');
 
-    const wf = await this.prisma.offboardingWorkflow.findFirst({ where: { id: input.workflowId } });
-    if (!wf) throw new Error(`Workflow ${input.workflowId} not found.`);
+    // Scoped to the caller's tenant. It used to look the workflow up by id
+    // alone, so the only thing keeping a deletion inside its own tenant was
+    // the confirmation token — and that token was derived from a constant in
+    // the source until the commit before this one. A workflow belonging to
+    // another tenant is reported exactly as one that does not exist, so this
+    // does not become a way to ask whether an id is real.
+    const wf = await this.prisma.offboardingWorkflow.findFirst({
+      where: { id: input.workflowId, tenantId: input.tenantId },
+    });
+    if (!wf) throw notFound('Offboarding workflow');
 
     // Validate confirmation token
     const expectedToken = this.generateConfirmationToken(wf.tenantId, input.workflowId);
