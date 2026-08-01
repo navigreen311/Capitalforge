@@ -43,6 +43,30 @@ export type DisclosureCategory =
 
 export type TemplateStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'superseded';
 
+/**
+ * The statuses a stored row may carry.
+ *
+ * 'rejected' is reachable by the column but has no endpoint that sets it —
+ * there is no reject route. Declared here because the lifecycle in this
+ * file's header includes it and the column can hold it; it is not produced
+ * by anything today.
+ */
+const TEMPLATE_STATUSES = new Set<TemplateStatus>([
+  'draft',
+  'pending_review',
+  'approved',
+  'rejected',
+  'superseded',
+]);
+
+/** A transition the lifecycle does not allow, as opposed to a missing record. */
+export class InvalidTransitionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidTransitionError';
+  }
+}
+
 export interface TemplateVariable {
   name: string;
   description: string;
@@ -506,8 +530,24 @@ export class DisclosureCmsService {
       throw new Error(`DisclosureTemplate ${templateId} not found`);
     }
 
-    // For now status is tracked via approvedBy/approvedAt nullability
-    // Log event to signal pending review
+    // Only a draft can be submitted.
+    //
+    // This used to accept anything and write nothing — it published the event
+    // below and returned the row untouched, so the caller got a 200 and the
+    // template came back still a draft. Submitting an already approved
+    // template silently "succeeded" too, which would have read as sending a
+    // live disclosure back into review.
+    if (existing.status !== 'draft') {
+      throw new InvalidTransitionError(
+        `Only a draft can be submitted for review. This template is ${existing.status}.`,
+      );
+    }
+
+    const submitted = await this.prisma.disclosureTemplate.update({
+      where: { id: templateId },
+      data: { status: 'pending_review' },
+    });
+
     await eventBus.publish(tenantId, {
       eventType: 'DISCLOSURE_TEMPLATE_SUBMITTED_FOR_APPROVAL',
       aggregateType: 'disclosure_template',
@@ -518,7 +558,7 @@ export class DisclosureCmsService {
 
     logger.info('DisclosureCMS: template submitted for approval', { templateId, tenantId });
 
-    return this.mapRecord(existing, CATEGORY_VARIABLES[existing.category as DisclosureCategory] ?? []);
+    return this.mapRecord(submitted, CATEGORY_VARIABLES[submitted.category as DisclosureCategory] ?? []);
   }
 
   // ── Approve template ─────────────────────────────────────────────
@@ -536,7 +576,24 @@ export class DisclosureCmsService {
       throw new Error(`DisclosureTemplate ${templateId} not found`);
     }
 
-    // Deactivate any currently active templates for the same state/category
+    if (existing.status === 'approved') {
+      throw new InvalidTransitionError('This template is already approved.');
+    }
+
+    // Review is not optional. The lifecycle in this file's header is
+    // draft -> pending_review -> approved, and with submit now recording its
+    // transition there is a state to require. Allowing draft -> approved
+    // would leave the review step skippable and pending_review decorative.
+    if (existing.status !== 'pending_review') {
+      throw new InvalidTransitionError(
+        `A template must be submitted for review before it can be approved. This one is ${existing.status}.`,
+      );
+    }
+
+    // The version being replaced is marked superseded rather than just
+    // deactivated. Both facts were previously carried by isActive alone, so a
+    // template withdrawn from service and one replaced by a newer version
+    // were indistinguishable.
     await this.prisma.disclosureTemplate.updateMany({
       where: {
         tenantId,
@@ -545,13 +602,14 @@ export class DisclosureCmsService {
         isActive: true,
         id: { not: templateId },
       },
-      data: { isActive: false },
+      data: { isActive: false, status: 'superseded' },
     });
 
     const approved = await this.prisma.disclosureTemplate.update({
       where: { id: templateId },
       data: {
         isActive: true,
+        status: 'approved',
         approvedBy: input.approverId,
         approvedAt: new Date(),
       },
@@ -771,16 +829,14 @@ export class DisclosureCmsService {
   // ── Private mapper ────────────────────────────────────────────────
 
   private mapRecord(record: any, variables: TemplateVariable[]): DisclosureTemplateRecord {
-    const isApproved = !!record.approvedAt;
-
-    let status: TemplateStatus;
-    if (record.isActive && isApproved) {
-      status = 'approved';
-    } else if (!record.isActive && isApproved) {
-      status = 'superseded';
-    } else {
-      status = 'draft';
-    }
+    // Read from the column rather than inferred from isActive and
+    // approvedAt, which between them could only express three of the five
+    // states this lifecycle has. Rows written before the column existed were
+    // backfilled by the migration using exactly the rule that used to be
+    // computed here.
+    const status: TemplateStatus = TEMPLATE_STATUSES.has(record.status as TemplateStatus)
+      ? (record.status as TemplateStatus)
+      : 'draft';
 
     return {
       id: record.id,

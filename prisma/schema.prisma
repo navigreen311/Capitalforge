@@ -881,6 +881,16 @@ model DisclosureTemplate {
   version             String
   effectiveDate       DateTime
   isActive            Boolean  @default(true)
+  /**
+   * Where this version stands in review: draft, pending_review, approved,
+   * rejected or superseded.
+   *
+   * Previously derived from isActive and approvedAt, which can only express
+   * three of those five. Submitting a template for review therefore had
+   * nowhere to record itself: the endpoint answered 200 and wrote nothing,
+   * and the template came back still a draft.
+   */
+  status              String   @default("draft")
   approvedBy          String?
   approvedAt          DateTime?
   createdAt           DateTime @default(now())

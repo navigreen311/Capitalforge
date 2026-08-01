@@ -148,76 +148,116 @@ test.describe('Disclosure CMS', () => {
     }
   });
 
-  test('approving persists, and records who did it', async ({ signedInPage: page }) => {
+  test('the review lifecycle persists at every step', async ({ signedInPage: page }) => {
     await page.goto('/disclosures');
     const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
 
-    const created = await createTemplate(token, 'approval');
+    const created = await createTemplate(token, 'lifecycle');
     expect(created.status).toBe('draft');
 
-    const res = await fetch(`${API}/disclosures/templates/${created.id}/approve`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    expect(res.status).toBe(200);
+    const post = (path: string) =>
+      fetch(`${API}/disclosures/templates/${created.id}/${path}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+    const statusOf = async () =>
+      (await templates(token)).find((t) => t.id === created.id)?.status;
 
-    const after = (await templates(token)).find((t) => t.id === created.id);
-    expect(after?.status).toBe('approved');
+    // Submitting used to answer 200 and write nothing: the status was
+    // inferred from approvedAt and isActive, which cannot express "pending
+    // review", so the template came back still a draft.
+    expect((await post('submit')).status).toBe(200);
+    expect(await statusOf(), 'submitting records the transition').toBe('pending_review');
+
+    expect((await post('approve')).status).toBe(200);
+    expect(await statusOf()).toBe('approved');
+
+    const approved = (await templates(token)).find((t) => t.id === created.id);
     // A real user id, not a role name written into a fixture.
-    expect(after?.approvedBy, 'the approver is recorded').toBeTruthy();
+    expect(approved?.approvedBy, 'the approver is recorded').toBeTruthy();
+    expect(approved?.isActive).toBe(true);
 
     await page.goto('/disclosures');
     await page.getByText(created.name).first().click();
-    await expect(page.getByText(`Approved by ${after?.approvedBy}`, { exact: false })).toBeVisible({
-      timeout: 30000,
-    });
+    await expect(
+      page.getByText(`Approved by ${approved?.approvedBy}`, { exact: false }),
+    ).toBeVisible({ timeout: 30000 });
   });
 
-  test('offers no submit-for-review step, because submitting records none', async ({
+  test('refuses the transitions the lifecycle does not allow', async ({ signedInPage: page }) => {
+    await page.goto('/disclosures');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+
+    const created = await createTemplate(token, 'transitions');
+    const post = (id: string, path: string) =>
+      fetch(`${API}/disclosures/templates/${id}/${path}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+    // Approving without review would leave the review step skippable and
+    // pending_review decorative.
+    const skipped = await post(created.id, 'approve');
+    expect(skipped.status).toBe(400);
+    expect(((await skipped.json()) as { error: { message: string } }).error.message).toMatch(
+      /submitted for review/,
+    );
+
+    await post(created.id, 'submit');
+
+    // Submitting twice used to succeed silently, which reads as sending a
+    // live disclosure back into review.
+    expect((await post(created.id, 'submit')).status).toBe(400);
+
+    await post(created.id, 'approve');
+    expect((await post(created.id, 'approve')).status).toBe(400);
+  });
+
+  test('approving a newer version supersedes the one it replaces', async ({
     signedInPage: page,
   }) => {
     await page.goto('/disclosures');
     const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+
+    const post = (id: string, path: string) =>
+      fetch(`${API}/disclosures/templates/${id}/${path}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+    const first = await createTemplate(token, 'supersede-a');
+    await post(first.id, 'submit');
+    await post(first.id, 'approve');
+
+    const second = await createTemplate(token, 'supersede-b');
+    await post(second.id, 'submit');
+    await post(second.id, 'approve');
+
     const rows = await templates(token);
-
-    const draft = rows.find((r) => r.status === 'draft');
-    test.skip(draft === undefined, 'every template is already approved in this run');
-
-    // POST /disclosures/templates/:id/submit answers 200 and writes nothing:
-    // the service publishes an audit event and its own comment notes that
-    // status is derived from approvedBy/approvedAt. The template comes back
-    // still a draft, so a button for it would show a change that did not
-    // happen.
-    const before = draft!.status;
-    const res = await fetch(`${API}/disclosures/templates/${draft!.id}/submit`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    expect(res.status, 'the endpoint reports success').toBe(200);
-
-    const after = (await templates(token)).find((t) => t.id === draft!.id);
-    expect(after?.status, 'and the status is unchanged').toBe(before);
-
-    await page.getByText(draft!.name).first().click();
-    await expect(page.getByRole('button', { name: 'Submit for review' })).toHaveCount(0);
-    await expect(
-      page.getByText('pending review', { exact: false }).first(),
-    ).toBeVisible({ timeout: 30000 });
+    // Both facts were previously carried by isActive alone, so a version
+    // replaced by a newer one and one withdrawn from service looked the same.
+    expect(rows.find((t) => t.id === first.id)?.status).toBe('superseded');
+    expect(rows.find((t) => t.id === second.id)?.status).toBe('approved');
   });
 
   test('renders an approved template through the API', async ({ signedInPage: page }) => {
     await page.goto('/disclosures');
     const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
 
-    // Its own, so this does not depend on another test having run first.
+    // Its own, so this does not depend on another test having run first, and
+    // through review rather than straight to approved — the API enforces it.
     const created = await createTemplate(token, 'render');
-    await fetch(`${API}/disclosures/templates/${created.id}/approve`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
+    for (const step of ['submit', 'approve']) {
+      const res = await fetch(`${API}/disclosures/templates/${created.id}/${step}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status, `${step} succeeds`).toBe(200);
+    }
 
     const res = await fetch(`${API}/disclosures/render`, {
       method: 'POST',

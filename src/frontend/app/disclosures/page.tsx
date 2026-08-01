@@ -175,7 +175,7 @@ export default function DisclosuresPage() {
   }, []);
 
   const act = useCallback(
-    async (id: string, action: 'approve') => {
+    async (id: string, action: 'submit' | 'approve') => {
       setBusy(true);
       setActionError(null);
       try {
@@ -190,11 +190,12 @@ export default function DisclosuresPage() {
         const body = (await res.json()) as { success?: boolean; error?: { message?: string } };
         if (!res.ok || body.success !== true) {
           setActionError(
-            body.error?.message ?? `The template was not approved (HTTP ${res.status}).`,
+            body.error?.message ??
+              `The template was not ${action === 'submit' ? 'submitted' : 'approved'} (HTTP ${res.status}).`,
           );
           return;
         }
-        showToast('Approval recorded.');
+        showToast(action === 'submit' ? 'Submitted for review.' : 'Approval recorded.');
         await load();
       } catch {
         setActionError('Could not reach the server. Nothing was changed.');
@@ -444,6 +445,7 @@ export default function DisclosuresPage() {
                   history={history}
                   historyLoading={historyLoading}
                   onLoadHistory={() => loadHistory(selected.id)}
+                  onSubmit={() => act(selected.id, 'submit')}
                   onApprove={() => act(selected.id, 'approve')}
                   onRender={() => render(selected)}
                 />
@@ -465,6 +467,7 @@ function DetailPanel({
   history,
   historyLoading,
   onLoadHistory,
+  onSubmit,
   onApprove,
   onRender,
 }: {
@@ -476,6 +479,7 @@ function DetailPanel({
   history: DisclosureTemplateRow[] | null;
   historyLoading: boolean;
   onLoadHistory: () => void;
+  onSubmit: () => void;
   onApprove: () => void;
   onRender: () => void;
 }) {
@@ -502,7 +506,20 @@ function DetailPanel({
         </pre>
 
         <div className="mt-4 flex flex-wrap gap-2">
+          {/* Both transitions are recorded now. Submitting used to answer 200
+              and write nothing, because the status was inferred from
+              approvedAt and isActive and those two fields cannot express
+              "pending review"; there is a status column for it. */}
           {template.status === 'draft' && (
+            <button
+              onClick={onSubmit}
+              disabled={busy}
+              className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-gray-200 disabled:opacity-40"
+            >
+              {busy ? 'Saving…' : 'Submit for review'}
+            </button>
+          )}
+          {template.status === 'pending_review' && (
             <button
               onClick={onApprove}
               disabled={busy}
@@ -519,17 +536,9 @@ function DetailPanel({
           </button>
         </div>
 
-        {/* There is no "submit for review" step here, though the API exposes
-            one. POST /disclosures/templates/:id/submit publishes an audit
-            event and writes nothing — its own comment says "for now status is
-            tracked via approvedBy/approvedAt nullability" — so a template
-            submitted for review comes back still a draft. Offering the button
-            would show a state change that did not happen. Approval is the
-            transition the record can hold, and it is the one offered. */}
         {template.status === 'draft' && (
           <p className="mt-3 text-2xs text-gray-600 leading-relaxed">
-            A separate &ldquo;pending review&rdquo; stage is not recorded against a template — the
-            approval is.
+            A draft goes to review before it can be approved.
           </p>
         )}
 

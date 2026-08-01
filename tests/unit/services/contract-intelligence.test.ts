@@ -671,6 +671,11 @@ describe('DisclosureCmsService — Approval Workflow', () => {
     version: '1.0.0',
     effectiveDate: new Date('2024-01-01'),
     isActive: false,
+    // Submitted and awaiting sign-off. Approval requires this now: the
+    // lifecycle is draft -> pending_review -> approved, and it is enforced
+    // rather than assumed, so a fixture without a status no longer stands in
+    // for "ready to approve".
+    status: 'pending_review',
     approvedBy: null,
     approvedAt: null,
     createdAt: new Date(),
@@ -685,6 +690,7 @@ describe('DisclosureCmsService — Approval Workflow', () => {
     prismaMock.disclosureTemplate.update.mockResolvedValue({
       ...BASE_TEMPLATE,
       isActive: true,
+      status: 'approved',
       approvedBy: 'user-compliance-001',
       approvedAt: new Date(),
     });
@@ -700,6 +706,7 @@ describe('DisclosureCmsService — Approval Workflow', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           isActive: true,
+          status: 'approved',
           approvedBy: 'user-compliance-001',
         }),
       }),
@@ -722,7 +729,10 @@ describe('DisclosureCmsService — Approval Workflow', () => {
           isActive: true,
           id: { not: 'tpl-001' },
         }),
-        data: { isActive: false },
+        // Marked superseded, not merely deactivated: a version replaced by a
+        // newer one and one withdrawn from service were previously the same
+        // row state.
+        data: { isActive: false, status: 'superseded' },
       }),
     );
   });
@@ -735,9 +745,30 @@ describe('DisclosureCmsService — Approval Workflow', () => {
     ).rejects.toThrow(/not found/i);
   });
 
-  it('submitForApproval emits a submission event', async () => {
+  it('submitForApproval records the transition, not only an event', async () => {
     const { eventBus } = await import('../../../src/backend/events/event-bus.js');
+
+    prismaMock.disclosureTemplate.findFirst.mockResolvedValue({
+      ...BASE_TEMPLATE,
+      status: 'draft',
+    });
+    prismaMock.disclosureTemplate.update.mockResolvedValue({
+      ...BASE_TEMPLATE,
+      status: 'pending_review',
+    });
+
     const template = await svc.submitForApproval(TENANT_ID, 'tpl-001');
+
+    // The whole point of the fix. This used to publish the event below and
+    // return the row untouched, so the endpoint answered 200 and the template
+    // came back still a draft.
+    expect(prismaMock.disclosureTemplate.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'tpl-001' },
+        data: { status: 'pending_review' },
+      }),
+    );
+    expect(template.status).toBe('pending_review');
 
     // publish() takes (tenantId, envelope). This previously asserted the
     // single-object form the service used to pass, which bound the whole
@@ -749,6 +780,40 @@ describe('DisclosureCmsService — Approval Workflow', () => {
         aggregateId: 'tpl-001',
       }),
     );
+  });
+
+  it('submitForApproval refuses anything that is not a draft', async () => {
+    // BASE_TEMPLATE is pending_review. Submitting an approved template used
+    // to "succeed" silently, which reads as sending a live disclosure back
+    // into review.
+    await expect(svc.submitForApproval(TENANT_ID, 'tpl-001')).rejects.toThrow(
+      /Only a draft can be submitted/,
+    );
+    expect(prismaMock.disclosureTemplate.update).not.toHaveBeenCalled();
+  });
+
+  it('approveTemplate refuses a template that has not been through review', async () => {
+    prismaMock.disclosureTemplate.findFirst.mockResolvedValue({
+      ...BASE_TEMPLATE,
+      status: 'draft',
+    });
+
+    await expect(
+      svc.approveTemplate(TENANT_ID, 'tpl-001', { approverId: 'user-compliance-001' }),
+    ).rejects.toThrow(/must be submitted for review/);
+    expect(prismaMock.disclosureTemplate.update).not.toHaveBeenCalled();
+  });
+
+  it('approveTemplate refuses to approve twice', async () => {
+    prismaMock.disclosureTemplate.findFirst.mockResolvedValue({
+      ...BASE_TEMPLATE,
+      status: 'approved',
+      isActive: true,
+    });
+
+    await expect(
+      svc.approveTemplate(TENANT_ID, 'tpl-001', { approverId: 'user-compliance-001' }),
+    ).rejects.toThrow(/already approved/);
   });
 });
 

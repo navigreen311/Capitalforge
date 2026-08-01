@@ -32,7 +32,7 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
 import { ContractIntelligenceService } from '../../services/contract-intelligence.service.js';
-import { DisclosureCmsService } from '../../services/disclosure-cms.service.js';
+import { DisclosureCmsService, InvalidTransitionError } from '../../services/disclosure-cms.service.js';
 import type { RenderContext, DisclosureCategory } from '../../services/disclosure-cms.service.js';
 import { PERMISSIONS } from '../../../shared/constants/index.js';
 import logger from '../../config/logger.js';
@@ -656,7 +656,12 @@ contractsRouter.put(
 
       res.json(response);
     } catch (err: any) {
-      if (err.message?.includes('not found')) {
+      if (err instanceof InvalidTransitionError) {
+        // A refused transition is the caller asking for something the
+        // lifecycle does not allow, not a fault. Answered as such rather than
+        // falling through to a 500.
+        next(badRequest(err.message));
+      } else if (err.message?.includes('not found')) {
         next(notFound('Disclosure template not found.'));
       } else {
         next(err);
@@ -688,7 +693,12 @@ contractsRouter.post(
 
       res.json(response);
     } catch (err: any) {
-      if (err.message?.includes('not found')) {
+      if (err instanceof InvalidTransitionError) {
+        // A refused transition is the caller asking for something the
+        // lifecycle does not allow, not a fault. Answered as such rather than
+        // falling through to a 500.
+        next(badRequest(err.message));
+      } else if (err.message?.includes('not found')) {
         next(notFound('Disclosure template not found.'));
       } else {
         next(err);
@@ -736,7 +746,12 @@ contractsRouter.post(
 
       res.json(response);
     } catch (err: any) {
-      if (err.message?.includes('not found')) {
+      if (err instanceof InvalidTransitionError) {
+        // A refused transition is the caller asking for something the
+        // lifecycle does not allow, not a fault. Answered as such rather than
+        // falling through to a 500.
+        next(badRequest(err.message));
+      } else if (err.message?.includes('not found')) {
         next(notFound('Disclosure template not found.'));
       } else {
         next(err);

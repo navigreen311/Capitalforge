@@ -934,6 +934,7 @@ const SEED_PHONES = {
         // Not active and not approved. The render endpoint refuses a template
         // that is neither, which is the control the old page rendered around.
         isActive: false,
+        status: 'draft',
         approvedBy: null,
         approvedAt: null,
       },
