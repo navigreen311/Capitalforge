@@ -469,7 +469,21 @@ export function OffboardingView() {
 
           {/* ── Why deletion is not a button here ── */}
           <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-5 space-y-2">
-            <h2 className="text-sm font-semibold text-gray-300">Running a deletion</h2>
+            <h2 className="text-sm font-semibold text-gray-300">What &ldquo;Packaged&rdquo; means</h2>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              That an export has been run for this workflow, not that a file is waiting somewhere.
+              The export is assembled on request and returned in the response; nothing is stored
+              afterwards, so another copy means running it again. It leaves out credentials, the
+              social security number held for KYC, the demographic data firewalled under Section
+              1071, and the contents of documents as opposed to their details — the export itself
+              lists what it omits and why.
+            </p>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Until recently it packaged nothing at all: it counted three tables, produced a
+              storage path for a file that was never written, and marked this column done.
+            </p>
+
+            <h2 className="text-sm font-semibold text-gray-300 pt-2">Running a deletion</h2>
             <p className="text-xs text-gray-500 leading-relaxed">
               Not offered from this page. The deletion is real and cannot be undone: it nulls the
               social security number, date of birth and address on every business owner, rewrites

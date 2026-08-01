@@ -238,6 +238,83 @@ test.describe('Offboarding', () => {
     expect(body.error.code).toBe('NOT_FOUND');
   });
 
+  test('the export returns the tenant\u2019s actual records', async ({ signedInPage: page }) => {
+    await page.goto('/offboarding');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+    const rows = await workflows(token);
+
+    // The workflow the seed already marks exported, so running this does not
+    // change what any other test sees.
+    const already = rows.find((r) => r.dataExportCompleted);
+    expect(already, 'the seed records one workflow with its export done').toBeTruthy();
+
+    const res = await fetch(`${API}/offboarding/${already!.id}/export`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      data: {
+        sections: Record<string, { count: number; truncated: boolean; records: unknown[] }>;
+        excluded: { what: string; why: string }[];
+        recordCount: number;
+        truncated: boolean;
+      };
+    };
+    const { sections, excluded, recordCount } = body.data;
+
+    // It used to count three tables and hand back a path to a file nobody
+    // wrote: exports/{tenantId}/{workflowId}/data-{timestamp}.zip.
+    expect(JSON.stringify(body)).not.toContain('.zip');
+    expect(body.data).not.toHaveProperty('exportKey');
+
+    // Real rows: each one resolves through the businesses endpoint, and the
+    // name matches. A fabricated export could not do that.
+    expect(sections.businesses.records.length).toBeGreaterThan(0);
+    for (const record of (sections.businesses.records as { id: string; legalName: string }[]).slice(0, 3)) {
+      const fetched = await fetch(`${API}/businesses/${record.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(fetched.status, `exported business ${record.id} must exist`).toBe(200);
+      const business = (await fetched.json()) as { data: { business: { legalName: string } } };
+      expect(business.data.business.legalName).toBe(record.legalName);
+    }
+
+    // The count is the sections, not an unrelated tally.
+    const summed = Object.values(sections).reduce((sum, s) => sum + s.count, 0);
+    expect(recordCount).toBe(summed);
+    for (const s of Object.values(sections)) expect(s.records).toHaveLength(s.count);
+  });
+
+  test('the export carries no credentials, SSNs or firewalled demographics', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/offboarding');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+    const rows = await workflows(token);
+    const already = rows.find((r) => r.dataExportCompleted);
+
+    const body = await fetch(`${API}/offboarding/${already!.id}/export`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => r.json());
+
+    // The exported records only. The excluded list names these fields by
+    // design — searching the whole document would match the very note saying
+    // they were left out.
+    const data = (body as { data: { sections: unknown; excluded: { what: string }[] } }).data;
+    const records = JSON.stringify(data.sections);
+    for (const field of ['passwordHash', 'mfaSecret', '"ssn"', 'demographicData']) {
+      expect(records, `${field} must not leave in an export`).not.toContain(field);
+    }
+
+    // And the document states what it is missing rather than leaving a gap
+    // the reader has to notice.
+    expect(data.excluded.length).toBeGreaterThan(0);
+    expect(data.excluded.map((e) => e.what).join(' ')).toContain('ssn');
+  });
+
   test('the workflow list is reachable, which it was not before', async ({
     signedInPage: page,
   }) => {

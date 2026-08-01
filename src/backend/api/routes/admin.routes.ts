@@ -399,11 +399,12 @@ adminRouter.post(
   requirePermission(PERMISSIONS.ADMIN_TENANT),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const result = await getOffboardingSvc().exportTenantData(
-        req.params['id']!,
+      const result = await getOffboardingSvc().exportTenantData({
+        workflowId: req.params['id']!,
         // The caller's own tenant, and only ever that.
-        req.tenant!.tenantId,
-      );
+        tenantId: req.tenant!.tenantId,
+        requestedBy: req.tenant!.userId,
+      });
       ok(res, result);
     } catch (err) {
       next(err);

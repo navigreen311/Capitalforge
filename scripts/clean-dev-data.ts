@@ -191,6 +191,23 @@ e2e regulator inquiries    : ${e2eInquiries.length}`);
     if (e2eInquiries.length > 5) console.log(`   ...and ${e2eInquiries.length - 5} more`);
   }
 
+  // ── Export audit rows left by the browser suite ─────────
+  //
+  // The offboarding spec runs a real data export against a seeded workflow
+  // each run, and an export writes a data.exported audit row — correctly, it
+  // is a copy of a tenant's data leaving the system. They are real records of
+  // a real event, but the event is the test suite, so they accumulate one per
+  // run in the audit trail the offboarding page displays.
+  const e2eExportAudits = await prisma.auditLog.findMany({
+    where: { action: 'data.exported', resource: 'offboarding_workflow' },
+    select: { id: true, resourceId: true },
+  });
+
+  if (e2eExportAudits.length > 0) {
+    console.log(`
+e2e export audit rows      : ${e2eExportAudits.length}`);
+  }
+
   if (!apply) {
     // In a dry run the child rows still exist, so orphan detection would
     // under-report. Report only what can be counted honestly.
@@ -293,6 +310,12 @@ e2e regulator inquiries    : ${e2eInquiries.length}`);
   if (e2eInquiries.length > 0) {
     note('e2eRegulatorInquiries', (await prisma.regulatoryAlert.deleteMany({
       where: { id: { in: e2eInquiries.map((i) => i.id) } },
+    })).count);
+  }
+
+  if (e2eExportAudits.length > 0) {
+    note('e2eExportAuditRows', (await prisma.auditLog.deleteMany({
+      where: { id: { in: e2eExportAudits.map((a) => a.id) } },
     })).count);
   }
 

@@ -55,6 +55,38 @@ export interface ExitInterviewInput {
   wouldRecommend?: boolean;
 }
 
+export interface DataExportInput {
+  workflowId: string;
+  /** The caller's tenant. The lookup and every query below is scoped to it. */
+  tenantId: string;
+  requestedBy: string;
+}
+
+export interface ExportSection {
+  /** Records actually included. */
+  count: number;
+  /** True when the section hit the per-section cap and is not the whole set. */
+  truncated: boolean;
+  records: unknown[];
+}
+
+export interface ExportExclusion {
+  what: string;
+  why: string;
+}
+
+export interface TenantExport {
+  workflowId: string;
+  tenantId: string;
+  generatedAt: string;
+  sections: Record<string, ExportSection>;
+  /** Stated, not silent: what this export does not contain, and why. */
+  excluded: ExportExclusion[];
+  recordCount: number;
+  /** True when any section was capped. */
+  truncated: boolean;
+}
+
 export interface DataDeletionInput {
   workflowId: string;
   /**
@@ -200,6 +232,49 @@ function tokensMatch(supplied: string, expected: string): boolean {
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
+
+// ── Data export ───────────────────────────────────────────────
+
+/**
+ * Per-section cap.
+ *
+ * A whole tenant assembled in memory and returned in one response has a
+ * ceiling somewhere; this is it. A section that reaches the cap reports
+ * truncated: true, so a partial export is never handed back as a whole one.
+ */
+const EXPORT_SECTION_CAP = 1000;
+
+/** What the export leaves out, carried in the document itself. */
+const EXPORT_EXCLUSIONS: ExportExclusion[] = [
+  {
+    what: 'users.passwordHash, users.mfaSecret',
+    why: 'Credentials, not the client’s data. An export is a copy that leaves the system.',
+  },
+  {
+    what: 'business_owners.ssn',
+    why:
+      'Held for KYC. Not returned through this endpoint; a subject-access request for it goes ' +
+      'through the compliance team so the disclosure is recorded against a verified identity.',
+  },
+  {
+    what: 'fair_lending_records.demographicData',
+    why:
+      'Firewalled under Section 1071 — it must not reach anyone involved in the credit ' +
+      'decision, and this endpoint cannot tell who is asking.',
+  },
+  {
+    what: 'Document contents',
+    why:
+      'Only document metadata is here. The files live in object storage and this endpoint does ' +
+      'not read them; nothing in this codebase retrieves them yet.',
+  },
+  {
+    what: 'audit_logs',
+    why:
+      'The system’s record of what was done, retained under the schedule rather than ' +
+      'exported. Available separately.',
+  },
+];
 
 // ── Issuer closure contact data ───────────────────────────────
 
@@ -412,42 +487,130 @@ export class OffboardingService {
   // ── Data Export ─────────────────────────────────────────────
 
   /**
-   * @param tenantId The caller's tenant. The lookup is scoped to it: this
-   *   reads and counts across a whole tenant, so it may only ever be pointed
-   *   at the caller's own.
+   * The tenant's data, actually assembled.
+   *
+   * This used to export nothing. It counted businesses, users and documents,
+   * built a string that looked like an object-storage path —
+   * `exports/{tenantId}/{workflowId}/data-{timestamp}.zip` — for a file that
+   * was never written anywhere, and set dataExportCompleted, which the
+   * offboarding page renders as the client's data having been packaged for
+   * them. A client asking for their data under CCPA §1798.100 or GDPR Art. 15
+   * would have been told it was ready.
+   *
+   * It now reads the records and returns them. There is no stored artifact
+   * and no signed URL: the response is the export. Nothing is retrievable
+   * afterwards by key, so re-running it is how you get another copy.
+   *
+   * Every section is capped, and a section that hits its cap says so rather
+   * than quietly handing back a prefix — a partial export presented as whole
+   * is the same failure in a smaller form.
    */
-  async exportTenantData(
-    workflowId: string,
-    tenantId: string,
-  ): Promise<{ exportKey: string; recordCount: number }> {
-    // It used to look the workflow up by id alone, and every count below is
-    // taken from whatever tenant the workflow turned out to belong to — so an
-    // id from another tenant returned that tenant's totals and marked its
-    // export done. A workflow outside the caller's tenant is now reported the
-    // same way one that does not exist is.
+  async exportTenantData(input: DataExportInput): Promise<TenantExport> {
+    // Scoped to the caller's tenant. Unscoped, this read and counted across
+    // whatever tenant the workflow turned out to belong to.
     const wf = await this.prisma.offboardingWorkflow.findFirst({
-      where: { id: workflowId, tenantId },
+      where: { id: input.workflowId, tenantId: input.tenantId },
     });
     if (!wf) throw notFound('Offboarding workflow');
 
-    // In production: trigger async export job, upload to S3/GCS, return signed URL.
-    // Stub counts relevant records.
-    const [businesses, users, documents] = await Promise.all([
-      this.prisma.business.count({ where: { tenantId: wf.tenantId } }),
-      this.prisma.user.count({ where: { tenantId: wf.tenantId } }),
-      this.prisma.document.count({ where: { tenantId: wf.tenantId } }),
-    ]);
+    const tenantId = input.tenantId;
+    const cap = EXPORT_SECTION_CAP;
+    const take = cap + 1;
 
-    const recordCount = businesses + users + documents;
-    const exportKey = `exports/${wf.tenantId}/${workflowId}/data-${Date.now()}.zip`;
+    const [tenant, users, businesses, owners, applications, documents, invoices, consents, fairLending] =
+      await Promise.all([
+        this.prisma.tenant.findFirst({ where: { id: tenantId } }),
+        // Never the password hash or the MFA secret. Those are credentials,
+        // not the client's data, and an export is a copy that leaves here.
+        this.prisma.user.findMany({
+          where: { tenantId },
+          select: {
+            id: true, email: true, firstName: true, lastName: true, role: true,
+            mfaEnabled: true, isActive: true, lastLoginAt: true, createdAt: true,
+          },
+          take,
+        }),
+        this.prisma.business.findMany({ where: { tenantId }, take }),
+        this.prisma.businessOwner.findMany({
+          where: { business: { tenantId } },
+          select: {
+            id: true, businessId: true, firstName: true, lastName: true,
+            ownershipPercent: true, dateOfBirth: true, address: true,
+            isBeneficialOwner: true, kycStatus: true, kycVerifiedAt: true, createdAt: true,
+          },
+          take,
+        }),
+        this.prisma.cardApplication.findMany({ where: { business: { tenantId } }, take }),
+        this.prisma.document.findMany({ where: { tenantId }, take }),
+        this.prisma.invoice.findMany({ where: { tenantId }, take }),
+        this.prisma.consentRecord.findMany({ where: { tenantId }, take }),
+        this.prisma.fairLendingRecord.findMany({
+          where: { tenantId },
+          select: {
+            id: true, businessId: true, applicationId: true, businessType: true,
+            creditPurpose: true, actionTaken: true, actionDate: true,
+            adverseReasons: true, isFirewalled: true, createdAt: true,
+          },
+          take,
+        }),
+      ]);
+
+    const section = (records: unknown[]): ExportSection => ({
+      count: Math.min(records.length, cap),
+      truncated: records.length > cap,
+      records: records.slice(0, cap),
+    });
+
+    const sections: Record<string, ExportSection> = {
+      tenant: section(tenant === null ? [] : [tenant]),
+      users: section(users),
+      businesses: section(businesses),
+      businessOwners: section(owners),
+      cardApplications: section(applications),
+      documents: section(documents),
+      invoices: section(invoices),
+      consentRecords: section(consents),
+      fairLendingRecords: section(fairLending),
+    };
+
+    const values = Object.values(sections);
+    const recordCount = values.reduce((sum, s) => sum + s.count, 0);
+    const truncated = values.some((s) => s.truncated);
+
+    const result: TenantExport = {
+      workflowId: input.workflowId,
+      tenantId,
+      generatedAt: new Date().toISOString(),
+      sections,
+      excluded: EXPORT_EXCLUSIONS,
+      recordCount,
+      truncated,
+    };
 
     await this.prisma.offboardingWorkflow.update({
-      where: { id: workflowId },
+      where: { id: input.workflowId },
       data:  { dataExportCompleted: true },
     });
 
-    logger.info('Tenant data export completed', { workflowId, recordCount, exportKey });
-    return { exportKey, recordCount };
+    // An export is a copy of a tenant's data leaving the system, which is
+    // exactly what an audit trail is for. Nothing recorded it before.
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        userId:     input.requestedBy,
+        action:     'data.exported',
+        resource:   'offboarding_workflow',
+        resourceId: input.workflowId,
+        metadata:   { recordCount, truncated, sections: Object.keys(sections) },
+      },
+    });
+
+    logger.info('Tenant data export completed', {
+      workflowId: input.workflowId,
+      recordCount,
+      truncated,
+    });
+    return result;
   }
 
   // ── Data Deletion ───────────────────────────────────────────
