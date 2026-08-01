@@ -14,6 +14,7 @@ import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
@@ -22,7 +23,7 @@ import logger from '../../config/logger.js';
 
 let _prisma: PrismaClient | null = null;
 function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = new PrismaClient();
+  if (!_prisma) _prisma = sharedPrisma;
   return _prisma;
 }
 

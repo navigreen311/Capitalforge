@@ -9,7 +9,7 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { z }                  from 'zod';
-import { PrismaClient }       from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import {
   createAuthService,
   AuthError,
@@ -21,7 +21,7 @@ import type { ApiResponse }   from '@shared/types/index.js';
 // ── Router setup ─────────────────────────────────────────────
 
 const router  = Router();
-const prisma  = new PrismaClient();
+const prisma  = sharedPrisma;
 const authSvc = createAuthService(prisma);
 
 // ── Validation schemas ────────────────────────────────────────

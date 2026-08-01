@@ -22,6 +22,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { EventBus } from '../events/event-bus.js';
 import { AGGREGATE_TYPES } from '../events/event-types.js';
 import logger from '../config/logger.js';
@@ -158,7 +159,7 @@ export class StatementReconciliationService {
     eventBus?: EventBus,
     normalizer?: StatementNormalizer,
   ) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
     this.eventBus = eventBus ?? EventBus.getInstance();
     this.normalizer = normalizer ?? new StatementNormalizer();
   }

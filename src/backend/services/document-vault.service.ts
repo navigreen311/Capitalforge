@@ -20,6 +20,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { EventBus } from '../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '@shared/constants/index.js';
 import logger, { maskPii } from '../config/logger.js';
@@ -155,7 +156,7 @@ export class DocumentVaultService {
   private readonly eventBus:  EventBus;
 
   constructor(prisma?: PrismaClient, eventBus?: EventBus) {
-    this.prisma   = prisma    ?? new PrismaClient();
+    this.prisma   = prisma    ?? sharedPrisma;
     this.eventBus = eventBus  ?? EventBus.getInstance();
   }
 

@@ -14,14 +14,14 @@
 // gate worked, and without it a TCPA complaint cannot be answered.
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../config/logger.js';
 import { consentGate } from './consent-gate.js';
 import { getTwilioClient } from '../integrations/twilio/twilio-client.js';
 import { resolveTimezone, hourInZone, type TimezoneSource } from './timezone.js';
 
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 
 // ── Configuration ────────────────────────────────────────────
 

@@ -28,6 +28,7 @@ import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
@@ -47,7 +48,7 @@ let disclosureSvc: DisclosureCmsService | null = null;
 
 function getContractService(): ContractIntelligenceService {
   if (!contractSvc) {
-    prisma = prisma ?? new PrismaClient();
+    prisma = prisma ?? sharedPrisma;
     contractSvc = new ContractIntelligenceService(prisma);
   }
   return contractSvc;
@@ -55,7 +56,7 @@ function getContractService(): ContractIntelligenceService {
 
 function getDisclosureService(): DisclosureCmsService {
   if (!disclosureSvc) {
-    prisma = prisma ?? new PrismaClient();
+    prisma = prisma ?? sharedPrisma;
     disclosureSvc = new DisclosureCmsService(prisma);
   }
   return disclosureSvc;

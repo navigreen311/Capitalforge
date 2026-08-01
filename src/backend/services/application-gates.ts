@@ -15,6 +15,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ export class ApplicationGateChecker {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
   }
 
   /**

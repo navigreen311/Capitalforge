@@ -16,6 +16,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 
 import type { ApplicationStatus } from '@shared/types/index.js';
@@ -116,7 +117,7 @@ export class ApplicationPipelineService {
   private readonly gateChecker: ApplicationGateChecker;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? sharedPrisma;
     this.gateChecker = new ApplicationGateChecker(this.prisma);
   }
 

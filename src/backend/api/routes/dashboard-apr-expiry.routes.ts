@@ -9,6 +9,7 @@
 import { Router, type Response, type NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '@shared/types/index.js';
 
@@ -18,7 +19,7 @@ let _prisma: PrismaClient | null = null;
 
 function getPrisma(): PrismaClient {
   if (!_prisma) {
-    _prisma = new PrismaClient();
+    _prisma = sharedPrisma;
   }
   return _prisma;
 }

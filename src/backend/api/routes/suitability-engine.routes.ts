@@ -14,6 +14,7 @@
 // ============================================================
 
 import { Router, Response } from 'express';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import {
@@ -99,9 +100,10 @@ suitabilityEngineRouter.get(
     const { businessId } = req.params;
 
     try {
-      // Dynamically import Prisma to avoid circular dependency at module load time
-      const { PrismaClient } = await import('@prisma/client');
-      const prisma = new PrismaClient();
+      // The dynamic import was here to avoid constructing a client at module
+      // load time. The shared client is a lazy proxy, so importing it costs
+      // nothing until a property is read, and the dance is unnecessary.
+      const prisma = sharedPrisma;
 
       // Look up the business
       const business = await prisma.business.findUnique({

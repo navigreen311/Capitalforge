@@ -13,11 +13,12 @@
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 
 export const portalRouter = Router({ mergeParams: true });
 

@@ -24,7 +24,8 @@
 
 import { Router, type Response, type NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { ComplianceService } from '../../services/compliance.service.js';
@@ -69,7 +70,7 @@ const VALID_CHECK_TYPES = new Set<ComplianceCheckType>([
 
 // ── Dependency setup ──────────────────────────────────────────
 
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 
 // ── Helpers ───────────────────────────────────────────────────
 

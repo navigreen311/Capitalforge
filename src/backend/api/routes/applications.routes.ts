@@ -15,7 +15,7 @@
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse, TenantContext } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
@@ -23,7 +23,7 @@ import { eventBus } from '../../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../../shared/constants/index.js';
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 
 // ── Helpers ───────────────────────────────────────────────────
 

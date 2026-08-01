@@ -21,6 +21,7 @@ import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
@@ -44,14 +45,14 @@ let prisma: PrismaClient | null = null;
 /**
  * One client for this router.
  *
- * Twelve handlers here read `prisma ?? new PrismaClient()`, and `prisma` was
+ * Twelve handlers here read `prisma ?? sharedPrisma`, and `prisma` was
  * only ever assigned inside getSvc() — so any route that did not go through
  * the service constructed a client per request. Under the browser suite that
  * exhausted the connection pool and surfaced as intermittent 500s on
  * whichever compliance route happened to be running.
  */
 function getPrisma(): PrismaClient {
-  prisma = prisma ?? new PrismaClient();
+  prisma = prisma ?? sharedPrisma;
   return prisma;
 }
 let svc: ComplianceService | null = null;

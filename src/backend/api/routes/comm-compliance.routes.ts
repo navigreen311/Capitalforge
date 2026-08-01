@@ -30,6 +30,7 @@ import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
@@ -53,7 +54,7 @@ let complianceSvc: CommComplianceService | null = null;
 let trainingSvc: TrainingService | null = null;
 
 function getPrisma(): PrismaClient {
-  if (!prisma) prisma = new PrismaClient();
+  if (!prisma) prisma = sharedPrisma;
   return prisma;
 }
 

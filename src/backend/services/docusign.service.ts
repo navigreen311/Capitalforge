@@ -15,6 +15,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
 import {
   DocuSignClient,
@@ -99,7 +100,7 @@ export class DocuSignService {
 
   constructor(client?: DocuSignClient, prisma?: PrismaClient) {
     this.client = client ?? docuSignClient;
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
   }
 
   // ── Send For Signature ────────────────────────────────────

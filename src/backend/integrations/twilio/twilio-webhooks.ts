@@ -40,6 +40,7 @@ export function _resetValidateRequest(): void {
   _validateRequestFn = (...args) => _twilioLib.validateRequest(...args);
 }
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import { eventBus } from '../../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '@shared/constants/index.js';
 import { DocumentVaultService } from '../../services/document-vault.service.js';
@@ -121,7 +122,7 @@ export class TwilioWebhookHandler {
   private readonly documentVault: DocumentVaultService;
 
   constructor(prisma?: PrismaClient, documentVault?: DocumentVaultService) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
     this.db = this.prisma;
     this.documentVault = documentVault ?? new DocumentVaultService(this.prisma);
   }

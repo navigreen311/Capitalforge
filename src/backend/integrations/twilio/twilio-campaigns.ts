@@ -28,6 +28,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import { consentGate, TcpaConsentError } from '../../services/consent-gate.js';
 import { eventBus } from '../../events/event-bus.js';
 import { AGGREGATE_TYPES } from '@shared/constants/index.js';
@@ -86,7 +87,7 @@ export class TwilioCampaignManager {
   private readonly twilioClient: TwilioClient;
 
   constructor(prisma?: PrismaClient, twilioClient?: TwilioClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
     this.db = this.prisma; // access stub models via any
     this.twilioClient =
       twilioClient ??

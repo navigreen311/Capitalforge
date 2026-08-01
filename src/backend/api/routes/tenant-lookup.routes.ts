@@ -6,10 +6,10 @@
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 
 // GET /api/tenants/by-slug/:slug
 router.get('/by-slug/:slug', async (req: Request, res: Response): Promise<void> => {

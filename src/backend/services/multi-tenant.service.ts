@@ -10,6 +10,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import { eventBus } from '../events/event-bus.js';
@@ -20,7 +21,7 @@ import logger from '../config/logger.js';
 let _prisma: PrismaClient | null = null;
 
 function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = new PrismaClient();
+  if (!_prisma) _prisma = sharedPrisma;
   return _prisma;
 }
 

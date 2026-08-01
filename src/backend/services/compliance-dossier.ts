@@ -23,6 +23,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
 import { verifyCryptoTimestamp } from './crypto-timestamp.js';
 
@@ -212,7 +213,7 @@ export class ComplianceDossierService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? sharedPrisma;
   }
 
   /**

@@ -15,12 +15,12 @@
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 import { validateTwilioSignature } from '../../integrations/twilio/twilio-webhooks.js';
 import { isOptOutKeyword, recordOptOut, normalisePhone } from '../../services/sms-dispatch.service.js';
 
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 
 export const smsWebhookRouter = Router();
 

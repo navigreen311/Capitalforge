@@ -10,6 +10,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import type { LedgerWriter } from './event-bus.js';
 import type { LedgerEnvelope, PersistedEvent } from './event-types.js';
 
@@ -45,7 +46,7 @@ export class LedgerService implements LedgerWriter {
 
   constructor(prisma?: PrismaClient) {
     // Allow injection for testing; fall back to shared singleton
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
   }
 
   // ---- LedgerWriter implementation (used by EventBus) ----------

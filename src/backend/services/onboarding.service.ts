@@ -10,6 +10,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma, type Business, type BusinessOwner } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import { eventBus } from '../events/event-bus.js';
 import {
@@ -29,7 +30,7 @@ let _prisma: PrismaClient | null = null;
 
 function getPrisma(): PrismaClient {
   if (!_prisma) {
-    _prisma = new PrismaClient();
+    _prisma = sharedPrisma;
   }
   return _prisma;
 }

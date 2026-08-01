@@ -27,6 +27,9 @@ vi.mock('@prisma/client', () => {
       create: vi.fn(),
       findFirst: vi.fn(),
     },
+    // config/database.ts attaches log listeners to the client it builds, so
+    // a double without $on fails there rather than in the code under test.
+    $on: vi.fn(),
   };
   return {
     PrismaClient: vi.fn(() => mockPrisma),

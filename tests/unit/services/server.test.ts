@@ -13,6 +13,8 @@ vi.mock('@prisma/client', () => {
   return {
     PrismaClient: vi.fn().mockImplementation(() => ({
       $queryRaw: mockQueryRaw,
+      // config/database.ts registers log listeners on the client it builds.
+      $on: vi.fn(),
     })),
   };
 });

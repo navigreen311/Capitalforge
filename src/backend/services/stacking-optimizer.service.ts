@@ -610,9 +610,9 @@ export const stackingOptimizer = new StackingOptimizerService();
 // with scored recommendations, sequencing, and velocity risk.
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 
 // ── Phase 2 input/output types ───────────────────────────────
 

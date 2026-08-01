@@ -18,6 +18,7 @@
 
 import { Queue, Worker, type Job, type ConnectionOptions } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { FundingRoundService } from '../services/funding-round.service.js';
 import { REDIS_URL } from '../config/index.js';
 import logger from '../config/logger.js';
@@ -76,7 +77,7 @@ export async function runAprExpiryScan(
   now: Date = new Date(),
   prisma?: PrismaClient,
 ): Promise<AprExpiryJobResult> {
-  const db = prisma ?? new PrismaClient();
+  const db = prisma ?? sharedPrisma;
   const service = new FundingRoundService(db);
 
   const lookAheadDate = new Date(now);
@@ -230,7 +231,7 @@ export class AprExpiryCheckerWorker {
   private readonly prisma: PrismaClient;
 
   constructor(redisUrl: string = REDIS_URL, prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
     const connection = parseRedisConnection(redisUrl);
 
     this.worker = new Worker<AprExpiryJobData, AprExpiryJobResult>(

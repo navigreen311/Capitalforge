@@ -9,13 +9,14 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '@shared/types/index.js';
 
 // ── Lazy PrismaClient singleton ──────────────────────────────
 
 let _prisma: PrismaClient | null = null;
 function getPrisma(): PrismaClient {
-  _prisma ??= new PrismaClient();
+  _prisma ??= sharedPrisma;
   return _prisma;
 }
 

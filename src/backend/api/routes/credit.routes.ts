@@ -11,6 +11,7 @@
 import { Router, type Response, type NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import { ZodError } from 'zod';
 import logger from '../../config/logger.js';
 import { CreditIntelligenceService } from '../../services/credit-intelligence.service.js';
@@ -19,7 +20,7 @@ import type { ApiResponse, TenantContext } from '../../../shared/types/index.js'
 
 // ── Dependency setup ──────────────────────────────────────────
 
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 const creditService = new CreditIntelligenceService(prisma);
 
 // ── Helper: extract TenantContext from request ────────────────

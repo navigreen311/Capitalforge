@@ -14,6 +14,7 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
 
@@ -25,7 +26,7 @@ export const dashboardActionQueueRouter = Router();
 
 let prisma: PrismaClient | null = null;
 function db(): PrismaClient {
-  prisma ??= new PrismaClient();
+  prisma ??= sharedPrisma;
   return prisma;
 }
 

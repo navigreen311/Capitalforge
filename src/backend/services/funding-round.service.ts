@@ -11,6 +11,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { differenceInDays, subMonths, isAfter } from 'date-fns';
 import { eventBus } from '../events/event-bus.js';
@@ -100,7 +101,7 @@ export class FundingRoundService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? sharedPrisma;
   }
 
   // ── Create ────────────────────────────────────────────────────────────────

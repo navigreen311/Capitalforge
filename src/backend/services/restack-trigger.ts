@@ -13,6 +13,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
 
 // ── Prisma singleton ─────────────────────────────────────────
@@ -20,7 +21,7 @@ import logger from '../config/logger.js';
 let _prisma: PrismaClient | null = null;
 
 function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = new PrismaClient();
+  if (!_prisma) _prisma = sharedPrisma;
   return _prisma;
 }
 

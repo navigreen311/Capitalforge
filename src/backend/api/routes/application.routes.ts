@@ -18,7 +18,7 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { ZodError } from 'zod';
-import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import {
@@ -39,7 +39,7 @@ import logger from '../../config/logger.js';
 const router = Router();
 
 // Shared Prisma client (one per process — connections are pooled)
-const prisma = new PrismaClient();
+const prisma = sharedPrisma;
 const pipelineService = new ApplicationPipelineService(prisma);
 
 // ── Helpers ───────────────────────────────────────────────────

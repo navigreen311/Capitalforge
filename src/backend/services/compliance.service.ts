@@ -26,6 +26,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { RiskLevel, ComplianceCheckType } from '@shared/types/index.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '@shared/constants/index.js';
@@ -515,7 +516,7 @@ export class ComplianceService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
   }
 
   // ── Public methods ─────────────────────────────────────────────

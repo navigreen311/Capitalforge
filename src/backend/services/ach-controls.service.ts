@@ -20,6 +20,7 @@
 // ============================================================
 
 import { PrismaClient, AchAuthorization, DebitEvent } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { EventBus } from '../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../events/event-types.js';
 import logger from '../config/logger.js';
@@ -91,7 +92,7 @@ export class AchControlsService {
   private readonly eventBus: EventBus;
 
   constructor(prisma?: PrismaClient, eventBus?: EventBus) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
     this.eventBus = eventBus ?? EventBus.getInstance();
   }
 

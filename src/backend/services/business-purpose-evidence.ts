@@ -17,6 +17,7 @@
 // ============================================================
 
 import { PrismaClient, SpendTransaction } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
 import { MCC_RISK_MAP, CASH_LIKE_MCC_RANGES } from './spend-governance.service.js';
 
@@ -274,7 +275,7 @@ export class BusinessPurposeEvidenceService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
   }
 
   // ── Category Tagging ─────────────────────────────────────────

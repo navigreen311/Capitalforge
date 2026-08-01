@@ -13,6 +13,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import type {
   ConsentChannel,
   ConsentType,
@@ -98,7 +99,7 @@ export class ConsentService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? _sharedPrisma ?? new PrismaClient();
+    this.prisma = prisma ?? _sharedPrisma ?? sharedPrisma;
   }
 
   // ── Grant ─────────────────────────────────────────────────────

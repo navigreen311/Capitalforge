@@ -12,6 +12,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import crypto from 'crypto';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import { eventBus } from '../events/event-bus.js';
@@ -23,7 +24,7 @@ import { AppError, notFound } from '../middleware/error-handler.js';
 let _prisma: PrismaClient | null = null;
 
 function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = new PrismaClient();
+  if (!_prisma) _prisma = sharedPrisma;
   return _prisma;
 }
 

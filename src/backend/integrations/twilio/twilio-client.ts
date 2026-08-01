@@ -51,6 +51,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { consentGate, TcpaConsentError } from '../../services/consent-gate.js';
 import { DocumentVaultService } from '../../services/document-vault.service.js';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -151,7 +152,7 @@ export class TwilioClient {
     const authToken = this._requireEnv('TWILIO_AUTH_TOKEN');
 
     this.client = twilioInstance ?? twilio(this.accountSid, authToken);
-    this.documentVault = documentVault ?? new DocumentVaultService(prisma ?? new PrismaClient());
+    this.documentVault = documentVault ?? new DocumentVaultService(prisma ?? sharedPrisma);
   }
 
   // ── Core Call Operations ─────────────────────────────────────────────────

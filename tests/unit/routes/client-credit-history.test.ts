@@ -40,6 +40,11 @@ const findMany = vi.fn();
 vi.mock('@prisma/client', () => ({
   PrismaClient: vi.fn().mockImplementation(() => ({
     creditProfile: { findMany },
+    // The shared client in config/database.ts attaches query, info, warn and
+    // error listeners when it is built. A double without $on fails there
+    // with "client.$on is not a function", which surfaces as whatever the
+    // route was doing rather than as a missing mock.
+    $on: vi.fn(),
   })),
   Prisma: { DbNull: Symbol('DbNull') },
 }));

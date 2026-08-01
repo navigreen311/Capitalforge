@@ -13,6 +13,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { BANNED_CLAIMS, type BannedClaimCategory } from './comm-compliance.service.js';
 import logger from '../config/logger.js';
@@ -456,7 +457,7 @@ export class TrainingService {
   private readonly prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma ?? new PrismaClient();
+    this.prisma = prisma ?? sharedPrisma;
   }
 
   // ── Certification management ──────────────────────────────────

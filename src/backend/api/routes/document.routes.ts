@@ -16,6 +16,7 @@
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import { requireAuth } from '../../middleware/auth.middleware.js';
 import { requirePermissions } from '../../middleware/rbac.middleware.js';
 import { PERMISSIONS } from '@shared/constants/index.js';
@@ -45,7 +46,7 @@ let _dossierService: ComplianceDossierService | null = null;
 let _prisma: PrismaClient | null = null;
 
 function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = new PrismaClient();
+  if (!_prisma) _prisma = sharedPrisma;
   return _prisma;
 }
 

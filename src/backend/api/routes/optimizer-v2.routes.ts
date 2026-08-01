@@ -20,6 +20,7 @@ import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import {
   runStackingOptimizer,
   type StackingOptimizerInput,
@@ -33,7 +34,7 @@ export const optimizerV2Router = Router();
 // Lazy singleton — avoids instantiating Prisma in tests that don't need it
 let prisma: PrismaClient | null = null;
 function getPrisma(): PrismaClient {
-  if (!prisma) prisma = new PrismaClient();
+  if (!prisma) prisma = sharedPrisma;
   return prisma;
 }
 

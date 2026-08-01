@@ -17,6 +17,7 @@ import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 
 export const platformExtendedRouter = Router();
@@ -25,7 +26,7 @@ export const platformExtendedRouter = Router();
 
 let prisma: PrismaClient | null = null;
 function getPrisma(): PrismaClient {
-  if (!prisma) prisma = new PrismaClient();
+  if (!prisma) prisma = sharedPrisma;
   return prisma;
 }
 

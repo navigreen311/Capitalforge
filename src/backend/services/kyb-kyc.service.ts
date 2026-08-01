@@ -17,6 +17,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../config/database.js';
 import { eventBus } from '../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import {
@@ -43,7 +44,7 @@ export function setPrismaClient(client: PrismaClient): void {
 
 function getPrisma(): PrismaClient {
   if (!_prisma) {
-    _prisma = new PrismaClient();
+    _prisma = sharedPrisma;
   }
   return _prisma;
 }
