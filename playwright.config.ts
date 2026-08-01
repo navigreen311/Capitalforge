@@ -60,33 +60,31 @@ export default defineConfig({
    */
   workers: 1,
   /**
-   * One retry, and the reason it is here rather than a way of going green.
+   * No retries.
    *
-   * The intermittent this suite had was caught on the sixth consecutive full
-   * run and the trace says exactly what happened. On /decisions the page
-   * document returned 200 in 392ms, every chunk returned 200 — except
-   * /_next/static/chunks/main-app.js, which came back with status -1 and no
-   * timing: the request never completed. That file is the client runtime, so
-   * React never hydrated, the page's loader never ran, and it sat on
-   * "Loading decisions…" until the test's budget ran out. There is no request
-   * to /api/ai-decisions in the trace at all — the page never got that far.
+   * There was one, added while an intermittent failure was still unexplained.
+   * Two distinct causes were behind it, and only one is fixed:
    *
-   * It is not the app and it is not the assertion. main-app.js had already
-   * been served to sixty-four earlier tests in that same run, so nothing was
-   * being compiled; the next test on the same page passed 788ms later. A
-   * single static asset failed in transit against a Node dev server, which is
-   * what a keep-alive socket being closed as it is reused looks like.
+   *   1. Prisma connection exhaustion. Every module built its own client, 82
+   *      of Postgres's 100 connections were in use with just the dev servers
+   *      running, and a request that could not get one returned 500. One
+   *      shared client took that to 11. Fixed and measured.
    *
-   * Both observed failures were the first test in a spec file, where the gap
-   * between requests is longest — the shape you would expect from an idle
-   * pooled connection.
+   *   2. The Next dev server occasionally fails to serve a static chunk.
+   *      Captured twice — main-app.js on /decisions, app-pages-internals.js
+   *      on /offboarding — each as a request that never completed, status -1
+   *      with no timing, after which React never hydrates and the page sits
+   *      in its loading state until the budget runs out. A third occurrence
+   *      before traces were kept looked the same from the page snapshot.
+   *      There is no API call in those traces at all, so it is not the
+   *      database. Not fixed.
    *
-   * So: retry once. Playwright reports a test that needed it as flaky rather
-   * than passing, so this does not hide anything, and a test that is actually
-   * broken still fails twice. Combined with trace retention below, a
-   * recurrence arrives with its network log attached.
+   * The retry is gone anyway, on the view that a suite allowed a second
+   * attempt stops reporting what made the first one fail — which is exactly
+   * how the connection exhaustion stayed hidden for several runs. A failure
+   * here is a failure. When (2) happens the trace below will show a chunk
+   * with status -1 and no timing; that is this, not a broken test.
    */
-  retries: 1,
   globalSetup: './tests/e2e-playwright/global-setup.ts',
   use: {
     baseURL: BASE_URL,
