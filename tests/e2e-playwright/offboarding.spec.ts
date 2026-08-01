@@ -219,6 +219,25 @@ test.describe('Offboarding', () => {
     );
   });
 
+  test('a workflow that is not the caller’s is a 404, not a server error', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/offboarding');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+
+    // The lookup is scoped to the tenant in the token now, rather than being
+    // read unscoped and checked afterwards. Anything outside it — including
+    // an id that does not exist at all — answers the same way.
+    const res = await fetch(`${API}/offboarding/not-a-real-workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(404);
+
+    const body = (await res.json()) as { success: boolean; error: { code: string } };
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('NOT_FOUND');
+  });
+
   test('the workflow list is reachable, which it was not before', async ({
     signedInPage: page,
   }) => {

@@ -307,7 +307,7 @@ export class OffboardingService {
     });
 
     logger.info('Offboarding initiated', { workflowId: workflow.id, type: input.offboardingType });
-    return this.getOffboardingStatus(workflow.id);
+    return this.getOffboardingStatus(workflow.id, { tenantId: input.tenantId });
   }
 
   // ── Status ──────────────────────────────────────────────────
@@ -327,14 +327,35 @@ export class OffboardingService {
       take: 200,
     });
 
-    return Promise.all(workflows.map((wf) => this.getOffboardingStatus(wf.id)));
+    return Promise.all(workflows.map((wf) => this.getOffboardingStatus(wf.id, { tenantId })));
   }
 
-  async getOffboardingStatus(workflowId: string): Promise<OffboardingStatus> {
+  /**
+   * One workflow.
+   *
+   * The scope is not optional, and there is no default. This used to take an
+   * id alone, with the tenant check living in the route that called it —
+   * which held, but meant the query itself would happily return any tenant's
+   * workflow to whoever asked, and every new caller had to remember to check.
+   * The other three paths in this service now enforce it in the query; this
+   * one does too.
+   *
+   * `anyTenant` exists because GET /offboarding/:id lets a super_admin read
+   * across tenants, and a super_admin has no way to name the tenant before
+   * reading the workflow. Spelling it out keeps that one exception greppable
+   * instead of hiding it behind an optional argument.
+   */
+  async getOffboardingStatus(
+    workflowId: string,
+    scope: { tenantId: string } | { anyTenant: true },
+  ): Promise<OffboardingStatus> {
     const wf = await this.prisma.offboardingWorkflow.findFirst({
-      where: { id: workflowId },
+      where: {
+        id: workflowId,
+        ...('tenantId' in scope ? { tenantId: scope.tenantId } : {}),
+      },
     });
-    if (!wf) throw new Error(`Offboarding workflow ${workflowId} not found.`);
+    if (!wf) throw notFound('Offboarding workflow');
 
     let cardClosureGuidance: CardClosureGuidance[] | undefined;
     if (wf.businessId) {
@@ -385,7 +406,7 @@ export class OffboardingService {
     });
 
     logger.info('Exit interview captured', { workflowId: input.workflowId });
-    return this.getOffboardingStatus(input.workflowId);
+    return this.getOffboardingStatus(input.workflowId, { tenantId: input.tenantId });
   }
 
   // ── Data Export ─────────────────────────────────────────────

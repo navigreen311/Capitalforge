@@ -355,11 +355,15 @@ adminRouter.get(
   requirePermission(PERMISSIONS.ADMIN_TENANT),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const status = await getOffboardingSvc().getOffboardingStatus(req.params['id']!);
-      // Tenant isolation: ensure caller is the owning tenant or super_admin
-      if (status.tenantId !== req.tenant!.tenantId && req.tenant!.role !== 'super_admin') {
-        next(forbidden('Access denied to offboarding workflow.')); return;
-      }
+      // Tenant isolation is in the query now, not in a check after the read.
+      // A super_admin may still read across tenants — there is no way for one
+      // to name the tenant before reading the workflow — and that exception is
+      // stated here rather than implied by an optional argument.
+      const isSuperAdmin = req.tenant!.role === 'super_admin';
+      const status = await getOffboardingSvc().getOffboardingStatus(
+        req.params['id']!,
+        isSuperAdmin ? { anyTenant: true } : { tenantId: req.tenant!.tenantId },
+      );
       ok(res, status);
     } catch (err) {
       next(err);

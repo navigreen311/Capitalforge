@@ -435,7 +435,7 @@ describe('OffboardingService', () => {
       { id: 'app-001', issuer: 'chase', cardProduct: 'Ink Business', creditLimit: { toNumber: () => 10000 }, status: 'approved' },
     ]);
 
-    const status = await svc.getOffboardingStatus('wf-001');
+    const status = await svc.getOffboardingStatus('wf-001', { tenantId: 'tenant-001' });
     expect(status.id).toBe('wf-001');
     expect(status.cardClosureGuidance).toHaveLength(1);
     expect(status.cardClosureGuidance![0].issuer).toBe('chase');
@@ -507,6 +507,49 @@ describe('OffboardingService', () => {
   });
 
   // ── Tenant scoping ────────────────────────────────────────
+
+  it('getOffboardingStatus — scopes the read to the calling tenant', async () => {
+    prisma.offboardingWorkflow.findFirst.mockResolvedValue(WF_FIXTURE);
+    prisma.cardApplication.findMany.mockResolvedValue([]);
+
+    await svc.getOffboardingStatus('wf-001', { tenantId: 'tenant-001' });
+
+    // The check used to live in the route that called this, so the query
+    // itself would return any tenant's workflow to whoever asked.
+    expect(prisma.offboardingWorkflow.findFirst).toHaveBeenCalledWith({
+      where: { id: 'wf-001', tenantId: 'tenant-001' },
+    });
+  });
+
+  it('getOffboardingStatus — will not read another tenant’s workflow', async () => {
+    prisma.offboardingWorkflow.findFirst.mockImplementation(
+      async (args: { where: { id?: string; tenantId?: string } }) => {
+        if (args.where.id !== WF_FIXTURE.id) return null;
+        if (args.where.tenantId !== undefined && args.where.tenantId !== WF_FIXTURE.tenantId) {
+          return null;
+        }
+        return WF_FIXTURE;
+      },
+    );
+
+    await expect(
+      svc.getOffboardingStatus('wf-001', { tenantId: 'tenant-002' }),
+    ).rejects.toThrow('not found');
+  });
+
+  it('getOffboardingStatus — anyTenant reads across tenants, for the super_admin route', async () => {
+    // The one exception, spelled out at the call site rather than reached by
+    // omitting an argument.
+    prisma.offboardingWorkflow.findFirst.mockResolvedValue(WF_FIXTURE);
+    prisma.cardApplication.findMany.mockResolvedValue([]);
+
+    const status = await svc.getOffboardingStatus('wf-001', { anyTenant: true });
+
+    expect(status.tenantId).toBe('tenant-001');
+    expect(prisma.offboardingWorkflow.findFirst).toHaveBeenCalledWith({
+      where: { id: 'wf-001' },
+    });
+  });
 
   it('captureExitInterview — will not write onto another tenant’s workflow', async () => {
     prisma.offboardingWorkflow.findFirst.mockImplementation(
