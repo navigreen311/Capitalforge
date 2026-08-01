@@ -1,260 +1,356 @@
 'use client';
 
 // ============================================================
-// /compliance/regulatory — Regulatory Intelligence
-// Feed of regulatory updates relevant to commercial financing.
-// Filter by state, regulation type. Bookmark/pin. Expandable
-// client-impact section per item.
+// /compliance/regulatory — Regulatory update feed
+//
+// This page called nothing and held eight regulatory updates as literals. Not
+// summaries of real rules: specific claims about enacted law and enforcement,
+// attributed to named regulators.
+//
+//   "FTC settled with a business credit broker for $2.3M over misleading
+//    'guaranteed approval' claims"
+//   "Texas HB 1442 Business Lending Transparency Act Signed … Effective
+//    September 1, 2026"
+//   "California SB 1235 Amendment Expands Disclosure Requirements"
+//
+// Each carried a clientImpact paragraph telling an advisor what to do about
+// it — update Texas contract templates, audit Florida application flows. An
+// advisor following that is acting on legislation that was written here.
+// There is also a "Last synced" date, and nothing syncs.
+//
+// The feed now reads the same alerts the /regulatory page works from:
+//   GET /api/regulatory/alerts
+//   GET /api/regulatory/impact/:ruleId
+//
+// Three of the page's features are gone because nothing backs them. There is
+// no state column, so no state filter. There is no clientImpact column; what
+// the API can say is which platform modules a rule touches and what it
+// recommends, which is a different and narrower claim, labelled as such. And
+// there is no bookmark column or endpoint, so the pin is gone rather than
+// kept as a toggle that forgets on reload.
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
+import {
+  toRegulatoryAlerts,
+  toImpactAssessment,
+  impactBand,
+  facetsOf,
+  byEffectiveDateDesc,
+  humanise,
+  type RegulatoryAlertRow,
+  type ImpactAssessment,
+  type AlertStatus,
+  type Urgency,
+} from '@/lib/regulatory-view';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type RelevanceBadge = 'critical' | 'high' | 'medium' | 'low';
-
-interface RegulatoryItem {
-  id: string;
-  title: string;
-  source: string;
-  date: string;
-  summary: string;
-  relevance: RelevanceBadge;
-  state: string;
-  regulationType: string;
-  clientImpact: string;
-  bookmarked: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Mock Data
-// ---------------------------------------------------------------------------
-
-const MOCK_ITEMS: RegulatoryItem[] = [
-  {
-    id: 'reg_001', title: 'CFPB Issues Updated Guidance on Commercial Credit Disclosures', source: 'CFPB', date: '2026-04-01',
-    summary: 'New guidance requires enhanced APR-equivalent disclosures for all commercial credit products above $100K. Affects all lending and card-stacking advisory workflows.',
-    relevance: 'high', state: 'Federal', regulationType: 'disclosure',
-    clientImpact: 'All clients receiving commercial credit offers must now see standardized APR-equivalent disclosures. Update disclosure templates and review all active offers for compliance.',
-    bookmarked: false,
-  },
-  {
-    id: 'reg_002', title: 'FTC Enforcement Action Against Deceptive Business Credit Marketing', source: 'FTC', date: '2026-03-28',
-    summary: 'FTC settled with a business credit broker for $2.3M over misleading "guaranteed approval" claims. Reinforces need for truthful marketing of credit products.',
-    relevance: 'critical', state: 'Federal', regulationType: 'enforcement',
-    clientImpact: 'Review all outbound marketing materials for any guarantee language. Ensure advisors are trained on compliant sales scripts. Audit email and SMS templates.',
-    bookmarked: false,
-  },
-  {
-    id: 'reg_003', title: 'California SB 1235 Amendment Expands Disclosure Requirements', source: 'State AG', date: '2026-03-25',
-    summary: 'Amendment extends commercial finance disclosure requirements to include factoring and merchant cash advance products under $500K.',
-    relevance: 'high', state: 'CA', regulationType: 'disclosure',
-    clientImpact: 'California-based clients with MCA or factoring products need updated disclosure documents. Ensure all CA offers include the new mandated fields.',
-    bookmarked: false,
-  },
-  {
-    id: 'reg_004', title: 'New York DFS Proposes Commercial Lending Transparency Rule', source: 'State AG', date: '2026-03-20',
-    summary: 'Proposed rule would require commercial lenders to provide standardized cost comparison documents similar to residential mortgage disclosures.',
-    relevance: 'medium', state: 'NY', regulationType: 'proposed_rule',
-    clientImpact: 'If finalized, NY-based clients will need cost comparison documents for each product offered. Begin preparing templates now to avoid delays.',
-    bookmarked: false,
-  },
-  {
-    id: 'reg_005', title: 'FinCEN Updates BSA/AML Requirements for Non-Bank Lenders', source: 'CFPB', date: '2026-03-15',
-    summary: 'New FinCEN guidance clarifies BSA/AML obligations for non-bank commercial lenders including enhanced due diligence requirements for high-risk business categories.',
-    relevance: 'high', state: 'Federal', regulationType: 'aml',
-    clientImpact: 'High-risk industry clients (cannabis-adjacent, crypto, money services) require enhanced due diligence. Update KYB workflows for affected businesses.',
-    bookmarked: false,
-  },
-  {
-    id: 'reg_006', title: 'Texas HB 1442 Business Lending Transparency Act Signed', source: 'State AG', date: '2026-03-10',
-    summary: 'New Texas law requires broker compensation disclosure on all commercial finance transactions. Effective September 1, 2026.',
-    relevance: 'medium', state: 'TX', regulationType: 'disclosure',
-    clientImpact: 'Texas clients must receive broker compensation disclosures starting Q3. Update contract templates and advisory fee disclosures for TX transactions.',
-    bookmarked: false,
-  },
-  {
-    id: 'reg_007', title: 'TCPA Litigation Surge: Auto-Dialer Definition Narrowed', source: 'FTC', date: '2026-03-05',
-    summary: 'Recent circuit court rulings have narrowed the TCPA auto-dialer definition but expanded consent revocation rights. Mixed impact for outbound campaigns.',
-    relevance: 'medium', state: 'Federal', regulationType: 'tcpa',
-    clientImpact: 'Outbound call/SMS campaigns may have slightly relaxed dialer rules but must respect any consent revocation immediately. Update consent management workflows.',
-    bookmarked: false,
-  },
-  {
-    id: 'reg_008', title: 'Florida UDAP Provisions Now Cover Digital Credit Applications', source: 'State AG', date: '2026-02-28',
-    summary: 'Florida expanded its deceptive trade practices statute to explicitly cover AI-assisted and digital credit application flows for commercial products.',
-    relevance: 'high', state: 'FL', regulationType: 'udap',
-    clientImpact: 'Florida-based digital application flows must be audited for UDAP compliance. Ensure AI-driven recommendations include clear disclosures about automated decision-making.',
-    bookmarked: false,
-  },
-];
-
-const STATES = ['all', 'Federal', 'CA', 'NY', 'TX', 'FL'];
-const REG_TYPES = ['all', 'disclosure', 'enforcement', 'proposed_rule', 'aml', 'tcpa', 'udap'];
-
-const RELEVANCE_CONFIG: Record<RelevanceBadge, { label: string; cls: string }> = {
-  critical: { label: 'Critical', cls: 'bg-red-900 text-red-300 border-red-700' },
-  high:     { label: 'High',     cls: 'bg-orange-900 text-orange-300 border-orange-700' },
-  medium:   { label: 'Medium',   cls: 'bg-yellow-900 text-yellow-300 border-yellow-700' },
-  low:      { label: 'Low',      cls: 'bg-green-900 text-green-300 border-green-700' },
+const URGENCY_STYLE: Record<Urgency, string> = {
+  critical: 'bg-red-900 text-red-300 border-red-700',
+  high: 'bg-orange-900 text-orange-300 border-orange-700',
+  medium: 'bg-yellow-900 text-yellow-300 border-yellow-700',
+  low: 'bg-green-900 text-green-300 border-green-700',
 };
 
-const SOURCE_COLORS: Record<string, string> = {
-  CFPB:      'bg-blue-900 text-blue-300 border-blue-700',
-  FTC:       'bg-purple-900 text-purple-300 border-purple-700',
-  'State AG': 'bg-teal-900 text-teal-300 border-teal-700',
+const STATUS_LABEL: Record<AlertStatus, string> = {
+  new: 'Not yet reviewed',
+  under_review: 'Under review',
+  resolved: 'Reviewed',
+  dismissed: 'Dismissed',
 };
 
-function formatDate(iso: string) {
-  try { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
-  catch { return iso; }
+function authHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+  return token === null ? {} : { Authorization: `Bearer ${token}` };
 }
 
-function formatRegType(t: string) {
-  return t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+function formatDate(iso: string | null): string {
+  if (iso === null) return 'no date recorded';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'no date recorded';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
+export default function ComplianceRegulatoryFeedPage() {
+  const [alerts, setAlerts] = useState<RegulatoryAlertRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-export default function RegulatoryIntelligencePage() {
-  const [items, setItems] = useState<RegulatoryItem[]>(MOCK_ITEMS);
-  const [stateFilter, setStateFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [impact, setImpact] = useState<Record<string, ImpactAssessment | null>>({});
+  const [impactLoading, setImpactLoading] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch('/api/regulatory/alerts?limit=500', { headers: authHeaders() });
+      if (!res.ok) {
+        setLoadError(`The regulatory feed could not be loaded (HTTP ${res.status}).`);
+        setAlerts([]);
+        return;
+      }
+      const body = (await res.json()) as { success?: boolean; data?: unknown };
+      setAlerts(body.success === true ? toRegulatoryAlerts(body.data) : []);
+    } catch {
+      setLoadError('Could not reach the server. No regulatory updates are shown.');
+      setAlerts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const loadImpact = useCallback(
+    async (id: string) => {
+      if (impact[id] !== undefined) return;
+      setImpactLoading(id);
+      try {
+        const res = await fetch(`/api/regulatory/impact/${encodeURIComponent(id)}`, {
+          headers: authHeaders(),
+        });
+        if (!res.ok) {
+          setImpact((prev) => ({ ...prev, [id]: null }));
+          return;
+        }
+        const body = (await res.json()) as { success?: boolean; data?: unknown };
+        setImpact((prev) => ({
+          ...prev,
+          [id]: body.success === true ? toImpactAssessment(body.data) : null,
+        }));
+      } catch {
+        setImpact((prev) => ({ ...prev, [id]: null }));
+      } finally {
+        setImpactLoading(null);
+      }
+    },
+    [impact],
+  );
+
+  // Options come from the alerts that loaded. The page hardcoded six states
+  // and seven rule types, so a filter could offer a value nothing had.
+  const facets = useMemo(() => facetsOf(alerts), [alerts]);
 
   const filtered = useMemo(() => {
-    let result = items;
-    if (stateFilter !== 'all') result = result.filter(i => i.state === stateFilter);
-    if (typeFilter !== 'all') result = result.filter(i => i.regulationType === typeFilter);
-    return result;
-  }, [items, stateFilter, typeFilter]);
+    const rows = alerts.filter(
+      (a) =>
+        (sourceFilter === 'all' || a.source === sourceFilter) &&
+        (typeFilter === 'all' || a.ruleType === typeFilter),
+    );
+    return byEffectiveDateDesc(rows);
+  }, [alerts, sourceFilter, typeFilter]);
 
-  const toggleBookmark = (id: string) => {
-    setItems(prev => prev.map(i => i.id === id ? { ...i, bookmarked: !i.bookmarked } : i));
-  };
-
-  const toggleExpand = (id: string) => {
-    setExpandedId(prev => prev === id ? null : id);
-  };
-
-  const bookmarkedCount = items.filter(i => i.bookmarked).length;
+  const undated = filtered.filter((a) => a.effectiveDate === null).length;
 
   return (
     <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Regulatory Intelligence</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {filtered.length} update{filtered.length !== 1 ? 's' : ''} · {bookmarkedCount} bookmarked
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-gray-500">Last synced: {formatDate('2026-04-07')}</span>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">Regulatory Updates</h1>
+        <p className="text-sm text-gray-400 mt-1">
+          Rule changes recorded for this tenant, most recently effective first.
+        </p>
+        {/* No "last synced" line. The previous one read "Last synced: Apr 7,
+            2026" and was a constant; nothing fetches rules from anywhere. */}
+        <p className="text-xs text-gray-600 mt-2">
+          Recorded in this system — not a feed from the regulators. The same updates appear on the{' '}
+          <Link href="/regulatory" className="text-[#C9A84C] hover:underline">
+            regulatory intelligence
+          </Link>{' '}
+          page, where they can be reviewed and marked off.
+        </p>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-4 mb-6">
-        <div>
-          <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold mr-2" htmlFor="compliance-regulatory-state">State</label>
-          <select id="compliance-regulatory-state"
-            value={stateFilter}
-            onChange={e => setStateFilter(e.target.value)}
-            className="rounded-lg bg-gray-900 border border-gray-700 text-gray-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]"
-          >
-            {STATES.map(s => (
-              <option key={s} value={s}>{s === 'all' ? 'All States' : s}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold mr-2" htmlFor="compliance-regulatory-type">Type</label>
-          <select id="compliance-regulatory-type"
-            value={typeFilter}
-            onChange={e => setTypeFilter(e.target.value)}
-            className="rounded-lg bg-gray-900 border border-gray-700 text-gray-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]"
-          >
-            {REG_TYPES.map(t => (
-              <option key={t} value={t}>{t === 'all' ? 'All Types' : formatRegType(t)}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {loading && <p className="text-sm text-gray-500">Loading regulatory updates…</p>}
 
-      {/* Feed */}
-      <div className="space-y-4">
-        {filtered.length === 0 && (
-          <p className="text-gray-500 text-sm text-center py-8">No regulatory updates match the current filters.</p>
-        )}
+      {loadError !== null && (
+        <p className="rounded-lg border border-red-800 bg-red-900/20 px-4 py-3 text-sm text-red-300">
+          {loadError}
+        </p>
+      )}
 
-        {filtered.map(item => (
-          <div
-            key={item.id}
-            className={`rounded-xl border p-5 transition-colors ${
-              item.bookmarked
-                ? 'border-[#C9A84C]/50 bg-[#0A1628]/80'
-                : 'border-gray-800 bg-gray-900'
-            }`}
-          >
-            {/* Top row: badges + date + bookmark */}
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${RELEVANCE_CONFIG[item.relevance].cls}`}>
-                  {RELEVANCE_CONFIG[item.relevance].label}
-                </span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${SOURCE_COLORS[item.source] || 'bg-gray-800 text-gray-300 border-gray-600'}`}>
-                  {item.source}
-                </span>
-                <span className="text-xs bg-gray-800 text-gray-400 border border-gray-700 px-1.5 py-0.5 rounded">
-                  {formatRegType(item.regulationType)}
-                </span>
-                {item.state !== 'Federal' && (
-                  <span className="text-xs bg-gray-800 text-gray-400 border border-gray-700 px-1.5 py-0.5 rounded">
-                    {item.state}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <span className="text-xs text-gray-500">{formatDate(item.date)}</span>
-                <button
-                  onClick={() => toggleBookmark(item.id)}
-                  className={`text-lg leading-none transition-colors ${
-                    item.bookmarked ? 'text-[#C9A84C]' : 'text-gray-600 hover:text-[#C9A84C]'
-                  }`}
-                  title={item.bookmarked ? 'Remove bookmark' : 'Bookmark'}
-                >
-                  {item.bookmarked ? '\u2605' : '\u2606'}
-                </button>
-              </div>
+      {!loading && loadError === null && (
+        <>
+          <div className="flex flex-wrap items-end gap-4 mb-6">
+            <div>
+              <label
+                className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1"
+                htmlFor="compliance-regulatory-source"
+              >
+                Source
+              </label>
+              <select
+                id="compliance-regulatory-source"
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                className="rounded-lg bg-gray-900 border border-gray-700 text-gray-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]"
+              >
+                <option value="all">All sources</option>
+                {facets.sources.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Title + summary */}
-            <h3 className="font-semibold text-gray-100 text-sm mb-1">{item.title}</h3>
-            <p className="text-xs text-gray-400 mb-3">{item.summary}</p>
+            <div>
+              <label
+                className="block text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1"
+                htmlFor="compliance-regulatory-type"
+              >
+                Rule type
+              </label>
+              <select
+                id="compliance-regulatory-type"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="rounded-lg bg-gray-900 border border-gray-700 text-gray-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]"
+              >
+                <option value="all">All rule types</option>
+                {facets.ruleTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {humanise(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            {/* Expand toggle */}
-            <button
-              onClick={() => toggleExpand(item.id)}
-              className="text-xs font-semibold text-[#C9A84C] hover:text-[#d4b65e] transition-colors"
-            >
-              {expandedId === item.id ? 'Hide client impact' : 'How does this affect my clients?'} {expandedId === item.id ? '\u25B2' : '\u25BC'}
-            </button>
-
-            {/* Expanded section */}
-            {expandedId === item.id && (
-              <div className="mt-3 p-3 rounded-lg bg-[#0A1628] border border-gray-700">
-                <p className="text-xs text-[#C9A84C] font-semibold uppercase mb-1">Client Impact Assessment</p>
-                <p className="text-sm text-gray-300">{item.clientImpact}</p>
-              </div>
-            )}
+            <p className="text-xs text-gray-500 pb-2">
+              {filtered.length} update{filtered.length === 1 ? '' : 's'}
+              {undated > 0 && ` · ${undated} with no effective date, listed last`}
+            </p>
           </div>
-        ))}
-      </div>
+
+          {/* There is no state filter. No column records which jurisdiction a
+              rule belongs to, and the six offered before — Federal, CA, NY,
+              TX, FL — were part of the same fixture as the rules themselves. */}
+
+          {filtered.length === 0 ? (
+            <p className="rounded-xl border border-gray-800 bg-gray-900/40 px-5 py-12 text-center text-sm text-gray-500">
+              {alerts.length === 0
+                ? 'No regulatory updates recorded.'
+                : 'No updates match these filters.'}
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {filtered.map((alert) => {
+                const band = impactBand(alert.impactScore);
+                const open = expandedId === alert.id;
+
+                return (
+                  <article
+                    key={alert.id}
+                    className="rounded-xl border border-gray-800 bg-gray-900/40 p-5"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="rounded-full border border-gray-700 px-2 py-0.5 text-2xs text-gray-300">
+                        {alert.source}
+                      </span>
+                      <span className="rounded-full border border-gray-800 px-2 py-0.5 text-2xs text-gray-500">
+                        {humanise(alert.ruleType)}
+                      </span>
+                      {/* An unscored rule is not a low-relevance one. */}
+                      {band === null ? (
+                        <span className="rounded-full border border-gray-700 px-2 py-0.5 text-2xs text-gray-500">
+                          Relevance not scored
+                        </span>
+                      ) : (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-2xs ${URGENCY_STYLE[band]}`}
+                        >
+                          {humanise(band)}
+                        </span>
+                      )}
+                      <span className="ml-auto text-xs text-gray-500">
+                        Effective {formatDate(alert.effectiveDate)}
+                      </span>
+                    </div>
+
+                    <h2 className="text-sm font-semibold text-white">{alert.title}</h2>
+                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">{alert.summary}</p>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <button
+                        onClick={() => {
+                          const next = open ? null : alert.id;
+                          setExpandedId(next);
+                          if (next !== null) loadImpact(alert.id);
+                        }}
+                        className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-900"
+                      >
+                        {open ? 'Hide platform impact' : 'Platform impact'}
+                      </button>
+                      <span className="text-xs text-gray-600">
+                        {STATUS_LABEL[alert.status]}
+                        {alert.reviewedAt !== null && ` · ${formatDate(alert.reviewedAt)}`}
+                      </span>
+                    </div>
+
+                    {open && (
+                      <div className="mt-4 rounded-lg border border-gray-800 bg-[#071019] p-4">
+                        {impactLoading === alert.id ? (
+                          <p className="text-xs text-gray-500">Loading…</p>
+                        ) : impact[alert.id] == null ? (
+                          <p className="text-xs text-gray-500">
+                            No impact assessment is available for this rule.
+                          </p>
+                        ) : (
+                          <>
+                            {/* Deliberately "platform impact", not "client
+                                impact". Each item used to carry a paragraph
+                                telling an advisor what their clients must do
+                                about a rule; the API assesses which platform
+                                modules a rule touches, which is a narrower
+                                thing and the one it can support. */}
+                            <p className="text-2xs uppercase tracking-wide text-gray-600 mb-2">
+                              Modules affected on this platform
+                            </p>
+                            <p className="text-xs text-gray-400">{impact[alert.id]?.rationale}</p>
+
+                            {(impact[alert.id]?.affectedModules.length ?? 0) > 0 && (
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {impact[alert.id]?.affectedModules.map((m) => (
+                                  <span
+                                    key={m}
+                                    className="rounded border border-gray-800 bg-gray-900 px-2 py-0.5 text-2xs text-gray-400"
+                                  >
+                                    {humanise(m)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {(impact[alert.id]?.recommendedActions.length ?? 0) > 0 && (
+                              <ul className="mt-3 space-y-1.5">
+                                {impact[alert.id]?.recommendedActions.map((a) => (
+                                  <li key={a} className="flex gap-2 text-xs text-gray-300">
+                                    <span className="text-[#C9A84C] flex-shrink-0">•</span>
+                                    {a}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+
+                            <p className="mt-3 text-2xs text-gray-600 leading-relaxed">
+                              What a given client must do about this rule is not assessed here.
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

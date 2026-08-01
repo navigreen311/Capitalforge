@@ -278,3 +278,54 @@ export function humanise(key: string): string {
   const words = key.replace(/_/g, ' ').trim();
   return words === '' ? '' : words.charAt(0).toUpperCase() + words.slice(1);
 }
+
+// ── Feed helpers ────────────────────────────────────────────
+
+/**
+ * The distinct values present, for building filter controls.
+ *
+ * Derived from the alerts actually loaded rather than from a fixed list. The
+ * compliance feed hardcoded its filters — six states and seven rule types —
+ * so a filter could offer a value no alert had, and an alert could arrive
+ * with a value no filter could reach.
+ */
+export function facetsOf(alerts: RegulatoryAlertRow[]): {
+  sources: string[];
+  ruleTypes: string[];
+} {
+  const sources = new Set<string>();
+  const ruleTypes = new Set<string>();
+
+  for (const a of alerts) {
+    if (a.source.trim() !== '') sources.add(a.source);
+    if (a.ruleType.trim() !== '') ruleTypes.add(a.ruleType);
+  }
+
+  return {
+    sources: [...sources].sort(),
+    ruleTypes: [...ruleTypes].sort(),
+  };
+}
+
+/**
+ * Newest first, by the date the rule takes effect.
+ *
+ * Alerts with no effective date sort last rather than being treated as very
+ * old or very new — an undated rule change is not a stale one.
+ */
+export function byEffectiveDateDesc(alerts: RegulatoryAlertRow[]): RegulatoryAlertRow[] {
+  const time = (row: RegulatoryAlertRow): number | null => {
+    if (row.effectiveDate === null) return null;
+    const t = new Date(row.effectiveDate).getTime();
+    return Number.isNaN(t) ? null : t;
+  };
+
+  return [...alerts].sort((a, b) => {
+    const ta = time(a);
+    const tb = time(b);
+    if (ta === null && tb === null) return 0;
+    if (ta === null) return 1;
+    if (tb === null) return -1;
+    return tb - ta;
+  });
+}

@@ -20,6 +20,8 @@ import {
   summariseAlerts,
   unresolvedFlows,
   humanise,
+  facetsOf,
+  byEffectiveDateDesc,
   type RegulatoryAlertRow,
 } from '../../../src/frontend/lib/regulatory-view';
 
@@ -304,5 +306,60 @@ describe('humanise', () => {
     expect(humanise('pass_through')).toBe('Pass through');
     expect(humanise('small_business_lending')).toBe('Small business lending');
     expect(humanise('')).toBe('');
+  });
+});
+
+describe('facetsOf', () => {
+  const alert = (over: Partial<RegulatoryAlertRow>): RegulatoryAlertRow => ({
+    ...(toRegulatoryAlert(REAL_ALERT) as RegulatoryAlertRow),
+    ...over,
+  });
+
+  it('lists the distinct sources and rule types present', () => {
+    const f = facetsOf([
+      alert({ id: 'a', source: 'CFPB', ruleType: 'disclosure' }),
+      alert({ id: 'b', source: 'FTC', ruleType: 'advertising' }),
+      alert({ id: 'c', source: 'CFPB', ruleType: 'disclosure' }),
+    ]);
+    expect(f.sources).toEqual(['CFPB', 'FTC']);
+    expect(f.ruleTypes).toEqual(['advertising', 'disclosure']);
+  });
+
+  it('offers nothing for an empty feed', () => {
+    // The page hardcoded six states and seven rule types, so a filter could
+    // offer a value no alert had.
+    expect(facetsOf([])).toEqual({ sources: [], ruleTypes: [] });
+  });
+});
+
+describe('byEffectiveDateDesc', () => {
+  const alert = (over: Partial<RegulatoryAlertRow>): RegulatoryAlertRow => ({
+    ...(toRegulatoryAlert(REAL_ALERT) as RegulatoryAlertRow),
+    ...over,
+  });
+
+  it('puts the most recently effective first', () => {
+    const sorted = byEffectiveDateDesc([
+      alert({ id: 'old', effectiveDate: '2025-01-01T00:00:00.000Z' }),
+      alert({ id: 'new', effectiveDate: '2026-10-01T00:00:00.000Z' }),
+    ]);
+    expect(sorted.map((a) => a.id)).toEqual(['new', 'old']);
+  });
+
+  it('sorts undated alerts last rather than treating them as ancient', () => {
+    const sorted = byEffectiveDateDesc([
+      alert({ id: 'undated', effectiveDate: null }),
+      alert({ id: 'dated', effectiveDate: '2025-01-01T00:00:00.000Z' }),
+    ]);
+    expect(sorted.map((a) => a.id)).toEqual(['dated', 'undated']);
+  });
+
+  it('does not mutate the input', () => {
+    const input = [
+      alert({ id: 'a', effectiveDate: '2025-01-01T00:00:00.000Z' }),
+      alert({ id: 'b', effectiveDate: '2026-01-01T00:00:00.000Z' }),
+    ];
+    byEffectiveDateDesc(input);
+    expect(input.map((a) => a.id)).toEqual(['a', 'b']);
   });
 });
