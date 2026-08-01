@@ -40,12 +40,25 @@ export const complianceRouter = Router();
 // ── Shared instances ──────────────────────────────────────────────
 // Lazy-initialised to avoid Prisma client boot-up in tests.
 let prisma: PrismaClient | null = null;
+
+/**
+ * One client for this router.
+ *
+ * Twelve handlers here read `prisma ?? new PrismaClient()`, and `prisma` was
+ * only ever assigned inside getSvc() — so any route that did not go through
+ * the service constructed a client per request. Under the browser suite that
+ * exhausted the connection pool and surfaced as intermittent 500s on
+ * whichever compliance route happened to be running.
+ */
+function getPrisma(): PrismaClient {
+  prisma = prisma ?? new PrismaClient();
+  return prisma;
+}
 let svc: ComplianceService | null = null;
 
 function getService(): ComplianceService {
   if (!svc) {
-    prisma = prisma ?? new PrismaClient();
-    svc = new ComplianceService(prisma);
+    svc = new ComplianceService(getPrisma());
   }
   return svc;
 }
@@ -128,7 +141,7 @@ complianceRouter.get(
 
       const service = getService();
 
-      await assertBusinessOwnership(businessId, tenantId, prisma ?? new PrismaClient());
+      await assertBusinessOwnership(businessId, tenantId, getPrisma());
 
       const result = await service.getRiskScore(businessId, tenantId);
 
@@ -174,7 +187,7 @@ complianceRouter.post(
       const { checkType, stateCode, interactionText, vendorId, riskRegisterInput } = parsed.data;
 
       const service = getService();
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       await assertBusinessOwnership(businessId, tenantId, prismaClient);
 
@@ -323,7 +336,7 @@ complianceRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       const checks = await prismaClient.complianceCheck.findMany({
         where: { tenantId },
@@ -403,7 +416,7 @@ complianceRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       const businesses = await prismaClient.business.findMany({
         where: { tenantId },
@@ -467,7 +480,7 @@ complianceRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       const docs = await prismaClient.document.findMany({
         where: { tenantId },
@@ -510,7 +523,7 @@ complianceRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       const schema = z.object({
         businessId: z.string().optional(),
@@ -558,7 +571,7 @@ complianceRouter.patch(
     try {
       const { tenantId } = req.tenant!;
       const { id } = req.params;
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       const doc = await prismaClient.document.findFirst({
         where: { id, tenantId },
@@ -713,7 +726,32 @@ IMPORTANT DISCLOSURES:
 
 // ─────────────────────────────────────────────────────────────────
 // GET /api/compliance/disclosures
-// List disclosure requirements with deadline tracking.
+//
+// The tenant's businesses and where each is formed. Nothing more, because
+// nothing more is recorded.
+//
+// What this returned before: six invented filings — "Apex Ventures LLC, CA,
+// SB 1235 Commercial Finance Disclosures, deadline 2026-04-15, Pending",
+// with two marked Filed and carrying filing dates. Tenant-scoped and gated
+// on COMPLIANCE_READ, and it logged the tenantId and a count, so it read as
+// this tenant's regulatory filing position. It was the same six rows for
+// everyone.
+//
+// Two things are missing from this system and neither is invented here:
+//
+//   1. An obligation register. Which disclosure law binds which business is
+//      a legal determination — it turns on where the recipient is located,
+//      the product, and the amount — and nothing in this schema encodes it.
+//      A state-of-formation lookup is not that determination and is not
+//      offered as one.
+//   2. A filing record. No table holds a filing, its date, who made it or
+//      its confirmation. So no status is reported: not Filed, not Pending,
+//      not Overdue. "Pending" would be a claim about an obligation, and
+//      "Filed" a claim about an act.
+//
+// What is returned is what can be shown: the businesses, their state of
+// formation, and an explicit statement that the register and the filing
+// record do not exist.
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.get(
   '/compliance/disclosures',
@@ -722,20 +760,49 @@ complianceRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
+      const prismaClient = getPrisma();
 
-      // Placeholder disclosure data — backed by a Disclosure model in a future iteration
-      const disclosures = [
-        { id: 'dis_001', businessName: 'Apex Ventures LLC',       state: 'CA', regulation: 'SB 1235 Commercial Finance Disclosures',  deadline: '2026-04-15', status: 'Pending',  filedAt: null },
-        { id: 'dis_002', businessName: 'NovaTech Solutions Inc.',  state: 'NY', regulation: 'Commercial Finance Disclosure Law',        deadline: '2026-03-31', status: 'Overdue',  filedAt: null },
-        { id: 'dis_003', businessName: 'Horizon Retail Partners',  state: 'IL', regulation: 'Consumer Installment Loan Act Disclosure', deadline: '2026-05-01', status: 'Filed',    filedAt: '2026-03-20T10:00:00Z' },
-        { id: 'dis_004', businessName: 'Summit Capital Group',     state: 'TX', regulation: 'HB 1442 Business Lending Transparency',    deadline: '2026-09-01', status: 'Draft',    filedAt: null },
-        { id: 'dis_005', businessName: 'Blue Ridge Consulting',    state: 'VA', regulation: 'Open-End Credit Disclosure Requirements',  deadline: '2026-04-10', status: 'Pending',  filedAt: null },
-        { id: 'dis_006', businessName: 'Crestline Medical LLC',    state: 'UT', regulation: 'Consumer Credit Protection - Title 70C',   deadline: '2026-06-30', status: 'Filed',    filedAt: '2026-03-15T14:00:00Z' },
-      ];
+      const businesses = await prismaClient.business.findMany({
+        where: { tenantId },
+        select: { id: true, legalName: true, stateOfFormation: true, status: true },
+        orderBy: { legalName: 'asc' },
+        take: 500,
+      });
 
-      logger.info('Disclosures listed', { requestId: req.requestId, tenantId, count: disclosures.length });
+      const data = {
+        businesses: businesses.map((b) => ({
+          businessId: b.id,
+          businessName: b.legalName,
+          // Null where the record does not say. Absent is not "unknown state
+          // therefore no obligation".
+          stateOfFormation: b.stateOfFormation,
+          status: b.status,
+        })),
+        /** Deliberately empty. See obligationRegister below. */
+        obligations: [] as unknown[],
+        obligationRegister: {
+          exists: false,
+          why:
+            'Which disclosure law binds which business is a legal determination — it turns on ' +
+            'where the recipient is located, the product and the amount. Nothing in this schema ' +
+            'encodes it, and state of formation is not a substitute.',
+        },
+        filingRecord: {
+          exists: false,
+          why:
+            'No table records a filing, its date, who made it, or a confirmation reference. No ' +
+            'status is reported for that reason — a status here would be a claim about an act ' +
+            'nothing witnessed.',
+        },
+      };
 
-      const body: ApiResponse<typeof disclosures> = { success: true, data: disclosures };
+      logger.info('Disclosure inventory listed', {
+        requestId: req.requestId,
+        tenantId,
+        businesses: data.businesses.length,
+      });
+
+      const body: ApiResponse<typeof data> = { success: true, data };
       res.status(200).json(body);
     } catch (err) {
       next(err);
@@ -745,27 +812,30 @@ complianceRouter.get(
 
 // ─────────────────────────────────────────────────────────────────
 // POST /api/compliance/disclosures/:id/file
-// Mark a disclosure as filed.
+//
+// Answers 501. It used to answer 200 with { status: 'Filed', filedAt: now }
+// while writing nothing anywhere — and the page that called it then minted a
+// confirmation reference from Math.random() and a link to a PDF that was
+// never generated.
+//
+// Filing a state disclosure is a submission to a regulator. Nothing in this
+// system submits anything, and there is nowhere to record that someone did.
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.post(
   '/compliance/disclosures/:id/file',
   tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const { tenantId } = req.tenant!;
-
-      logger.info('Disclosure filed', { requestId: req.requestId, tenantId, disclosureId: id });
-
-      const body: ApiResponse<{ id: string; status: string; filedAt: string }> = {
-        success: true,
-        data: { id, status: 'Filed', filedAt: new Date().toISOString() },
-      };
-      res.status(200).json(body);
-    } catch (err) {
-      next(err);
-    }
+  (_req: Request, res: Response): void => {
+    const body: ApiResponse = {
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Nothing here files a disclosure. There is no submission to a regulator and no table ' +
+          'to record one in; this endpoint previously answered 200 with a filing date anyway.',
+      },
+    };
+    res.status(501).json(body);
   },
 );
 
@@ -780,7 +850,7 @@ complianceRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       const complaints = await prismaClient.complaint.findMany({
         where: { tenantId },
@@ -822,7 +892,7 @@ complianceRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       const schema = z.object({
         businessId: z.string().optional(),
@@ -870,7 +940,7 @@ complianceRouter.patch(
     try {
       const { tenantId } = req.tenant!;
       const { id } = req.params;
-      const prismaClient = prisma ?? new PrismaClient();
+      const prismaClient = getPrisma();
 
       const complaint = await prismaClient.complaint.findFirst({
         where: { id, tenantId },

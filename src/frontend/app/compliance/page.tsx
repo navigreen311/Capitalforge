@@ -364,7 +364,10 @@ export default function ComplianceCenterPage() {
         actions.push({ label: 'Remove Vendor', onClick: () => setToast(`Vendor removal initiated for ${item.businessName}`) });
         break;
       case 'State Disclosures':
-        actions.push({ label: 'File Now', onClick: () => router.push('/compliance/disclosures'), variant: 'primary' });
+        // Not "File Now": nothing here files a disclosure, and the page it
+        // links to no longer offers to. It shows which clients are formed
+        // where, and says what is not recorded.
+        actions.push({ label: 'View clients by state', onClick: () => router.push('/compliance/disclosures') });
         actions.push({ label: 'Assign to Advisor', onClick: () => setToast(`Advisor assignment initiated for ${item.businessName}`) });
         break;
       case 'KYB':
