@@ -385,9 +385,24 @@ export class OffboardingService {
 
   // ── Data Export ─────────────────────────────────────────────
 
-  async exportTenantData(workflowId: string): Promise<{ exportKey: string; recordCount: number }> {
-    const wf = await this.prisma.offboardingWorkflow.findFirst({ where: { id: workflowId } });
-    if (!wf) throw new Error(`Workflow ${workflowId} not found.`);
+  /**
+   * @param tenantId The caller's tenant. The lookup is scoped to it: this
+   *   reads and counts across a whole tenant, so it may only ever be pointed
+   *   at the caller's own.
+   */
+  async exportTenantData(
+    workflowId: string,
+    tenantId: string,
+  ): Promise<{ exportKey: string; recordCount: number }> {
+    // It used to look the workflow up by id alone, and every count below is
+    // taken from whatever tenant the workflow turned out to belong to — so an
+    // id from another tenant returned that tenant's totals and marked its
+    // export done. A workflow outside the caller's tenant is now reported the
+    // same way one that does not exist is.
+    const wf = await this.prisma.offboardingWorkflow.findFirst({
+      where: { id: workflowId, tenantId },
+    });
+    if (!wf) throw notFound('Offboarding workflow');
 
     // In production: trigger async export job, upload to S3/GCS, return signed URL.
     // Stub counts relevant records.

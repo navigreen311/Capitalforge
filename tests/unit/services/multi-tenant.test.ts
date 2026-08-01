@@ -47,6 +47,7 @@ function makePrismaMock() {
       create:   vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       update:   vi.fn(),
+      count:    vi.fn().mockResolvedValue(0),
     },
     tenantPlan: {
       create:     vi.fn(),
@@ -505,6 +506,56 @@ describe('OffboardingService', () => {
   });
 
   // ── Tenant scoping ────────────────────────────────────────
+
+  it('exportTenantData — scopes the lookup, and counts only the calling tenant', async () => {
+    // Every count is taken from the tenant the workflow turns out to belong
+    // to, so an unscoped lookup answered with another tenant's totals and
+    // marked its export done.
+    prisma.offboardingWorkflow.findFirst.mockImplementation(
+      async (args: { where: { id?: string; tenantId?: string } }) => {
+        if (args.where.id !== WF_FIXTURE.id) return null;
+        if (args.where.tenantId !== undefined && args.where.tenantId !== WF_FIXTURE.tenantId) {
+          return null;
+        }
+        return WF_FIXTURE;
+      },
+    );
+    prisma.offboardingWorkflow.update.mockResolvedValue(WF_FIXTURE);
+    prisma.business.count.mockResolvedValue(3);
+    prisma.user.count.mockResolvedValue(2);
+    prisma.document.count.mockResolvedValue(7);
+
+    const result = await svc.exportTenantData('wf-001', 'tenant-001');
+
+    expect(prisma.offboardingWorkflow.findFirst).toHaveBeenCalledWith({
+      where: { id: 'wf-001', tenantId: 'tenant-001' },
+    });
+    expect(result.recordCount).toBe(12);
+    for (const count of [prisma.business.count, prisma.user.count, prisma.document.count]) {
+      expect(count).toHaveBeenCalledWith({ where: { tenantId: 'tenant-001' } });
+    }
+  });
+
+  it('exportTenantData — will not export a workflow belonging to another tenant', async () => {
+    prisma.offboardingWorkflow.findFirst.mockImplementation(
+      async (args: { where: { id?: string; tenantId?: string } }) => {
+        if (args.where.id !== WF_FIXTURE.id) return null;
+        if (args.where.tenantId !== undefined && args.where.tenantId !== WF_FIXTURE.tenantId) {
+          return null;
+        }
+        return WF_FIXTURE;
+      },
+    );
+
+    await expect(svc.exportTenantData('wf-001', 'tenant-002')).rejects.toThrow('not found');
+
+    // Nothing counted, and no export marked done on someone else's workflow.
+    expect(prisma.business.count).not.toHaveBeenCalled();
+    expect(prisma.user.count).not.toHaveBeenCalled();
+    expect(prisma.document.count).not.toHaveBeenCalled();
+    expect(prisma.offboardingWorkflow.update).not.toHaveBeenCalled();
+  });
+
 
   it('deleteData — scopes the lookup to the calling tenant', async () => {
     prisma.offboardingWorkflow.findFirst.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'pending' });
