@@ -191,16 +191,30 @@ const SEED_PHONES = {
   console.log(`  ✓ Businesses: ${biz1.legalName}, ${biz2.legalName}, ${biz3.legalName}`);
 
   // ── Business Owners ───────────────────────────────────────
+  //
+  // The SSNs below are from 987-65-4320 to 987-65-4329, the block the Social
+  // Security Administration reserves for advertising and fiction and has
+  // never issued. They cannot collide with a real person's number, which
+  // matters more here than usual: the data export returns owner SSNs in
+  // plaintext, and the deletion nulls them, so both paths need something real
+  // enough in shape to exercise and impossible to mistake for someone's.
+  //
+  // The same reasoning as the 555-0100 phone numbers elsewhere in this file.
+  // If you add an owner, take the next number in the block rather than
+  // inventing one that looks plausible.
 
   await prisma.businessOwner.upsert({
     where: { id: 'seed-owner-001' },
-    update: {},
+    // The one field this seed does update: these rows predate it, and a
+    // deletion nulls it, so a re-seed is how a dev database gets it back.
+    update: { ssn: '987-65-4320' },
     create: {
       id: 'seed-owner-001',
       businessId: biz1.id,
       firstName: 'Jordan',
       lastName: 'Patel',
       ownershipPercent: dec('100'),
+      ssn: '987-65-4320',
       dateOfBirth: d('1985-06-22'),
       address: {
         street: '4210 Innovation Drive',
@@ -217,13 +231,16 @@ const SEED_PHONES = {
 
   await prisma.businessOwner.upsert({
     where: { id: 'seed-owner-002' },
-    update: {},
+    // The one field this seed does update: these rows predate it, and a
+    // deletion nulls it, so a re-seed is how a dev database gets it back.
+    update: { ssn: '987-65-4321' },
     create: {
       id: 'seed-owner-002',
       businessId: biz2.id,
       firstName: 'Simone',
       lastName: 'Ramirez',
       ownershipPercent: dec('60'),
+      ssn: '987-65-4321',
       dateOfBirth: d('1979-11-03'),
       address: {
         street: '880 Brickell Ave, Ste 1200',
@@ -239,13 +256,16 @@ const SEED_PHONES = {
 
   await prisma.businessOwner.upsert({
     where: { id: 'seed-owner-003' },
-    update: {},
+    // The one field this seed does update: these rows predate it, and a
+    // deletion nulls it, so a re-seed is how a dev database gets it back.
+    update: { ssn: '987-65-4322' },
     create: {
       id: 'seed-owner-003',
       businessId: biz2.id,
       firstName: 'Derek',
       lastName: 'Nguyen',
       ownershipPercent: dec('40'),
+      ssn: '987-65-4322',
       dateOfBirth: d('1983-02-17'),
       address: {
         street: '1600 Bayshore Blvd',
@@ -261,13 +281,16 @@ const SEED_PHONES = {
 
   await prisma.businessOwner.upsert({
     where: { id: 'seed-owner-004' },
-    update: {},
+    // The one field this seed does update: these rows predate it, and a
+    // deletion nulls it, so a re-seed is how a dev database gets it back.
+    update: { ssn: '987-65-4323' },
     create: {
       id: 'seed-owner-004',
       businessId: biz3.id,
       firstName: 'Chandra',
       lastName: 'Williams',
       ownershipPercent: dec('75'),
+      ssn: '987-65-4323',
       dateOfBirth: d('1975-09-14'),
       address: {
         street: '2500 Commerce Tower',

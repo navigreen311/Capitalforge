@@ -334,11 +334,16 @@ test.describe('Offboarding', () => {
       };
     };
 
-    // The field is selected, so it is present on every owner record — the
-    // seeded owners hold no SSN, so the value is null rather than absent.
+    // A value, not just the field. The seeded owners carry numbers from
+    // 987-65-4320 onwards — the block the SSA reserves for fiction and has
+    // never issued — so this asserts a real value flows without putting
+    // anything that could be a person's number in a test file.
     const owners = body.data.sections.businessOwners.records;
     expect(owners.length).toBeGreaterThan(0);
-    for (const owner of owners) expect(owner).toHaveProperty('ssn');
+    for (const owner of owners) {
+      expect(owner).toHaveProperty('ssn');
+      expect(String(owner['ssn'])).toMatch(/^987-65-432\d$/);
+    }
 
     // Named, so whoever handles the file knows what is in it.
     expect(body.data.sensitiveFields).toContain('business_owners.ssn');
