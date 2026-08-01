@@ -25,7 +25,26 @@ export const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e-playwright',
-  timeout: 30000,
+  /**
+   * 60s per test, against assertions that wait up to 30s.
+   *
+   * This was 30s, the same as the longest wait inside the tests — 66
+   * assertions across the suite pass { timeout: 30000 }, the idiom for
+   * anything that has to survive a cold dev server. An assertion that is
+   * allowed to wait as long as the whole test can never reach its own
+   * deadline: every second spent navigating, filling and clicking before it
+   * comes out of its budget, and when the budget runs out Playwright reports
+   * a test timeout naming whichever assertion was pending, with no message
+   * about what was actually on the page.
+   *
+   * That is the shape of a failure seen once in this suite —
+   * comm-compliance's server-side scan, on a run against freshly started dev
+   * servers — which has not reproduced since, over repeated full runs, a
+   * cold-start run and 12 repeats of the file on its own. Doubling the budget
+   * does not prove that failure fixed; it makes the two numbers mean
+   * different things, so the next occurrence reports what it saw.
+   */
+  timeout: 60000,
   /**
    * One worker.
    *
@@ -44,6 +63,15 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     headless: true,
+    /**
+     * A trace for anything that fails.
+     *
+     * The intermittent above was lost because the only artifact was an
+     * error-context.md, and re-running the spec to investigate overwrote it.
+     * A trace survives that and carries the network log, so a failure that
+     * happens once in twenty runs is still diagnosable afterwards.
+     */
+    trace: 'retain-on-failure',
   },
   // Two entries rather than one `npm run dev`, for two reasons.
   //
