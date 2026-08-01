@@ -943,6 +943,133 @@ const SEED_PHONES = {
   }
   console.log(`  ✓ Disclosure templates created: ${disclosuresSeeded}`);
 
+  // ── AI Decision Log ───────────────────────────────────────
+  //
+  // What the model decided, which version decided it, how confident it was,
+  // and whether a person overrode it. The decisions page carried eight of
+  // these as literals, each with a client name and a snapshot of the inputs
+  // — FICO 742, revenue $2,400,000 — beside an override trail naming the
+  // people who approved each reversal.
+  //
+  // None of that is what this table holds. There is no businessId on a
+  // decision, the inputs are reduced to a hash on purpose, and an override
+  // records who made it and why, not who signed it off.
+  const aiDecisions: {
+    id: string;
+    moduleSource: string;
+    decisionType: string;
+    inputHash: string;
+    output: Prisma.InputJsonValue;
+    confidence: number;
+    modelVersion: string;
+    promptVersion: string;
+    latencyMs: number;
+    overriddenBy?: string;
+    overrideReason?: string;
+  }[] = [
+    {
+      id: 'seed-aidec-001',
+      moduleSource: 'suitability_engine',
+      decisionType: 'risk_score',
+      inputHash: 'b6f1c0a4e2d38a71',
+      output: { score: 78, band: 'good', rationale: 'Revenue stability and credit depth both above threshold.' },
+      confidence: 0.94,
+      modelVersion: 'suitability-v2.3',
+      promptVersion: 'p-2026-01',
+      latencyMs: 412,
+    },
+    {
+      id: 'seed-aidec-002',
+      moduleSource: 'stacking_optimizer',
+      decisionType: 'recommendation',
+      inputHash: '9c02b7dd41ae5f30',
+      output: {
+        recommended: 'Chase Ink Business Cash',
+        alternatives: ['Amex Blue Business Cash'],
+        rationale: 'Spend concentration matches the category bonus.',
+      },
+      confidence: 0.88,
+      modelVersion: 'optimizer-v4.1',
+      promptVersion: 'p-2026-01',
+      latencyMs: 866,
+    },
+    {
+      id: 'seed-aidec-003',
+      moduleSource: 'udap_scorer',
+      decisionType: 'classification',
+      inputHash: '3ae81f5c9b204d6e',
+      output: { classification: 'compliant', flaggedPhrases: [] },
+      confidence: 0.71,
+      modelVersion: 'udap-v1.8',
+      promptVersion: 'p-2025-11',
+      latencyMs: 233,
+    },
+    {
+      // Low confidence, and a person disagreed with it. Both are real signals
+      // the governance view exists to surface.
+      id: 'seed-aidec-004',
+      moduleSource: 'credit_intelligence',
+      decisionType: 'risk_score',
+      inputHash: '77d3e0b18cc94a25',
+      output: { score: 42, band: 'borderline', rationale: 'Debt service ratio above the comfort band.' },
+      confidence: 0.44,
+      modelVersion: 'credit-v3.0',
+      promptVersion: 'p-2026-01',
+      latencyMs: 519,
+      overriddenBy: advisorUser.id,
+      overrideReason:
+        'Revenue trend and deposit depth documented as compensating factors; ratio is borderline, not disqualifying.',
+    },
+    {
+      id: 'seed-aidec-005',
+      moduleSource: 'decline_recovery',
+      decisionType: 'recommendation',
+      inputHash: 'f10a4c77e9b32d58',
+      output: { action: 'reconsideration_letter', issuer: 'Bank of America' },
+      confidence: 0.81,
+      modelVersion: 'recovery-v1.2',
+      promptVersion: 'p-2026-01',
+      latencyMs: 297,
+    },
+    {
+      id: 'seed-aidec-006',
+      moduleSource: 'contract_analysis',
+      decisionType: 'extraction',
+      inputHash: '5b9207fe3a1d8c04',
+      output: { clausesFound: 12, redFlags: 1 },
+      confidence: 0.58,
+      modelVersion: 'contracts-v2.0',
+      promptVersion: 'p-2025-11',
+      latencyMs: 1740,
+    },
+  ];
+
+  for (const decision of aiDecisions) {
+    await prisma.aiDecisionLog.upsert({
+      where: { id: decision.id },
+      update: {},
+      create: {
+        id: decision.id,
+        tenantId: tenant.id,
+        moduleSource: decision.moduleSource,
+        decisionType: decision.decisionType,
+        // The inputs themselves are not stored. This is a digest of them, so
+        // an identical decision can be recognised without keeping the
+        // applicant data that produced it.
+        inputHash: decision.inputHash,
+        output: decision.output,
+        confidence: new Prisma.Decimal(decision.confidence),
+        modelVersion: decision.modelVersion,
+        promptVersion: decision.promptVersion,
+        latencyMs: decision.latencyMs,
+        ...(decision.overriddenBy === undefined
+          ? {}
+          : { overriddenBy: decision.overriddenBy, overrideReason: decision.overrideReason }),
+      },
+    });
+  }
+  console.log(`  ✓ AI decision log entries created: ${aiDecisions.length}`);
+
   // ── Consent Records ───────────────────────────────────────
 
   await prisma.consentRecord.upsert({
