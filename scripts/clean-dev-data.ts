@@ -136,6 +136,24 @@ e2e complaints             : ${e2eComplaints.length}`);
     if (e2eComplaints.length > 5) console.log(`   ...and ${e2eComplaints.length - 5} more`);
   }
 
+  // ── Disclosure templates left by the browser suite ──────
+  //
+  // Approving a template is irreversible through the API, so the disclosures
+  // spec creates its own rather than consuming a seeded draft. They are named
+  // "E2E ..." and accumulate one per run otherwise, inflating the library and
+  // the approved/draft counts on the page.
+  const e2eTemplates = await prisma.disclosureTemplate.findMany({
+    where: { name: { startsWith: 'E2E ' } },
+    select: { id: true, name: true },
+  });
+
+  if (e2eTemplates.length > 0) {
+    console.log(`
+e2e disclosure templates   : ${e2eTemplates.length}`);
+    for (const t of e2eTemplates.slice(0, 5)) console.log(`   drop  ${t.name.slice(0, 60)}`);
+    if (e2eTemplates.length > 5) console.log(`   ...and ${e2eTemplates.length - 5} more`);
+  }
+
   // ── Decline recoveries left by the browser suite ────────
   //
   // The declines spec logs a decline against a real seeded client each run,
@@ -257,6 +275,12 @@ e2e regulator inquiries    : ${e2eInquiries.length}`);
   if (e2eComplaints.length > 0) {
     note('e2eComplaints', (await prisma.complaint.deleteMany({
       where: { id: { in: e2eComplaints.map((c) => c.id) } },
+    })).count);
+  }
+
+  if (e2eTemplates.length > 0) {
+    note('e2eDisclosureTemplates', (await prisma.disclosureTemplate.deleteMany({
+      where: { id: { in: e2eTemplates.map((t) => t.id) } },
     })).count);
   }
 

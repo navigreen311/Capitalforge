@@ -14,6 +14,10 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { seedIssuerRules } from './seeds/issuer-rules.js';
 import { seedCardProducts } from './seeds/card-products.js';
+// The disclosure text itself lives with the service that renders it. Imported
+// rather than copied: a disclosure is legal text, and two copies of it that
+// can drift is the wrong shape for something a client is handed.
+import { SEED_TEMPLATES } from '../src/backend/services/disclosure-cms.service.js';
 
 const prisma = new PrismaClient();
 
@@ -898,6 +902,45 @@ const SEED_PHONES = {
     });
   }
   console.log(`  ✓ Funds flow classifications created: ${fundsFlows.length}`);
+
+  // ── Disclosure Templates ──────────────────────────────────
+  //
+  // The disclosures page carried nine of these as literals, with version
+  // numbers, an author per template and an approvedBy of "CCO" or "GC" —
+  // approval records for the legally required text a client is handed.
+  //
+  // Seeded here in the state they are actually in: drafts. Approving a
+  // disclosure is an act with a named approver and a timestamp, and it goes
+  // through POST /disclosures/templates/:id/approve, which records who did
+  // it. None of these have been through that, so none claims to have been.
+  let disclosuresSeeded = 0;
+  for (const template of SEED_TEMPLATES) {
+    const state = template.state.toUpperCase();
+    const existing = await prisma.disclosureTemplate.findFirst({
+      where: { tenantId: tenant.id, state, category: template.category },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    await prisma.disclosureTemplate.create({
+      data: {
+        tenantId: tenant.id,
+        state,
+        category: template.category,
+        name: template.name,
+        content: template.content,
+        version: '1.0.0',
+        effectiveDate: template.effectiveDate,
+        // Not active and not approved. The render endpoint refuses a template
+        // that is neither, which is the control the old page rendered around.
+        isActive: false,
+        approvedBy: null,
+        approvedAt: null,
+      },
+    });
+    disclosuresSeeded += 1;
+  }
+  console.log(`  ✓ Disclosure templates created: ${disclosuresSeeded}`);
 
   // ── Consent Records ───────────────────────────────────────
 
