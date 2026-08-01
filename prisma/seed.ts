@@ -1090,6 +1090,149 @@ const SEED_PHONES = {
   }
   console.log(`  ✓ AI decision log entries created: ${aiDecisions.length}`);
 
+  // ── Approved Scripts ──────────────────────────────────────
+  //
+  // What an advisor is cleared to say. The comm-compliance page carried five
+  // of these as literals with approvers written in.
+  //
+  // Seeded unapproved, like the disclosure templates: approving a script is
+  // an act with a named approver, and none of these has been through it.
+  const scripts: { id: string; name: string; category: string; content: string }[] = [
+    {
+      id: 'seed-script-001',
+      name: 'Discovery call opening',
+      category: 'discovery',
+      content:
+        'Thanks for taking the time. Before anything else — everything we discuss today is about ' +
+        'what your business qualifies for, and I cannot promise an outcome. What I can do is walk ' +
+        'through where you stand and which issuers are realistic. Is now still a good time?',
+    },
+    {
+      id: 'seed-script-002',
+      name: 'Explaining an approval range',
+      category: 'suitability',
+      content:
+        'The range I am giving you is based on your credit profile and revenue as they stand ' +
+        'today. It is an estimate, not an offer, and the issuer makes the decision. If anything ' +
+        'in your profile changes before we file, the range changes with it.',
+    },
+    {
+      id: 'seed-script-003',
+      name: 'Responding to a decline',
+      category: 'decline',
+      content:
+        'The issuer declined this one, and you will receive a notice from them explaining why. ' +
+        'That reason matters, because it tells us whether reconsideration is worth trying or ' +
+        'whether we should wait out their window. Let us go through what they said.',
+    },
+    {
+      id: 'seed-script-004',
+      name: 'Fee disclosure',
+      category: 'fees',
+      content:
+        'Our fee is charged whether or not you are approved, and it is separate from anything the ' +
+        'issuer charges. I want that clear before we go further, so there is no surprise on your ' +
+        'statement. Would you like me to send the fee schedule in writing?',
+    },
+  ];
+
+  for (const script of scripts) {
+    await prisma.approvedScript.upsert({
+      where: { id: script.id },
+      update: {},
+      create: {
+        id: script.id,
+        tenantId: tenant.id,
+        name: script.name,
+        category: script.category,
+        content: script.content,
+        version: '1.0.0',
+        // In use, and with no recorded approver.
+        //
+        // GET /api/scripts only ever returns active scripts, so seeding these
+        // inactive would make the library invisible. Active with approvedBy
+        // null is the honest state and the more useful one: a script an
+        // advisor is reading from that nobody has signed off is exactly the
+        // gap the page should show, and it is not asserted away by writing a
+        // name into approvedBy.
+        isActive: true,
+        approvedBy: null,
+        approvedAt: null,
+      },
+    });
+  }
+  console.log(`  ✓ Approved scripts created: ${scripts.length}`);
+
+  // ── Advisor QA Scores ─────────────────────────────────────
+  //
+  // One row per scored call, against an advisor id — not a per-advisor
+  // average. The page showed four named advisors with an overall score, a
+  // call count and a trend arrow, none of which existed.
+  const qaScores: {
+    id: string;
+    overallScore: number;
+    complianceScore: number;
+    scriptAdherence: number;
+    consentCapture: number;
+    riskClaimAvoidance: number;
+    feedback: string;
+    scoredAt: Date;
+  }[] = [
+    {
+      id: 'seed-qa-001',
+      overallScore: 88,
+      complianceScore: 92,
+      scriptAdherence: 84,
+      consentCapture: 90,
+      riskClaimAvoidance: 86,
+      feedback: 'Consent captured before any profile discussion. Approval language stayed hedged.',
+      scoredAt: d('2026-06-14'),
+    },
+    {
+      id: 'seed-qa-002',
+      overallScore: 74,
+      complianceScore: 68,
+      scriptAdherence: 79,
+      consentCapture: 82,
+      riskClaimAvoidance: 66,
+      feedback:
+        'Described a likely approval before the credit pull. Coached on framing ranges as estimates.',
+      scoredAt: d('2026-07-02'),
+    },
+    {
+      id: 'seed-qa-003',
+      overallScore: 91,
+      complianceScore: 94,
+      scriptAdherence: 88,
+      consentCapture: 95,
+      riskClaimAvoidance: 89,
+      feedback: 'Fee disclosure given unprompted and confirmed in writing.',
+      scoredAt: d('2026-07-21'),
+    },
+  ];
+
+  for (const score of qaScores) {
+    await prisma.advisorQaScore.upsert({
+      where: { id: score.id },
+      update: {},
+      create: {
+        id: score.id,
+        tenantId: tenant.id,
+        // Scored against the seeded advisor. There is no endpoint that lists
+        // advisors, so this id is the way to reach these from the UI.
+        advisorId: advisorUser.id,
+        overallScore: score.overallScore,
+        complianceScore: score.complianceScore,
+        scriptAdherence: score.scriptAdherence,
+        consentCapture: score.consentCapture,
+        riskClaimAvoidance: score.riskClaimAvoidance,
+        feedback: score.feedback,
+        scoredAt: score.scoredAt,
+      },
+    });
+  }
+  console.log(`  ✓ Advisor QA scores created: ${qaScores.length}`);
+
   // ── Consent Records ───────────────────────────────────────
 
   await prisma.consentRecord.upsert({

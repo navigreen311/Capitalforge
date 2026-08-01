@@ -21,6 +21,7 @@ const EMAIL = 'admin@demoadvisors.io';
 const PASSWORD = 'DemoPass123!';
 
 let cachedToken: string | null = null;
+let cachedUser: Record<string, unknown> | null = null;
 
 async function accessToken(): Promise<string> {
   if (cachedToken !== null) return cachedToken;
@@ -40,8 +41,11 @@ async function accessToken(): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: EMAIL, password: PASSWORD, tenantId }),
   });
-  const login = (await loginRes.json()) as { data?: { accessToken?: string } };
+  const login = (await loginRes.json()) as {
+    data?: { accessToken?: string; user?: Record<string, unknown> };
+  };
   const token = login.data?.accessToken;
+  cachedUser = login.data?.user ?? null;
 
   if (!loginRes.ok || !token) {
     throw new Error(
@@ -57,11 +61,21 @@ async function accessToken(): Promise<string> {
 export const test = base.extend<{ signedInPage: Page }>({
   signedInPage: async ({ page }, use) => {
     const token = await accessToken();
-    // addInitScript runs before any page script, so the token is present on
-    // the first render rather than arriving after the initial fetches.
-    await page.addInitScript((value) => {
-      localStorage.setItem('cf_access_token', value as string);
-    }, token);
+    // addInitScript runs before any page script, so these are present on the
+    // first render rather than arriving after the initial fetches.
+    //
+    // cf_user as well as the token: the login page stores both, and a page
+    // that needs the signed-in user's id — to attribute an action to them —
+    // sees a half-signed-in session without it. A fixture that signs in
+    // differently from the real thing tests a state no user is ever in.
+    await page.addInitScript(
+      (value) => {
+        const { token: t, user } = value as { token: string; user: unknown };
+        localStorage.setItem('cf_access_token', t);
+        if (user !== null) localStorage.setItem('cf_user', JSON.stringify(user));
+      },
+      { token, user: cachedUser },
+    );
     await use(page);
   },
 });
