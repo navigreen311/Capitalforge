@@ -47,6 +47,8 @@ export interface InitiateOffboardingInput {
 
 export interface ExitInterviewInput {
   workflowId: string;
+  /** The caller's tenant. The lookup is scoped to it. */
+  tenantId: string;
   notes: string;
   satisfactionScore?: number;
   primaryExitReason: string;
@@ -361,10 +363,13 @@ export class OffboardingService {
   // ── Exit Interview ──────────────────────────────────────────
 
   async captureExitInterview(input: ExitInterviewInput): Promise<OffboardingStatus> {
+    // Scoped to the caller's tenant. Unscoped, this wrote a client's parting
+    // account of why they left onto another tenant's workflow — and returned
+    // that workflow's status, which is the read half of the same hole.
     const wf = await this.prisma.offboardingWorkflow.findFirst({
-      where: { id: input.workflowId },
+      where: { id: input.workflowId, tenantId: input.tenantId },
     });
-    if (!wf) throw new Error(`Workflow ${input.workflowId} not found.`);
+    if (!wf) throw notFound('Offboarding workflow');
 
     await this.prisma.offboardingWorkflow.update({
       where: { id: input.workflowId },

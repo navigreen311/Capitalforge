@@ -449,6 +449,7 @@ describe('OffboardingService', () => {
 
     await svc.captureExitInterview({
       workflowId: 'wf-001',
+      tenantId: 'tenant-001',
       notes: 'Platform too expensive',
       satisfactionScore: 6,
       primaryExitReason: 'pricing',
@@ -506,6 +507,29 @@ describe('OffboardingService', () => {
   });
 
   // ── Tenant scoping ────────────────────────────────────────
+
+  it('captureExitInterview — will not write onto another tenant’s workflow', async () => {
+    prisma.offboardingWorkflow.findFirst.mockImplementation(
+      async (args: { where: { id?: string; tenantId?: string } }) => {
+        if (args.where.id !== WF_FIXTURE.id) return null;
+        if (args.where.tenantId !== undefined && args.where.tenantId !== WF_FIXTURE.tenantId) {
+          return null;
+        }
+        return WF_FIXTURE;
+      },
+    );
+
+    await expect(svc.captureExitInterview({
+      workflowId: 'wf-001',
+      tenantId: 'tenant-002',
+      notes: 'Platform too expensive',
+      primaryExitReason: 'pricing',
+    })).rejects.toThrow('not found');
+
+    // Neither the note written, nor the other tenant's workflow read back.
+    expect(prisma.offboardingWorkflow.update).not.toHaveBeenCalled();
+    expect(prisma.cardApplication.findMany).not.toHaveBeenCalled();
+  });
 
   it('exportTenantData — scopes the lookup, and counts only the calling tenant', async () => {
     // Every count is taken from the tenant the workflow turns out to belong

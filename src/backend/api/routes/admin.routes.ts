@@ -377,6 +377,8 @@ adminRouter.post(
       const input = parseOrThrow(ExitInterviewSchema, req.body);
       const status = await getOffboardingSvc().captureExitInterview({
         workflowId: req.params['id']!,
+        // The caller's own tenant, and only ever that.
+        tenantId: req.tenant!.tenantId,
         ...input,
       });
       ok(res, status);
