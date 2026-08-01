@@ -16,6 +16,8 @@ import type { Request } from '../../types/http.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
+import { openHardshipCase } from '../../services/hardship.service.js';
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -25,40 +27,9 @@ financialRouter.use(tenantMiddleware);
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type DocType = '1099-INT' | '1099-MISC' | '1099-K' | 'annual_summary' | 'k1_schedule' | 'year_end_fee';
-type DocStatus = 'generated' | 'pending' | 'processing' | 'error';
 
-interface TaxDocument {
-  id: string;
-  docType: DocType;
-  label: string;
-  description: string;
-  taxYear: number;
-  businessName: string;
-  ein: string;
-  status: DocStatus;
-  generatedAt?: string;
-  fileSize?: string;
-}
 
-type HardshipFlag = 'missed_payment' | 'high_utilization' | 'income_change' | 'business_closure';
-type ResolutionStatus = 'open' | 'in_negotiation' | 'resolved' | 'written_off';
 
-interface HardshipCase {
-  id: string;
-  clientId: string;
-  clientName: string;
-  businessName: string;
-  flag: HardshipFlag;
-  status: ResolutionStatus;
-  totalDebt: number;
-  missedPayments: number;
-  utilization: number;
-  openedAt: string;
-  lastUpdated: string;
-  assignedAdvisor: string;
-  workoutNotes: string;
-}
 
 interface SimulationInput {
   clientId: string;
@@ -80,53 +51,17 @@ interface SimulationResult {
   projectedPayoffMonths: number;
 }
 
-// ── Stub data store (in-memory for now) ───────────────────────────────────────
-
-const taxDocuments: TaxDocument[] = [
-  {
-    id: 'td_001', docType: '1099-INT', label: '1099-INT — Interest Income',
-    description: 'Reports interest income earned on business credit lines.',
-    taxYear: 2025, businessName: 'Acme Holdings LLC', ein: '12-3456789',
-    status: 'generated', generatedAt: '2026-01-15T10:30:00Z', fileSize: '48 KB',
-  },
-  {
-    id: 'td_002', docType: '1099-MISC', label: '1099-MISC — Miscellaneous Income',
-    description: 'Referral bonuses, signup rewards, and other miscellaneous payments.',
-    taxYear: 2025, businessName: 'Acme Holdings LLC', ein: '12-3456789',
-    status: 'generated', generatedAt: '2026-01-15T10:32:00Z', fileSize: '36 KB',
-  },
-  {
-    id: 'td_003', docType: 'annual_summary', label: 'Annual Fee & Interest Summary',
-    description: 'Year-end summary of all fees, interest charges, and deductible business expenses.',
-    taxYear: 2025, businessName: 'Acme Holdings LLC', ein: '12-3456789',
-    status: 'generated', generatedAt: '2026-01-20T14:00:00Z', fileSize: '124 KB',
-  },
-  {
-    id: 'td_004', docType: '1099-K', label: '1099-K — Payment Card Transactions',
-    description: 'Reports payment card and third party network transactions.',
-    taxYear: 2025, businessName: 'Acme Holdings LLC', ein: '12-3456789',
-    status: 'generated', generatedAt: '2026-01-18T09:15:00Z', fileSize: '52 KB',
-  },
-];
-
-const hardshipCases: HardshipCase[] = [
-  {
-    id: 'hc_001', clientId: 'arc_1', clientName: 'Carlos Mendez',
-    businessName: 'Mendez Trucking LLC', flag: 'missed_payment',
-    status: 'in_negotiation', totalDebt: 84_500, missedPayments: 3,
-    utilization: 92, openedAt: '2026-02-15', lastUpdated: '2026-03-28',
-    assignedAdvisor: 'Sarah Mitchell',
-    workoutNotes: 'Client experiencing cash flow disruption due to fleet maintenance costs.',
-  },
-  {
-    id: 'hc_002', clientId: 'arc_3', clientName: 'James Thornton',
-    businessName: 'Thornton Construction Inc', flag: 'high_utilization',
-    status: 'open', totalDebt: 128_700, missedPayments: 4,
-    utilization: 95, openedAt: '2026-03-05', lastUpdated: '2026-03-30',
-    assignedAdvisor: 'David Park',
-    workoutNotes: 'High utilization across 5 cards. Construction project delayed 90 days.',
-  },
-];
+// ── Where the data comes from ─────────────────────────────────────────────────
+//
+// Two arrays lived here. `taxDocuments` held four 1099s for "Acme Holdings
+// LLC" with EINs, file sizes and generation timestamps. `hardshipCases` held
+// two clients in workout — names, debt balances, missed-payment counts,
+// utilisation, assigned advisors — and POST pushed onto it while answering
+// 201, so a case "created" through this API existed only in the process that
+// served the request, was visible to every tenant, and was gone on restart.
+//
+// Hardship cases have a table, and a service that writes to it. This router
+// kept its own list beside them.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -173,21 +108,23 @@ financialRouter.get(
   async (req: Request, res: Response): Promise<void> => {
     if (!requireAuth(req, res)) return;
 
-    const { year } = req.query as { year?: string };
-    const taxYear = year ? Number(year) : undefined;
+    // Nothing in this system generates a tax document. The four returned
+    // here — 1099-INT, 1099-MISC, 1099-K and an annual fee summary, all for
+    // "Acme Holdings LLC", each with a size in KB and a generation timestamp
+    // — were literals, and a client shown them would believe forms had been
+    // prepared and filed.
+    const data = {
+      documents: [] as unknown[],
+      generated: false,
+      why:
+        'No tax document is produced by this system. There is no generator, no store, and no ' +
+        'filing. Figures for a return come from the invoices and fee records, which are ' +
+        'elsewhere in the API.',
+    };
 
-    let filtered = taxDocuments;
-    if (taxYear && !isNaN(taxYear)) {
-      filtered = taxDocuments.filter((d) => d.taxYear === taxYear);
-    }
+    logger.info('Tax documents requested', { tenantId: req.tenant?.tenantId });
 
-    logger.info('Tax documents listed', {
-      tenantId: req.tenant?.tenantId,
-      year: taxYear,
-      count: filtered.length,
-    });
-
-    const body: ApiResponse<TaxDocument[]> = { success: true, data: filtered };
+    const body: ApiResponse<typeof data> = { success: true, data };
     res.status(200).json(body);
   },
 );
@@ -238,96 +175,121 @@ financialRouter.post(
 );
 
 // ── GET /api/financial/hardship-cases ─────────────────────────────────────────
+//
+// From hardship_cases, scoped to the tenant. It used to filter an array held
+// in the process, whose rows carried a client name, a total debt, a
+// missed-payment count, a utilisation percentage and an assigned advisor —
+// none of which the table has. Those are not reproduced here; what the
+// record holds is what is returned.
 
 financialRouter.get(
   '/hardship-cases',
   async (req: Request, res: Response): Promise<void> => {
     if (!requireAuth(req, res)) return;
 
-    const { status, flag } = req.query as { status?: string; flag?: string };
+    const tenantId = req.tenant!.tenantId;
+    const { status } = req.query as { status?: string };
 
-    let filtered = hardshipCases;
-    if (status) {
-      filtered = filtered.filter((c) => c.status === status);
-    }
-    if (flag) {
-      filtered = filtered.filter((c) => c.flag === flag);
-    }
-
-    logger.info('Hardship cases listed', {
-      tenantId: req.tenant?.tenantId,
-      count: filtered.length,
+    const rows = await sharedPrisma.hardshipCase.findMany({
+      where: { tenantId, ...(status ? { status } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
     });
 
-    const body: ApiResponse<HardshipCase[]> = { success: true, data: filtered };
+    const businessIds = [...new Set(rows.map((r) => r.businessId))];
+    const businesses = businessIds.length === 0
+      ? []
+      : await sharedPrisma.business.findMany({
+          where: { id: { in: businessIds }, tenantId },
+          select: { id: true, legalName: true },
+        });
+    const nameById = new Map(businesses.map((b) => [b.id, b.legalName]));
+
+    const data = rows.map((r) => ({
+      id: r.id,
+      businessId: r.businessId,
+      businessName: nameById.get(r.businessId) ?? null,
+      triggerType: r.triggerType,
+      severity: r.severity,
+      status: r.status,
+      hasPaymentPlan: r.paymentPlan !== null,
+      hasSettlementOffer: r.settlementOffer !== null,
+      counselorReferral: r.counselorReferral,
+      openedAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
+      resolvedAt: r.resolvedAt === null ? null : r.resolvedAt.toISOString(),
+    }));
+
+    logger.info('Hardship cases listed', { tenantId, count: data.length });
+
+    const body: ApiResponse<typeof data> = { success: true, data };
     res.status(200).json(body);
   },
 );
 
 // ── POST /api/financial/hardship-cases ────────────────────────────────────────
+//
+// Opens a real case through the hardship service, which evaluates the
+// signals, writes the row and publishes hardship.opened. The previous
+// version accepted a client name and a flag, pushed an object onto an array
+// and answered 201 with it.
 
 financialRouter.post(
   '/hardship-cases',
   async (req: Request, res: Response): Promise<void> => {
     if (!requireAuth(req, res)) return;
 
+    const tenantId = req.tenant!.tenantId;
     const {
-      clientId, clientName, businessName, flag, totalDebt,
-      missedPayments, utilization, workoutNotes,
-    } = req.body as Partial<HardshipCase>;
-
-    if (!clientId || !clientName || !businessName || !flag) {
-      const body: ApiResponse = {
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'clientId, clientName, businessName, and flag are required.',
-        },
-      };
-      res.status(422).json(body);
-      return;
-    }
-
-    const validFlags: HardshipFlag[] = ['missed_payment', 'high_utilization', 'income_change', 'business_closure'];
-    if (!validFlags.includes(flag)) {
-      const body: ApiResponse = {
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: `flag must be one of: ${validFlags.join(', ')}`,
-        },
-      };
-      res.status(422).json(body);
-      return;
-    }
-
-    const now = new Date().toISOString().split('T')[0];
-    const newCase: HardshipCase = {
-      id: `hc_${Date.now()}`,
-      clientId,
-      clientName,
-      businessName,
-      flag,
-      status: 'open',
-      totalDebt: totalDebt ?? 0,
-      missedPayments: missedPayments ?? 0,
-      utilization: utilization ?? 0,
-      openedAt: now,
-      lastUpdated: now,
-      assignedAdvisor: 'Unassigned',
-      workoutNotes: workoutNotes ?? '',
+      businessId, missedPaymentCount, currentUtilization, totalBalance, monthlyRevenue,
+    } = req.body as {
+      businessId?: string;
+      missedPaymentCount?: number;
+      currentUtilization?: number;
+      totalBalance?: number;
+      monthlyRevenue?: number;
     };
 
-    hardshipCases.push(newCase);
+    if (typeof businessId !== 'string' || businessId.trim() === '') {
+      const body: ApiResponse = {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message:
+            'businessId is required. A hardship case belongs to a client on record — it used ' +
+            'to accept a free-text client name, which is why the cases it made could not be ' +
+            'joined to anything.',
+        },
+      };
+      res.status(422).json(body);
+      return;
+    }
 
-    logger.info('Hardship case created', {
-      tenantId: req.tenant?.tenantId,
-      caseId: newCase.id,
-      clientId,
-      flag,
+    const business = await sharedPrisma.business.findFirst({
+      where: { id: businessId, tenantId },
+      select: { id: true },
+    });
+    if (!business) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Business not found.' },
+      };
+      res.status(404).json(body);
+      return;
+    }
+
+    const { caseId, trigger } = await openHardshipCase(businessId, tenantId, {
+      missedPaymentCount: missedPaymentCount ?? 0,
+      currentUtilization: currentUtilization ?? 0,
+      totalBalance: totalBalance ?? 0,
+      monthlyRevenue: monthlyRevenue ?? 0,
+      cards: [],
     });
 
-    const body: ApiResponse<HardshipCase> = { success: true, data: newCase };
+    logger.info('Hardship case opened', { tenantId, caseId, businessId });
+
+    const data = { id: caseId, businessId, ...trigger };
+    const body: ApiResponse<typeof data> = { success: true, data };
     res.status(201).json(body);
   },
 );
@@ -339,10 +301,30 @@ financialRouter.patch(
   async (req: Request, res: Response): Promise<void> => {
     if (!requireAuth(req, res)) return;
 
-    const caseId = req.params['id'];
-    const caseIndex = hardshipCases.findIndex((c) => c.id === caseId);
+    const tenantId = req.tenant!.tenantId;
+    const caseId = req.params['id'] as string;
+    const { status } = req.body as { status?: string };
 
-    if (caseIndex === -1) {
+    const validStatuses = ['open', 'in_negotiation', 'resolved', 'written_off'];
+    if (status !== undefined && !validStatuses.includes(status)) {
+      const body: ApiResponse = {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `status must be one of: ${validStatuses.join(', ')}`,
+        },
+      };
+      res.status(422).json(body);
+      return;
+    }
+
+    // Scoped to the tenant: a case belonging to another one is reported the
+    // same way one that does not exist is.
+    const existing = await sharedPrisma.hardshipCase.findFirst({
+      where: { id: caseId, tenantId },
+      select: { id: true },
+    });
+    if (!existing) {
       const body: ApiResponse = {
         success: false,
         error: { code: 'NOT_FOUND', message: `Hardship case ${caseId} not found.` },
@@ -351,41 +333,43 @@ financialRouter.patch(
       return;
     }
 
-    const { status, workoutNotes, assignedAdvisor } = req.body as Partial<HardshipCase>;
-
-    if (status) {
-      const validStatuses: ResolutionStatus[] = ['open', 'in_negotiation', 'resolved', 'written_off'];
-      if (!validStatuses.includes(status)) {
-        const body: ApiResponse = {
-          success: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: `status must be one of: ${validStatuses.join(', ')}`,
-          },
-        };
-        res.status(422).json(body);
-        return;
-      }
-      hardshipCases[caseIndex].status = status;
+    // Only the fields the table has. workoutNotes and assignedAdvisor were
+    // accepted here and had nowhere to go.
+    if (status === undefined) {
+      const body: ApiResponse = {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message:
+            'Only status can be changed here. Notes and an assigned advisor were accepted ' +
+            'before and stored nowhere — the table has no column for either.',
+        },
+      };
+      res.status(422).json(body);
+      return;
     }
 
-    if (workoutNotes !== undefined) {
-      hardshipCases[caseIndex].workoutNotes = workoutNotes;
-    }
-
-    if (assignedAdvisor !== undefined) {
-      hardshipCases[caseIndex].assignedAdvisor = assignedAdvisor;
-    }
-
-    hardshipCases[caseIndex].lastUpdated = new Date().toISOString().split('T')[0];
-
-    logger.info('Hardship case updated', {
-      tenantId: req.tenant?.tenantId,
-      caseId,
-      newStatus: status,
+    const updated = await sharedPrisma.hardshipCase.update({
+      where: { id: caseId },
+      data: {
+        status,
+        resolvedAt: status === 'resolved' || status === 'written_off' ? new Date() : null,
+      },
     });
 
-    const body: ApiResponse<HardshipCase> = { success: true, data: hardshipCases[caseIndex] };
+    logger.info('Hardship case updated', { tenantId, caseId, status });
+
+    const data = {
+      id: updated.id,
+      businessId: updated.businessId,
+      status: updated.status,
+      severity: updated.severity,
+      triggerType: updated.triggerType,
+      updatedAt: updated.updatedAt.toISOString(),
+      resolvedAt: updated.resolvedAt === null ? null : updated.resolvedAt.toISOString(),
+    };
+    const body: ApiResponse<typeof data> = { success: true, data };
     res.status(200).json(body);
   },
 );
+

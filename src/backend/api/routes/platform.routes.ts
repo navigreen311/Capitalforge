@@ -45,6 +45,7 @@ import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
 
 const router = Router();
 
@@ -420,155 +421,146 @@ router.get('/issuers/:id/detail', (req: Request, res: Response) => {
 // Referrals
 // ============================================================
 
-interface PlatformReferral {
-  id: string;
-  advisorId: string;
-  advisorName: string;
-  referralLink: string;
-  source: string;
-  referredDate: string;
-  status: 'pending' | 'converted' | 'expired' | 'active';
-  conversionDate?: string;
-  commission: number;
-}
 
-let referralIdCounter = 6;
-const REFERRALS_DATA: PlatformReferral[] = [
-  { id: 'pref_001', advisorId: 'adv_1', advisorName: 'Sarah Chen', referralLink: 'https://app.capitalforge.io/r/sarah-chen', source: 'Email Campaign', referredDate: '2026-03-15', status: 'converted', conversionDate: '2026-03-20', commission: 1500 },
-  { id: 'pref_002', advisorId: 'adv_2', advisorName: 'Marcus Williams', referralLink: 'https://app.capitalforge.io/r/marcus-w', source: 'LinkedIn', referredDate: '2026-03-18', status: 'converted', conversionDate: '2026-03-25', commission: 2200 },
-  { id: 'pref_003', advisorId: 'adv_1', advisorName: 'Sarah Chen', referralLink: 'https://app.capitalforge.io/r/sarah-chen', source: 'Webinar', referredDate: '2026-03-22', status: 'pending', commission: 0 },
-  { id: 'pref_004', advisorId: 'adv_3', advisorName: 'Priya Nair', referralLink: 'https://app.capitalforge.io/r/priya-n', source: 'Partner Referral', referredDate: '2026-03-28', status: 'active', commission: 0 },
-  { id: 'pref_005', advisorId: 'adv_4', advisorName: 'James Okafor', referralLink: 'https://app.capitalforge.io/r/james-o', source: 'Direct Link', referredDate: '2026-04-01', status: 'expired', commission: 0 },
-];
+// ── Referrals ────────────────────────────────────────────────
+//
+// Five advisor referrals lived here — Sarah Chen, Marcus Williams, Priya
+// Nair — with referral links under app.capitalforge.io, conversion dates and
+// commissions of $1,500 and $2,200. POST pushed a sixth onto the array and
+// answered 201 with a link, so an advisor could be shown a referral link
+// that resolved to nothing and a commission nobody owed.
+//
+// referral_attributions exists, but it is a different thing: it attributes a
+// business to a source with a fee, and has no advisor link, no commission
+// and no conversion. Advisor referral links have no table, so nothing here
+// invents one.
 
 router.get('/referrals', (_req: Request, res: Response) => {
   logger.info('[platform] GET /referrals');
-  const commissionStructure = [
-    { tier: 'Standard', rate: '2.0%', minReferrals: 0, maxReferrals: 10 },
-    { tier: 'Silver', rate: '2.5%', minReferrals: 11, maxReferrals: 25 },
-    { tier: 'Gold', rate: '3.0%', minReferrals: 26, maxReferrals: 50 },
-    { tier: 'Platinum', rate: '3.5%', minReferrals: 51, maxReferrals: null },
-  ];
-  const leaderboard = [
-    { advisorName: 'Sarah Chen', totalReferrals: 18, conversions: 14, totalCommission: 8400 },
-    { advisorName: 'Marcus Williams', totalReferrals: 15, conversions: 11, totalCommission: 7200 },
-    { advisorName: 'Priya Nair', totalReferrals: 12, conversions: 9, totalCommission: 5600 },
-    { advisorName: 'James Okafor', totalReferrals: 10, conversions: 7, totalCommission: 4200 },
-    { advisorName: 'Derek Simmons', totalReferrals: 8, conversions: 5, totalCommission: 3100 },
-  ];
-  return ok(res, { referrals: REFERRALS_DATA, commissionStructure, leaderboard });
+  return ok(res, {
+    referrals: [],
+    total: 0,
+    tracking: {
+      available: false,
+      why:
+        'Advisor referral tracking is not implemented. No table holds a referral link, its ' +
+        'conversions or a commission, and the five listed here were literals.',
+    },
+  });
 });
 
-const CreateReferralSchema = z.object({
-  advisorId: z.string().min(1),
-  advisorName: z.string().min(1),
-  source: z.string().min(1),
-});
-
-router.post('/referrals', (req: Request, res: Response) => {
-  logger.info('[platform] POST /referrals');
-  const parsed = CreateReferralSchema.safeParse(req.body);
-  if (!parsed.success) return validationError(res, parsed.error);
-  const { advisorId, advisorName, source } = parsed.data;
-  const slug = advisorName.toLowerCase().replace(/\s+/g, '-');
-  const newRef: PlatformReferral = {
-    id: `pref_${String(++referralIdCounter).padStart(3, '0')}`,
-    advisorId,
-    advisorName,
-    referralLink: `https://app.capitalforge.io/r/${slug}`,
-    source,
-    referredDate: new Date().toISOString().slice(0, 10),
-    status: 'pending',
-    commission: 0,
-  };
-  REFERRALS_DATA.push(newRef);
-  return res.status(201).json({ success: true, data: newRef } as ApiResponse<PlatformReferral>);
+router.post('/referrals', (_req: Request, res: Response) => {
+  logger.info('[platform] POST /referrals — refused, nothing stores a referral');
+  return res.status(501).json({
+    success: false,
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message:
+        'Referral creation is not implemented. This answered 201 with a referral link that ' +
+        'resolved to nothing, held in memory until the process restarted.',
+    },
+  } as ApiResponse);
 });
 
 // ============================================================
 // Referral Follow-Up
 // ============================================================
 
-const FollowUpSchema = z.object({
-  method: z.enum(['email', 'phone', 'sms', 'in_person']),
-  notes: z.string().min(1),
-});
 
-router.post('/referrals/:id/follow-up', (req: Request, res: Response) => {
-  const referralId = req.params.id;
-  logger.info(`[platform] POST /referrals/${referralId}/follow-up`);
-  const referral = REFERRALS_DATA.find(r => r.id === referralId);
-  if (!referral) {
-    return res.status(404).json({
-      success: false,
-      error: { code: 'NOT_FOUND', message: 'Referral not found' },
-      statusCode: 404,
-    });
-  }
-  const parsed = FollowUpSchema.safeParse(req.body);
-  if (!parsed.success) return validationError(res, parsed.error);
-  const { method, notes } = parsed.data;
-  return res.status(201).json({
-    success: true,
-    data: {
-      referralId,
-      followUp: {
-        id: `fu_${Date.now().toString(36)}`,
-        method,
-        notes,
-        loggedAt: new Date().toISOString(),
-        loggedBy: 'current_user',
-      },
+router.post('/referrals/:id/follow-up', (_req: Request, res: Response) => {
+  logger.info('[platform] POST /referrals/:id/follow-up — refused, nothing stores a follow-up');
+  return res.status(501).json({
+    success: false,
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message:
+        'Logging a follow-up is not implemented. It used to answer 201 with a generated id and ' +
+        'loggedBy "current_user", against a referral that only existed in memory.',
     },
-  });
+  } as ApiResponse);
 });
 
 // ============================================================
 // Workflows
 // ============================================================
 
-interface PlatformWorkflow {
+
+// ── Workflows ────────────────────────────────────────────────
+//
+// Four workflows lived in an array here and POST pushed a fifth onto it, so
+// a rule "created" through this API ran nothing, was visible to every tenant
+// and was gone on restart. Toggling one flipped a field in that array and
+// answered 200.
+//
+// workflow_rules is the table for this: name, conditions, actions, priority,
+// isActive, triggerEvent, per tenant. These endpoints use it.
+//
+// Two things the table does not hold, and which are therefore not reported:
+// when a rule last fired, and any execution history. Nothing in this system
+// executes a workflow rule, so there is nothing to record.
+
+interface WorkflowShape {
   id: string;
   name: string;
-  trigger: string;
+  trigger: string | null;
   condition: string;
   action: string;
   status: 'active' | 'paused';
-  lastTriggered: string | null;
+  priority: number;
   createdAt: string;
+  updatedAt: string;
 }
 
-let workflowIdCounter = 5;
-const WORKFLOWS_DATA: PlatformWorkflow[] = [
-  {
-    id: 'pwf_001', name: 'APR Expiry Alert',
-    trigger: 'APR expires in 30 days', condition: 'Card has promotional APR',
-    action: 'Create action queue item', status: 'active',
-    lastTriggered: '2026-04-05T09:15:00Z', createdAt: '2025-11-01',
-  },
-  {
-    id: 'pwf_002', name: 'Restack Ready Flag',
-    trigger: 'Readiness score recalculated', condition: 'Readiness score > 75',
-    action: 'Flag as restack ready', status: 'active',
-    lastTriggered: '2026-04-06T14:30:00Z', createdAt: '2025-11-15',
-  },
-  {
-    id: 'pwf_003', name: 'Decline Recovery',
-    trigger: 'Application declined', condition: 'Decline reason is not fraud',
-    action: 'Generate reconsideration letter draft', status: 'active',
-    lastTriggered: '2026-04-04T11:00:00Z', createdAt: '2025-12-01',
-  },
-  {
-    id: 'pwf_004', name: 'Unsigned Acknowledgment Reminder',
-    trigger: 'Acknowledgment unsigned for 7 days', condition: 'Business is active',
-    action: 'Send reminder email to client', status: 'paused',
-    lastTriggered: '2026-03-28T16:45:00Z', createdAt: '2026-01-10',
-  },
-];
+function toWorkflowShape(row: {
+  id: string;
+  name: string;
+  triggerEvent: string | null;
+  conditions: unknown;
+  actions: unknown;
+  priority: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}): WorkflowShape {
+  const conditions = (row.conditions ?? {}) as { expression?: unknown };
+  const actions = (row.actions ?? {}) as { description?: unknown };
+  return {
+    id: row.id,
+    name: row.name,
+    trigger: row.triggerEvent,
+    condition: typeof conditions.expression === 'string' ? conditions.expression : '',
+    action: typeof actions.description === 'string' ? actions.description : '',
+    status: row.isActive ? 'active' : 'paused',
+    priority: row.priority,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
 
-router.get('/workflows', (_req: Request, res: Response) => {
+router.get('/workflows', async (req: Request, res: Response) => {
   logger.info('[platform] GET /workflows');
-  return ok(res, WORKFLOWS_DATA);
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Missing tenant context' },
+    } as ApiResponse);
+  }
+
+  const rows = await sharedPrisma.workflowRule.findMany({
+    where: { tenantId },
+    orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+    take: 200,
+  });
+
+  return ok(res, {
+    workflows: rows.map(toWorkflowShape),
+    total: rows.length,
+    execution: {
+      runs: false,
+      why: 'Nothing executes these rules yet, so none of them has ever fired.',
+    },
+  });
 });
 
 const CreateWorkflowSchema = z.object({
@@ -576,39 +568,113 @@ const CreateWorkflowSchema = z.object({
   trigger: z.string().min(1),
   condition: z.string().min(1),
   action: z.string().min(1),
+  priority: z.number().int().min(0).max(100).optional(),
 });
 
-router.post('/workflows', (req: Request, res: Response) => {
+router.post('/workflows', async (req: Request, res: Response) => {
   logger.info('[platform] POST /workflows');
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Missing tenant context' },
+    } as ApiResponse);
+  }
+
   const parsed = CreateWorkflowSchema.safeParse(req.body);
   if (!parsed.success) return validationError(res, parsed.error);
-  const newWf: PlatformWorkflow = {
-    id: `pwf_${String(++workflowIdCounter).padStart(3, '0')}`,
-    ...parsed.data,
-    status: 'active',
-    lastTriggered: null,
-    createdAt: new Date().toISOString().slice(0, 10),
-  };
-  WORKFLOWS_DATA.push(newWf);
-  return res.status(201).json({ success: true, data: newWf } as ApiResponse<PlatformWorkflow>);
+
+  const { name, trigger, condition, action, priority } = parsed.data;
+  const row = await sharedPrisma.workflowRule.create({
+    data: {
+      tenantId,
+      name,
+      triggerEvent: trigger,
+      conditions: { expression: condition },
+      actions: { description: action },
+      priority: priority ?? 0,
+      isActive: true,
+    },
+  });
+
+  // Saved, and it will not run — the row is a rule nothing executes yet.
+  return res.status(201).json({
+    success: true,
+    data: { ...toWorkflowShape(row), willRun: false },
+  } as ApiResponse<WorkflowShape & { willRun: boolean }>);
 });
 
-router.patch('/workflows/:id', (req: Request, res: Response) => {
+async function setWorkflowActive(
+  req: Request,
+  res: Response,
+  next: (current: boolean) => boolean,
+) {
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Missing tenant context' },
+    } as ApiResponse);
+  }
+
+  const id = req.params.id as string;
+  // Scoped: another tenant's rule is reported as one that does not exist.
+  const existing = await sharedPrisma.workflowRule.findFirst({
+    where: { id, tenantId },
+  });
+  if (!existing) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Workflow not found' },
+      statusCode: 404,
+    });
+  }
+
+  const updated = await sharedPrisma.workflowRule.update({
+    where: { id },
+    data: { isActive: next(existing.isActive) },
+  });
+
+  return ok(res, {
+    ...toWorkflowShape(updated),
+    previousStatus: existing.isActive ? 'active' : 'paused',
+  });
+}
+
+router.patch('/workflows/:id', async (req: Request, res: Response) => {
   logger.info(`[platform] PATCH /workflows/${req.params.id}`);
-  const wf = WORKFLOWS_DATA.find(w => w.id === req.params.id);
-  if (!wf) {
-    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Workflow not found' }, statusCode: 404 });
+  const requested = (req.body as { status?: string }).status;
+  if (requested !== 'active' && requested !== 'paused') {
+    return res.status(422).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'status must be "active" or "paused".' },
+    } as ApiResponse);
   }
-  if (req.body.status && (req.body.status === 'active' || req.body.status === 'paused')) {
-    wf.status = req.body.status;
-  }
-  return ok(res, wf);
+  return setWorkflowActive(req, res, () => requested === 'active');
 });
 
-router.patch('/workflows/:id/toggle', (req: Request, res: Response) => {
-  const wfId = req.params.id;
-  logger.info(`[platform] PATCH /workflows/${wfId}/toggle`);
-  const wf = WORKFLOWS_DATA.find(w => w.id === wfId);
+router.patch('/workflows/:id/toggle', async (req: Request, res: Response) => {
+  logger.info(`[platform] PATCH /workflows/${req.params.id}/toggle`);
+  return setWorkflowActive(req, res, (current) => !current);
+});
+
+// ── Workflow execution history ───────────────────────────────
+//
+// Five executions per workflow were generated here from the id — timestamps
+// in April 2026, durations in milliseconds, "Action completed" and one
+// "Target entity not found" for realism. No workflow has ever run.
+
+router.get('/workflows/:id/history', async (req: Request, res: Response) => {
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Missing tenant context' },
+    } as ApiResponse);
+  }
+
+  const id = req.params.id as string;
+  const wf = await sharedPrisma.workflowRule.findFirst({ where: { id, tenantId } });
   if (!wf) {
     return res.status(404).json({
       success: false,
@@ -616,32 +682,18 @@ router.patch('/workflows/:id/toggle', (req: Request, res: Response) => {
       statusCode: 404,
     });
   }
-  const previousStatus = wf.status;
-  wf.status = wf.status === 'active' ? 'paused' : 'active';
-  return ok(res, { ...wf, previousStatus });
-});
 
-// ── Workflow Execution History (per workflow) ────────────────
-
-router.get('/workflows/:id/history', (req: Request, res: Response) => {
-  const wfId = req.params.id;
-  logger.info(`[platform] GET /workflows/${wfId}/history`);
-  const wf = WORKFLOWS_DATA.find(w => w.id === wfId);
-  if (!wf) {
-    return res.status(404).json({
-      success: false,
-      error: { code: 'NOT_FOUND', message: 'Workflow not found' },
-      statusCode: 404,
-    });
-  }
-  const executions = [
-    { id: `exec_${wfId}_001`, workflowId: wfId, triggeredAt: '2026-04-06T14:30:00Z', status: 'success' as const, durationMs: 245, result: 'Action completed' },
-    { id: `exec_${wfId}_002`, workflowId: wfId, triggeredAt: '2026-04-05T09:15:00Z', status: 'success' as const, durationMs: 312, result: 'Action completed' },
-    { id: `exec_${wfId}_003`, workflowId: wfId, triggeredAt: '2026-04-04T11:00:00Z', status: 'failure' as const, durationMs: 1024, result: 'Target entity not found' },
-    { id: `exec_${wfId}_004`, workflowId: wfId, triggeredAt: '2026-04-03T16:45:00Z', status: 'success' as const, durationMs: 189, result: 'Action completed' },
-    { id: `exec_${wfId}_005`, workflowId: wfId, triggeredAt: '2026-04-02T08:30:00Z', status: 'success' as const, durationMs: 278, result: 'Action completed' },
-  ];
-  return ok(res, { workflowId: wfId, workflowName: wf.name, executions });
+  return ok(res, {
+    workflowId: id,
+    workflowName: wf.name,
+    executions: [],
+    execution: {
+      runs: false,
+      why:
+        'Nothing executes workflow rules, and no table records an execution. The five runs ' +
+        'listed here were generated from the workflow id on each request.',
+    },
+  });
 });
 
 // ── Workflow Execution Log (global recent executions) ────────

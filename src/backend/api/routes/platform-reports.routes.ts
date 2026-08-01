@@ -144,47 +144,41 @@ platformReportsRouter.post('/export', (req: Request, res: Response) => {
 // Report Schedules (in-memory store)
 // ============================================================
 
-interface ReportSchedule {
-  id: string;
-  reportType: string;
-  frequency: string;
-  recipients: string[];
-  format: string;
-  nextRunAt: string;
-  createdAt: string;
-}
 
-let scheduleCounter = 0;
-const SCHEDULES: ReportSchedule[] = [];
 
-const CreateScheduleSchema = z.object({
-  reportType: z.enum(['monthly-summary', 'client-funding', 'compliance-audit', 'revenue', 'portfolio-performance']),
-  frequency: z.enum(['daily', 'weekly', 'monthly', 'quarterly']),
-  recipients: z.array(z.string().email()).min(1),
-  format: z.enum(['pdf', 'csv', 'xlsx']).default('pdf'),
-});
 
-platformReportsRouter.post('/schedules', (req: Request, res: Response) => {
-  logger.info('[platform-reports] POST /schedules');
-  const parsed = CreateScheduleSchema.safeParse(req.body);
-  if (!parsed.success) return validationError(res, parsed.error);
-
-  const { reportType, frequency, recipients, format } = parsed.data;
-  const schedule: ReportSchedule = {
-    id: `sched_${String(++scheduleCounter).padStart(3, '0')}`,
-    reportType,
-    frequency,
-    recipients,
-    format,
-    nextRunAt: new Date(Date.now() + 86_400_000).toISOString(),
-    createdAt: new Date().toISOString(),
-  };
-  SCHEDULES.push(schedule);
-
-  return res.status(201).json({ success: true, data: schedule } as ApiResponse<ReportSchedule>);
+// ── POST /schedules ──────────────────────────────────────────
+//
+// Answers 501. It used to push onto an array held in the process and answer
+// 201 with a nextRunAt of tomorrow — a scheduled report that nothing would
+// ever run, shared by every tenant, gone on restart. Recipients were
+// validated as email addresses, which made it read as though something was
+// going to send them a report.
+//
+// Scheduling needs a table and a runner. There is neither.
+platformReportsRouter.post('/schedules', (_req: Request, res: Response) => {
+  logger.info('[platform-reports] POST /schedules — refused, no scheduler');
+  return res.status(501).json({
+    success: false,
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message:
+        'Report scheduling is not implemented. Nothing stores a schedule and nothing runs one; ' +
+        'this endpoint previously answered 201 with a next run date.',
+    },
+  } as ApiResponse);
 });
 
 platformReportsRouter.get('/schedules', (_req: Request, res: Response) => {
   logger.info('[platform-reports] GET /schedules');
-  return ok(res, { schedules: SCHEDULES, total: SCHEDULES.length });
+  // Always empty, and says why rather than looking like a tenant with no
+  // schedules configured yet.
+  return ok(res, {
+    schedules: [],
+    total: 0,
+    scheduling: {
+      available: false,
+      why: 'No schedule is stored and no runner exists. Reports are generated on request only.',
+    },
+  });
 });

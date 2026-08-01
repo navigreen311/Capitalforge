@@ -208,6 +208,26 @@ e2e regulator inquiries    : ${e2eInquiries.length}`);
 e2e export audit rows      : ${e2eExportAudits.length}`);
   }
 
+  // ── Rows the browser suite writes for real ──────────────
+  //
+  // The in-memory-writes spec opens a hardship case and creates a workflow
+  // rule each run, to prove both survive a round trip through the database.
+  // The seed creates neither, so everything here came from a test.
+  const e2eHardship = await prisma.hardshipCase.findMany({ select: { id: true } });
+  const e2eWorkflows = await prisma.workflowRule.findMany({
+    where: { name: { startsWith: 'E2E rule ' } },
+    select: { id: true, name: true },
+  });
+
+  if (e2eHardship.length > 0) {
+    console.log(`
+e2e hardship cases         : ${e2eHardship.length}`);
+  }
+  if (e2eWorkflows.length > 0) {
+    console.log(`
+e2e workflow rules         : ${e2eWorkflows.length}`);
+  }
+
   if (!apply) {
     // In a dry run the child rows still exist, so orphan detection would
     // under-report. Report only what can be counted honestly.
@@ -316,6 +336,18 @@ e2e export audit rows      : ${e2eExportAudits.length}`);
   if (e2eExportAudits.length > 0) {
     note('e2eExportAuditRows', (await prisma.auditLog.deleteMany({
       where: { id: { in: e2eExportAudits.map((a) => a.id) } },
+    })).count);
+  }
+
+  if (e2eHardship.length > 0) {
+    note('e2eHardshipCases', (await prisma.hardshipCase.deleteMany({
+      where: { id: { in: e2eHardship.map((h) => h.id) } },
+    })).count);
+  }
+
+  if (e2eWorkflows.length > 0) {
+    note('e2eWorkflowRules', (await prisma.workflowRule.deleteMany({
+      where: { id: { in: e2eWorkflows.map((w) => w.id) } },
     })).count);
   }
 
