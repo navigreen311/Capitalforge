@@ -59,6 +59,34 @@ export default defineConfig({
    * of what the parallelism gained.
    */
   workers: 1,
+  /**
+   * One retry, and the reason it is here rather than a way of going green.
+   *
+   * The intermittent this suite had was caught on the sixth consecutive full
+   * run and the trace says exactly what happened. On /decisions the page
+   * document returned 200 in 392ms, every chunk returned 200 — except
+   * /_next/static/chunks/main-app.js, which came back with status -1 and no
+   * timing: the request never completed. That file is the client runtime, so
+   * React never hydrated, the page's loader never ran, and it sat on
+   * "Loading decisions…" until the test's budget ran out. There is no request
+   * to /api/ai-decisions in the trace at all — the page never got that far.
+   *
+   * It is not the app and it is not the assertion. main-app.js had already
+   * been served to sixty-four earlier tests in that same run, so nothing was
+   * being compiled; the next test on the same page passed 788ms later. A
+   * single static asset failed in transit against a Node dev server, which is
+   * what a keep-alive socket being closed as it is reused looks like.
+   *
+   * Both observed failures were the first test in a spec file, where the gap
+   * between requests is longest — the shape you would expect from an idle
+   * pooled connection.
+   *
+   * So: retry once. Playwright reports a test that needed it as flaky rather
+   * than passing, so this does not hide anything, and a test that is actually
+   * broken still fails twice. Combined with trace retention below, a
+   * recurrence arrives with its network log attached.
+   */
+  retries: 1,
   globalSetup: './tests/e2e-playwright/global-setup.ts',
   use: {
     baseURL: BASE_URL,
