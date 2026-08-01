@@ -2,121 +2,125 @@
 // CapitalForge — Platform Offboarding Routes
 //
 // Endpoints:
-//   PATCH /api/platform/offboarding/:id/advance   — advance offboarding stage
-//   GET   /api/platform/offboarding/:id/audit-log — mock audit log
+//   GET   /api/platform/offboarding/:id/audit-log — the real audit trail
+//   PATCH /api/platform/offboarding/:id/advance   — answers 501, see below
+//
+// Both of these used to be manufactured.
+//
+// The audit log built its entries at request time: it read a stage out of a
+// module-level object that lived only in the running process, walked the
+// stage list up to it, and stamped each entry with Date.now() minus an hour
+// per step, attributed to "system". A deletion audit trail is the evidence
+// that somebody's data was erased and when — the thing produced for a
+// regulator, or for the person asking. It now reads the audit_logs the
+// offboarding service actually writes: offboarding.initiated when a workflow
+// opens, and data.deleted when a deletion runs, the latter carrying the
+// record count and the signed proof hash.
+//
+// The advance endpoint moved that same in-memory stage forward and answered
+// 200. Nothing was written, so the next process to serve a request knew
+// nothing about it. Status on an offboarding workflow moves when something
+// real happens — the export runs, the deletion runs — through the offboarding
+// service. It answers 501 rather than pretending.
 // ============================================================
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { z, ZodError } from 'zod';
+import { PrismaClient } from '@prisma/client';
 import type { ApiResponse } from '../../../shared/types/index.js';
+import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import logger from '../../config/logger.js';
 
 export const platformOffboardingRouter = Router();
+
+let prisma: PrismaClient | null = null;
+function getPrisma(): PrismaClient {
+  if (!prisma) prisma = new PrismaClient();
+  return prisma;
+}
 
 function ok<T>(res: Response, data: T) {
   const body: ApiResponse<T> = { success: true, data };
   return res.json(body);
 }
 
-function validationError(res: Response, err: ZodError) {
-  const details: Record<string, string[]> = {};
-  for (const issue of err.issues) {
-    const key = issue.path.join('.');
-    details[key] = details[key] || [];
-    details[key].push(issue.message);
-  }
-  return res.status(400).json({
-    success: false,
-    error: { code: 'VALIDATION_ERROR', message: 'Invalid request body', details },
-    statusCode: 400,
-  });
+function fail(res: Response, status: number, code: string, message: string) {
+  const body: ApiResponse = { success: false, error: { code, message } };
+  return res.status(status).json(body);
 }
-
-// ============================================================
-// Stage progression map
-// ============================================================
-
-const STAGE_ORDER = ['requested', 'retention_hold', 'data_export', 'deleting', 'completed'] as const;
-type OffboardingStage = (typeof STAGE_ORDER)[number];
-
-function nextStage(current: string): OffboardingStage | null {
-  const idx = STAGE_ORDER.indexOf(current as OffboardingStage);
-  if (idx < 0 || idx >= STAGE_ORDER.length - 1) return null;
-  return STAGE_ORDER[idx + 1];
-}
-
-// In-memory stage tracker (keyed by offboarding id)
-const stageTracker: Record<string, OffboardingStage> = {};
-
-// ============================================================
-// PATCH /api/platform/offboarding/:id/advance
-// ============================================================
-
-const AdvanceSchema = z.object({
-  notes: z.string().optional(),
-});
-
-platformOffboardingRouter.patch('/:id/advance', (req: Request, res: Response) => {
-  const offboardingId = req.params.id as string;
-  logger.info(`[platform-offboarding] PATCH /${offboardingId}/advance`);
-
-  const parsed = AdvanceSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return validationError(res, parsed.error);
-
-  const currentStage = stageTracker[offboardingId] ?? 'requested';
-  const next = nextStage(currentStage);
-
-  if (!next) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        code: 'ALREADY_COMPLETED',
-        message: `Offboarding ${offboardingId} is already at terminal stage "${currentStage}".`,
-      },
-      statusCode: 400,
-    });
-  }
-
-  stageTracker[offboardingId] = next;
-
-  return ok(res, {
-    offboardingId,
-    previousStage: currentStage,
-    currentStage: next,
-    notes: parsed.data.notes ?? null,
-    advancedAt: new Date().toISOString(),
-    isTerminal: next === 'completed',
-  });
-});
 
 // ============================================================
 // GET /api/platform/offboarding/:id/audit-log
 // ============================================================
 
-platformOffboardingRouter.get('/:id/audit-log', (req: Request, res: Response) => {
-  const offboardingId = req.params.id as string;
-  logger.info(`[platform-offboarding] GET /${offboardingId}/audit-log`);
+platformOffboardingRouter.get(
+  '/:id/audit-log',
+  tenantMiddleware,
+  async (req: Request, res: Response): Promise<void> => {
+    const workflowId = req.params['id'] as string;
+    const tenantId = req.tenant?.tenantId;
 
-  const currentStage = stageTracker[offboardingId] ?? 'requested';
-  const baseTime = Date.now();
+    if (!tenantId) {
+      fail(res, 400, 'INVALID_PARAMS', 'Tenant context is required.');
+      return;
+    }
 
-  // Build audit entries up to the current stage
-  const currentIdx = STAGE_ORDER.indexOf(currentStage as OffboardingStage);
-  const entries = STAGE_ORDER.slice(0, currentIdx + 1).map((stage, i) => ({
-    id: `audit_${offboardingId}_${String(i + 1).padStart(3, '0')}`,
-    offboardingId,
-    stage,
-    action: i === 0 ? 'Offboarding request created' : `Stage advanced to "${stage}"`,
-    performedBy: 'system',
-    timestamp: new Date(baseTime - (currentIdx - i) * 3_600_000).toISOString(),
-    metadata: { automated: i > 0 },
-  }));
+    try {
+      const workflow = await getPrisma().offboardingWorkflow.findFirst({
+        where: { id: workflowId, tenantId },
+        select: { id: true },
+      });
 
-  return ok(res, {
-    offboardingId,
-    currentStage,
-    entries,
-    totalEntries: entries.length,
-  });
-});
+      if (!workflow) {
+        fail(res, 404, 'NOT_FOUND', 'Offboarding workflow not found.');
+        return;
+      }
+
+      const entries = await getPrisma().auditLog.findMany({
+        where: { tenantId, resource: 'offboarding_workflow', resourceId: workflowId },
+        orderBy: { timestamp: 'asc' },
+        take: 500,
+      });
+
+      ok(res, {
+        offboardingId: workflowId,
+        entries: entries.map((e) => ({
+          id: e.id,
+          action: e.action,
+          // Who did it, as recorded. The manufactured version attributed
+          // everything to "system".
+          performedBy: e.userId,
+          timestamp: e.timestamp.toISOString(),
+          metadata: e.metadata ?? null,
+        })),
+        totalEntries: entries.length,
+      });
+    } catch (err) {
+      logger.error('[platform-offboarding] audit-log failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      fail(res, 500, 'INTERNAL_ERROR', 'Could not read the audit trail.');
+    }
+  },
+);
+
+// ============================================================
+// PATCH /api/platform/offboarding/:id/advance
+// ============================================================
+
+platformOffboardingRouter.patch(
+  '/:id/advance',
+  tenantMiddleware,
+  (_req: Request, res: Response): void => {
+    fail(
+      res,
+      501,
+      'NOT_IMPLEMENTED',
+      'An offboarding stage cannot be advanced directly. Status moves when the export or the ' +
+        'deletion runs; this endpoint previously moved a counter held in memory and answered 200, ' +
+        'which no other process could see.',
+    );
+  },
+);
+
+export default platformOffboardingRouter;

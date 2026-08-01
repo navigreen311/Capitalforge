@@ -18,6 +18,7 @@ import {
   summarise,
   daysOpen,
   humanise,
+  toAuditEntries,
 } from '../../../src/frontend/lib/offboarding-view';
 
 const NOW = new Date('2026-08-01T00:00:00.000Z');
@@ -217,5 +218,62 @@ describe('humanise', () => {
   it('turns API keys into words', () => {
     expect(humanise('in_progress')).toBe('In progress');
     expect(humanise('export_ready')).toBe('Export ready');
+  });
+});
+
+describe('toAuditEntries', () => {
+  /** Captured from GET /api/platform/offboarding/:id/audit-log. */
+  const REAL_LOG = {
+    offboardingId: 'seed-offboard-001',
+    entries: [
+      {
+        id: 'clog-1',
+        action: 'offboarding.initiated',
+        performedBy: 'e0b1c2d3-0000-4000-8000-000000000001',
+        timestamp: '2026-07-18T09:14:02.113Z',
+        metadata: { type: 'client', exitReason: 'Secured funding elsewhere.' },
+      },
+      {
+        id: 'clog-2',
+        action: 'data.deleted',
+        performedBy: null,
+        timestamp: '2026-07-20T11:02:44.900Z',
+        metadata: { recordsDeleted: 12, proofHash: 'abc123' },
+      },
+    ],
+    totalEntries: 2,
+  };
+
+  it('maps the entries the audit log holds', () => {
+    const entries = toAuditEntries(REAL_LOG);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      id: 'clog-1',
+      action: 'offboarding.initiated',
+      performedBy: 'e0b1c2d3-0000-4000-8000-000000000001',
+      timestamp: '2026-07-18T09:14:02.113Z',
+    });
+  });
+
+  it('keeps an unattributed action rather than naming someone for it', () => {
+    // The manufactured version stamped every entry "system", which reads as
+    // an attribution. A null is the record saying it does not know who.
+    expect(toAuditEntries(REAL_LOG)[1].performedBy).toBeNull();
+  });
+
+  it('drops an entry that describes nothing that happened', () => {
+    expect(
+      toAuditEntries({ entries: [{ id: 'x', timestamp: '2026-07-18T09:14:02.113Z' }] }),
+    ).toEqual([]);
+    expect(toAuditEntries({ entries: [{ action: 'data.deleted' }] })).toEqual([]);
+  });
+
+  it('reads a bare array too', () => {
+    expect(toAuditEntries(REAL_LOG.entries)).toHaveLength(2);
+  });
+
+  it('returns an empty trail for junk, and for a workflow with no history', () => {
+    expect(toAuditEntries(null)).toEqual([]);
+    expect(toAuditEntries({ entries: [], totalEntries: 0 })).toEqual([]);
   });
 });

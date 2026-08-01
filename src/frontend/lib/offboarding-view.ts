@@ -187,3 +187,47 @@ export function humanise(key: string): string {
   const words = key.replace(/_/g, ' ').trim();
   return words === '' ? '' : words.charAt(0).toUpperCase() + words.slice(1);
 }
+
+// ── Audit trail ─────────────────────────────────────────────
+
+export interface AuditEntry {
+  id: string;
+  action: string;
+  /** Null when the action was not attributed to a user. */
+  performedBy: string | null;
+  timestamp: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+/**
+ * The audit trail for one workflow.
+ *
+ * These come from audit_logs, written when the workflow opens and when a
+ * deletion runs. The endpoint used to build them at request time from a
+ * counter held in memory — timestamps an hour apart, everything attributed
+ * to "system" — which is a manufactured record of an erasure.
+ */
+export function toAuditEntries(data: unknown): AuditEntry[] {
+  const list = Array.isArray(data) ? data : asRecord(data)['entries'];
+  if (!Array.isArray(list)) return [];
+
+  return list.flatMap((entry) => {
+    const e = asRecord(entry);
+    const id = str(e['id']);
+    const action = str(e['action']);
+    // An entry with no action describes nothing that happened.
+    if (id === null || action === null) return [];
+    return [
+      {
+        id,
+        action,
+        performedBy: str(e['performedBy']),
+        timestamp: str(e['timestamp']),
+        metadata:
+          typeof e['metadata'] === 'object' && e['metadata'] !== null
+            ? (e['metadata'] as Record<string, unknown>)
+            : null,
+      },
+    ];
+  });
+}
