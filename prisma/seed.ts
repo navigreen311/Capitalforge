@@ -202,12 +202,15 @@ const SEED_PHONES = {
   // The same reasoning as the 555-0100 phone numbers elsewhere in this file.
   // If you add an owner, take the next number in the block rather than
   // inventing one that looks plausible.
+  //
+  // Create-only, like everything else here: a re-seed will not write over a
+  // row that already exists. A database seeded before this field was added
+  // therefore still has null SSNs, and a deletion run against a dev database
+  // nulls them for good. Reset the database and seed again for either.
 
   await prisma.businessOwner.upsert({
     where: { id: 'seed-owner-001' },
-    // The one field this seed does update: these rows predate it, and a
-    // deletion nulls it, so a re-seed is how a dev database gets it back.
-    update: { ssn: '987-65-4320' },
+    update: {},
     create: {
       id: 'seed-owner-001',
       businessId: biz1.id,
@@ -231,9 +234,7 @@ const SEED_PHONES = {
 
   await prisma.businessOwner.upsert({
     where: { id: 'seed-owner-002' },
-    // The one field this seed does update: these rows predate it, and a
-    // deletion nulls it, so a re-seed is how a dev database gets it back.
-    update: { ssn: '987-65-4321' },
+    update: {},
     create: {
       id: 'seed-owner-002',
       businessId: biz2.id,
@@ -256,9 +257,7 @@ const SEED_PHONES = {
 
   await prisma.businessOwner.upsert({
     where: { id: 'seed-owner-003' },
-    // The one field this seed does update: these rows predate it, and a
-    // deletion nulls it, so a re-seed is how a dev database gets it back.
-    update: { ssn: '987-65-4322' },
+    update: {},
     create: {
       id: 'seed-owner-003',
       businessId: biz2.id,
@@ -281,9 +280,7 @@ const SEED_PHONES = {
 
   await prisma.businessOwner.upsert({
     where: { id: 'seed-owner-004' },
-    // The one field this seed does update: these rows predate it, and a
-    // deletion nulls it, so a re-seed is how a dev database gets it back.
-    update: { ssn: '987-65-4323' },
+    update: {},
     create: {
       id: 'seed-owner-004',
       businessId: biz3.id,

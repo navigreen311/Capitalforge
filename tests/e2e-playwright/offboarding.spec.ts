@@ -338,10 +338,16 @@ test.describe('Offboarding', () => {
     // 987-65-4320 onwards — the block the SSA reserves for fiction and has
     // never issued — so this asserts a real value flows without putting
     // anything that could be a person's number in a test file.
+    // The seeded owners specifically. Other specs create owners of their own
+    // without an SSN, and they are in this tenant, so they appear here too —
+    // asserting over every record would be asserting about their fixtures.
     const owners = body.data.sections.businessOwners.records;
     expect(owners.length).toBeGreaterThan(0);
-    for (const owner of owners) {
-      expect(owner).toHaveProperty('ssn');
+    for (const owner of owners) expect(owner).toHaveProperty('ssn');
+
+    const seeded = owners.filter((o) => String(o['id']).startsWith('seed-owner-'));
+    expect(seeded.length, 'the seed records business owners').toBeGreaterThan(0);
+    for (const owner of seeded) {
       expect(String(owner['ssn'])).toMatch(/^987-65-432\d$/);
     }
 
