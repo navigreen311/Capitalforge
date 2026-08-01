@@ -79,6 +79,21 @@ export default defineConfig({
    *      There is no API call in those traces at all, so it is not the
    *      database. Not fixed.
    *
+   *      Running the suite against a production build was tried as a cure —
+   *      `next build` plus `next start`, on the reasoning that on-demand
+   *      compilation is a dev-only trait. It is faster when it works, 3.0m
+   *      against 4.5m, and neither passing run showed the chunk abort. But
+   *      the server died mid-suite in four of six cold runs, at a different
+   *      test each time, and every test after it failed with
+   *      ERR_CONNECTION_REFUSED — nine minutes of timeouts per run. `next
+   *      start` printed nothing on the way out; it logged "Ready in 273ms"
+   *      and then, some minutes later, was simply gone.
+   *
+   *      So: not worth repeating on this machine. A whole suite lost to a
+   *      dead server is a worse trade than one test failing occasionally
+   *      with a readable trace. Worth another look from a Linux CI, which
+   *      does not run Playwright today.
+   *
    * The retry is gone anyway, on the view that a suite allowed a second
    * attempt stops reporting what made the first one fail — which is exactly
    * how the connection exhaustion stayed hidden for several runs. A failure
