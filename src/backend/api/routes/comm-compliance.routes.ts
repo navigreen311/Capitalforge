@@ -40,7 +40,7 @@ import type {
   QaScoreInput,
   QaScoreResult,
 } from '../../services/comm-compliance.service.js';
-import { TrainingService } from '../../services/training.service.js';
+import { TrainingService, TRACK_CATALOGUE, withoutEnforcementCases } from '../../services/training.service.js';
 import type { CertificationResult, TrackName } from '../../services/training.service.js';
 import { PERMISSIONS } from '../../../shared/constants/index.js';
 import logger from '../../config/logger.js';
@@ -491,6 +491,53 @@ commComplianceRouter.get(
         success: true,
         data,
         meta: { total: data.length },
+      };
+
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/training/tracks
+// The certification catalogue: what each track covers.
+//
+// The catalogue lived only inside the training service, so a certification
+// record could name a track and nothing could say what completing it means.
+// The page in front of this had its own copy — five made-up modules with
+// their own titles and durations — because there was nothing to read.
+//
+// Enforcement cases are deliberately not returned.
+//
+// Each module in the catalogue carries a list of them, and they are not real:
+// "FTC v. Pinnacle Business Capital (2021), $5,000,000 civil money penalty,
+// FTC-X-2021-0041" names a company that appears elsewhere in this codebase
+// as an explicitly stubbed vendor, and the docket-style sourceRef gives it
+// the shape of something checkable. This is mandatory compliance training —
+// an advisor is meant to learn from it and a certificate says they did — so
+// invented precedent must not leave the server at all. The lesson from each
+// case does go out: "never use guaranteed approval language" is sound advice
+// whatever it is attributed to.
+// ─────────────────────────────────────────────────────────────────
+commComplianceRouter.get(
+  '/training/tracks',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ),
+  async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const tracks = Object.values(TRACK_CATALOGUE).map((track) => ({
+        // Shared with the certification payload, so there is one place that
+        // decides what a track looks like on the way out.
+        ...withoutEnforcementCases(track),
+        totalMinutes: track.modules.reduce((sum, m) => sum + m.estimatedMinutes, 0),
+      }));
+
+      const body: ApiResponse<typeof tracks> = {
+        success: true,
+        data: tracks,
+        meta: { total: tracks.length },
       };
 
       res.status(200).json(body);

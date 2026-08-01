@@ -1280,6 +1280,71 @@ const SEED_PHONES = {
   }
   console.log(`  ✓ Do-not-call entries created: ${dncEntries.length}`);
 
+  // ── Training Certifications ───────────────────────────────
+  //
+  // Who has completed which certification track. The training page carried
+  // this per advisor as literals — five modules each, completion dates, a
+  // 2027 expiry — which is the evidence that mandatory training was done.
+  //
+  // One completed and one still in progress, against the two seeded users,
+  // so a certification that has been earned and one that has not both appear.
+  const certifications: {
+    id: string;
+    userId: string;
+    trackName: string;
+    status: string;
+    score: number | null;
+    completedAt: Date | null;
+    expiresAt: Date | null;
+  }[] = [
+    {
+      id: 'seed-cert-001',
+      userId: advisorUser.id,
+      trackName: 'onboarding',
+      status: 'passed',
+      score: 92,
+      completedAt: d('2025-08-20'),
+      // The onboarding track does not expire, per the catalogue.
+      expiresAt: null,
+    },
+    {
+      id: 'seed-cert-002',
+      userId: advisorUser.id,
+      trackName: 'annual',
+      status: 'in_progress',
+      score: null,
+      completedAt: null,
+      expiresAt: null,
+    },
+    {
+      id: 'seed-cert-003',
+      userId: adminUser.id,
+      trackName: 'onboarding',
+      status: 'passed',
+      score: 88,
+      completedAt: d('2025-07-14'),
+      expiresAt: null,
+    },
+  ];
+
+  for (const cert of certifications) {
+    await prisma.trainingCertification.upsert({
+      where: { id: cert.id },
+      update: {},
+      create: {
+        id: cert.id,
+        tenantId: tenant.id,
+        userId: cert.userId,
+        trackName: cert.trackName,
+        status: cert.status,
+        score: cert.score,
+        completedAt: cert.completedAt,
+        expiresAt: cert.expiresAt,
+      },
+    });
+  }
+  console.log(`  ✓ Training certifications created: ${certifications.length}`);
+
   // ── Consent Records ───────────────────────────────────────
 
   await prisma.consentRecord.upsert({

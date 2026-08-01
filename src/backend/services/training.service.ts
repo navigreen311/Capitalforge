@@ -154,6 +154,55 @@ const ENFORCEMENT_CASES: EnforcementCase[] = [
 
 // ── Track catalogue ────────────────────────────────────────────────
 
+/** A module as it leaves the service: lessons kept, citations dropped. */
+export interface PublishedModule {
+  id: string;
+  title: string;
+  description: string;
+  topics: string[];
+  bannedClaimCategories: BannedClaimCategory[];
+  estimatedMinutes: number;
+  /** The takeaway from each enforcement case, without the case. */
+  lessons: string[];
+}
+
+export interface PublishedTrack {
+  name: TrackName;
+  label: string;
+  description: string;
+  expiryMonths: number | null;
+  passingScore: number;
+  prerequisiteTracks: TrackName[];
+  modules: PublishedModule[];
+}
+
+/**
+ * Strip the enforcement cases from a track.
+ *
+ * Applied wherever a track leaves this service. See the note in
+ * _mapCertification: the cases carry invented parties, penalties and
+ * docket-style references, and this is compliance training.
+ */
+export function withoutEnforcementCases(track: TrackDefinition): PublishedTrack {
+  return {
+    name: track.name,
+    label: track.label,
+    description: track.description,
+    expiryMonths: track.expiryMonths,
+    passingScore: track.passingScore,
+    prerequisiteTracks: track.prerequisiteTracks,
+    modules: track.modules.map((module) => ({
+      id: module.id,
+      title: module.title,
+      description: module.description,
+      topics: module.topics,
+      bannedClaimCategories: module.bannedClaimCategories,
+      estimatedMinutes: module.estimatedMinutes,
+      lessons: module.enforcementCases.map((c) => c.lesson),
+    })),
+  };
+}
+
 export const TRACK_CATALOGUE: Record<TrackName, TrackDefinition> = {
   onboarding: {
     name: 'onboarding',
@@ -393,7 +442,12 @@ export interface CertificationResult {
   certificateRef: string | null;
   createdAt: Date;
   updatedAt: Date;
-  trackDefinition: TrackDefinition;
+  /**
+   * The track, as published: enforcement cases removed. See
+   * withoutEnforcementCases for why a certification payload must not carry
+   * them.
+   */
+  trackDefinition: PublishedTrack;
 }
 
 // ── TrainingService ────────────────────────────────────────────────
@@ -813,7 +867,19 @@ export class TrainingService {
       certificateRef: record.certificateRef,
       createdAt:      record.createdAt,
       updatedAt:      record.updatedAt,
-      trackDefinition: trackDef ?? TRACK_CATALOGUE.onboarding,
+      // The track, minus the enforcement cases attached to each module.
+      //
+      // Those cases are not real — "FTC v. Pinnacle Business Capital (2021),
+      // $5,000,000 civil money penalty, FTC-X-2021-0041" names a company that
+      // appears elsewhere in this codebase as an explicitly stubbed vendor,
+      // and the docket-style sourceRef gives it the shape of something a
+      // reader could look up. This is the payload behind a certification
+      // record, so it is what an advisor is certified as having learned.
+      //
+      // The lesson from each case is kept: "never use guaranteed approval
+      // language" is sound whatever it is attributed to. The attribution is
+      // what must not go out.
+      trackDefinition: withoutEnforcementCases(trackDef ?? TRACK_CATALOGUE.onboarding),
     };
   }
 
