@@ -1233,6 +1233,53 @@ const SEED_PHONES = {
   }
   console.log(`  ✓ Advisor QA scores created: ${qaScores.length}`);
 
+  // ── Do Not Call ───────────────────────────────────────────
+  //
+  // Numbers that must not be contacted. The compliance page carried three of
+  // these as literals; this table is the one the SMS sender actually checks,
+  // and until now nothing could read it back.
+  //
+  // Both numbers are in 555-0100–555-0199, the block reserved for fiction,
+  // for the same reason the business phone numbers are: this system can send
+  // real SMS, and a plausible number in seed data is one campaign away from
+  // reaching a stranger.
+  const dncEntries: {
+    phoneNumber: string;
+    businessId: string | null;
+    source: string;
+    reason: string;
+  }[] = [
+    {
+      phoneNumber: SEED_PHONES.biz1,
+      businessId: biz1.id,
+      source: 'opt_out',
+      reason: 'Replied STOP to a payment reminder.',
+    },
+    {
+      // Matched to no client — someone can opt out from a number that is on
+      // no file, and that is still a suppression the sender must honour.
+      phoneNumber: '+13055550188',
+      businessId: null,
+      source: 'manual',
+      reason: 'Asked by phone not to be contacted again. No client record matched.',
+    },
+  ];
+
+  for (const entry of dncEntries) {
+    await prisma.doNotCallList.upsert({
+      where: { tenantId_phoneNumber: { tenantId: tenant.id, phoneNumber: entry.phoneNumber } },
+      update: {},
+      create: {
+        tenantId: tenant.id,
+        phoneNumber: entry.phoneNumber,
+        businessId: entry.businessId,
+        source: entry.source,
+        reason: entry.reason,
+      },
+    });
+  }
+  console.log(`  ✓ Do-not-call entries created: ${dncEntries.length}`);
+
   // ── Consent Records ───────────────────────────────────────
 
   await prisma.consentRecord.upsert({

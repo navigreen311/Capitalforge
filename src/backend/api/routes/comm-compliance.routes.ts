@@ -433,3 +433,69 @@ commComplianceRouter.post(
     }
   },
 );
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/do-not-call
+// The tenant's do-not-contact list.
+//
+// The table has been written to since SMS opt-out handling was added —
+// sms-dispatch upserts a row on every STOP, and the campaign sender checks
+// it before consent — but nothing could read it back. A number on this list
+// is the record of somebody asking not to be contacted, and it was visible
+// only to the code that consults it.
+//
+// Read-only on purpose. Rows are added by an opt-out, and removing one is
+// removing a person's request; that needs its own decision, not a delete
+// button reached from a compliance dashboard.
+// ─────────────────────────────────────────────────────────────────
+commComplianceRouter.get(
+  '/do-not-call',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_READ),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+
+      const entries = await getPrisma().doNotCallList.findMany({
+        where: { tenantId },
+        orderBy: { addedAt: 'desc' },
+        take: 500,
+      });
+
+      // The business behind each number, where one matched at opt-out time.
+      // Null businessId is normal: somebody can opt out from a number that
+      // belongs to no client on file, and that is still a suppression.
+      const businessIds = entries
+        .map((e) => e.businessId)
+        .filter((id): id is string => id !== null);
+
+      const businesses = businessIds.length === 0
+        ? []
+        : await getPrisma().business.findMany({
+            where: { tenantId, id: { in: businessIds } },
+            select: { id: true, legalName: true, dba: true },
+          });
+      const nameOf = new Map(businesses.map((b) => [b.id, b.dba ?? b.legalName]));
+
+      const data = entries.map((e) => ({
+        id: e.id,
+        phoneNumber: e.phoneNumber,
+        businessId: e.businessId,
+        businessName: e.businessId === null ? null : (nameOf.get(e.businessId) ?? null),
+        source: e.source,
+        reason: e.reason,
+        addedAt: e.addedAt.toISOString(),
+      }));
+
+      const body: ApiResponse<typeof data> = {
+        success: true,
+        data,
+        meta: { total: data.length },
+      };
+
+      res.status(200).json(body);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
