@@ -1325,6 +1325,19 @@ const SEED_PHONES = {
       completedAt: d('2025-07-14'),
       expiresAt: null,
     },
+    {
+      // In progress for the signed-in admin, so the record-a-score control
+      // has something of the caller's own to act on. The browser suite does
+      // not complete it: completing is irreversible through the API, and a
+      // test that consumes seeded state passes once and then drifts.
+      id: 'seed-cert-004',
+      userId: adminUser.id,
+      trackName: 'annual',
+      status: 'in_progress',
+      score: null,
+      completedAt: null,
+      expiresAt: null,
+    },
   ];
 
   for (const cert of certifications) {

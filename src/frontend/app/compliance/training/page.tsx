@@ -1,328 +1,442 @@
 'use client';
 
 // ============================================================
-// /compliance/training — Compliance Training
-// Training modules with completion status, progress bars,
-// due dates, renewal indicators. Admin advisor grid.
-// Start Module / Mark Complete actions.
+// /compliance/training — Compliance training status
+//
+// This page called nothing. Five training modules carried their own due
+// dates, completion flags and scores, and beside them sat an advisor grid:
+//
+//   Sarah Chen        TCPA ✓  UDAP ✓  State ✓  Product ✗  AML ✗
+//   Lisa Thompson     TCPA ✗  UDAP ✗  State ✗  Product ✗  AML ✗
+//
+// Five named people against five modules, and every cell invented. A
+// completed compliance module is the evidence that somebody was trained.
+//
+// This is the page the sidebar links to, so it carries the working surface:
+// your certifications, where each stands, and completing one.
+//   GET  /api/training/certifications
+//   GET  /api/training/tracks
+//   POST /api/training/certifications/:id/complete
+//
+// The module grid is not rebuilt. Certification is recorded per track, as a
+// whole — nothing records progress through the modules inside one, so a
+// per-module tick would be the same fixture in a new place. Nor is the
+// advisor grid: certifications are per user and no endpoint lists users.
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
+import {
+  toCertifications,
+  toTracks,
+  standings,
+  summarise,
+  humanise,
+  type Track,
+  type Certification,
+  type TrackStanding,
+  type CertStatus,
+} from '@/lib/training-view';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const STATUS_STYLE: Record<CertStatus, { label: string; cls: string }> = {
+  passed: { label: 'Passed', cls: 'bg-green-900 text-green-300 border-green-700' },
+  in_progress: { label: 'In progress', cls: 'bg-yellow-900 text-yellow-300 border-yellow-700' },
+  failed: { label: 'Failed', cls: 'bg-red-900 text-red-300 border-red-700' },
+  expired: { label: 'Expired', cls: 'bg-orange-900 text-orange-300 border-orange-700' },
+  not_started: { label: 'Not started', cls: 'bg-gray-800 text-gray-500 border-gray-700' },
+};
 
-interface TrainingModule {
-  id: string;
-  title: string;
-  description: string;
-  durationMin: number;
-  dueDate: string;
-  renewalMonths: number;
-  completed: boolean;
-  completedAt: string | null;
-  score: number | null;
+function authHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+  return token === null ? {} : { Authorization: `Bearer ${token}` };
 }
 
-interface AdvisorCert {
-  name: string;
-  modules: Record<string, boolean>;
+/** The signed-in user, as the login stored it. */
+function currentUserId(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem('cf_user');
+  if (raw === null) return null;
+  try {
+    const id = (JSON.parse(raw) as { id?: unknown }).id;
+    return typeof id === 'string' ? id : null;
+  } catch {
+    return null;
+  }
 }
 
-type ViewMode = 'modules' | 'admin';
-
-// ---------------------------------------------------------------------------
-// Mock Data
-// ---------------------------------------------------------------------------
-
-const INITIAL_MODULES: TrainingModule[] = [
-  { id: 'tm_001', title: 'TCPA Compliance', description: 'Telephone Consumer Protection Act requirements for outbound calling, texting, and consent management.', durationMin: 45, dueDate: '2026-05-01', renewalMonths: 12, completed: true, completedAt: '2026-02-15', score: 92 },
-  { id: 'tm_002', title: 'UDAP Guidelines', description: 'Unfair, Deceptive, or Abusive Acts or Practices — identifying and avoiding UDAP violations in sales and marketing.', durationMin: 60, dueDate: '2026-05-15', renewalMonths: 12, completed: true, completedAt: '2026-01-20', score: 88 },
-  { id: 'tm_003', title: 'State Disclosure Laws', description: 'Overview of state-by-state commercial finance disclosure requirements (CA, NY, TX, FL, VA, UT).', durationMin: 90, dueDate: '2026-06-01', renewalMonths: 6, completed: false, completedAt: null, score: null },
-  { id: 'tm_004', title: 'Product-Reality Protocol', description: 'Training on accurately representing product features, avoiding guarantee language, and matching client expectations to reality.', durationMin: 30, dueDate: '2026-04-15', renewalMonths: 12, completed: false, completedAt: null, score: null },
-  { id: 'tm_005', title: 'AML Basics', description: 'Anti-Money Laundering fundamentals — SAR filing, CDD/EDD, beneficial ownership verification, and red flag identification.', durationMin: 75, dueDate: '2026-07-01', renewalMonths: 12, completed: false, completedAt: null, score: null },
-];
-
-const ADVISORS: AdvisorCert[] = [
-  { name: 'Sarah Chen', modules: { tm_001: true, tm_002: true, tm_003: true, tm_004: false, tm_005: false } },
-  { name: 'Marcus Johnson', modules: { tm_001: true, tm_002: true, tm_003: false, tm_004: true, tm_005: false } },
-  { name: 'Emily Rodriguez', modules: { tm_001: true, tm_002: false, tm_003: false, tm_004: false, tm_005: false } },
-  { name: 'David Kim', modules: { tm_001: true, tm_002: true, tm_003: true, tm_004: true, tm_005: true } },
-  { name: 'Lisa Thompson', modules: { tm_001: false, tm_002: false, tm_003: false, tm_004: false, tm_005: false } },
-];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatDate(iso: string) {
-  try { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
-  catch { return iso; }
+function formatDate(iso: string | null): string {
+  if (iso === null) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? '—'
+    : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function isDueSoon(dateStr: string): boolean {
-  const due = new Date(dateStr);
-  const now = new Date();
-  const diff = due.getTime() - now.getTime();
-  return diff > 0 && diff < 14 * 24 * 60 * 60 * 1000; // within 14 days
-}
+export default function ComplianceTrainingPage() {
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [certs, setCerts] = useState<Certification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [partial, setPartial] = useState<string[]>([]);
 
-function isOverdue(dateStr: string): boolean {
-  return new Date(dateStr) < new Date();
-}
-
-function needsRenewal(completedAt: string | null, renewalMonths: number): boolean {
-  if (!completedAt) return false;
-  const renewal = new Date(completedAt);
-  renewal.setMonth(renewal.getMonth() + renewalMonths);
-  return renewal < new Date();
-}
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
-export default function TrainingPage() {
-  const [modules, setModules] = useState<TrainingModule[]>(INITIAL_MODULES);
-  const [viewMode, setViewMode] = useState<ViewMode>('modules');
-  const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
+  const [me, setMe] = useState<string | null>(null);
+  const [scoring, setScoring] = useState<string | null>(null);
+  const [score, setScore] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const completedCount = modules.filter(m => m.completed).length;
-  const totalCount = modules.length;
-  const overallProgress = Math.round((completedCount / totalCount) * 100);
+  const now = useMemo(() => new Date(), []);
 
-  const handleMarkComplete = (id: string) => {
-    setModules(prev => prev.map(m =>
-      m.id === id
-        ? { ...m, completed: true, completedAt: new Date().toISOString().split('T')[0], score: 100 }
-        : m
-    ));
-    const mod = modules.find(m => m.id === id);
-    setToast(`"${mod?.title}" marked as complete.`);
-    setTimeout(() => setToast(null), 3000);
-  };
+  useEffect(() => {
+    setMe(currentUserId());
+  }, []);
 
-  const handleStartModule = (id: string) => {
-    setActiveModuleId(id);
-    setToast('Module started. Content would load in a real implementation.');
-    setTimeout(() => setToast(null), 3000);
-  };
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    setPartial([]);
+    const headers = authHeaders();
+    const failed: string[] = [];
+
+    try {
+      const [tracksRes, certsRes] = await Promise.all([
+        fetch('/api/training/tracks', { headers }),
+        fetch('/api/training/certifications', { headers }),
+      ]);
+
+      if (tracksRes.ok) {
+        const body = (await tracksRes.json()) as { success?: boolean; data?: unknown };
+        setTracks(body.success === true ? toTracks(body.data) : []);
+      } else {
+        setTracks([]);
+        failed.push('the catalogue');
+      }
+
+      if (certsRes.ok) {
+        const body = (await certsRes.json()) as { success?: boolean; data?: unknown };
+        setCerts(body.success === true ? toCertifications(body.data) : []);
+      } else {
+        setCerts([]);
+        // Otherwise every track reads as not started, which says you have
+        // done none of it.
+        failed.push('your certifications');
+      }
+
+      setPartial(failed);
+    } catch {
+      setLoadError('Could not reach the server. No training record is shown.');
+      setTracks([]);
+      setCerts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const complete = useCallback(
+    async (certificationId: string) => {
+      const value = Number(score);
+      if (!Number.isInteger(value) || value < 0 || value > 100) {
+        setActionError('Enter a whole score between 0 and 100.');
+        return;
+      }
+
+      setBusy(true);
+      setActionError(null);
+      try {
+        const res = await fetch(
+          `/api/training/certifications/${encodeURIComponent(certificationId)}/complete`,
+          {
+            method: 'POST',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ score: value }),
+          },
+        );
+        const body = (await res.json()) as {
+          success?: boolean;
+          data?: { status?: string; certificateRef?: string | null };
+          error?: { message?: string };
+        };
+        if (!res.ok || body.success !== true) {
+          setActionError(body.error?.message ?? `Nothing was recorded (HTTP ${res.status}).`);
+          return;
+        }
+
+        showToast(
+          body.data?.status === 'passed'
+            ? `Recorded as passed${body.data.certificateRef ? ` — ${body.data.certificateRef}` : ''}.`
+            : 'Recorded as failed. The score was below the pass mark for this track.',
+        );
+        setScoring(null);
+        setScore('');
+        await load();
+      } catch {
+        setActionError('Could not reach the server. Nothing was recorded.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [score, load, showToast],
+  );
+
+  const rows = useMemo(() => standings(tracks, certs, now), [tracks, certs, now]);
+  const summary = useMemo(() => summarise(rows, now), [rows, now]);
 
   return (
-    <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Compliance Training</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {completedCount}/{totalCount} modules completed · {overallProgress}% overall progress
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode('modules')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-              viewMode === 'modules'
-                ? 'bg-[#C9A84C] text-[#0A1628]'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            My Modules
-          </button>
-          <button
-            onClick={() => setViewMode('admin')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-              viewMode === 'admin'
-                ? 'bg-[#C9A84C] text-[#0A1628]'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Admin View
-          </button>
-        </div>
-      </div>
-
-      {/* Overall Progress Bar */}
-      <div className="mb-6 rounded-xl border border-gray-800 bg-gray-900 p-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-gray-400 uppercase font-semibold">Overall Completion</span>
-          <span className="text-sm font-bold text-[#C9A84C]">{overallProgress}%</span>
-        </div>
-        <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-[#C9A84C] rounded-full transition-all duration-500"
-            style={{ width: `${overallProgress}%` }}
-          />
-        </div>
-      </div>
-
-      {/* ── Modules View ──────────────────────────────────────────── */}
-      {viewMode === 'modules' && (
-        <div className="space-y-4">
-          {modules.map(mod => {
-            const overdue = !mod.completed && isOverdue(mod.dueDate);
-            const dueSoon = !mod.completed && isDueSoon(mod.dueDate);
-            const renewal = mod.completed && needsRenewal(mod.completedAt, mod.renewalMonths);
-            const progress = mod.completed ? 100 : activeModuleId === mod.id ? 15 : 0;
-
-            return (
-              <div
-                key={mod.id}
-                className={`rounded-xl border p-5 transition-colors ${
-                  overdue
-                    ? 'border-red-700 bg-red-950/30'
-                    : renewal
-                    ? 'border-orange-700 bg-orange-950/30'
-                    : mod.completed
-                    ? 'border-green-800/50 bg-gray-900'
-                    : 'border-gray-800 bg-gray-900'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-gray-100 text-sm">{mod.title}</h3>
-                      {mod.completed && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-900 text-green-300 border border-green-700">
-                          Complete
-                        </span>
-                      )}
-                      {overdue && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-900 text-red-300 border border-red-700 animate-pulse">
-                          Overdue
-                        </span>
-                      )}
-                      {dueSoon && !overdue && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-900 text-yellow-300 border border-yellow-700">
-                          Due Soon
-                        </span>
-                      )}
-                      {renewal && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-900 text-orange-300 border border-orange-700">
-                          Renewal Due
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-400 mb-2">{mod.description}</p>
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
-                      <span>{mod.durationMin} min</span>
-                      <span>Due: {formatDate(mod.dueDate)}</span>
-                      <span>Renews every {mod.renewalMonths} months</span>
-                      {mod.completedAt && <span>Completed: {formatDate(mod.completedAt)}</span>}
-                      {mod.score !== null && <span>Score: {mod.score}%</span>}
-                    </div>
-
-                    {/* Progress bar */}
-                    <div className="mt-3 w-full h-2 bg-gray-800 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          mod.completed ? 'bg-green-500' : 'bg-[#C9A84C]'
-                        }`}
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex flex-col gap-2 flex-shrink-0">
-                    {!mod.completed && (
-                      <>
-                        <button
-                          onClick={() => handleStartModule(mod.id)}
-                          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors"
-                        >
-                          Start Module
-                        </button>
-                        <button
-                          onClick={() => handleMarkComplete(mod.id)}
-                          className="px-4 py-2 rounded-lg bg-green-700 hover:bg-green-600 text-white text-xs font-semibold transition-colors"
-                        >
-                          Mark Complete
-                        </button>
-                      </>
-                    )}
-                    {mod.completed && renewal && (
-                      <button
-                        onClick={() => handleStartModule(mod.id)}
-                        className="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold transition-colors"
-                      >
-                        Retake
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+    <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6 space-y-6">
+      {toast !== null && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-[#C9A84C]/30 bg-[#0A1628] px-5 py-3 text-sm text-gray-100 shadow-2xl">
+          {toast}
         </div>
       )}
 
-      {/* ── Admin View ────────────────────────────────────────────── */}
-      {viewMode === 'admin' && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 text-left">
-                <th className="py-3 px-3 text-xs text-gray-400 uppercase font-semibold">Advisor</th>
-                {modules.map(m => (
-                  <th key={m.id} className="py-3 px-3 text-xs text-gray-400 uppercase font-semibold text-center whitespace-nowrap">
-                    {m.title}
-                  </th>
-                ))}
-                <th className="py-3 px-3 text-xs text-gray-400 uppercase font-semibold text-center">Progress</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ADVISORS.map((advisor, i) => {
-                const completed = Object.values(advisor.modules).filter(Boolean).length;
-                const total = Object.keys(advisor.modules).length;
-                const pct = Math.round((completed / total) * 100);
+      <div>
+        <h1 className="text-2xl font-bold text-white">Compliance Training</h1>
+        <p className="text-sm text-gray-400 mt-1">
+          Where your certifications stand, and what renews when.
+        </p>
+      </div>
 
-                return (
-                  <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-900/50">
-                    <td className="py-3 px-3 text-gray-200 font-medium">{advisor.name}</td>
-                    {modules.map(m => {
-                      const done = advisor.modules[m.id] ?? false;
-                      return (
-                        <td key={m.id} className="py-3 px-3 text-center">
-                          {done ? (
-                            <span className="text-green-400 font-bold text-xs">PASS</span>
-                          ) : (
-                            <span className="text-red-400 font-bold text-xs">---</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-2 bg-gray-800 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${pct === 100 ? 'bg-green-500' : pct >= 50 ? 'bg-[#C9A84C]' : 'bg-red-500'}`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className={`text-xs font-semibold ${pct === 100 ? 'text-green-400' : pct >= 50 ? 'text-[#C9A84C]' : 'text-red-400'}`}>
-                          {pct}%
-                        </span>
-                      </div>
+      {loading && <p className="text-sm text-gray-500">Loading your training record…</p>}
+
+      {loadError !== null && (
+        <p className="rounded-lg border border-red-800 bg-red-900/20 px-4 py-3 text-sm text-red-300">
+          {loadError}
+        </p>
+      )}
+
+      {!loading && loadError === null && (
+        <>
+          {partial.length > 0 && (
+            <p className="rounded-lg border border-yellow-800 bg-yellow-900/20 px-4 py-3 text-xs text-yellow-300">
+              Could not load {partial.join(' and ')}. What is below is incomplete — do not read a
+              blank as a track you have not taken.
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Kpi label="Currently certified" value={String(summary.certified)} />
+            <Kpi
+              label="Lapsed"
+              value={String(summary.lapsed)}
+              note={summary.lapsed === 0 ? 'nothing has expired' : 'passed once, expired since'}
+            />
+            <Kpi label="In progress" value={String(summary.inProgress)} />
+            <Kpi label="Not started" value={String(summary.notStarted)} />
+          </div>
+
+          {actionError !== null && (
+            <p className="rounded-lg border border-red-800 bg-red-900/20 px-4 py-3 text-sm text-red-300">
+              {actionError}
+            </p>
+          )}
+
+          <div className="rounded-xl border border-gray-800 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-900/60 text-xs uppercase tracking-wider text-gray-500">
+                <tr>
+                  <th className="px-4 py-3 text-left">Certification</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-right">Score</th>
+                  <th className="px-4 py-3 text-left">Completed</th>
+                  <th className="px-4 py-3 text-left">Renews</th>
+                  <th className="px-4 py-3 text-left">Certificate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500">
+                      No certification track is published.
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                )}
+                {rows.map((row) => (
+                  <TrackRow
+                    key={String(row.track.name)}
+                    row={row}
+                    mine={me !== null && row.certification?.userId === me}
+                    scoring={scoring === row.certification?.id}
+                    score={score}
+                    busy={busy}
+                    onScoreChange={setScore}
+                    onStart={() => {
+                      setScoring(row.certification?.id ?? null);
+                      setScore('');
+                      setActionError(null);
+                    }}
+                    onCancel={() => setScoring(null)}
+                    onSubmit={() => {
+                      if (row.certification !== null) complete(row.certification.id);
+                    }}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-sm bg-[#0A1628] border border-[#C9A84C]/30 text-gray-100 text-sm rounded-xl shadow-2xl px-5 py-3 flex items-center gap-3">
-          <span className="flex-1">{toast}</span>
-          <button onClick={() => setToast(null)} className="text-gray-400 hover:text-white text-lg leading-none">&times;</button>
-        </div>
+          <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-5 space-y-2">
+            <h2 className="text-sm font-semibold text-gray-300">How a score is recorded</h2>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              The score is entered here and taken as given — no assessment is run, and nothing
+              records who typed it. It is compared against the track&rsquo;s pass mark, and a pass
+              sets the renewal date and issues a certificate reference.
+            </p>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Completing is only offered for your own certifications. The API scopes the request to
+              the tenant rather than to you, so a caller with compliance write access can complete
+              somebody else&rsquo;s — that is worth closing, and this page does not do it.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-5 space-y-2">
+            <h2 className="text-sm font-semibold text-gray-300">What is not here</h2>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              No module grid. Five modules used to carry their own due dates, completion flags and
+              scores; certification is recorded per track as a whole, and nothing records progress
+              through the modules inside one. What each track covers is on{' '}
+              <Link href="/training" className="text-[#C9A84C] hover:underline">
+                training
+              </Link>
+              .
+            </p>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              No advisor grid. Five named people were shown against those modules with every cell
+              filled in. Certifications are per user and no endpoint lists users, so a team view
+              cannot be assembled.
+            </p>
+          </div>
+        </>
       )}
+    </div>
+  );
+}
+
+function TrackRow({
+  row,
+  mine,
+  scoring,
+  score,
+  busy,
+  onScoreChange,
+  onStart,
+  onCancel,
+  onSubmit,
+}: {
+  row: TrackStanding;
+  mine: boolean;
+  scoring: boolean;
+  score: string;
+  busy: boolean;
+  onScoreChange: (value: string) => void;
+  onStart: () => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const { track, certification, valid, daysLeft } = row;
+  const status = STATUS_STYLE[certification?.status ?? 'not_started'];
+  const canComplete =
+    mine && certification !== null && (certification.status === 'in_progress' || !valid);
+
+  return (
+    <tr>
+      <td className="px-4 py-3">
+        <p className="text-gray-200">{track.label}</p>
+        <p className="text-2xs text-gray-600">
+          {humanise(String(track.name))}
+          {track.passingScore !== null && ` · pass mark ${track.passingScore}`}
+        </p>
+      </td>
+      <td className="px-4 py-3">
+        <span className={`rounded-full border px-2 py-0.5 text-2xs ${status.cls}`}>
+          {status.label}
+        </span>
+        {/* A pass past its expiry is not current, whatever the column says. */}
+        {certification?.status === 'passed' && !valid && (
+          <span className="block text-2xs text-orange-400 mt-0.5">lapsed</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right text-gray-400">
+        {certification?.score ?? <span className="text-gray-600">—</span>}
+      </td>
+      <td className="px-4 py-3 text-xs text-gray-400">
+        {formatDate(certification?.completedAt ?? null)}
+      </td>
+      <td className="px-4 py-3 text-xs">
+        {certification === null || certification.expiresAt === null ? (
+          <span className="text-gray-600">
+            {certification === null ? '—' : 'does not expire'}
+          </span>
+        ) : (
+          <span className={daysLeft !== null && daysLeft < 30 ? 'text-yellow-400' : 'text-gray-400'}>
+            {formatDate(certification.expiresAt)}
+            {daysLeft !== null && (
+              <span className="block text-2xs text-gray-600">
+                {daysLeft < 0 ? `${Math.abs(daysLeft)} days ago` : `${daysLeft} days`}
+              </span>
+            )}
+          </span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-xs">
+        {certification?.certificateRef !== null && certification !== null ? (
+          <span className="font-mono text-gray-400">{certification.certificateRef}</span>
+        ) : scoring ? (
+          <span className="flex items-center gap-2">
+            <input
+              aria-label={`Score for ${track.label}`}
+              type="number"
+              min="0"
+              max="100"
+              value={score}
+              onChange={(e) => onScoreChange(e.target.value)}
+              className="w-20 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-200"
+            />
+            <button
+              onClick={onSubmit}
+              disabled={busy}
+              className="rounded bg-[#C9A84C] px-2 py-1 text-2xs font-semibold text-[#0A1628] disabled:opacity-40"
+            >
+              {busy ? 'Saving…' : 'Record'}
+            </button>
+            <button onClick={onCancel} className="text-2xs text-gray-500 hover:text-gray-300">
+              Cancel
+            </button>
+          </span>
+        ) : canComplete ? (
+          <button
+            onClick={onStart}
+            className="rounded-lg border border-gray-700 px-2 py-1 text-2xs text-gray-300 hover:bg-gray-900"
+          >
+            Record a score
+          </button>
+        ) : certification === null ? (
+          // Nothing to complete: enrolment happens elsewhere, and there is no
+          // endpoint here to start a track.
+          <span className="text-gray-600">not enrolled</span>
+        ) : (
+          <span className="text-gray-600">—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function Kpi({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/40 px-4 py-3">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-2xl font-bold text-gray-100 mt-0.5">{value}</p>
+      {note !== undefined && <p className="text-2xs text-gray-600 mt-0.5">{note}</p>}
     </div>
   );
 }
