@@ -226,6 +226,24 @@ export class OffboardingService {
 
   // ── Status ──────────────────────────────────────────────────
 
+  /**
+   * Every offboarding workflow for a tenant, most recent first.
+   *
+   * There was no way to list them. Only a lookup by id existed, so a page
+   * showing what is in progress had nothing to read — which is why the one
+   * in front of this had four workflows written into it, with data-deletion
+   * steps marked done.
+   */
+  async listOffboardingWorkflows(tenantId: string): Promise<OffboardingStatus[]> {
+    const workflows = await this.prisma.offboardingWorkflow.findMany({
+      where: { tenantId },
+      orderBy: { initiatedAt: 'desc' },
+      take: 200,
+    });
+
+    return Promise.all(workflows.map((wf) => this.getOffboardingStatus(wf.id)));
+  }
+
   async getOffboardingStatus(workflowId: string): Promise<OffboardingStatus> {
     const wf = await this.prisma.offboardingWorkflow.findFirst({
       where: { id: workflowId },
@@ -496,7 +514,15 @@ export class OffboardingService {
     };
   }
 
-  private getRetentionExceptions(jurisdiction: DeletionJurisdiction): RetentionException[] {
+  /**
+   * What is kept even when a deletion runs, and under which statute.
+   *
+   * Public so the offboarding page can show it before anyone triggers a
+   * deletion. The page it replaced carried a retention schedule of its own —
+   * seven data classes with legal bases and delete-after dates — none of
+   * which came from here or from anywhere else.
+   */
+  getRetentionExceptions(jurisdiction: DeletionJurisdiction): RetentionException[] {
     const now = new Date();
     const addYears = (y: number) => new Date(now.getFullYear() + y, now.getMonth(), now.getDate()).toISOString();
 

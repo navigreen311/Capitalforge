@@ -1358,6 +1358,77 @@ const SEED_PHONES = {
   }
   console.log(`  ✓ Training certifications created: ${certifications.length}`);
 
+  // ── Offboarding Workflows ─────────────────────────────────
+  //
+  // A client leaving, and what has been done about their data. The page
+  // carried four of these as literals with the deletion steps marked off —
+  // "PII anonymization: done", "Credit file purge: done" — which is the
+  // answer to "did you erase my data".
+  //
+  // Deliberately none of these has a completed deletion. The deletion is
+  // real: it nulls SSNs, dates of birth and addresses, and rewrites every
+  // user's email and password hash for the tenant. Seeding a completed one
+  // would mean either running it against the demo data or writing a
+  // completion that did not happen — and the second is the thing being
+  // repaired here.
+  const offboardings: {
+    id: string;
+    businessId: string | null;
+    offboardingType: string;
+    status: string;
+    dataExportCompleted: boolean;
+    dataDeletionStatus: string;
+    exitReason: string;
+    exitInterviewNotes: string | null;
+    initiatedAt: Date;
+  }[] = [
+    {
+      id: 'seed-offboard-001',
+      businessId: biz3.id,
+      offboardingType: 'client',
+      status: 'initiated',
+      dataExportCompleted: false,
+      dataDeletionStatus: 'pending',
+      exitReason: 'Secured funding elsewhere.',
+      exitInterviewNotes: null,
+      initiatedAt: d('2026-07-18'),
+    },
+    {
+      id: 'seed-offboard-002',
+      businessId: biz2.id,
+      offboardingType: 'client',
+      status: 'export_ready',
+      dataExportCompleted: true,
+      dataDeletionStatus: 'pending',
+      exitReason: 'Business closed.',
+      exitInterviewNotes:
+        'Owner retiring. Asked for the full document package before anything is removed.',
+      initiatedAt: d('2026-06-30'),
+    },
+  ];
+
+  for (const wf of offboardings) {
+    await prisma.offboardingWorkflow.upsert({
+      where: { id: wf.id },
+      update: {},
+      create: {
+        id: wf.id,
+        tenantId: tenant.id,
+        businessId: wf.businessId,
+        offboardingType: wf.offboardingType,
+        status: wf.status,
+        dataExportCompleted: wf.dataExportCompleted,
+        dataDeletionStatus: wf.dataDeletionStatus,
+        // No proof hash, because no deletion has run.
+        deletionProofHash: null,
+        exitReason: wf.exitReason,
+        exitInterviewNotes: wf.exitInterviewNotes,
+        initiatedAt: wf.initiatedAt,
+      },
+    });
+  }
+  console.log(`  ✓ Offboarding workflows created: ${offboardings.length}`);
+
   // ── Consent Records ───────────────────────────────────────
 
   await prisma.consentRecord.upsert({

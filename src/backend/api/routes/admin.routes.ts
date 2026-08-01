@@ -37,7 +37,7 @@ import { AppError, badRequest, notFound, forbidden } from '../../middleware/erro
 import { PERMISSIONS } from '../../../shared/constants/index.js';
 import logger from '../../config/logger.js';
 import { MultiTenantService }   from '../../services/multi-tenant.service.js';
-import { OffboardingService }   from '../../services/offboarding.service.js';
+import { OffboardingService, type DeletionJurisdiction } from '../../services/offboarding.service.js';
 import { FairLendingService }   from '../../services/fair-lending.service.js';
 import { AiGovernanceService }  from '../../services/ai-governance.service.js';
 
@@ -298,6 +298,50 @@ adminRouter.post(
         requestedBy: req.tenant!.userId,
       });
       ok(res, status, 201);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/offboarding
+// Every offboarding workflow for the tenant.
+//
+// Registered before /offboarding/:id, and /offboarding/retention below it for
+// the same reason: Express matches in registration order, and a literal path
+// under a parameterised one is unreachable — that is how /declines/stats came
+// to answer "record stats not found".
+adminRouter.get(
+  '/offboarding',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.ADMIN_TENANT),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const workflows = await getOffboardingSvc().listOffboardingWorkflows(req.tenant!.tenantId);
+      ok(res, workflows);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/offboarding/retention?jurisdiction=ccpa|gdpr|both|internal
+// What a deletion keeps, and under which statute.
+adminRouter.get(
+  '/offboarding/retention',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.ADMIN_TENANT),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const raw = String(req.query['jurisdiction'] ?? 'both');
+      const jurisdiction = (['ccpa', 'gdpr', 'both', 'internal'].includes(raw)
+        ? raw
+        : 'both') as DeletionJurisdiction;
+
+      ok(res, {
+        jurisdiction,
+        exceptions: getOffboardingSvc().getRetentionExceptions(jurisdiction),
+      });
     } catch (err) {
       next(err);
     }
