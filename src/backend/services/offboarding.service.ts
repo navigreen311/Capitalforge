@@ -16,6 +16,7 @@ import crypto from 'crypto';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 import { eventBus } from '../events/event-bus.js';
 import logger from '../config/logger.js';
+import { AppError } from '../middleware/error-handler.js';
 
 // ── Prisma singleton ──────────────────────────────────────────
 
@@ -113,6 +114,84 @@ export interface RetentionException {
   reason: string;
   retainUntil: string;
   legalBasis: string;
+}
+
+// ── Deletion secrets ──────────────────────────────────────────
+//
+// Two secrets guard the only irreversible operation in this system.
+//
+//   DELETION_CONFIRM_SECRET  derives the confirmation token that authorises a
+//                            deletion, from the tenant and workflow ids
+//   DELETION_PROOF_SECRET    signs the report afterwards, which is what makes
+//                            the proof checkable by anyone else
+//
+// Both used to fall back to a constant — 'confirm-secret' and 'changeme' — so
+// on any deployment that had not set them the guard was computable from this
+// file. Both ids are returned by the API, so anyone holding an admin token
+// could derive the token for any workflow, and the signature on the proof
+// certified nothing.
+//
+// They are now required. With either unset the deletion is refused, and both
+// are resolved before anything is destroyed rather than at the point of use:
+// discovering the signing secret is missing after the data is gone leaves an
+// erasure that cannot be evidenced.
+
+/** Rejected outright — these were the fallbacks, so they are public. */
+const FORMER_DEFAULTS = new Set(['changeme', 'confirm-secret', 'change-me', 'secret']);
+
+/** An HMAC key shorter than this is guessable, which is the whole problem. */
+const MIN_SECRET_LENGTH = 32;
+
+type DeletionSecretName = 'DELETION_CONFIRM_SECRET' | 'DELETION_PROOF_SECRET';
+
+/**
+ * Read a deletion secret, or refuse to proceed.
+ *
+ * Read on each call rather than snapshotted at import, for the reason
+ * config/index.ts records about signing secrets: a module-level snapshot can
+ * hold a different value than the one the process is actually configured
+ * with, and here that would mean issuing tokens under one key and checking
+ * them under another.
+ */
+function deletionSecret(name: DeletionSecretName): string {
+  const value = (process.env[name] ?? '').trim();
+
+  if (value === '') {
+    throw new AppError(
+      503,
+      'DELETION_NOT_CONFIGURED',
+      `${name} is not set. Data deletion is refused until it is: this secret is the only thing ` +
+        'standing between an authenticated caller and the irreversible destruction of a tenant.',
+    );
+  }
+
+  if (FORMER_DEFAULTS.has(value.toLowerCase())) {
+    throw new AppError(
+      503,
+      'DELETION_NOT_CONFIGURED',
+      `${name} is set to a value that used to be this code's hardcoded fallback, so it is public. ` +
+        'Set it to a secret of your own.',
+    );
+  }
+
+  if (value.length < MIN_SECRET_LENGTH) {
+    throw new AppError(
+      503,
+      'DELETION_NOT_CONFIGURED',
+      `${name} must be at least ${MIN_SECRET_LENGTH} characters. Generate one with ` +
+        '`openssl rand -hex 32`.',
+    );
+  }
+
+  return value;
+}
+
+/** Compare without leaking how much of the token was right. */
+function tokensMatch(supplied: string, expected: string): boolean {
+  const a = Buffer.from(supplied, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 // ── Issuer closure contact data ───────────────────────────────
@@ -328,12 +407,18 @@ export class OffboardingService {
   // ── Data Deletion ───────────────────────────────────────────
 
   async deleteData(input: DataDeletionInput): Promise<DeletionReport> {
+    // Both secrets, before anything is read or written. The proof secret is
+    // not needed until the end, but a deletion that runs and then cannot be
+    // signed is an erasure with no evidence behind it.
+    const proofSecret = deletionSecret('DELETION_PROOF_SECRET');
+    deletionSecret('DELETION_CONFIRM_SECRET');
+
     const wf = await this.prisma.offboardingWorkflow.findFirst({ where: { id: input.workflowId } });
     if (!wf) throw new Error(`Workflow ${input.workflowId} not found.`);
 
     // Validate confirmation token
     const expectedToken = this.generateConfirmationToken(wf.tenantId, input.workflowId);
-    if (input.confirmationToken !== expectedToken) {
+    if (!tokensMatch(input.confirmationToken, expectedToken)) {
       throw new Error('Invalid confirmation token. Data deletion aborted.');
     }
 
@@ -386,7 +471,7 @@ export class OffboardingService {
       .digest('hex');
 
     const reportSignature = crypto
-      .createHmac('sha256', process.env['DELETION_PROOF_SECRET'] ?? 'changeme')
+      .createHmac('sha256', proofSecret)
       .update(proofHash)
       .digest('hex');
 
@@ -428,9 +513,11 @@ export class OffboardingService {
 
   // ── Confirmation token helper ────────────────────────────────
 
+  /** Throws if DELETION_CONFIRM_SECRET is unset, rather than deriving a
+   *  token anyone reading this file could reproduce. */
   generateConfirmationToken(tenantId: string, workflowId: string): string {
     return crypto
-      .createHmac('sha256', process.env['DELETION_CONFIRM_SECRET'] ?? 'confirm-secret')
+      .createHmac('sha256', deletionSecret('DELETION_CONFIRM_SECRET'))
       .update(`${tenantId}:${workflowId}`)
       .digest('hex')
       .slice(0, 16)

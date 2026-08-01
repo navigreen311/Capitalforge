@@ -478,9 +478,12 @@ export function OffboardingView() {
               the point — a dashboard should not be able to produce it.
             </p>
             <p className="text-xs text-gray-500 leading-relaxed">
-              Worth knowing before you rely on that guard: the token and the deletion proof
-              signature both fall back to a hardcoded default when their environment variables are
-              unset, so on a deployment that has not set them, neither is a secret.
+              That guard is only as good as its secret, and until recently there was none: the
+              token and the deletion proof signature both fell back to a constant in the source
+              when their environment variables were unset. Both are now required —
+              DELETION_CONFIRM_SECRET and DELETION_PROOF_SECRET — and with either missing the
+              endpoint refuses rather than falling back. Whether this deployment has set them is
+              not something this page can see, so it does not claim either way.
             </p>
             <p className="text-xs text-gray-500 leading-relaxed">
               There is also no deletion certificate to download. This page used to produce one: a

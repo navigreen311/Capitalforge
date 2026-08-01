@@ -93,9 +93,12 @@ test.describe('Training and certification', () => {
     for (const advisor of ['Jordan M.', 'Casey R.', 'Alex T.', 'Morgan P.']) {
       await expect(page.getByText(advisor)).toHaveCount(0);
     }
+    // This note is behind the loaded state, so it needs the same timeout the
+    // other data-dependent assertions here use — on the default 5s it flakes
+    // when the whole suite is running.
     await expect(
       page.getByText('no endpoint lists users', { exact: false }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 30000 });
   });
 
   test('publishes no enforcement cases, through either endpoint', async ({

@@ -5,7 +5,8 @@
 // Run: npx vitest run tests/unit/services/multi-tenant.test.ts
 // ============================================================
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import crypto from 'crypto';
 
 import {
   MultiTenantService,
@@ -351,9 +352,29 @@ describe('OffboardingService', () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let svc: OffboardingService;
 
+  // Deletion is refused unless both secrets are configured, so the tests that
+  // exercise it have to configure them the way a deployment would. Restored
+  // after each test, because several of these assert the refusal.
+  const CONFIRM_SECRET = 'test-confirm-secret-0123456789abcdef';
+  const PROOF_SECRET   = 'test-proof-secret-0123456789abcdef';
+  let savedEnv: { confirm?: string; proof?: string };
+
   beforeEach(() => {
     prisma = makePrismaMock();
     svc    = new OffboardingService(prisma as unknown as import('@prisma/client').PrismaClient);
+    savedEnv = {
+      confirm: process.env['DELETION_CONFIRM_SECRET'],
+      proof:   process.env['DELETION_PROOF_SECRET'],
+    };
+    process.env['DELETION_CONFIRM_SECRET'] = CONFIRM_SECRET;
+    process.env['DELETION_PROOF_SECRET']   = PROOF_SECRET;
+  });
+
+  afterEach(() => {
+    if (savedEnv.confirm === undefined) delete process.env['DELETION_CONFIRM_SECRET'];
+    else process.env['DELETION_CONFIRM_SECRET'] = savedEnv.confirm;
+    if (savedEnv.proof === undefined) delete process.env['DELETION_PROOF_SECRET'];
+    else process.env['DELETION_PROOF_SECRET'] = savedEnv.proof;
   });
 
   const WF_FIXTURE = {
@@ -479,6 +500,92 @@ describe('OffboardingService', () => {
     expect(report.proofHash).toHaveLength(64); // sha256 hex
     expect(report.reportSignature).toBeDefined();
     expect(report.jurisdiction).toBe('ccpa');
+  });
+
+  // ── Fail-closed on the deletion secrets ───────────────────
+  //
+  // Both secrets used to fall back to a constant in the source
+  // ('confirm-secret' and 'changeme'), so on any deployment that had not set
+  // them the confirmation token was computable by anyone who could read this
+  // repository, and the signature on the deletion proof certified nothing.
+
+  it('generateConfirmationToken — refuses when the secret is unset', () => {
+    delete process.env['DELETION_CONFIRM_SECRET'];
+    expect(() => svc.generateConfirmationToken('tenant-001', 'wf-001')).toThrow(
+      'DELETION_CONFIRM_SECRET is not set',
+    );
+  });
+
+  it('generateConfirmationToken — refuses the former hardcoded fallback', () => {
+    process.env['DELETION_CONFIRM_SECRET'] = 'confirm-secret';
+    expect(() => svc.generateConfirmationToken('tenant-001', 'wf-001')).toThrow(/public/);
+  });
+
+  it('generateConfirmationToken — refuses a secret short enough to guess', () => {
+    process.env['DELETION_CONFIRM_SECRET'] = 'short';
+    expect(() => svc.generateConfirmationToken('tenant-001', 'wf-001')).toThrow(
+      'at least 32 characters',
+    );
+  });
+
+  it('generateConfirmationToken — the token follows the secret', () => {
+    const first = svc.generateConfirmationToken('tenant-001', 'wf-001');
+    process.env['DELETION_CONFIRM_SECRET'] = 'a-different-secret-0123456789abcdef';
+    expect(svc.generateConfirmationToken('tenant-001', 'wf-001')).not.toBe(first);
+  });
+
+  it('deleteData — refuses, and destroys nothing, when the confirm secret is unset', async () => {
+    const token = svc.generateConfirmationToken('tenant-001', 'wf-001');
+    prisma.offboardingWorkflow.findFirst.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'pending' });
+    delete process.env['DELETION_CONFIRM_SECRET'];
+
+    await expect(svc.deleteData({
+      workflowId: 'wf-001', jurisdiction: 'ccpa',
+      requestedBy: 'user-001', confirmationToken: token,
+    })).rejects.toThrow('DELETION_CONFIRM_SECRET is not set');
+
+    expect(prisma.offboardingWorkflow.update).not.toHaveBeenCalled();
+    expect(prisma.businessOwner.update).not.toHaveBeenCalled();
+    expect(prisma.consentRecord.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('deleteData — refuses before deleting when only the proof secret is missing', async () => {
+    // The signature is not needed until the end, but a deletion that runs and
+    // then cannot be signed is an erasure with nothing to evidence it.
+    const token = svc.generateConfirmationToken('tenant-001', 'wf-001');
+    prisma.offboardingWorkflow.findFirst.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'pending' });
+    delete process.env['DELETION_PROOF_SECRET'];
+
+    await expect(svc.deleteData({
+      workflowId: 'wf-001', jurisdiction: 'ccpa',
+      requestedBy: 'user-001', confirmationToken: token,
+    })).rejects.toThrow('DELETION_PROOF_SECRET is not set');
+
+    expect(prisma.offboardingWorkflow.update).not.toHaveBeenCalled();
+    expect(prisma.offboardingWorkflow.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('deleteData — the report signature is the proof hash under the configured secret', async () => {
+    prisma.offboardingWorkflow.findFirst.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'pending' });
+    prisma.offboardingWorkflow.update.mockResolvedValue({ ...WF_FIXTURE, dataDeletionStatus: 'completed' });
+    prisma.businessOwner.findMany.mockResolvedValue([]);
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.fairLendingRecord.findMany.mockResolvedValue([]);
+    prisma.consentRecord.deleteMany.mockResolvedValue({ count: 0 });
+
+    const report = await svc.deleteData({
+      workflowId: 'wf-001', jurisdiction: 'ccpa', requestedBy: 'user-001',
+      confirmationToken: svc.generateConfirmationToken('tenant-001', 'wf-001'),
+    });
+
+    const sign = (secret: string) =>
+      crypto.createHmac('sha256', secret).update(report.proofHash).digest('hex');
+
+    expect(report.reportSignature).toBe(sign(PROOF_SECRET));
+    // And not under the constant it used to fall back to, which anyone could
+    // have reproduced — a signature nobody else can forge is the only thing
+    // that makes the proof worth holding.
+    expect(report.reportSignature).not.toBe(sign('changeme'));
   });
 
   it('deleteData — rejects if deletion already completed', async () => {

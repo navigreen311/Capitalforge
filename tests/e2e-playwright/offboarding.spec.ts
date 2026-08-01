@@ -170,6 +170,11 @@ test.describe('Offboarding', () => {
 
     // A deliberately wrong token, so the guard is exercised without any
     // chance of the deletion running.
+    //
+    // On an environment with no DELETION_CONFIRM_SECRET set — which is every
+    // environment this suite runs in — the refusal comes earlier still, from
+    // the secret check. Either way the answer is a refusal and nothing is
+    // touched; which of the two guards fired is asserted in the unit tests.
     const res = await fetch(`${API}/offboarding/${rows[0].id}/delete-data`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -183,6 +188,35 @@ test.describe('Offboarding', () => {
       rows[0].dataDeletionStatus,
     );
     expect(after.find((w) => w.id === rows[0].id)?.deletionProofHash).toBeNull();
+  });
+
+  test('refuses to delete at all until the deletion secrets are configured', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/offboarding');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+    const rows = await workflows(token);
+
+    // The confirmation token used to be HMAC('confirm-secret', tenantId +
+    // workflowId) whenever DELETION_CONFIRM_SECRET was unset. Both ids come
+    // back from this very API, so the guard on an irreversible erasure was
+    // computable by anyone who could read the repository. Unset now means
+    // refused, not defaulted.
+    const res = await fetch(`${API}/offboarding/${rows[0].id}/delete-data`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jurisdiction: 'ccpa', confirmationToken: 'ANYTHING' }),
+    });
+    expect(res.status).toBe(503);
+
+    const body = (await res.json()) as { success: boolean; error: { code: string } };
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('DELETION_NOT_CONFIGURED');
+
+    const after = await workflows(token);
+    expect(after.find((w) => w.id === rows[0].id)?.dataDeletionStatus).toBe(
+      rows[0].dataDeletionStatus,
+    );
   });
 
   test('the workflow list is reachable, which it was not before', async ({
