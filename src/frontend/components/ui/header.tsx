@@ -88,14 +88,30 @@ function Breadcrumbs() {
 
 // ─── Notification bell ──────────────────────────────────────────────────────
 
-function NotificationBell({ unreadCount, onClick }: { unreadCount: number; onClick: () => void }) {
+/**
+ * The bell.
+ *
+ * `count` is what is outstanding — records open right now — not what is
+ * unread. Nothing in the schema records that somebody has seen a
+ * notification, so nothing here claims it. Null means the count could not be
+ * read, and the badge is hidden rather than showing a zero, which would say
+ * nothing needs attention.
+ */
+function NotificationBell({ count, onClick }: { count: number | null; onClick: () => void }) {
+  const label =
+    count === null
+      ? 'Notifications'
+      : count > 0
+        ? `Notifications (${count} needing attention)`
+        : 'Notifications (nothing outstanding)';
+
   return (
     <button
       onClick={onClick}
       className="relative w-9 h-9 flex items-center justify-center rounded-lg
                  text-gray-500 hover:text-gray-900 hover:bg-surface-overlay
                  transition-all duration-150"
-      aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+      aria-label={label}
     >
       {/* Bell SVG icon */}
       <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none">
@@ -103,8 +119,8 @@ function NotificationBell({ unreadCount, onClick }: { unreadCount: number; onCli
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M8 15a2 2 0 004 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
-      {/* Unread badge */}
-      {unreadCount > 0 && (
+      {/* Outstanding count. Hidden at zero and when unreadable. */}
+      {count !== null && count > 0 && (
         <span
           className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1
                      rounded-full bg-red-500 text-white text-[9px] font-bold
@@ -112,7 +128,7 @@ function NotificationBell({ unreadCount, onClick }: { unreadCount: number; onCli
                      animate-badge-pop-in"
           aria-hidden="true"
         >
-          {unreadCount}
+          {count}
         </span>
       )}
     </button>
@@ -147,7 +163,7 @@ function UserMenu() {
 
 export function Header() {
   const { open: cmdOpen, openPalette, closePalette } = useCommandPalette();
-  const { open: notifOpen, unreadCount, openInbox, closeInbox, handleUnreadCountChange } = useNotificationInbox();
+  const { open: notifOpen, count, openInbox, closeInbox, handleCountChange } = useNotificationInbox();
 
   return (
     <>
@@ -187,7 +203,7 @@ export function Header() {
             </span>
           </button>
 
-          <NotificationBell unreadCount={unreadCount} onClick={openInbox} />
+          <NotificationBell count={count} onClick={openInbox} />
           <UserMenu />
         </div>
       </header>
@@ -197,7 +213,7 @@ export function Header() {
       <NotificationInbox
         open={notifOpen}
         onClose={closeInbox}
-        onUnreadCountChange={handleUnreadCountChange}
+        onCountChange={handleCountChange}
       />
     </>
   );

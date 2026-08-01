@@ -11,4 +11,6 @@ export {
   NotificationInbox as NotificationDrawer,
   useNotificationInbox,
 } from '@/components/notification-inbox';
-export type { Notification, NotificationType, Severity } from '@/components/notification-inbox';
+// Notification and NotificationType are gone with the fixtures: the shape is
+// NotificationRow now, and the types are the ones the API actually sends.
+export type { NotificationRow, Severity } from '@/components/notification-inbox';

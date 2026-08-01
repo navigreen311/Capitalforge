@@ -188,8 +188,13 @@ test.describe('Application decision register', () => {
 
     // The figure appears twice, correctly: on the KPI card and on the filter
     // badge. The card is the first.
+    //
+    // Scoped to main: the notification panel sits in the DOM of every page
+    // and its heading matched this text, so an unscoped locator found the
+    // overlay instead of the card.
     await expect(
       page
+        .getByRole('main')
         .getByText('Needs attention')
         .first()
         .locator('..')
