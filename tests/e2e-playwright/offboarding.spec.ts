@@ -287,7 +287,7 @@ test.describe('Offboarding', () => {
     for (const s of Object.values(sections)) expect(s.records).toHaveLength(s.count);
   });
 
-  test('the export carries no credentials, SSNs or firewalled demographics', async ({
+  test('the export carries no credentials or firewalled demographics', async ({
     signedInPage: page,
   }) => {
     await page.goto('/offboarding');
@@ -305,14 +305,44 @@ test.describe('Offboarding', () => {
     // they were left out.
     const data = (body as { data: { sections: unknown; excluded: { what: string }[] } }).data;
     const records = JSON.stringify(data.sections);
-    for (const field of ['passwordHash', 'mfaSecret', '"ssn"', 'demographicData']) {
+    for (const field of ['passwordHash', 'mfaSecret', 'demographicData']) {
       expect(records, `${field} must not leave in an export`).not.toContain(field);
     }
 
     // And the document states what it is missing rather than leaving a gap
     // the reader has to notice.
     expect(data.excluded.length).toBeGreaterThan(0);
-    expect(data.excluded.map((e) => e.what).join(' ')).toContain('ssn');
+    expect(data.excluded.map((e) => e.what).join(' ')).toContain('passwordHash');
+  });
+
+  test('the export carries the SSN, and declares that it does', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/offboarding');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+    const rows = await workflows(token);
+    const already = rows.find((r) => r.dataExportCompleted);
+
+    const body = (await fetch(`${API}/offboarding/${already!.id}/export`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => r.json())) as {
+      data: {
+        sections: Record<string, { records: Record<string, unknown>[] }>;
+        sensitiveFields: string[];
+        excluded: { what: string }[];
+      };
+    };
+
+    // The field is selected, so it is present on every owner record — the
+    // seeded owners hold no SSN, so the value is null rather than absent.
+    const owners = body.data.sections.businessOwners.records;
+    expect(owners.length).toBeGreaterThan(0);
+    for (const owner of owners) expect(owner).toHaveProperty('ssn');
+
+    // Named, so whoever handles the file knows what is in it.
+    expect(body.data.sensitiveFields).toContain('business_owners.ssn');
+    expect(body.data.excluded.map((e) => e.what).join(' ')).not.toContain('ssn');
   });
 
   test('the workflow list is reachable, which it was not before', async ({

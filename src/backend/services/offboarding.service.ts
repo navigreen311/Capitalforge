@@ -82,6 +82,12 @@ export interface TenantExport {
   sections: Record<string, ExportSection>;
   /** Stated, not silent: what this export does not contain, and why. */
   excluded: ExportExclusion[];
+  /**
+   * Fields in this document that identify a person outright. Named so that
+   * whoever handles the file knows what they are holding, and so the audit
+   * row can say what left.
+   */
+  sensitiveFields: string[];
   recordCount: number;
   /** True when any section was capped. */
   truncated: boolean;
@@ -244,17 +250,27 @@ function tokensMatch(supplied: string, expected: string): boolean {
  */
 const EXPORT_SECTION_CAP = 1000;
 
+/**
+ * Fields carried in the export that identify a person outright.
+ *
+ * The SSN is here rather than in EXPORT_EXCLUSIONS: it is the owner's own
+ * data and a subject-access request covers it, so an export without it would
+ * be incomplete for the purpose it exists to serve. The consequence is that
+ * this response is a plaintext SSN in transit, and both the document and the
+ * audit row say so.
+ */
+const EXPORT_SENSITIVE_FIELDS = [
+  'business_owners.ssn',
+  'business_owners.dateOfBirth',
+  'business_owners.address',
+  'businesses.ein',
+];
+
 /** What the export leaves out, carried in the document itself. */
 const EXPORT_EXCLUSIONS: ExportExclusion[] = [
   {
     what: 'users.passwordHash, users.mfaSecret',
     why: 'Credentials, not the client’s data. An export is a copy that leaves the system.',
-  },
-  {
-    what: 'business_owners.ssn',
-    why:
-      'Held for KYC. Not returned through this endpoint; a subject-access request for it goes ' +
-      'through the compliance team so the disclosure is recorded against a verified identity.',
   },
   {
     what: 'fair_lending_records.demographicData',
@@ -504,6 +520,11 @@ export class OffboardingService {
    * Every section is capped, and a section that hits its cap says so rather
    * than quietly handing back a prefix — a partial export presented as whole
    * is the same failure in a smaller form.
+   *
+   * It carries plaintext SSNs. That is deliberate — they are the owner's own
+   * data and a subject-access request covers them — but it means the response
+   * needs handling as such, so the document lists its identifying fields and
+   * the audit row records that they left.
    */
   async exportTenantData(input: DataExportInput): Promise<TenantExport> {
     // Scoped to the caller's tenant. Unscoped, this read and counted across
@@ -531,11 +552,16 @@ export class OffboardingService {
           take,
         }),
         this.prisma.business.findMany({ where: { tenantId }, take }),
+        // Including the SSN. It is the owner's own data and a subject-access
+        // request covers it, so withholding it would have made this export
+        // incomplete for the purpose it exists to serve. It does mean the
+        // response carries plaintext SSNs, which is why the audit row below
+        // records that this export contained them.
         this.prisma.businessOwner.findMany({
           where: { business: { tenantId } },
           select: {
             id: true, businessId: true, firstName: true, lastName: true,
-            ownershipPercent: true, dateOfBirth: true, address: true,
+            ownershipPercent: true, ssn: true, dateOfBirth: true, address: true,
             isBeneficialOwner: true, kycStatus: true, kycVerifiedAt: true, createdAt: true,
           },
           take,
@@ -583,6 +609,7 @@ export class OffboardingService {
       generatedAt: new Date().toISOString(),
       sections,
       excluded: EXPORT_EXCLUSIONS,
+      sensitiveFields: EXPORT_SENSITIVE_FIELDS,
       recordCount,
       truncated,
     };
@@ -601,7 +628,14 @@ export class OffboardingService {
         action:     'data.exported',
         resource:   'offboarding_workflow',
         resourceId: input.workflowId,
-        metadata:   { recordCount, truncated, sections: Object.keys(sections) },
+        metadata:   {
+          recordCount,
+          truncated,
+          sections: Object.keys(sections),
+          // What left, not just how much. An export carrying SSNs and a
+          // export carrying none are not the same event.
+          sensitiveFields: EXPORT_SENSITIVE_FIELDS,
+        },
       },
     });
 

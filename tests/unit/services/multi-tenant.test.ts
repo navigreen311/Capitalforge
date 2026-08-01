@@ -620,7 +620,7 @@ describe('OffboardingService', () => {
     expect(JSON.stringify(result)).not.toContain('.zip');
   });
 
-  it('exportTenantData — never selects credentials, the SSN, or firewalled demographics', async () => {
+  it('exportTenantData — never selects credentials or firewalled demographics', async () => {
     scopedWorkflow();
     prisma.offboardingWorkflow.update.mockResolvedValue(WF_FIXTURE);
     prisma.tenant.findFirst.mockResolvedValue(TENANT_FIXTURE);
@@ -631,18 +631,35 @@ describe('OffboardingService', () => {
     expect(userSelect.passwordHash).toBeUndefined();
     expect(userSelect.mfaSecret).toBeUndefined();
 
-    const ownerSelect = prisma.businessOwner.findMany.mock.calls[0][0].select;
-    expect(ownerSelect.ssn).toBeUndefined();
-
     const flSelect = prisma.fairLendingRecord.findMany.mock.calls[0][0].select;
     expect(flSelect.demographicData).toBeUndefined();
 
     // And the document says so, rather than leaving a silent gap.
     const excluded = result.excluded.map((e) => e.what).join(' ');
     expect(excluded).toContain('passwordHash');
-    expect(excluded).toContain('ssn');
     expect(excluded).toContain('demographicData');
     for (const entry of result.excluded) expect(entry.why.length).toBeGreaterThan(0);
+  });
+
+  it('exportTenantData — includes the SSN, and says the document holds one', async () => {
+    // The owner's own data, which a subject-access request covers. The cost
+    // is that the response is a plaintext SSN in transit, so the document
+    // names its identifying fields rather than leaving the reader to notice.
+    scopedWorkflow();
+    prisma.offboardingWorkflow.update.mockResolvedValue(WF_FIXTURE);
+    prisma.tenant.findFirst.mockResolvedValue(TENANT_FIXTURE);
+    prisma.businessOwner.findMany.mockResolvedValue([
+      { id: 'own-1', firstName: 'Dana', ssn: '400-55-1234' },
+    ]);
+
+    const result = await svc.exportTenantData(exportArgs);
+
+    expect(prisma.businessOwner.findMany.mock.calls[0][0].select.ssn).toBe(true);
+    expect(result.sections.businessOwners.records[0]).toMatchObject({ ssn: '400-55-1234' });
+
+    expect(result.sensitiveFields).toContain('business_owners.ssn');
+    // And it is no longer described as something the export withholds.
+    expect(result.excluded.map((e) => e.what).join(' ')).not.toContain('ssn');
   });
 
   it('exportTenantData — says so when a section is capped', async () => {
@@ -681,6 +698,11 @@ describe('OffboardingService', () => {
           resourceId: 'wf-001',
           userId:     'user-001',
           tenantId:   'tenant-001',
+          metadata:   expect.objectContaining({
+            // An export carrying SSNs and one carrying none are not the same
+            // event, and the trail should be able to tell them apart.
+            sensitiveFields: expect.arrayContaining(['business_owners.ssn']),
+          }),
         }),
       }),
     );

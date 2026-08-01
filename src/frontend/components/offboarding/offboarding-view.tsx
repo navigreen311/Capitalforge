@@ -474,9 +474,15 @@ export function OffboardingView() {
               That an export has been run for this workflow, not that a file is waiting somewhere.
               The export is assembled on request and returned in the response; nothing is stored
               afterwards, so another copy means running it again. It leaves out credentials, the
-              social security number held for KYC, the demographic data firewalled under Section
-              1071, and the contents of documents as opposed to their details — the export itself
-              lists what it omits and why.
+              demographic data firewalled under Section 1071, and the contents of documents as
+              opposed to their details — the export itself lists what it omits and why.
+            </p>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              It does include the social security number held for KYC, because it is the
+              owner&rsquo;s own data and a subject-access request covers it. So an export is a
+              plaintext SSN in transit and then in whatever file it is saved to. The document
+              names its identifying fields, and the audit trail records that an export carrying
+              them was taken and by whom.
             </p>
             <p className="text-xs text-gray-500 leading-relaxed">
               Until recently it packaged nothing at all: it counted three tables, produced a
