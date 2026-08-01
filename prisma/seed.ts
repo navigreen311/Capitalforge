@@ -742,6 +742,163 @@ const SEED_PHONES = {
   }
   console.log(`  ✓ Fair lending (1071) records created: ${fairLending.length}`);
 
+  // ── Regulatory Alerts ─────────────────────────────────────
+  //
+  // The regulatory page carried six of these as literals in the component,
+  // with impact scores and affected-module lists, while this table was empty.
+  //
+  // Note this is the same table the complaints page reads for regulator
+  // inquiries: an inquiry is a RegulatoryAlert whose title begins "Inquiry —".
+  // The rows below are rule changes, which is the other thing it holds.
+  const regulatoryAlerts: {
+    id: string;
+    source: string;
+    ruleType: string;
+    title: string;
+    summary: string;
+    impactScore: number;
+    affectedModules: Prisma.InputJsonValue;
+    status: string;
+    effectiveDate: Date;
+  }[] = [
+    {
+      id: 'seed-regalert-001',
+      source: 'CFPB',
+      ruleType: 'small_business_lending',
+      title: 'Section 1071 small business lending data collection — compliance dates',
+      summary:
+        'Covered financial institutions must collect and report data on applications for ' +
+        'credit from small businesses. Compliance tier depends on originations volume.',
+      impactScore: 88,
+      affectedModules: ['underwriting', 'onboarding', 'reporting'],
+      status: 'new',
+      effectiveDate: d('2026-10-01'),
+    },
+    {
+      id: 'seed-regalert-002',
+      source: 'FTC',
+      ruleType: 'advertising',
+      title: 'Guidance on earnings and approval claims in small business finance marketing',
+      summary:
+        'Representations about approval likelihood or funding amounts require competent and ' +
+        'reliable substantiation at the time the claim is made.',
+      impactScore: 64,
+      affectedModules: ['marketing', 'disclosures'],
+      status: 'under_review',
+      effectiveDate: d('2026-05-15'),
+    },
+    {
+      id: 'seed-regalert-003',
+      source: 'State_DFS',
+      ruleType: 'disclosure',
+      title: 'Commercial financing disclosure requirements — estimated APR presentation',
+      summary:
+        'Providers must present an estimated annual percentage rate and total cost of ' +
+        'capital in a prescribed format before a commercial financing offer is accepted.',
+      impactScore: 79,
+      affectedModules: ['disclosures', 'origination'],
+      status: 'new',
+      effectiveDate: d('2026-03-01'),
+    },
+    {
+      id: 'seed-regalert-004',
+      source: 'FinCEN',
+      ruleType: 'beneficial_ownership',
+      title: 'Beneficial ownership information reporting — access rule',
+      summary:
+        'Reporting companies must file beneficial ownership information; access by financial ' +
+        'institutions is permitted only with the reporting company consent.',
+      impactScore: 52,
+      affectedModules: ['onboarding', 'kyb'],
+      status: 'resolved',
+      effectiveDate: d('2025-11-12'),
+    },
+  ];
+
+  for (const alert of regulatoryAlerts) {
+    await prisma.regulatoryAlert.upsert({
+      where: { id: alert.id },
+      update: {},
+      create: {
+        id: alert.id,
+        tenantId: tenant.id,
+        source: alert.source,
+        ruleType: alert.ruleType,
+        title: alert.title,
+        summary: alert.summary,
+        impactScore: alert.impactScore,
+        affectedModules: alert.affectedModules,
+        status: alert.status,
+        effectiveDate: alert.effectiveDate,
+        ...(alert.status === 'resolved'
+          ? { reviewedBy: adminUser.id, reviewedAt: d('2025-12-01') }
+          : {}),
+      },
+    });
+  }
+  console.log(`  ✓ Regulatory alerts created: ${regulatoryAlerts.length}`);
+
+  // ── Funds Flow Classifications ────────────────────────────
+  //
+  // How money moves through each workflow, and under which framework. The
+  // page listed five of these with daily volumes ("$2.4M/day") that no column
+  // holds, next to a table of state licence numbers that nothing records.
+  const fundsFlows: {
+    id: string;
+    workflowName: string;
+    classification: string;
+    riskBasis: string;
+    regulatoryFramework: string;
+    legalOpinionRef?: string;
+    status: string;
+  }[] = [
+    {
+      id: 'seed-flow-001',
+      workflowName: 'Card application referral to issuer',
+      classification: 'agent_of_payee',
+      riskBasis: 'No funds are held or transmitted; the issuer disburses directly to the client.',
+      regulatoryFramework: 'State money transmission exemptions — agent of payee',
+      legalOpinionRef: 'MEMO-2025-04-referral-flow',
+      status: 'active',
+    },
+    {
+      id: 'seed-flow-002',
+      workflowName: 'Advisory fee collection via ACH debit',
+      classification: 'direct_collection',
+      riskBasis: 'Fees are debited from the client account to the tenant operating account.',
+      regulatoryFramework: 'NACHA operating rules; Regulation E does not apply to business accounts',
+      status: 'active',
+    },
+    {
+      id: 'seed-flow-003',
+      workflowName: 'Partner commission remittance',
+      classification: 'pass_through',
+      riskBasis:
+        'Commission received from the issuer is remitted onward to the referring partner, ' +
+        'which is a transmission of funds belonging to a third party.',
+      regulatoryFramework: 'State money transmission licensing — under review',
+      status: 'under_review',
+    },
+  ];
+
+  for (const flow of fundsFlows) {
+    await prisma.fundsFlowClassification.upsert({
+      where: { id: flow.id },
+      update: {},
+      create: {
+        id: flow.id,
+        tenantId: tenant.id,
+        workflowName: flow.workflowName,
+        classification: flow.classification,
+        riskBasis: flow.riskBasis,
+        regulatoryFramework: flow.regulatoryFramework,
+        ...(flow.legalOpinionRef === undefined ? {} : { legalOpinionRef: flow.legalOpinionRef }),
+        status: flow.status,
+      },
+    });
+  }
+  console.log(`  ✓ Funds flow classifications created: ${fundsFlows.length}`);
+
   // ── Consent Records ───────────────────────────────────────
 
   await prisma.consentRecord.upsert({
