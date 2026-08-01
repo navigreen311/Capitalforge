@@ -128,6 +128,11 @@ router.get(
         consentCapturedAt: app.consentCapturedAt ? app.consentCapturedAt.toISOString() : null,
         submittedAt: app.submittedAt,
         decidedAt: app.decidedAt,
+        // The reason recorded against a declined application. Already
+        // returned by the detail route; on the list too so a register of
+        // decisions can show why each was refused without fetching every row
+        // one at a time.
+        declineReason: app.declineReason,
         createdAt: app.createdAt.toISOString(),
         updatedAt: app.updatedAt.toISOString(),
       }));

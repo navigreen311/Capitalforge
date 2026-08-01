@@ -540,6 +540,26 @@ const SEED_PHONES = {
       decidedAt: d('2026-02-05'),
     },
   });
+  // Declined, and deliberately absent from the Section 1071 register below.
+  // That gap is what the decision register exists to surface: a credit
+  // decision that was made and never recorded where 1071 requires it.
+  await prisma.cardApplication.upsert({
+    where: { id: 'seed-app-007' },
+    update: {},
+    create: {
+      id: 'seed-app-007',
+      businessId: biz3.id,
+      fundingRoundId: round3.id,
+      issuer: 'Wells Fargo',
+      cardProduct: 'Business Platinum Credit Card',
+      status: 'declined',
+      creditLimit: dec('12000'),
+      declineReason: 'Insufficient time in business',
+      consentCapturedAt: d('2026-03-02'),
+      submittedAt: d('2026-03-03'),
+      decidedAt: d('2026-03-09'),
+    },
+  });
   console.log('  ✓ Card applications created');
 
   // ── Decline Recovery ──────────────────────────────────────
