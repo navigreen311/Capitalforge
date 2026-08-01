@@ -24,3 +24,4 @@ export { NavBadgeProvider, useNavBadges } from './NavBadgeProvider';
 export { DashboardBadge } from './DashboardBadge';
 export { AskAIWidget } from './AskAIWidget';
 export { publishEvent } from './DashboardEventBus';
+export { RecentActivity } from './RecentActivity';

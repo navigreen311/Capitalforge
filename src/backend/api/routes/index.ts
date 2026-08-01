@@ -427,6 +427,13 @@ apiRouter.use('/restack', restackRouter);
 import { notificationsRouter } from './notifications.routes.js';
 apiRouter.use('/notifications', notificationsRouter);
 
+// ── Activity ───────────────────────────────────────────────────
+// GET /api/activity — the audit log, most recent first. The dashboard's
+// "Recent Activity" card had no endpoint to read, which is why it held five
+// literals.
+import { activityRouter } from './activity.routes.js';
+apiRouter.use('/activity', activityRouter);
+
 // ── AI Chat Assistant ──────────────────────────────────────────
 // POST /api/chat — Streaming AI chat with portfolio context
 import { chatRouter } from './chat.routes.js';

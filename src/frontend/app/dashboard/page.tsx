@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { SectionCard } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeStatus } from '@/components/ui/badge';
-import { useToast } from '@/components/global/ToastProvider';
 import {
   StatsBar,
   ConsentAlertBanner,
@@ -22,71 +21,12 @@ import {
   VoiceForgeActivity,
   PortfolioHealthWidget,
   AskAIWidget,
+  RecentActivity,
 } from '@/components/dashboard';
 import type { RestackStartRoundPayload } from '@/components/dashboard';
 import { SetupChecklist } from '@/components/onboarding/SetupChecklist';
 import { NewApplicationModal } from '@/components/applications';
 import type { NewAppDefaults } from '@/components/applications';
-
-// ─── Activity feed mock data (retained — no replacement component) ───────────
-
-interface ActivityItem {
-  id: string;
-  icon: string;
-  iconBg: string;
-  iconText: string;
-  description: string;
-  time: string;
-  category: string;
-}
-
-const ACTIVITY_ITEMS: ActivityItem[] = [
-  {
-    id: 'act-1',
-    icon: 'AP',
-    iconBg: 'bg-blue-100',
-    iconText: 'text-blue-700',
-    description: 'APP-0091 moved to underwriting review',
-    time: '12 min ago',
-    category: 'Application',
-  },
-  {
-    id: 'act-2',
-    icon: 'CR',
-    iconBg: 'bg-emerald-100',
-    iconText: 'text-emerald-700',
-    description: 'Credit pull completed — Brightline Corp (Equifax)',
-    time: '1 hr ago',
-    category: 'Credit',
-  },
-  {
-    id: 'act-3',
-    icon: 'CO',
-    iconBg: 'bg-amber-100',
-    iconText: 'text-amber-700',
-    description: 'Compliance flag: Illinois disclosure deadline in 3 days',
-    time: '2 hr ago',
-    category: 'Compliance',
-  },
-  {
-    id: 'act-4',
-    icon: 'DC',
-    iconBg: 'bg-purple-100',
-    iconText: 'text-purple-700',
-    description: 'Dossier exported for Apex Ventures Inc.',
-    time: '4 hr ago',
-    category: 'Documents',
-  },
-  {
-    id: 'act-5',
-    icon: 'FR',
-    iconBg: 'bg-brand-navy/10',
-    iconText: 'text-brand-navy',
-    description: 'Funding Round #FR-018 created — $1.2M target',
-    time: 'Yesterday',
-    category: 'Funding',
-  },
-];
 
 // ─── Compliance score ring (SVG) ─────────────────────────────────────────────
 
@@ -157,9 +97,6 @@ export default function DashboardPage() {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
-  const [markAllLabel, setMarkAllLabel] = useState('Mark all read');
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
-  const toast = useToast();
   const [showNewApp, setShowNewApp] = useState(false);
   const [newAppDefaults, setNewAppDefaults] = useState<NewAppDefaults | undefined>(undefined);
 
@@ -170,13 +107,6 @@ export default function DashboardPage() {
       round: payload.round,
     });
     setShowNewApp(true);
-  }
-
-  function handleMarkAllRead() {
-    setReadIds(new Set(ACTIVITY_ITEMS.map((item) => item.id)));
-    setMarkAllLabel('\u2713 Marked');
-    toast.success('All activity marked as read');
-    setTimeout(() => setMarkAllLabel('Mark all read'), 2000);
   }
 
   return (
@@ -262,47 +192,7 @@ export default function DashboardPage() {
           <RestackOpportunities />
           <VoiceForgeActivity />
 
-          {/* Activity feed */}
-          <SectionCard
-            title="Recent Activity"
-            action={
-              <button
-                className="text-xs text-brand-gold-600 hover:underline"
-                onClick={handleMarkAllRead}
-              >
-                {markAllLabel}
-              </button>
-            }
-          >
-            <div className="divide-y divide-surface-border -mx-6">
-              {ACTIVITY_ITEMS.map((item) => {
-                const isRead = readIds.has(item.id);
-                return (
-                  <div
-                    key={item.id}
-                    className={`px-6 py-3 flex items-start gap-3 transition-opacity duration-300 ${isRead ? 'opacity-50' : ''}`}
-                  >
-                    <span
-                      className={`
-                        inline-flex items-center justify-center w-8 h-8 rounded-full
-                        flex-shrink-0 text-[10px] font-bold
-                        ${item.iconBg} ${item.iconText}
-                      `}
-                      aria-hidden="true"
-                    >
-                      {item.icon}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-700 leading-snug">
-                        {item.description}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">{item.time}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </SectionCard>
+          <RecentActivity />
         </div>
       </div>
 
