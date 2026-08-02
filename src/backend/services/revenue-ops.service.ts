@@ -159,14 +159,25 @@ function nextInvoiceNumber(tenantId: string): string {
 // transaction. It used to read from invoiceStore and write back into it, so a
 // refund left no record and vanished on restart.
 //
-// What is still memory-only, and therefore not to be relied on:
+// Commissions are on the same footing, and an earlier version of this note
+// was wrong about that: it said commission_records sat unused and that none
+// of this was reachable from an API route. Both were false when written.
+// GET /api/billing/commissions reads that table, POST
+// /api/invoices/:id/commissions computes here and writes the row, and
+// POST /api/billing/commissions/:id/resolve updates the record's status and
+// records the reason in audit_logs.
 //
-//   commissions   createCommission, approve, markPaid and clawBack all mutate
-//                 commissionStore, while commission_records sits unused
+// What is still memory-only:
 //
-// That is not reachable from an API route today, which is the only reason the
-// gap is not doing harm. Wiring it means what the invoice and refund paths
-// got: compute here, write at the boundary.
+//   approveCommission, markCommissionPaid, clawBackCommission
+//     — all three mutate commissionStore and nothing else. No route calls
+//       them, which is the only reason the gap does no harm. Wiring one means
+//       what the invoice, refund and resolve paths got: compute here, write at
+//       the boundary.
+//
+// The Maps themselves stay because the pure functions above still thread
+// results through them for the callers that have not moved; nothing outside
+// this file should read them.
 
 const invoiceStore = new Map<string, Invoice>();
 const commissionStore = new Map<string, CommissionRecord>();

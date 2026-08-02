@@ -883,7 +883,6 @@ billingRouter.post(
 // In-memory state for voids, unpays, and commission resolutions
 const voidedInvoices: Record<string, { voidedAt: string; reason: string }> = {};
 const unpaidInvoices: Record<string, { revertedAt: string }> = {};
-const resolvedCommissions: Record<string, { resolvedAt: string; resolution: string; amount: number }> = {};
 
 // ── GET /api/billing/invoices/:id/pdf ────────────────────────
 //
@@ -1041,23 +1040,37 @@ billingRouter.post(
 // ── POST /api/billing/commissions/:id/resolve ────────────────
 //
 // Resolve a commission dispute.
+//
+// This wrote the resolution into `resolvedCommissions`, a module-level object,
+// and answered 200 with status "resolved". So a dispute was reported settled,
+// the record kept its old status, and the note describing the settlement was
+// gone at the next restart and invisible to every other worker meanwhile.
+//
+// The record's status is a real column. The resolution text and any agreed
+// amount have no column, so they go to audit_logs — which is where a decision
+// about money and its reason belong anyway, and which is already how
+// offboarding records its steps.
 
 billingRouter.post(
   '/billing/commissions/:id/resolve',
   async (req: Request, res: Response): Promise<void> => {
     const commissionId = String(req.params['id'] ?? '');
+    const tenantId = req.tenant?.tenantId;
     const { resolution, amount } = req.body as Record<string, unknown>;
 
-    if (!commissionId) {
+    if (!commissionId || !tenantId) {
       const body: ApiResponse = {
         success: false,
-        error: { code: 'MISSING_PARAM', message: 'Commission ID is required.' },
+        error: {
+          code: 'MISSING_PARAM',
+          message: 'Commission ID and tenant context are required.',
+        },
       };
       res.status(400).json(body);
       return;
     }
 
-    if (!resolution || typeof resolution !== 'string') {
+    if (!resolution || typeof resolution !== 'string' || resolution.trim() === '') {
       const body: ApiResponse = {
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'resolution is required and must be a string.' },
@@ -1066,21 +1079,74 @@ billingRouter.post(
       return;
     }
 
-    const entry = {
-      resolvedAt: new Date().toISOString(),
-      resolution,
-      amount: typeof amount === 'number' ? amount : 0,
-    };
-    resolvedCommissions[commissionId] = entry;
+    if (amount !== undefined && (typeof amount !== 'number' || !Number.isFinite(amount))) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'amount must be a number when supplied.' },
+      };
+      res.status(422).json(body);
+      return;
+    }
 
-    logger.info('Commission dispute resolved', { commissionId, resolution });
+    // Scoped in the query: a commission on another tenant answers the same way
+    // one that does not exist does.
+    const existing = await sharedPrisma.commissionRecord.findFirst({
+      where: { id: commissionId, tenantId },
+    });
 
-    const body: ApiResponse = {
+    if (!existing) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'NOT_FOUND', message: `Commission ${commissionId} not found.` },
+      };
+      res.status(404).json(body);
+      return;
+    }
+
+    // Both writes together: a status with no record of why it changed is the
+    // half of this that used to survive a restart.
+    const [updated, audit] = await sharedPrisma.$transaction([
+      sharedPrisma.commissionRecord.update({
+        where: { id: commissionId },
+        data: { status: 'resolved' },
+      }),
+      sharedPrisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: req.tenant?.userId ?? null,
+          action: 'commission.dispute_resolved',
+          resource: 'commission_record',
+          resourceId: commissionId,
+          metadata: {
+            resolution,
+            // Recorded only when supplied. A default of 0 would state that the
+            // dispute settled for nothing.
+            ...(typeof amount === 'number' ? { agreedAmount: amount } : {}),
+            previousStatus: existing.status,
+          },
+        },
+      }),
+    ]);
+
+    logger.info('Commission dispute resolved', { commissionId, tenantId, resolution });
+
+    const body: ApiResponse<{
+      commissionId: string;
+      status: string;
+      resolution: string;
+      resolvedAt: string;
+      agreedAmount: number | null;
+      paid: boolean;
+    }> = {
       success: true,
       data: {
-        commissionId,
-        status: 'resolved',
-        ...entry,
+        commissionId: updated.id,
+        status: updated.status,
+        resolution,
+        resolvedAt: audit.timestamp.toISOString(),
+        agreedAmount: typeof amount === 'number' ? amount : null,
+        // Resolving a dispute records an outcome. It does not pay anybody.
+        paid: false,
       },
     };
     res.status(200).json(body);
@@ -1089,37 +1155,73 @@ billingRouter.post(
 
 // ── GET /api/billing/revenue-trend ───────────────────────────
 //
-// Returns mock 6-month revenue trend data.
+// Six months of revenue, from the invoices table.
+//
+// This invented it: `45000 + Math.random() * 15000` per month, an invoice
+// count of `15 + Math.random() * 10`, and a collection rate starting at 92%.
+// Then it sorted the six random figures ascending under a comment reading
+// "Ensure upward trend", so the chart always climbed, and computed a growth
+// rate from that ordering. The numbers changed on every request, which is the
+// one way a reader might have noticed.
+//
+// Credit notes are negative invoices and are counted as such, so a month with
+// refunds shows the revenue actually kept.
 
 billingRouter.get(
   '/billing/revenue-trend',
-  async (_req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response): Promise<void> => {
+    const tenantId = req.tenant?.tenantId;
+
+    if (!tenantId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_PARAMS', message: 'Tenant context is required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
     const now = new Date();
+    const windowStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+    const invoices = await sharedPrisma.invoice.findMany({
+      where: { tenantId, issuedAt: { gte: windowStart } },
+      select: { amount: true, status: true, issuedAt: true },
+    });
+
     const months: Array<{
       month: string;
       revenue: number;
       invoiceCount: number;
-      collectionRate: number;
+      /** Null where nothing was issued that month — not a collection failure. */
+      collectionRate: number | null;
     }> = [];
 
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthLabel = d.toISOString().slice(0, 7); // YYYY-MM
-      const baseRevenue = 45000 + Math.floor(Math.random() * 15000);
+      const monthLabel = d.toISOString().slice(0, 7);
+
+      const inMonth = invoices.filter(
+        (inv) => inv.issuedAt !== null && inv.issuedAt.toISOString().slice(0, 7) === monthLabel,
+      );
+      const paid = inMonth.filter((inv) => inv.status === 'paid');
+
       months.push({
         month: monthLabel,
-        revenue: baseRevenue,
-        invoiceCount: 15 + Math.floor(Math.random() * 10),
-        collectionRate: 0.92 + Math.random() * 0.07,
+        // Paid invoices only: an issued invoice is not revenue.
+        revenue: Math.round(paid.reduce((sum, inv) => sum + Number(inv.amount), 0) * 100) / 100,
+        invoiceCount: inMonth.length,
+        collectionRate:
+          inMonth.length === 0
+            ? null
+            : Math.round((paid.length / inMonth.length) * 1000) / 1000,
       });
     }
 
-    // Ensure upward trend by sorting revenue ascending
-    const revenues = months.map((m) => m.revenue).sort((a, b) => a - b);
-    months.forEach((m, i) => { m.revenue = revenues[i]!; });
-
-    const totalRevenue = months.reduce((s, m) => s + m.revenue, 0);
-    const avgMonthly = Math.round(totalRevenue / months.length);
+    const totalRevenue = Math.round(months.reduce((sum, m) => sum + m.revenue, 0) * 100) / 100;
+    const first = months[0]!.revenue;
+    const last = months[months.length - 1]!.revenue;
+    const rated = months.filter((m) => m.collectionRate !== null);
 
     res.status(200).json({
       success: true,
@@ -1128,10 +1230,17 @@ billingRouter.get(
         months,
         summary: {
           totalRevenue,
-          averageMonthly: avgMonthly,
-          growthRate: +(((months[months.length - 1]!.revenue - months[0]!.revenue) / months[0]!.revenue) * 100).toFixed(1),
-          totalInvoices: months.reduce((s, m) => s + m.invoiceCount, 0),
-          avgCollectionRate: +(months.reduce((s, m) => s + m.collectionRate, 0) / months.length).toFixed(3),
+          averageMonthly: Math.round((totalRevenue / months.length) * 100) / 100,
+          // Null rather than Infinity or a fabricated climb: with no revenue
+          // in the first month there is no base to grow from.
+          growthRate: first === 0 ? null : +(((last - first) / first) * 100).toFixed(1),
+          totalInvoices: months.reduce((sum, m) => sum + m.invoiceCount, 0),
+          avgCollectionRate:
+            rated.length === 0
+              ? null
+              : +(
+                  rated.reduce((sum, m) => sum + (m.collectionRate ?? 0), 0) / rated.length
+                ).toFixed(3),
         },
         generatedAt: new Date().toISOString(),
       },
