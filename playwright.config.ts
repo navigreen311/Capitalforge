@@ -94,6 +94,14 @@ export default defineConfig({
    *      with a readable trace. Worth another look from a Linux CI, which
    *      does not run Playwright today.
    *
+   *   3. A Playwright worker process fast-failing on Windows, exit code
+   *      3221226505 (STATUS_STACK_BUFFER_OVERRUN), which kills the test it
+   *      was starting — reported as a 0ms failure with no trace, because
+   *      the worker never got far enough to write one. Seen once in ten
+   *      runs. Distinct from (2): nothing is served slowly or dropped, the
+   *      process is simply gone. Not fixed, and not the same thing as the
+   *      dev server dying under `next start`, which killed whole runs.
+   *
    * The retry is gone anyway, on the view that a suite allowed a second
    * attempt stops reporting what made the first one fail — which is exactly
    * how the connection exhaustion stayed hidden for several runs. A failure
@@ -104,6 +112,30 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     headless: true,
+    /**
+     * No keep-alive between the browser and the dev servers.
+     *
+     * The remaining intermittent is a static chunk that never completes —
+     * captured twice, main-app.js and app-pages-internals.js, both status -1
+     * with no timing — after which React never hydrates. Both occurrences
+     * were the first test in a spec file, where the gap since the last
+     * request is longest, which is the shape of a pooled socket being closed
+     * by the server as the browser reuses it.
+     *
+     * Sending Connection: close means every request opens its own socket, so
+     * there is no idle socket to lose. It costs a handshake per request,
+     * which on localhost is cheap.
+     *
+     * Measured, not assumed. Before this: roughly one failed run in three or
+     * four. After: ten consecutive cold runs, no chunk abort — about a 1-in-27
+     * result if the old rate still held. Evidence, not proof; if it comes
+     * back the trace will still show a chunk at status -1.
+     *
+     * See the retry note above for why the alternative — running against a
+     * production build — was measurably worse.
+     */
+    extraHTTPHeaders: { Connection: 'close' },
+
     /**
      * A trace for anything that fails.
      *
