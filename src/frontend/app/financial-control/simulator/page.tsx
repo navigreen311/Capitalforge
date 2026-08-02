@@ -1,567 +1,221 @@
 'use client';
 
 // ============================================================
-// /financial-control/simulator — Funding Scenario Simulator
+// /financial-control/simulator — stacking scenarios
 //
-// Sections:
-//   1. Client / business selector
-//   2. Funding scenario inputs (rounds, target amount, timing)
-//   3. Projected output display (total capital, cost, APR, credit impact)
-//   4. Compare up to 3 scenarios side by side
-//   5. Save / export scenario summary
+// This page held five clients as literals — "Marcus Rivera — Retail Store,
+// FICO 745, $920,000 revenue" — and computed every result locally:
+//
+//   const effectiveApr = input.avgApr * 0.85; // simplified: blend with
+//                                             // intro rates
+//
+// so the cost of capital, the monthly payment and the credit impact came
+// from arithmetic invented in the browser, against clients who did not
+// exist. A different answer to the same question sat behind
+// POST /api/simulator/run the whole time.
+//
+// The profile is entered here because the system does not hold a FICO
+// score, a utilisation ratio or an inquiry count for a client. Those are
+// inputs an advisor supplies, and the page says so rather than presenting
+// them as facts on file.
 // ============================================================
 
-import { useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { useState, useEffect, useCallback } from 'react';
+import { authHeaders } from '@/lib/api-client';
 
 interface ClientOption {
   id: string;
-  name: string;
-  fico: number;
-  revenue: number;
-  industry: string;
+  businessName: string;
 }
 
-interface ScenarioInput {
-  id: string;
-  name: string;
-  clientId: string;
-  rounds: number;
-  targetPerRound: number;
-  timingMonths: number;
-  avgApr: number;
-  introAprMonths: number;
+interface Profile {
+  ficoScore: number;
+  utilizationRatio: number;
+  derogatoryCount: number;
+  inquiries12m: number;
+  creditAgeMonths: number;
+  annualRevenue: number;
+  yearsInOperation: number;
+  existingDebt: number;
+  targetCreditLimit: number;
 }
 
-interface ScenarioResult {
-  totalCapital: number;
-  costOfCapital: number;
-  effectiveApr: number;
-  aprExpiryMonth: number;
-  creditImpactEstimate: 'minimal' | 'moderate' | 'significant';
-  monthlyPayment: number;
-  totalInterest: number;
-  projectedPayoffMonths: number;
-}
+const DEFAULT_PROFILE: Profile = {
+  ficoScore: 700,
+  utilizationRatio: 0.3,
+  derogatoryCount: 0,
+  inquiries12m: 2,
+  creditAgeMonths: 60,
+  annualRevenue: 500_000,
+  yearsInOperation: 3,
+  existingDebt: 0,
+  targetCreditLimit: 50_000,
+};
 
-// ---------------------------------------------------------------------------
-// Placeholder data
-// ---------------------------------------------------------------------------
-
-const CLIENTS: ClientOption[] = [
-  { id: 'c1', name: 'Marcus Rivera — Retail Store', fico: 745, revenue: 920_000, industry: 'Retail' },
-  { id: 'c2', name: 'Lisa Chen — Tech Startup', fico: 710, revenue: 450_000, industry: 'Tech' },
-  { id: 'c3', name: 'David Okafor — Medical Practice', fico: 780, revenue: 1_200_000, industry: 'Healthcare' },
-  { id: 'c4', name: 'Sarah Johnson — Restaurant', fico: 695, revenue: 680_000, industry: 'Food & Bev' },
-  { id: 'c5', name: 'James Wright — Contractor', fico: 730, revenue: 550_000, industry: 'Construction' },
+const FIELDS: { key: keyof Profile; label: string; step?: string }[] = [
+  { key: 'ficoScore', label: 'FICO score' },
+  { key: 'utilizationRatio', label: 'Utilisation ratio (0–1)', step: '0.01' },
+  { key: 'derogatoryCount', label: 'Derogatory marks' },
+  { key: 'inquiries12m', label: 'Inquiries, 12 months' },
+  { key: 'creditAgeMonths', label: 'Credit age (months)' },
+  { key: 'annualRevenue', label: 'Annual revenue' },
+  { key: 'yearsInOperation', label: 'Years in operation', step: '0.5' },
+  { key: 'existingDebt', label: 'Existing debt' },
+  { key: 'targetCreditLimit', label: 'Target credit limit' },
 ];
 
-const DEFAULT_SCENARIO: Omit<ScenarioInput, 'id' | 'name'> = {
-  clientId: 'c1',
-  rounds: 3,
-  targetPerRound: 50_000,
-  timingMonths: 6,
-  avgApr: 22.5,
-  introAprMonths: 12,
-};
+export default function SimulatorPage() {
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [businessId, setBusinessId] = useState('');
+  const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
+        const body = (await res.json()) as { success?: boolean; data?: ClientOption[] };
+        const list = body.success === true ? body.data ?? [] : [];
+        setClients(list);
+        if (list.length > 0) setBusinessId(list[0].id);
+      } catch {
+        setError('Could not load the client list.');
+      }
+    })();
+  }, []);
 
-function generateId(): string {
-  return `sc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-}
-
-function simulateScenario(input: ScenarioInput): ScenarioResult {
-  const totalCapital = input.rounds * input.targetPerRound;
-  const effectiveApr = input.avgApr * 0.85; // simplified: blend with intro rates
-  const totalInterest = totalCapital > 0
-    ? totalCapital * (effectiveApr / 100) * (input.timingMonths * input.rounds / 12)
-    : 0;
-  const costOfCapital = totalCapital > 0 ? (totalInterest / totalCapital) * 100 : 0;
-  const denom = input.timingMonths * input.rounds;
-  const monthlyPayment = denom > 0 ? (totalCapital + totalInterest) / denom : 0;
-  const projectedPayoffMonths = monthlyPayment > 0
-    ? Math.ceil((totalCapital + totalInterest) / monthlyPayment)
-    : 0;
-
-  let creditImpactEstimate: ScenarioResult['creditImpactEstimate'] = 'minimal';
-  if (totalCapital > 200_000 || input.rounds > 4) creditImpactEstimate = 'significant';
-  else if (totalCapital > 100_000 || input.rounds > 2) creditImpactEstimate = 'moderate';
-
-  return {
-    totalCapital,
-    costOfCapital: Math.round(costOfCapital * 100) / 100,
-    effectiveApr: Math.round(effectiveApr * 100) / 100,
-    aprExpiryMonth: input.introAprMonths,
-    creditImpactEstimate,
-    monthlyPayment: Math.round(monthlyPayment),
-    totalInterest: Math.round(totalInterest),
-    projectedPayoffMonths,
-  };
-}
-
-function formatCurrency(n: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
-}
-
-const SCENARIO_AUTO_NAMES = ['Conservative', 'Moderate', 'Aggressive'] as const;
-
-const BLANK_SCENARIO: Omit<ScenarioInput, 'id' | 'name'> = {
-  clientId: 'c1',
-  rounds: 1,
-  targetPerRound: 0,
-  timingMonths: 6,
-  avgApr: 0,
-  introAprMonths: 0,
-};
-
-const CREDIT_IMPACT_CONFIG: Record<ScenarioResult['creditImpactEstimate'], { label: string; color: string }> = {
-  minimal:     { label: 'Minimal',     color: 'text-green-400' },
-  moderate:    { label: 'Moderate',    color: 'text-yellow-400' },
-  significant: { label: 'Significant', color: 'text-red-400' },
-};
-
-function showToast(message: string) {
-  const el = document.createElement('div');
-  el.textContent = message;
-  el.className =
-    'fixed bottom-6 right-6 z-[100] px-5 py-3 rounded-xl bg-gray-800 border border-gray-700 text-sm text-gray-100 shadow-2xl';
-  el.style.animation = 'fadeInUp 0.3s ease, fadeOut 0.3s ease 2.5s forwards';
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function ScenarioCard({
-  scenario,
-  result,
-  index,
-  onRemove,
-  onChange,
-  onSaveToProfile,
-  onCreateFundingRound,
-}: {
-  scenario: ScenarioInput;
-  result: ScenarioResult;
-  index: number;
-  onRemove: () => void;
-  onChange: (updated: ScenarioInput) => void;
-  onSaveToProfile: () => void;
-  onCreateFundingRound: () => void;
-}) {
-  const client = CLIENTS.find((c) => c.id === scenario.clientId);
-  const impact = CREDIT_IMPACT_CONFIG[result.creditImpactEstimate];
-  const [editingName, setEditingName] = useState(false);
-  const nameInputRef = useRef<HTMLInputElement>(null);
-
-  const startEditing = () => {
-    setEditingName(true);
-    setTimeout(() => nameInputRef.current?.focus(), 0);
-  };
-
-  const finishEditing = () => {
-    setEditingName(false);
-    if (!scenario.name.trim()) {
-      onChange({ ...scenario, name: SCENARIO_AUTO_NAMES[index] ?? `Scenario ${index + 1}` });
+  const run = useCallback(async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/simulator/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          profile: { ...profile, ...(businessId === '' ? {} : { businessId }) },
+        }),
+      });
+      const body = (await res.json()) as {
+        success?: boolean;
+        data?: Record<string, unknown>;
+        error?: { message?: string };
+      };
+      if (!res.ok || body.success !== true) {
+        setError(body.error?.message ?? `The scenario did not run (HTTP ${res.status}).`);
+        setResult(null);
+        return;
+      }
+      setResult(body.data ?? null);
+    } catch {
+      setError('Could not reach the server, so no scenario was run.');
+      setResult(null);
+    } finally {
+      setRunning(false);
     }
-  };
+  }, [profile, businessId]);
 
   return (
-    <div className="rounded-xl border border-gray-800 bg-[#0A1628] p-5 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#C9A84C] text-[#0A1628] text-xs font-bold">
-            {index + 1}
-          </span>
-          {editingName ? (
-            <input aria-label="Scenario name"
-              ref={nameInputRef}
-              type="text"
-              value={scenario.name}
-              onChange={(e) => onChange({ ...scenario, name: e.target.value })}
-              onBlur={finishEditing}
-              onKeyDown={(e) => { if (e.key === 'Enter') finishEditing(); }}
-              className="bg-transparent text-sm font-semibold text-white border-b border-[#C9A84C] focus:outline-none px-1 py-0.5"
-            />
-          ) : (
-            <button
-              onClick={startEditing}
-              className="flex items-center gap-1.5 text-sm font-semibold text-white hover:text-[#C9A84C] transition-colors px-1 py-0.5 group"
-              title="Click to edit name"
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Stacking Simulator</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Runs a scenario against the simulator service.
+        </p>
+      </div>
+
+      <section
+        aria-label="Where these numbers come from"
+        className="rounded-xl border border-gray-200 bg-white p-5 space-y-2"
+      >
+        <h2 className="text-sm font-semibold text-gray-900">Where these numbers come from</h2>
+        <p className="text-xs text-gray-600 leading-relaxed">
+          The profile below is entered, not looked up. This system does not hold a FICO score, a
+          utilisation ratio, an inquiry count or a credit age for any client — so nothing is
+          pre-filled from a record, and a result is only as good as what was typed.
+        </p>
+        <p className="text-xs text-gray-600 leading-relaxed">
+          The result comes from the simulator service. The page used to compute it here, from an
+          effective APR of the entered rate times 0.85 — a different answer to the same question,
+          against five clients written into the file.
+        </p>
+      </section>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
+        {clients.length > 0 && (
+          <div>
+            <label htmlFor="sim-client" className="block text-xs text-gray-500 mb-1">
+              Client (optional — recorded with the run)
+            </label>
+            <select
+              id="sim-client"
+              value={businessId}
+              onChange={(e) => setBusinessId(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800"
             >
-              {scenario.name}
-              <span className="text-gray-600 group-hover:text-[#C9A84C] text-xs transition-colors">&#9998;</span>
-            </button>
-          )}
-        </div>
-        <button
-          onClick={onRemove}
-          className="text-xs text-gray-500 hover:text-red-400 transition-colors"
-          title="Remove scenario"
-        >
-          Remove
-        </button>
-      </div>
-
-      {/* Inputs */}
-      <div className="space-y-3 mb-5">
-        <div>
-          <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-client">Client</label>
-          <select id="financial-control-simulator-client"
-            value={scenario.clientId}
-            onChange={(e) => onChange({ ...scenario, clientId: e.target.value })}
-            className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
-          >
-            {CLIENTS.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          {client && (
-            <p className="text-[10px] text-gray-500 mt-1">
-              FICO {client.fico} | {client.industry} | Rev. {formatCurrency(client.revenue)}
-            </p>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-rounds">Rounds</label>
-            <input id="financial-control-simulator-rounds"
-              type="number"
-              min={1}
-              max={10}
-              value={scenario.rounds}
-              onChange={(e) => onChange({ ...scenario, rounds: Number(e.target.value) || 1 })}
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
-            />
+              <option value="">No client</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.businessName}
+                </option>
+              ))}
+            </select>
           </div>
-          <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-target-round">Target / Round</label>
-            <input id="financial-control-simulator-target-round"
-              type="number"
-              min={5000}
-              step={5000}
-              value={scenario.targetPerRound}
-              onChange={(e) => onChange({ ...scenario, targetPerRound: Number(e.target.value) || 5000 })}
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
-            />
-          </div>
-        </div>
+        )}
 
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-timing-mo">Timing (mo)</label>
-            <input id="financial-control-simulator-timing-mo"
-              type="number"
-              min={1}
-              max={36}
-              value={scenario.timingMonths}
-              onChange={(e) => onChange({ ...scenario, timingMonths: Number(e.target.value) || 1 })}
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-avg-apr">Avg APR %</label>
-            <input id="financial-control-simulator-avg-apr"
-              type="number"
-              min={0}
-              max={40}
-              step={0.5}
-              value={scenario.avgApr}
-              onChange={(e) => onChange({ ...scenario, avgApr: Number(e.target.value) || 0 })}
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wide" htmlFor="financial-control-simulator-intro-mo">Intro (mo)</label>
-            <input id="financial-control-simulator-intro-mo"
-              type="number"
-              min={0}
-              max={24}
-              value={scenario.introAprMonths}
-              onChange={(e) => onChange({ ...scenario, introAprMonths: Number(e.target.value) || 0 })}
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-[#C9A84C]"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="border-t border-gray-800 my-3" />
-
-      {/* Results */}
-      <div className="space-y-2.5 flex-1">
-        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wide">Projected Results</h4>
-
-        <div className="flex justify-between">
-          <span className="text-xs text-gray-500">Total Capital</span>
-          <span className="text-sm font-bold text-white">{formatCurrency(result.totalCapital)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-xs text-gray-500">Cost of Capital</span>
-          <span className="text-sm font-bold text-[#C9A84C]">{result.costOfCapital}%</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-xs text-gray-500">Effective APR</span>
-          <span className={`text-sm font-bold ${result.effectiveApr >= 20 ? 'text-red-400' : result.effectiveApr >= 15 ? 'text-yellow-400' : 'text-green-400'}`}>
-            {result.effectiveApr}%
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-xs text-gray-500">APR Expiry</span>
-          <span className="text-sm font-semibold text-gray-300">Month {result.aprExpiryMonth}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-xs text-gray-500">Monthly Payment</span>
-          <span className="text-sm font-semibold text-gray-200">{formatCurrency(result.monthlyPayment)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-xs text-gray-500">Total Interest</span>
-          <span className="text-sm font-semibold text-orange-400">{formatCurrency(result.totalInterest)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-xs text-gray-500">Payoff Timeline</span>
-          <span className="text-sm font-semibold text-gray-300">{result.projectedPayoffMonths} months</span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-xs text-gray-500">Credit Impact</span>
-          <span className={`text-sm font-bold ${impact.color}`}>{impact.label}</span>
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="border-t border-gray-800 my-3" />
-
-      {/* Action buttons */}
-      <div className="space-y-2 mt-auto">
-        <button
-          onClick={onSaveToProfile}
-          className="w-full px-4 py-2 rounded-lg border border-gray-700 text-sm font-semibold text-gray-300 hover:border-[#C9A84C]/60 hover:text-white transition-colors"
-        >
-          Save to Client Profile &rarr;
-        </button>
-        <button
-          onClick={onCreateFundingRound}
-          className="w-full px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-sm font-bold transition-colors"
-        >
-          Create Funding Round &rarr;
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
-export default function FinancialControlSimulatorPage() {
-  const router = useRouter();
-  const [scenarios, setScenarios] = useState<ScenarioInput[]>([
-    { id: generateId(), name: 'Conservative', ...BLANK_SCENARIO },
-    { id: generateId(), name: 'Moderate', ...BLANK_SCENARIO },
-  ]);
-
-  const results = scenarios.map(simulateScenario);
-
-  const handleAdd = useCallback(() => {
-    if (scenarios.length >= 3) {
-      showToast('Maximum 3 scenarios — remove one before adding another.');
-      return;
-    }
-    const autoName = SCENARIO_AUTO_NAMES[scenarios.length] ?? `Scenario ${scenarios.length + 1}`;
-    setScenarios((prev) => [
-      ...prev,
-      {
-        id: generateId(),
-        name: autoName,
-        ...BLANK_SCENARIO,
-      },
-    ]);
-  }, [scenarios.length]);
-
-  const handleRemove = useCallback((id: string) => {
-    setScenarios((prev) => prev.filter((s) => s.id !== id));
-  }, []);
-
-  const handleChange = useCallback((id: string, updated: ScenarioInput) => {
-    setScenarios((prev) => prev.map((s) => (s.id === id ? updated : s)));
-  }, []);
-
-  const handleSaveToProfile = useCallback((scenario: ScenarioInput) => {
-    const client = CLIENTS.find((c) => c.id === scenario.clientId);
-    const clientName = client ? client.name.split(' — ')[0] : 'client';
-    // Mock POST
-    setTimeout(() => {
-      showToast(`${scenario.name} saved to ${clientName}'s profile`);
-    }, 300);
-  }, []);
-
-  const handleCreateFundingRound = useCallback((scenario: ScenarioInput) => {
-    // Mock POST
-    setTimeout(() => {
-      showToast(`Funding Round created from ${scenario.name}`);
-      router.push('/funding-rounds');
-    }, 300);
-  }, [router]);
-
-  const handleExport = useCallback(() => {
-    const data = scenarios.map((s, i) => ({
-      scenario: s.name,
-      input: s,
-      result: results[i],
-    }));
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `scenario-comparison-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('Scenario comparison exported.');
-  }, [scenarios, results]);
-
-  // Best scenario comparison
-  const bestCapital = results.length > 0 ? Math.max(...results.map((r) => r.totalCapital)) : 0;
-  const lowestCost = results.length > 0 ? Math.min(...results.map((r) => r.costOfCapital)) : 0;
-
-  return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-6">
-      {/* Toast animation styles */}
-      <style>{`
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-      `}</style>
-
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Funding Scenario Simulator</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            Model funding strategies, compare scenarios side by side, and project outcomes.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleExport}
-            disabled={scenarios.length === 0}
-            className="px-4 py-2 rounded-lg border border-[#C9A84C]/40 text-[#C9A84C] hover:bg-[#C9A84C]/10 disabled:opacity-50 text-sm font-semibold transition-colors"
-          >
-            Export Comparison
-          </button>
-          <button
-            onClick={handleAdd}
-            disabled={scenarios.length >= 3}
-            className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
-          >
-            + Add Scenario
-          </button>
-        </div>
-      </div>
-
-      {/* Summary bar */}
-      {results.length >= 2 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-2">Scenarios</p>
-            <p className="text-2xl font-bold text-white">{scenarios.length}</p>
-          </div>
-          <div className="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-2">Highest Capital</p>
-            <p className="text-2xl font-bold text-[#C9A84C]">{formatCurrency(bestCapital)}</p>
-          </div>
-          <div className="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-2">Lowest Cost</p>
-            <p className="text-2xl font-bold text-green-400">{lowestCost}%</p>
-          </div>
-          <div className="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-2">Compare</p>
-            <p className="text-2xl font-bold text-gray-300">{scenarios.length} / 3</p>
-          </div>
-        </div>
-      )}
-
-      {/* Scenario cards - side by side */}
-      {scenarios.length > 0 ? (
-        <div className={`grid gap-6 ${
-          scenarios.length === 1 ? 'grid-cols-1 max-w-lg' :
-          scenarios.length === 2 ? 'grid-cols-1 lg:grid-cols-2' :
-          'grid-cols-1 lg:grid-cols-3'
-        }`}>
-          {scenarios.map((s, i) => (
-            <ScenarioCard
-              key={s.id}
-              scenario={s}
-              result={results[i]}
-              index={i}
-              onRemove={() => handleRemove(s.id)}
-              onChange={(updated) => handleChange(s.id, updated)}
-              onSaveToProfile={() => handleSaveToProfile(s)}
-              onCreateFundingRound={() => handleCreateFundingRound(s)}
-            />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {FIELDS.map((f) => (
+            <div key={f.key}>
+              <label htmlFor={`sim-${f.key}`} className="block text-xs text-gray-500 mb-1">
+                {f.label}
+              </label>
+              <input
+                id={`sim-${f.key}`}
+                type="number"
+                step={f.step ?? '1'}
+                value={profile[f.key]}
+                onChange={(e) =>
+                  setProfile((p) => ({ ...p, [f.key]: Number(e.target.value) }))
+                }
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800"
+              />
+            </div>
           ))}
         </div>
-      ) : (
-        <div className="rounded-xl border border-gray-800 bg-[#0A1628] p-10 text-center">
-          <p className="text-gray-500 text-sm mb-3">No scenarios configured. Add a scenario to start simulating.</p>
-          <button
-            onClick={handleAdd}
-            className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 text-gray-900 text-sm font-semibold transition-colors"
-          >
-            + Add First Scenario
-          </button>
-        </div>
+
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={running}
+          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {running ? 'Running…' : 'Run scenario'}
+        </button>
+      </div>
+
+      {error !== null && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </p>
       )}
 
-      {/* Comparison table (when 2+ scenarios) */}
-      {results.length >= 2 && (
-        <div className="rounded-xl border border-gray-800 bg-[#0A1628] overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800">
-            <h3 className="text-base font-semibold text-white">Side-by-Side Comparison</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-900/60 text-gray-400 text-xs uppercase tracking-wide">
-                  <th className="text-left px-5 py-3 font-semibold">Metric</th>
-                  {scenarios.map((s) => (
-                    <th key={s.id} className="text-right px-4 py-3 font-semibold">{s.name}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800">
-                {[
-                  { label: 'Total Capital', key: 'totalCapital', format: formatCurrency },
-                  { label: 'Cost of Capital', key: 'costOfCapital', format: (v: number) => `${v}%` },
-                  { label: 'Effective APR', key: 'effectiveApr', format: (v: number) => `${v}%` },
-                  { label: 'Monthly Payment', key: 'monthlyPayment', format: formatCurrency },
-                  { label: 'Total Interest', key: 'totalInterest', format: formatCurrency },
-                  { label: 'Payoff Months', key: 'projectedPayoffMonths', format: (v: number) => `${v} mo` },
-                  { label: 'Credit Impact', key: 'creditImpactEstimate', format: (v: string) => v },
-                ].map((row) => (
-                  <tr key={row.key} className="bg-[#0A1628] hover:bg-gray-900/50 transition-colors">
-                    <td className="px-5 py-3 text-gray-300 font-medium">{row.label}</td>
-                    {results.map((r, i) => (
-                      <td key={scenarios[i].id} className="px-4 py-3 text-right font-semibold text-gray-100">
-                        {row.format((r as unknown as Record<string, number | string>)[row.key] as never)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      {result !== null && (
+        <section aria-label="Result" className="rounded-xl border border-gray-200 bg-white p-5">
+          <h2 className="text-sm font-semibold text-gray-900 mb-3">Result</h2>
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {Object.entries(result).map(([key, value]) => (
+              <div key={key} className="border-b border-gray-100 pb-2">
+                <dt className="text-xs text-gray-500">{key.replace(/([A-Z])/g, ' $1')}</dt>
+                <dd className="text-sm text-gray-900">
+                  {typeof value === 'object' && value !== null
+                    ? JSON.stringify(value)
+                    : String(value)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       )}
     </div>
   );

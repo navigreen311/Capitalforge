@@ -95,8 +95,16 @@ import { dashboardRouter } from './dashboard.routes.js';
 apiRouter.use('/dashboard', dashboardRouter);
 
 // -- Dashboard Committee Queue (mock endpoint) --
-import { committeeRouter } from './committee.routes.js';
-apiRouter.use('/dashboard/committee-queue', committeeRouter);
+// committee.routes.ts is gone.
+//
+// It mounted a second handler at /api/dashboard/committee-queue serving two
+// invented deals — "Apex Ventures, $250,000, High risk, 8.5 of 12 SLA hours
+// remaining, reviewers Sarah Chen, Mike Ross and Dana Liu" — and was
+// shadowed by dashboard-committee.routes.ts, which reads
+// deal_committee_reviews, joins the business and its latest application,
+// parses the reviewers actually recorded and computes the SLA from the
+// review's own createdAt. The real one had been answering all along; the
+// mock was dead code with fabricated names in it.
 
 // -- Clients list & create --
 import { clientsRouter } from './clients.routes.js';

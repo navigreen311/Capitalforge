@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
+import { authHeaders } from '@/lib/api-client';
 import { useParams, useRouter } from 'next/navigation';
 import { clientsApi, applicationsApi } from '../../../lib/api-client';
 import { EditProfileModal } from '../../../components/clients/EditProfileModal';
@@ -69,39 +70,22 @@ interface ApplicationSummary {
 // Placeholder factory
 // ---------------------------------------------------------------------------
 
-function makePlaceholderBusiness(id: string): BusinessProfile {
-  return {
-    id,
-    businessName: 'Apex Ventures LLC',
-    legalName: 'Apex Ventures, LLC',
-    entityType: 'LLC',
-    ein: '47-XXXXXXX',
-    stateOfFormation: 'TX',
-    dateOfFormation: '2023-03-01',
-    operatingStates: ['TX', 'CA', 'NY'],
-    status: 'active',
-    advisorName: 'Sarah Chen',
-    fundingReadinessScore: 82,
-    monthsInBusiness: 36,
-    annualRevenue: 480_000,
-    monthlyRevenue: 40_000,
-    employees: 7,
-    website: 'https://apexventures.example.com',
-    industry: 'Professional Services',
-    naicsCode: '541611',
-    mcc: '7389',
-    createdAt: '2023-03-01T00:00:00Z',
-  };
-}
+// makePlaceholderBusiness() stood here.
+//
+// When the API call failed, the page rendered a client instead of an error:
+// Apex Ventures, LLC of Texas, EIN 47-XXXXXXX, formed March 2023, advisor
+// Sarah Chen, readiness 82, revenue $480,000 — under whatever id was in the
+// URL. A client whose record could not be loaded looked identical to one
+// whose record said that.
 
-const PLACEHOLDER_SUITABILITY: SuitabilityResult = {
-  score: 72,
-  maxSafeLeverage: 3,
-  noGoTriggered: false,
-  noGoReasons: [],
-  recommendation: 'Client is suitable for moderate stacking (2–3 cards). Prioritise 0% intro APR products with 12–15 month windows.',
-  alternativeProducts: ['SBA Microloan', 'Revenue-based financing', 'Business line of credit'],
-};
+// The suitability panel was a constant: score 72, max safe leverage 3,
+// "Client is suitable for moderate stacking (2–3 cards)", with three
+// alternative products listed. That is advice about how much debt a business
+// should take on, and it was the same advice for every client.
+//
+// A real check exists at POST /api/businesses/:id/suitability/check and the
+// last result at /latest. Only the recorded one is shown; nothing is
+// computed here, and where none has been run the panel says so.
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -160,7 +144,8 @@ export default function ClientDetailPage() {
   const router = useRouter();
 
   const [business, setBusiness] = useState<BusinessProfile | null>(null);
-  const [suitability] = useState<SuitabilityResult>(PLACEHOLDER_SUITABILITY);
+  const [suitability, setSuitability] = useState<SuitabilityResult | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [applications, setApplications] = useState<ApplicationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('profile');
@@ -178,28 +163,53 @@ export default function ClientDetailPage() {
     (async () => {
       setLoading(true);
       try {
-        const [bizRes, appsRes] = await Promise.allSettled([
+        const [bizRes, appsRes, suitRes] = await Promise.allSettled([
           clientsApi.get(id),
           applicationsApi.list({ businessId: id }),
+          fetch(`/api/businesses/${encodeURIComponent(id)}/suitability/latest`, {
+            headers: authHeaders(),
+          }).then((r) => (r.ok ? r.json() : null)),
         ]);
+
+        // Only a recorded check. No result means no check has been run, which
+        // is not the same as a client being unsuitable.
+        if (suitRes.status === 'fulfilled' && suitRes.value !== null) {
+          const body = suitRes.value as { success?: boolean; data?: SuitabilityResult | null };
+          setSuitability(body.success === true ? body.data ?? null : null);
+        }
 
         if (bizRes.status === 'fulfilled' && bizRes.value.success && bizRes.value.data) {
           setBusiness(bizRes.value.data as BusinessProfile);
         } else {
-          setBusiness(makePlaceholderBusiness(id));
+          setBusiness(null);
+          setLoadError('This client could not be loaded.');
         }
         if (appsRes.status === 'fulfilled' && appsRes.value.success && Array.isArray(appsRes.value.data)) {
           setApplications(appsRes.value.data as ApplicationSummary[]);
         }
       } catch {
-        setBusiness(makePlaceholderBusiness(id));
+        setBusiness(null);
+        setLoadError('Could not reach the server, so this client is not shown.');
       } finally {
         setLoading(false);
       }
     })();
   }, [id]);
 
-  const biz = business ?? makePlaceholderBusiness(id ?? 'unknown');
+  // No fallback. A client that could not be loaded is reported as such
+  // rather than replaced by one.
+  if (!loading && business === null) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold text-gray-900">Client</h1>
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {loadError ?? 'This client could not be loaded.'}
+        </p>
+      </div>
+    );
+  }
+
+  const biz = business as BusinessProfile;
   const totalFunding = applications
     .filter((a) => a.status === 'approved')
     .reduce((s, a) => s + (a.approvedLimit ?? 0), 0);
@@ -268,15 +278,32 @@ export default function ClientDetailPage() {
         />
         <StatCard
           label="Suitability Score"
-          value={suitability.score}
-          sub={suitability.noGoTriggered ? 'NO-GO TRIGGERED' : 'out of 100'}
-          color={suitability.noGoTriggered ? 'text-gray-400' : suitability.score >= 70 ? 'text-emerald-600' : 'text-amber-600'}
+          value={suitability === null ? 'Not checked' : suitability.score}
+          sub={
+            suitability === null
+              ? 'no check on record'
+              : suitability.noGoTriggered
+                ? 'NO-GO TRIGGERED'
+                : 'out of 100'
+          }
+          color={
+            suitability === null
+              ? 'text-gray-400'
+              : suitability.noGoTriggered
+                ? 'text-gray-400'
+                : suitability.score >= 70
+                  ? 'text-emerald-600'
+                  : 'text-amber-600'
+          }
         />
+        {/* "3 / 4 channels active" was a literal here. Consent is recorded
+            per channel in consent_records and is shown on the consent page;
+            it is not summarised from nothing. */}
         <StatCard
           label="Consent Channels"
-          value="3 / 4"
-          sub="channels active"
-          color="text-amber-600"
+          value="—"
+          sub="not summarised here"
+          color="text-gray-400"
         />
         <StatCard
           label="Total Funding"
