@@ -46,7 +46,8 @@ function routes(): string[] {
         if (entry.name === 'page.tsx') found.push(route === '' ? '/' : route);
         continue;
       }
-      if (entry.name.startsWith('[')) continue;
+      // Route groups add no path segment. Dynamic segments are kept, pattern
+      // and all, and resolved to a real id below.
       const segment = entry.name.startsWith('(') ? '' : `/${entry.name}`;
       walk(path.join(dir, entry.name), route + segment);
     }
@@ -55,6 +56,34 @@ function routes(): string[] {
   walk(appDir, '');
   return found.sort();
 }
+
+/**
+ * How to turn a dynamic route into one that can be visited.
+ *
+ * Skipping these was a real gap and not a theoretical one:
+ * /funding-rounds/[id] was a single hardcoded round — FR-018 for Apex
+ * Ventures LLC, rendered for every id including ids that do not exist — and
+ * it survived four passes over this application precisely because the sweep
+ * could not reach it.
+ *
+ * Each entry names an endpoint to ask for a real id. A route with no entry
+ * fails rather than being skipped, so adding a dynamic page forces a decision
+ * about how to cover it.
+ */
+const DYNAMIC_ROUTE_IDS: Record<string, { endpoint: string; pick: (body: any) => string | null }> = {
+  '/funding-rounds/[id]': {
+    endpoint: '/api/funding-rounds?pageSize=1',
+    pick: (b) => b?.data?.[0]?.id ?? null,
+  },
+  '/clients/[id]': {
+    endpoint: '/api/v1/clients?pageSize=1',
+    pick: (b) => b?.data?.[0]?.id ?? null,
+  },
+  '/portal/[clientId]': {
+    endpoint: '/api/v1/clients?pageSize=1',
+    pick: (b) => b?.data?.[0]?.id ?? null,
+  },
+};
 
 /**
  * Routes whose figures are not claims about anybody's data.
@@ -117,6 +146,28 @@ test.describe('Figures before the data arrives', () => {
         test.fail(true, known);
       }
 
+      // Resolve a dynamic segment first, before the API is held: asking for
+      // an id through a delayed route would deadlock the test against itself.
+      let target = route;
+      if (route.includes('[')) {
+        const resolver = DYNAMIC_ROUTE_IDS[route];
+        expect(
+          resolver,
+          `${route} is a dynamic route with no id resolver. Add one to ` +
+            'DYNAMIC_ROUTE_IDS — skipping it is how a hardcoded page went unnoticed.',
+        ).toBeTruthy();
+
+        await page.goto('/dashboard');
+        const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+        const body = await fetch(`http://127.0.0.1:4000${resolver!.endpoint}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then((r) => r.json());
+
+        const id = resolver!.pick(body);
+        expect(id, `no id available from ${resolver!.endpoint} to visit ${route}`).toBeTruthy();
+        target = route.replace(/\[[^\]]+\]/, String(id));
+      }
+
       await page.route('**/api/**', async (r) => {
         await new Promise((resolve) => setTimeout(resolve, API_DELAY_MS));
         await r.continue();
@@ -124,7 +175,7 @@ test.describe('Figures before the data arrives', () => {
 
       // commit rather than load: waiting for load would wait out the delay
       // above and miss the state under test.
-      await page.goto(route, { waitUntil: 'commit' }).catch(() => {});
+      await page.goto(target, { waitUntil: 'commit' }).catch(() => {});
       await page.waitForTimeout(READ_AFTER_MS);
 
       const body = await page.locator('body').innerText().catch(() => '');
@@ -132,7 +183,7 @@ test.describe('Figures before the data arrives', () => {
 
       expect(
         figures,
-        `${route} states ${figures.join(', ')} before its data has arrived. ` +
+        `${target} states ${figures.join(', ')} before its data has arrived. ` +
           'A zero is a claim — show a dash until the figure is known.',
       ).toEqual([]);
     });

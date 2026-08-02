@@ -1,40 +1,66 @@
 'use client';
 
-import { useState } from 'react';
+// ============================================================
+// /funding-rounds/[id] — one funding round, read from the API
+//
+// This page was a single literal. `const PLACEHOLDER = { id: 'FR-018',
+// businessName: 'Apex Ventures LLC', roundNumber: 2, targetAmount: 150000,
+// obtainedAmount: 105000, advisorName: 'Sarah Chen', ... }` with three cards
+// under it, rendered for every round id — including ids belonging to another
+// tenant, and ids that do not exist at all. Apex Ventures LLC is one of the
+// businesses other specs here assert must never appear, because it is not a
+// client.
+//
+// It survived four passes over this application because the sweep that finds
+// pages like this skips dynamic segments: it cannot visit /funding-rounds/[id]
+// without an id, so the one page still holding fixtures was the one it could
+// not reach. That gap is closed alongside this — the sweep now resolves a real
+// id from the API and visits the route properly.
+//
+// GET /api/funding-rounds/:roundId has been there throughout: tenant-scoped,
+// 404 for a round that is not yours, with the applications attached to the
+// round and the progress derived from them.
+//
+// Three things are gone rather than rebuilt:
+//
+//   Advisor. The fixture named Sarah Chen. A business carries an advisorId,
+//   the round does not, and this endpoint returns neither.
+//
+//   Target close date. There is no such field on a funding round. The date
+//   shown was a literal, and a target close is a commitment.
+//
+//   Economics — a program fee of $4,750, a funding fee of $1,800, $98,450 net
+//   capital and an effective rate of 6.25%. cost_calculations is real, but it
+//   is keyed to a business rather than a round, so attributing one to this
+//   round would invent the attribution even where the numbers are genuine.
+// ============================================================
+
+import { useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { SectionCard } from '@/components/ui/card';
-
-// ── Placeholder data ───────────────────────────────────────────
-
-const PLACEHOLDER = {
-  id: 'FR-018',
-  businessName: 'Apex Ventures LLC',
-  businessId: 'biz_001',
-  roundNumber: 2,
-  status: 'in_progress' as const,
-  targetAmount: 150000,
-  obtainedAmount: 105000,
-  advisorName: 'Sarah Chen',
-  startedAt: '2026-01-15',
-  targetCloseAt: '2026-04-15',
-  cards: [
-    { id: 'app_004', cardProduct: 'Ink Business Preferred', issuer: 'Chase', limit: 45000, status: 'approved', aprExpiry: '2026-05-20', aprDaysLeft: 49 },
-    { id: 'app_001', cardProduct: 'Ink Business Cash', issuer: 'Chase', limit: 25000, status: 'draft', aprExpiry: null, aprDaysLeft: null },
-    { id: 'app_007', cardProduct: 'Business Advantage Cash', issuer: 'BofA', limit: 35000, status: 'submitted', aprExpiry: null, aprDaysLeft: null },
-  ],
-  economics: {
-    programFee: 4750,
-    fundingFee: 1800,
-    totalCost: 6550,
-    netCapital: 98450,
-    effectiveRate: 6.25,
-  },
-};
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { toFundingRoundDetail, aprDaysRemaining } from '@/lib/funding-round-detail-view';
 
 // ── Helpers ────────────────────────────────────────────────────
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+function fmt(n: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
+function formatDate(iso: string | null): string {
+  if (iso === null) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
 }
 
 const STATUS_CHIP: Record<string, string> = {
@@ -47,7 +73,11 @@ const STATUS_CHIP: Record<string, string> = {
   planning: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
-function aprColor(days: number | null) {
+function chip(status: string): string {
+  return STATUS_CHIP[status] ?? 'bg-gray-100 text-gray-600 border-gray-200';
+}
+
+function aprColor(days: number | null): string {
   if (days === null) return 'text-gray-400';
   if (days <= 15) return 'text-red-600 font-semibold';
   if (days <= 60) return 'text-amber-600 font-semibold';
@@ -59,104 +89,197 @@ function aprColor(days: number | null) {
 export default function FundingRoundDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const round = PLACEHOLDER;
-  const pct = round.targetAmount > 0 ? Math.min((round.obtainedAmount / round.targetAmount) * 100, 100) : 0;
+
+  const { data: raw, isLoading, error } = useAuthFetch<unknown>(`/api/funding-rounds/${id}`);
+  const round = useMemo(() => toFundingRoundDetail(raw), [raw]);
+
+  const back = (
+    <button
+      onClick={() => router.push('/funding-rounds')}
+      className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
+    >
+      ← Back to Funding Rounds
+    </button>
+  );
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        {back}
+        <p className="text-sm text-gray-500">Loading funding round…</p>
+      </div>
+    );
+  }
+
+  if (error !== null || !round.loaded) {
+    // A round that is not there, or not yours, renders nothing. This page used
+    // to draw FR-018 in both cases.
+    return (
+      <div className="space-y-6">
+        {back}
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5 space-y-1">
+          <h1 className="text-sm font-semibold text-red-900">
+            This funding round could not be read.
+          </h1>
+          <p className="text-xs text-red-800">
+            It may not exist, or it may belong to another tenant. No round is shown — this
+            page used to render the same sample round for any id at all.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const pct = round.progress.targetProgressPct;
 
   return (
     <div className="space-y-6">
-      <button onClick={() => router.push('/funding-rounds')} className="text-sm text-gray-400 hover:text-gray-700 transition-colors">
-        ← Back to Funding Rounds
-      </button>
+      {back}
 
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Round {round.roundNumber} — {round.businessName}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {round.roundNumber === null ? 'Funding round' : `Round ${round.roundNumber}`} —{' '}
+            {round.businessName}
+          </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {round.id} · Advisor: {round.advisorName} · {round.startedAt} → {round.targetCloseAt}
+            Started {formatDate(round.startedAt)}
+            {round.completedAt === null ? '' : ` · completed ${formatDate(round.completedAt)}`}
           </p>
         </div>
-        <span className={`text-xs font-bold px-3 py-1 rounded-full border ${STATUS_CHIP[round.status]}`}>
-          {round.status.replace('_', ' ')}
+        <span className={`text-xs font-bold px-3 py-1 rounded-full border ${chip(round.status)}`}>
+          {round.status.replace(/_/g, ' ')}
         </span>
       </div>
 
       {/* Progress */}
-      <SectionCard title="Round Progress" subtitle={`${fmt(round.obtainedAmount)} of ${fmt(round.targetAmount)} (${Math.round(pct)}%)`}>
-        <div className="h-3 rounded-full bg-gray-100 overflow-hidden">
-          <div
-            className={`h-full rounded-full ${pct >= 100 ? 'bg-emerald-500' : pct >= 60 ? 'bg-blue-500' : 'bg-amber-500'}`}
-            style={{ width: `${pct}%` }}
-          />
+      <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h2 className="text-sm font-semibold text-gray-900">Credit obtained</h2>
+          <p className="text-sm text-gray-600 tabular-nums">
+            {fmt(round.progress.creditObtained)}
+            {round.targetCredit === null ? '' : ` of ${fmt(round.targetCredit)}`}
+          </p>
         </div>
-      </SectionCard>
 
-      {/* Cards in Round */}
-      <SectionCard title="Cards in This Round" flushBody>
-        <div className="overflow-x-auto">
-          <table className="cf-table">
-            <thead>
-              <tr className="bg-gray-50/60 border-b border-surface-border">
-                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Card</th>
-                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Issuer</th>
-                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Limit</th>
-                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase text-center">Status</th>
-                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase text-right">APR Expiry</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface-border">
-              {round.cards.map((card) => (
-                <tr key={card.id} className="hover:bg-gray-50/50">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{card.cardProduct}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{card.issuer}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700 text-right tabular-nums">{fmt(card.limit)}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`text-2xs font-bold px-2 py-0.5 rounded-full border ${STATUS_CHIP[card.status] ?? STATUS_CHIP.draft}`}>
-                      {card.status}
-                    </span>
-                  </td>
-                  <td className={`px-4 py-3 text-sm text-right tabular-nums ${aprColor(card.aprDaysLeft)}`}>
-                    {card.aprDaysLeft != null ? `${card.aprDaysLeft}d left` : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
+        {round.targetCredit === null || pct === null ? (
+          // No bar without a denominator: an empty one reads as no progress
+          // and a full one as the target being met.
+          <p className="text-xs text-gray-500">
+            No target credit is recorded for this round, so progress is not shown as a
+            share. {fmt(round.progress.creditObtained)} has been obtained.
+          </p>
+        ) : (
+          <>
+            <div className="w-full bg-gray-100 rounded-full h-2">
+              <div
+                className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              {pct}% of target
+              {round.progress.creditRemaining === null
+                ? ''
+                : ` · ${fmt(round.progress.creditRemaining)} remaining`}
+            </p>
+          </>
+        )}
 
-      {/* Round Economics */}
-      <SectionCard title="Round Economics">
-        <div className="space-y-2 text-sm">
+        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
           {[
-            ['Program Fee', fmt(round.economics.programFee), 'paid Jan 15, 2026'],
-            ['% of Funding Fee', fmt(round.economics.fundingFee), 'pending — on approval'],
-            ['Total Projected Cost', fmt(round.economics.totalCost), null],
-            ['Net Usable Capital', fmt(round.economics.netCapital), 'after fees'],
-            ['Effective Cost Rate', `${round.economics.effectiveRate}%`, null],
-          ].map(([label, value, note]) => (
-            <div key={label as string} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 last:pb-0">
-              <span className="text-gray-500">{label}</span>
-              <span className="text-gray-900 font-semibold">
-                {value}
-                {note && <span className="text-xs text-gray-400 font-normal ml-2">({note})</span>}
-              </span>
+            { k: 'Applications', v: String(round.progress.applicationCount) },
+            { k: 'Approved', v: String(round.progress.approvedCount) },
+            { k: 'Pending', v: String(round.progress.pendingCount) },
+            { k: 'Declined', v: String(round.progress.declinedCount) },
+          ].map((f) => (
+            <div key={f.k}>
+              <dt className="text-[10px] text-gray-500 uppercase tracking-wide">{f.k}</dt>
+              <dd className="text-sm text-gray-900 mt-0.5 tabular-nums">{f.v}</dd>
             </div>
           ))}
-        </div>
-      </SectionCard>
+        </dl>
+      </div>
 
-      {/* Actions */}
-      <div className="flex gap-3">
-        <button
-          onClick={() => router.push(`/applications/new?client_id=${round.businessId}&round_id=${round.id}`)}
-          className="btn-primary btn"
-        >
-          + Add Application to Round
-        </button>
-        <button onClick={() => router.push(`/clients/${round.businessId}`)} className="btn-outline btn">
-          View Client
-        </button>
+      {/* Cards on this round */}
+      <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
+        <h2 className="text-sm font-semibold text-gray-900">Cards on this round</h2>
+
+        {round.applications.length === 0 ? (
+          <p className="text-xs text-gray-500">
+            No card applications are attached to this round. Three were shown here for every
+            round, whatever was on file.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500">
+                <th className="pb-2 font-medium">Card</th>
+                <th className="pb-2 font-medium">Issuer</th>
+                <th className="pb-2 font-medium">Limit</th>
+                <th className="pb-2 font-medium">Status</th>
+                <th className="pb-2 font-medium">Intro APR ends</th>
+              </tr>
+            </thead>
+            <tbody>
+              {round.applications.map((app) => {
+                const days = aprDaysRemaining(app.introAprExpiry);
+                return (
+                  <tr key={app.id} className="border-t border-gray-100">
+                    <td className="py-2 text-gray-900">{app.cardProduct}</td>
+                    <td className="py-2 text-gray-600">{app.issuer}</td>
+                    <td className="py-2 text-gray-700 tabular-nums">
+                      {/* Not $0: a card with no limit recorded is not a card
+                          approved for nothing. */}
+                      {app.creditLimit === null ? (
+                        <span className="italic text-gray-400">not recorded</span>
+                      ) : (
+                        fmt(app.creditLimit)
+                      )}
+                    </td>
+                    <td className="py-2">
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full border ${chip(app.status)}`}
+                      >
+                        {app.status.replace(/_/g, ' ')}
+                      </span>
+                    </td>
+                    <td className={`py-2 ${aprColor(days)}`}>
+                      {app.introAprExpiry === null ? (
+                        <span className="text-gray-400">—</span>
+                      ) : (
+                        <>
+                          {formatDate(app.introAprExpiry)}
+                          {days === null ? '' : ` (${days}d)`}
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* What this page no longer claims */}
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 space-y-2">
+        <h2 className="text-sm font-semibold text-gray-700">Not shown here</h2>
+        <ul className="text-xs text-gray-500 space-y-1.5 list-disc pl-4">
+          <li>
+            <strong className="text-gray-600">An advisor and a target close date.</strong>{' '}
+            Both were literals. A business carries an advisor, the round does not, and there
+            is no target close field on a funding round at all.
+          </li>
+          <li>
+            <strong className="text-gray-600">Round economics.</strong> A program fee, a
+            funding fee, net capital and an effective rate were shown per round. Cost
+            calculations are real but are keyed to a business rather than a round, so
+            attributing one here would invent the attribution even where the figures are
+            genuine.
+          </li>
+        </ul>
       </div>
     </div>
   );
