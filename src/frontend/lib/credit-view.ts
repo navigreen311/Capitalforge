@@ -236,11 +236,68 @@ export function toBusinessScoreSet(data: unknown): BusinessScoreSet {
   }, empty);
 }
 
-/** Tradelines from the credit-builder response; accepts the wrapper or a bare array. */
-export function toTradelineCount(data: unknown): number {
+/**
+ * Tradelines from the credit-builder response; accepts the wrapper or a bare
+ * array.
+ *
+ * Null when the response carries no tradeline list at all — nothing has been
+ * fetched, or the request failed. That is not the same as a client with no
+ * trade lines, which is a real answer of zero, and the two were previously
+ * indistinguishable: both rendered "0 of 5 trade lines established", so a page
+ * that had loaded nothing stated that the client had opened nothing.
+ */
+export function toTradelineCount(data: unknown): number | null {
   if (Array.isArray(data)) return data.length;
   const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
-  return Array.isArray(record['tradelines']) ? (record['tradelines'] as unknown[]).length : 0;
+  return Array.isArray(record['tradelines']) ? (record['tradelines'] as unknown[]).length : null;
+}
+
+// ── Credit-builder client picker ────────────────────────────────────────────
+
+export interface CreditBuilderClientView {
+  id: string;
+  legal_name: string;
+  entity_type: string;
+  state: string;
+}
+
+/**
+ * The clients offered by the credit-builder picker, from /api/v1/clients.
+ *
+ * The picker held eight literals — Apex Ventures LLC, NovaGo Solutions,
+ * Meridian Holdings and five more — under ids cb_001 to cb_008. No such
+ * businesses exist, so every downstream request went to
+ * /api/credit-builder/cb_001/scores, which correctly answers 404, and the page
+ * turned that emptiness into zeros and drew a credit profile from them.
+ *
+ * One of those names, Apex Ventures LLC, is in the list another spec asserts
+ * must never appear on the communications-compliance page, for the same
+ * reason: it is not a client.
+ */
+export function toCreditBuilderClients(data: unknown): CreditBuilderClientView[] {
+  const rows = Array.isArray(data)
+    ? data
+    : data && typeof data === 'object' && Array.isArray((data as Record<string, unknown>)['data'])
+      ? ((data as Record<string, unknown>)['data'] as unknown[])
+      : [];
+
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Record<string, unknown>;
+    const id = typeof r['id'] === 'string' ? r['id'] : null;
+    // businessName is what /api/v1/clients calls the legal name.
+    const name = typeof r['businessName'] === 'string' ? r['businessName'] : null;
+    if (id === null || name === null) return [];
+
+    return [
+      {
+        id,
+        legal_name: name,
+        entity_type: typeof r['entityType'] === 'string' ? r['entityType'] : '',
+        state: typeof r['state'] === 'string' ? r['state'] : '',
+      },
+    ];
+  });
 }
 
 // ── Vendor tradelines ───────────────────────────────────────────────────────

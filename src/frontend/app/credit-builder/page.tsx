@@ -9,7 +9,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
-import { toBusinessScoreSet, toTradelineCount } from '@/lib/credit-view';
+import { toBusinessScoreSet, toTradelineCount, toCreditBuilderClients } from '@/lib/credit-view';
 import { useRouter } from 'next/navigation';
 import {
   CreditBuilderClientSelector,
@@ -238,6 +238,17 @@ export default function CreditBuilderPage() {
     `/api/credit-builder/${selectedClient?.id}/tradelines`,
   );
 
+  // The picker's clients. It held eight literals under ids cb_001 to cb_008,
+  // so selecting one sent every request above to a business that does not
+  // exist — answered 404, rendered as zeros.
+  const {
+    data: clientsRaw,
+    isLoading: clientsLoading,
+    error: clientsError,
+  } = useAuthFetch<unknown>('/api/v1/clients?pageSize=100');
+
+  const clients = useMemo(() => toCreditBuilderClients(clientsRaw), [clientsRaw]);
+
   const scores = useMemo(() => toBusinessScoreSet(scoresRaw), [scoresRaw]);
   const tradelineCount = useMemo(() => toTradelineCount(tradelinesRaw), [tradelinesRaw]);
 
@@ -245,8 +256,14 @@ export default function CreditBuilderPage() {
   const overallProgress = Math.round((completedCount / dunsSteps.length) * 100);
   // A missing PAYDEX must not unlock a tier. `null >= 80` is false in JS, but
   // relying on that would be accidental — the absence is checked explicitly.
+  // The same now goes for the tradeline count, which is null until read: an
+  // unread list must not satisfy a threshold, and must not fail one either.
   const tier1Unlocked =
-    scores.paydex !== null && scores.paydex >= 80 && tradelineCount >= 5 && completedCount >= 3;
+    scores.paydex !== null &&
+    scores.paydex >= 80 &&
+    tradelineCount !== null &&
+    tradelineCount >= 5 &&
+    completedCount >= 3;
 
   const toggleStep = useCallback((id: number) => {
     setDunsSteps((prev) =>
@@ -286,6 +303,13 @@ export default function CreditBuilderPage() {
         selectedClient={selectedClient}
         onClientSelect={setSelectedClient}
         onClear={() => setSelectedClient(null)}
+        clients={clients}
+        loading={clientsLoading}
+        error={
+          clientsError === null
+            ? null
+            : 'The client list could not be read. No clients are offered.'
+        }
       />
 
       {/* ── Page Header ──────────────────────────────────────────── */}
@@ -347,7 +371,7 @@ export default function CreditBuilderPage() {
                   <p className="text-xs text-green-500 mt-1">Completed {formatDate(step.completedDate)}</p>
                 )}
                 {step.id === 4 && !step.completed && <div className="mt-2"><TradelineSubProgress current={tradelineCount} target={5} /></div>}
-                {step.id === 5 && !step.completed && <div className="mt-2"><PaydexSubProgress currentScore={scores.paydex ?? 0} targetScore={80} /></div>}
+                {step.id === 5 && !step.completed && <div className="mt-2"><PaydexSubProgress currentScore={scores.paydex} targetScore={80} /></div>}
               </div>
               <div className="flex-shrink-0 text-right">
                 <p className="text-xs text-gray-500 whitespace-nowrap">{step.estimatedDays}</p>
@@ -588,12 +612,18 @@ export default function CreditBuilderPage() {
       </div>
 
       {/* ── Estimated Progress Timeline ──────────────────────────── */}
+      {/* Every one of these was coerced with `?? 0` before being passed in,
+          and the component already accepts null and handles it. A Paydex of 0
+          is a score, not an absence, and the timeline turned three absences
+          into a projected unlock date. businessAgeMonths was the constant 36
+          — three years for every client, clearing the two-year threshold for
+          all of them — and nothing in this system records a formation date. */}
       <EstimatedProgressTimeline
-        paydex={scores.paydex ?? 0}
+        paydex={scores.paydex}
         tradelineCount={tradelineCount}
-        experianBusiness={scores.experianBusiness ?? 0}
-        sbss={scores.sbss ?? 0}
-        businessAgeMonths={36}
+        experianBusiness={scores.experianBusiness}
+        sbss={scores.sbss}
+        businessAgeMonths={null}
       />
 
       {/* ── Vendor Detail Drawer ─────────────────────────────────── */}

@@ -14,10 +14,12 @@ import { useState } from 'react';
 
 export interface EstimatedProgressTimelineProps {
   paydex: number | null;
-  tradelineCount: number;
+  /** Trade lines established, or null when the list has not been read. */
+  tradelineCount: number | null;
   experianBusiness: number | null;
   sbss: number | null;
-  businessAgeMonths: number;
+  /** Months since formation, or null — nothing records a formation date. */
+  businessAgeMonths: number | null;
 }
 
 interface TierEstimate {
@@ -57,15 +59,18 @@ function computePaydexDays(paydex: number | null): number | null {
   return Math.ceil(months * 30);
 }
 
-function computeTradelineDays(tradelineCount: number): number {
+/** Null when the tradeline list has not been read: no gap can be measured. */
+function computeTradelineDays(tradelineCount: number | null): number | null {
+  if (tradelineCount === null) return null;
   if (tradelineCount >= TRADELINE_TARGET) return 0;
   const gap = TRADELINE_TARGET - tradelineCount;
   return gap * DAYS_PER_TRADELINE;
 }
 
-function computeTier1(paydex: number | null, tradelineCount: number): TierEstimate {
+function computeTier1(paydex: number | null, tradelineCount: number | null): TierEstimate {
   const paydexMet = paydex !== null && paydex >= PAYDEX_TARGET;
-  const tradelineMet = tradelineCount >= TRADELINE_TARGET;
+  // An unread list satisfies nothing — and falls short of nothing either.
+  const tradelineMet = tradelineCount !== null && tradelineCount >= TRADELINE_TARGET;
 
   const paydexDays = computePaydexDays(paydex);
   const tradelineDays = computeTradelineDays(tradelineCount);
@@ -83,17 +88,21 @@ function computeTier1(paydex: number | null, tradelineCount: number): TierEstima
     {
       label: `${TRADELINE_TARGET}+ tradelines`,
       met: tradelineMet,
-      detail: tradelineMet
-        ? 'Already met'
-        : `${TRADELINE_TARGET - tradelineCount} more needed (~${DAYS_PER_TRADELINE}d each)`,
+      detail:
+        tradelineCount === null
+          ? 'Trade lines not read'
+          : tradelineMet
+            ? 'Already met'
+            : `${TRADELINE_TARGET - tradelineCount} more needed (~${DAYS_PER_TRADELINE}d each)`,
     },
   ];
 
   let estimatedDays: number | null = null;
-  if (paydexDays !== null) {
+  if (paydexDays !== null && tradelineDays !== null) {
     estimatedDays = Math.max(paydexDays, tradelineDays);
   } else {
-    estimatedDays = null; // Cannot estimate without Paydex
+    // Cannot estimate without both a Paydex score and a tradeline count.
+    estimatedDays = null;
   }
 
   if (paydexMet && tradelineMet) estimatedDays = 0;
@@ -128,12 +137,18 @@ function computeTier2(experianBusiness: number | null): TierEstimate {
   return { tier: 2, label: 'Tier 2 Unlock', estimatedDays, criteria };
 }
 
-function computeTier3(sbss: number | null, businessAgeMonths: number): TierEstimate {
-  const ageMet = businessAgeMonths >= BUSINESS_AGE_TARGET_MONTHS;
+function computeTier3(sbss: number | null, businessAgeMonths: number | null): TierEstimate {
+  // Nothing in this system records when a business was formed, so the age was
+  // supplied as a constant 36 months — three years, for every client, which
+  // cleared the two-year threshold and reported "Already met" to all of them.
+  // Unknown now stays unknown: the criterion is unmet rather than satisfied,
+  // and no date is projected from it.
+  const ageKnown = businessAgeMonths !== null;
+  const ageMet = ageKnown && businessAgeMonths >= BUSINESS_AGE_TARGET_MONTHS;
   const sbssMet = sbss !== null && sbss >= SBSS_TARGET;
 
-  const ageMonthsRemaining = ageMet ? 0 : BUSINESS_AGE_TARGET_MONTHS - businessAgeMonths;
-  const ageDaysRemaining = ageMonthsRemaining * 30;
+  const ageMonthsRemaining = !ageKnown || ageMet ? 0 : BUSINESS_AGE_TARGET_MONTHS - businessAgeMonths;
+  const ageDaysRemaining = ageKnown ? ageMonthsRemaining * 30 : null;
 
   // SBSS growth: rough ~3 pts/month with active tradeline building
   let sbssDays: number | null = null;
@@ -148,9 +163,11 @@ function computeTier3(sbss: number | null, businessAgeMonths: number): TierEstim
     {
       label: `${BUSINESS_AGE_TARGET_MONTHS / 12}+ years business age`,
       met: ageMet,
-      detail: ageMet
-        ? 'Already met'
-        : `${ageMonthsRemaining} months remaining`,
+      detail: !ageKnown
+        ? 'Formation date not recorded'
+        : ageMet
+          ? 'Already met'
+          : `${ageMonthsRemaining} months remaining`,
     },
     {
       label: `SBSS ${SBSS_TARGET}+`,
@@ -163,8 +180,13 @@ function computeTier3(sbss: number | null, businessAgeMonths: number): TierEstim
     },
   ];
 
+  // With the formation date unknown there is no floor on how long Tier 3
+  // takes, so no date is offered at all rather than one computed from the
+  // SBSS gap alone — that would read as a deadline the age might not meet.
   let estimatedDays: number | null = null;
-  if (ageMet && sbssMet) {
+  if (!ageKnown || ageDaysRemaining === null) {
+    estimatedDays = null;
+  } else if (ageMet && sbssMet) {
     estimatedDays = 0;
   } else if (sbssDays !== null) {
     estimatedDays = Math.max(ageDaysRemaining, sbssDays);

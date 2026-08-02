@@ -11,8 +11,8 @@ import React from 'react';
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface TradelineSubProgressProps {
-  /** Number of trade lines currently established */
-  current: number;
+  /** Trade lines established, or null when the list has not been read. */
+  current: number | null;
   /** Target number of trade lines required */
   target: number;
 }
@@ -33,14 +33,25 @@ function clampPercent(value: number): number {
 // ── TradelineSubProgress ────────────────────────────────────────────────────
 
 export function TradelineSubProgress({ current, target }: TradelineSubProgressProps) {
-  const percent = target > 0 ? clampPercent((current / target) * 100) : 0;
-  const reached = current >= target;
+  // Null is not zero. "0 of 5 trade lines established" states that the client
+  // has opened none, which is a different claim from not having looked.
+  const known = current !== null;
+  const percent = known && target > 0 ? clampPercent((current / target) * 100) : 0;
+  const reached = known && current >= target;
 
   return (
     <div className="mt-1.5 space-y-1">
       <p className="text-xs text-gray-400">
-        <span className="font-medium text-gray-200">{current}</span> of{' '}
-        <span className="font-medium text-gray-200">{target}</span> trade lines established
+        {known ? (
+          <>
+            <span className="font-medium text-gray-200">{current}</span> of{' '}
+            <span className="font-medium text-gray-200">{target}</span> trade lines established
+          </>
+        ) : (
+          <>
+            <span className="italic text-gray-500">Not read</span> — {target} trade lines required
+          </>
+        )}
       </p>
 
       {/* Progress bar */}

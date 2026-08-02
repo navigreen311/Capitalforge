@@ -15,20 +15,20 @@ export interface CreditBuilderClientSelectorProps {
   onClientSelect: (client: CBClient) => void;
   onClear: () => void;
   selectedClient: CBClient | null;
+  /** The clients the API returned. Empty while loading, or if there are none. */
+  clients: CBClient[];
+  loading: boolean;
+  /** Set when the client list could not be read at all. */
+  error: string | null;
 }
 
-// ─── Mock client data ───────────────────────────────────────────────────────
-
-const MOCK_CLIENTS: CBClient[] = [
-  { id: 'cb_001', legal_name: 'Apex Ventures LLC', entity_type: 'LLC', state: 'TX' },
-  { id: 'cb_002', legal_name: 'NovaGo Solutions', entity_type: 'S-Corp', state: 'CA' },
-  { id: 'cb_003', legal_name: 'Meridian Holdings', entity_type: 'C-Corp', state: 'NY' },
-  { id: 'cb_004', legal_name: 'Brightline Corp', entity_type: 'C-Corp', state: 'FL' },
-  { id: 'cb_005', legal_name: 'Thornwood Capital', entity_type: 'LLC', state: 'DE' },
-  { id: 'cb_006', legal_name: 'Pinnacle Group Inc', entity_type: 'C-Corp', state: 'IL' },
-  { id: 'cb_007', legal_name: 'Summit Edge Partners', entity_type: 'LLC', state: 'WA' },
-  { id: 'cb_008', legal_name: 'Vanguard Logistics LLC', entity_type: 'LLC', state: 'GA' },
-];
+// The eight clients this picker used to offer — Apex Ventures LLC, NovaGo
+// Solutions, Meridian Holdings and five more, under ids cb_001 to cb_008 —
+// were literals. No such businesses exist, so choosing one sent every later
+// request to /api/credit-builder/cb_001/..., which answers 404, and the page
+// rendered the resulting emptiness as a credit profile made of zeros.
+//
+// The clients now come from /api/v1/clients, through the page.
 
 // ─── Debounce hook ──────────────────────────────────────────────────────────
 
@@ -49,6 +49,9 @@ export function CreditBuilderClientSelector({
   onClientSelect,
   onClear,
   selectedClient,
+  clients,
+  loading,
+  error,
 }: CreditBuilderClientSelectorProps) {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -59,7 +62,7 @@ export function CreditBuilderClientSelector({
   // 300ms debounce on the search query
   const debouncedQuery = useDebouncedValue(query, 300);
 
-  const filtered = MOCK_CLIENTS.filter((c) => {
+  const filtered = clients.filter((c) => {
     if (!debouncedQuery) return true; // show all when no query
     const q = debouncedQuery.toLowerCase();
     return (
@@ -171,7 +174,19 @@ export function CreditBuilderClientSelector({
                 border-gray-700 bg-gray-900 shadow-xl"
             >
               {filtered.length === 0 ? (
-                <li className="px-3 py-2 text-sm text-gray-500">No clients found</li>
+                // Three different reasons for an empty list, which "No clients
+                // found" collapsed into one. A reader needs to know whether the
+                // list is still arriving, could not be read, or is genuinely
+                // empty before concluding anything about their book.
+                <li className="px-3 py-2 text-sm text-gray-500">
+                  {loading
+                    ? 'Loading clients…'
+                    : error !== null
+                      ? error
+                      : clients.length === 0
+                        ? 'No clients on this tenant yet.'
+                        : 'No clients match that search'}
+                </li>
               ) : (
                 filtered.map((client, idx) => (
                   <li key={client.id} role="option" aria-selected={idx === highlightIdx}>
