@@ -341,8 +341,20 @@ import { financialRouter } from './financial.routes.js';
 apiRouter.use('/financial', financialRouter);
 
 // ── Compliance Extended (Regulatory, Comm Compliance, Training, Decisions) ──
-import { complianceExtendedRouter } from './compliance-extended.routes.js';
-apiRouter.use('/', complianceExtendedRouter);
+// compliance-extended.routes.ts is gone.
+//
+// It served six datasets of invented records under /api/compliance/* — a
+// communication log flagging invented advisor calls for banned claims and
+// missing consent, a consent audit granting and revoking permission for
+// businesses that do not exist, advisor certifications, regulatory items,
+// decisions and training modules. Every one was a literal, none was
+// tenant-scoped, and no page called any of them: each subject already has a
+// real endpoint, which is what the pages were rewired to.
+//   regulatory     /api/regulatory/alerts
+//   comm log + QA  /api/comm-compliance/*
+//   consent        /api/consent/audit and /api/do-not-call
+//   training       /api/training/tracks, /api/training/certifications
+//   decisions      /api/ai-decisions
 
 // ── Platform (CRM, issuers, referrals, workflows, settings) ──
 import { platformRouter } from './platform.routes.js';
