@@ -252,7 +252,10 @@ const COVERAGE_ANCHORS: { route: string; trigger: string }[] = [
   { route: '/issuers', trigger: '+ Add Issuer Contact' },
   { route: '/workflows', trigger: '+ New Rule' },
   { route: '/documents', trigger: '↑ Upload' },
-  { route: '/referrals', trigger: '+ Add Referral' },
+  // '+ Add Referral' on /referrals is gone. Nothing stores an advisor
+  // referral and POST /api/platform/referrals answers 501, so a form that
+  // could only fail is worse than none — the page says so instead.
+
   // Both of these opened nothing until the fixes in this commit: the dashboard
   // trigger was never clicked because discovery and clicking disagreed on the
   // label, and the tradeline modal could not open at all.

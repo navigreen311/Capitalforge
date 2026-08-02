@@ -230,6 +230,8 @@ e2e invoices               : ${e2eInvoices.length}`);
   // The seed creates neither, so everything here came from a test.
   const e2eHardship = await prisma.hardshipCase.findMany({ select: { id: true } });
   const e2eWorkflows = await prisma.workflowRule.findMany({
+    // The form sweep also opens the New Rule form on /workflows; it does not
+    // submit, so only the spec's own rules need clearing.
     where: { name: { startsWith: 'E2E rule ' } },
     select: { id: true, name: true },
   });
