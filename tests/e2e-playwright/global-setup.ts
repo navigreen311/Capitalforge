@@ -12,6 +12,8 @@
 // ============================================================
 
 import type { FullConfig } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const APP_MARKER = 'CapitalForge';
 /** Frontend: Playwright already waited for its port, so it answers quickly. */
@@ -33,6 +35,57 @@ async function fetchPage(url: string): Promise<{ status: number; body: string } 
     // Server not up yet, or not up at all.
     return null;
   }
+}
+
+
+/**
+ * Compile every page before the first test navigates to one.
+ *
+ * Next compiles a route on its first request. That cost lands inside
+ * whichever test happens to visit the page first, and after a code change it
+ * lands on many of them at once — which is what a run of twelve produced:
+ * the first four failed on load-dependent assertions, one after waiting the
+ * full thirty seconds, and the last eight were clean once the cache was
+ * warm.
+ *
+ * Requesting each route here moves that cost outside the tests. Failures are
+ * ignored on purpose: a route that will not compile is a real problem, but
+ * it is the test's problem to report, with its trace, rather than something
+ * to fail the whole run over from here.
+ */
+async function warmRoutes(baseURL: string): Promise<void> {
+  const appDir = path.join(process.cwd(), 'src', 'frontend', 'app');
+
+  const routes: string[] = [];
+  const walk = (dir: string, route: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        if (entry.name === 'page.tsx') routes.push(route === '' ? '/' : route);
+        continue;
+      }
+      // Route groups add no path segment; dynamic segments cannot be warmed
+      // without knowing an id.
+      if (entry.name.startsWith('[')) continue;
+      const segment = entry.name.startsWith('(') ? '' : `/${entry.name}`;
+      walk(path.join(dir, entry.name), route + segment);
+    }
+  };
+
+  try {
+    walk(appDir, '');
+  } catch {
+    return;
+  }
+
+  const started = Date.now();
+  // Serial: the dev server compiles one route at a time anyway, and a burst
+  // of parallel requests only queues behind itself.
+  for (const route of routes) {
+    await fetchPage(new URL(route, baseURL).toString());
+  }
+  console.log(
+    `[global-setup] warmed ${routes.length} routes in ${Math.round((Date.now() - started) / 1000)}s`,
+  );
 }
 
 export default async function globalSetup(config: FullConfig): Promise<void> {
@@ -86,7 +139,10 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
 
   for (let attempt = 1; attempt <= API_ATTEMPTS; attempt++) {
     const res = await fetchPage(health);
-    if (res !== null && res.status === 200) return;
+    if (res !== null && res.status === 200) {
+      await warmRoutes(baseURL);
+      return;
+    }
 
     if (attempt === API_ATTEMPTS) {
       throw new Error(
