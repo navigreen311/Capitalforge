@@ -474,6 +474,67 @@ const SEED_PHONES = {
     },
   });
 
+  // Benefits on the two approved cards above. /card-benefits used to build
+  // twelve of these in the API for any client asked for; card_benefits is a
+  // real table and was simply empty, so the page had nothing to read.
+  //
+  // Deliberately uneven: one benefit already used, one with no value on
+  // record, one with no expiry. Uniform rows would hide the cases the page
+  // has to distinguish — an unrecorded value is not a value of zero, and a
+  // benefit with no expiry is not one expiring today.
+  //
+  // create-only, like everything else here, so a local edit survives a
+  // re-seed.
+  const cardBenefits = [
+    {
+      id: 'seed-benefit-001',
+      cardApplicationId: 'seed-app-001',
+      benefitType: 'travel_credit',
+      benefitName: 'Travel Credit',
+      benefitValue: dec('300'),
+      expiryDate: d('2026-12-31'),
+      utilized: false,
+    },
+    {
+      id: 'seed-benefit-002',
+      cardApplicationId: 'seed-app-001',
+      benefitType: 'fee_credit',
+      benefitName: 'Global Entry Reimbursement',
+      benefitValue: dec('100'),
+      expiryDate: d('2026-09-30'),
+      utilized: true,
+      utilizedDate: d('2026-04-14'),
+    },
+    {
+      id: 'seed-benefit-003',
+      cardApplicationId: 'seed-app-001',
+      benefitType: 'insurance',
+      benefitName: 'Cell Phone Protection',
+      // No dollar value on record: the benefit is real, its worth is not
+      // something anyone has written down.
+      benefitValue: null,
+      expiryDate: null,
+      utilized: false,
+    },
+    {
+      id: 'seed-benefit-004',
+      cardApplicationId: 'seed-app-002',
+      benefitType: 'cash_back',
+      benefitName: 'Quarterly Cash Back Bonus',
+      benefitValue: dec('75'),
+      expiryDate: d('2026-08-31'),
+      utilized: false,
+    },
+  ];
+
+  for (const benefit of cardBenefits) {
+    await prisma.cardBenefit.upsert({
+      where: { id: benefit.id },
+      update: {},
+      create: benefit,
+    });
+  }
+
   await prisma.cardApplication.upsert({
     where: { id: 'seed-app-003' },
     update: {},
