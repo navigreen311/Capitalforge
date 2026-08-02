@@ -20,19 +20,12 @@
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import logger from '../../config/logger.js';
 
 export const activityRouter = Router();
-
-let prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
 
 export interface ActivityEntry {
   id: string;
@@ -67,7 +60,7 @@ activityRouter.get(
     try {
       const limit = Math.min(Number(req.query['limit']) || 20, 100);
 
-      const rows = await getPrisma().auditLog.findMany({
+      const rows = await sharedPrisma.auditLog.findMany({
         where: { tenantId },
         orderBy: { timestamp: 'desc' },
         take: limit,
@@ -83,7 +76,7 @@ activityRouter.get(
       const userIds = [...new Set(rows.map((r) => r.userId).filter((id): id is string => id !== null))];
       const users = userIds.length === 0
         ? []
-        : await getPrisma().user.findMany({
+        : await sharedPrisma.user.findMany({
             where: { id: { in: userIds }, tenantId },
             select: { id: true, firstName: true, lastName: true },
           });
@@ -98,7 +91,7 @@ activityRouter.get(
         occurredAt: r.timestamp.toISOString(),
       }));
 
-      const total = await getPrisma().auditLog.count({ where: { tenantId } });
+      const total = await sharedPrisma.auditLog.count({ where: { tenantId } });
 
       ok(res, { entries, total });
     } catch (err) {

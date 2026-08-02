@@ -19,7 +19,6 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import {
   runStackingOptimizer,
@@ -32,11 +31,6 @@ import logger from '../../config/logger.js';
 export const optimizerV2Router = Router();
 
 // Lazy singleton — avoids instantiating Prisma in tests that don't need it
-let prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
 
 // ── Validation schema ────────────────────────────────────────
 
@@ -126,7 +120,7 @@ optimizerV2Router.get(
   '/card-products',
   async (req: Request, res: Response): Promise<void> => {
     try {
-      const db = getPrisma();
+      const db = sharedPrisma;
       const { type, issuer, active } = req.query;
 
       // Default: only active products

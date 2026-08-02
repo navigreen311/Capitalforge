@@ -12,7 +12,6 @@
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
@@ -20,11 +19,6 @@ import logger from '../../config/logger.js';
 export const creditUnionRouter = Router();
 
 // Lazy singleton — avoids instantiating Prisma in tests that don't need it
-let prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -92,7 +86,7 @@ creditUnionRouter.get('/:slug/products', async (req: Request, res: Response) => 
     const slug = String(req.params.slug);
     logger.info('[credit-union] GET /:slug/products', { slug });
 
-    const db = getPrisma();
+    const db = sharedPrisma;
 
     const creditUnion = await db.creditUnion.findUnique({
       where: { slug },
@@ -135,7 +129,7 @@ creditUnionRouter.get(
         : undefined;
       logger.info('[credit-union] GET /:slug/eligibility', { slug, businessId });
 
-      const db = getPrisma();
+      const db = sharedPrisma;
 
       // Fetch the credit union
       const creditUnion = await db.creditUnion.findUnique({
@@ -352,7 +346,7 @@ creditUnionRouter.post(
         });
       }
 
-      const db = getPrisma();
+      const db = sharedPrisma;
 
       // Verify the credit union exists
       const creditUnion = await db.creditUnion.findUnique({

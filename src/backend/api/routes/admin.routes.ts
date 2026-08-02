@@ -30,7 +30,6 @@
 import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
@@ -46,20 +45,15 @@ export const adminRouter = Router();
 
 // ── Lazy service instances ────────────────────────────────────
 
-let prisma: PrismaClient | null = null;
 let multiTenantSvc:  MultiTenantService  | null = null;
 let offboardingSvc:  OffboardingService  | null = null;
 let fairLendingSvc:  FairLendingService  | null = null;
 let aiGovernanceSvc: AiGovernanceService | null = null;
 
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
-function getMultiTenantSvc():  MultiTenantService  { return multiTenantSvc  ??= new MultiTenantService(getPrisma()); }
-function getOffboardingSvc():  OffboardingService  { return offboardingSvc  ??= new OffboardingService(getPrisma()); }
-function getFairLendingSvc():  FairLendingService  { return fairLendingSvc  ??= new FairLendingService(getPrisma()); }
-function getAiGovernanceSvc(): AiGovernanceService { return aiGovernanceSvc ??= new AiGovernanceService(getPrisma()); }
+function getMultiTenantSvc():  MultiTenantService  { return multiTenantSvc  ??= new MultiTenantService(sharedPrisma); }
+function getOffboardingSvc():  OffboardingService  { return offboardingSvc  ??= new OffboardingService(sharedPrisma); }
+function getFairLendingSvc():  FairLendingService  { return fairLendingSvc  ??= new FairLendingService(sharedPrisma); }
+function getAiGovernanceSvc(): AiGovernanceService { return aiGovernanceSvc ??= new AiGovernanceService(sharedPrisma); }
 
 // ── Guards ────────────────────────────────────────────────────
 

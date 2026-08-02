@@ -11,20 +11,12 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
 
-
 // ── Lazy Prisma singleton ────────────────────────────────────
-
-let _prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = sharedPrisma;
-  return _prisma;
-}
 
 // ── Router ────────────────────────────────────────────────────
 
@@ -87,7 +79,7 @@ fundingRoundActionsRouter.post(
     }
 
     try {
-      const prisma = getPrisma();
+      const prisma = sharedPrisma;
 
       const round = await prisma.fundingRound.findFirst({
         where: { id: roundId, business: { tenantId } },
@@ -243,7 +235,7 @@ fundingRoundActionsRouter.put(
     }
 
     try {
-      const prisma = getPrisma();
+      const prisma = sharedPrisma;
 
       let updated: Record<string, unknown> | null = null;
       try {

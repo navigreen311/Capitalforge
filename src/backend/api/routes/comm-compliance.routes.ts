@@ -29,7 +29,6 @@
 import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
@@ -49,22 +48,16 @@ import logger from '../../config/logger.js';
 export const commComplianceRouter = Router();
 
 // ── Lazy-initialised service instances ───────────────────────────
-let prisma: PrismaClient | null = null;
 let complianceSvc: CommComplianceService | null = null;
 let trainingSvc: TrainingService | null = null;
 
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
-
 function getComplianceService(): CommComplianceService {
-  if (!complianceSvc) complianceSvc = new CommComplianceService(getPrisma());
+  if (!complianceSvc) complianceSvc = new CommComplianceService(sharedPrisma);
   return complianceSvc;
 }
 
 function getTrainingService(): TrainingService {
-  if (!trainingSvc) trainingSvc = new TrainingService(getPrisma());
+  if (!trainingSvc) trainingSvc = new TrainingService(sharedPrisma);
   return trainingSvc;
 }
 
@@ -457,7 +450,7 @@ commComplianceRouter.get(
     try {
       const { tenantId } = req.tenant!;
 
-      const entries = await getPrisma().doNotCallList.findMany({
+      const entries = await sharedPrisma.doNotCallList.findMany({
         where: { tenantId },
         orderBy: { addedAt: 'desc' },
         take: 500,
@@ -472,7 +465,7 @@ commComplianceRouter.get(
 
       const businesses = businessIds.length === 0
         ? []
-        : await getPrisma().business.findMany({
+        : await sharedPrisma.business.findMany({
             where: { tenantId, id: { in: businessIds } },
             select: { id: true, legalName: true, dba: true },
           });

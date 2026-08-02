@@ -18,7 +18,6 @@
 import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
@@ -42,22 +41,16 @@ export const voiceForgeRouter = Router();
 
 // ── Lazy-initialised service instances ───────────────────────────
 
-let _prisma: PrismaClient | null = null;
 let _voiceForgeSvc: VoiceForgeService | null = null;
 let _complianceSvc: VoiceForgeComplianceService | null = null;
 
-function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = sharedPrisma;
-  return _prisma;
-}
-
 function getVoiceForgeService(): VoiceForgeService {
-  if (!_voiceForgeSvc) _voiceForgeSvc = new VoiceForgeService(getPrisma());
+  if (!_voiceForgeSvc) _voiceForgeSvc = new VoiceForgeService(sharedPrisma);
   return _voiceForgeSvc;
 }
 
 function getComplianceService(): VoiceForgeComplianceService {
-  if (!_complianceSvc) _complianceSvc = new VoiceForgeComplianceService(getPrisma());
+  if (!_complianceSvc) _complianceSvc = new VoiceForgeComplianceService(sharedPrisma);
   return _complianceSvc;
 }
 

@@ -12,17 +12,10 @@
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '@shared/types/index.js';
 
 // ── Lazy PrismaClient singleton ─────────────────────────────────────────────
-
-let _prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  _prisma ??= sharedPrisma;
-  return _prisma;
-}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,7 +93,7 @@ dashboardPaymentsRouter.get(
       }
 
       const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
-      const prisma = getPrisma();
+      const prisma = sharedPrisma;
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endDate = new Date(startOfToday);

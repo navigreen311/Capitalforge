@@ -13,17 +13,10 @@
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '@shared/types/index.js';
 
 // ── Lazy PrismaClient singleton ──────────────────────────────
-
-let _prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  _prisma ??= sharedPrisma;
-  return _prisma;
-}
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -81,7 +74,7 @@ dashboardVoiceforgeRouter.get('/', async (req: Request, res: Response) => {
     }
 
     // Keep PrismaClient warm for tenant-scoped queries if needed later
-    const _db = getPrisma();
+    const _db = sharedPrisma;
 
     // VoiceForge may not have dedicated DB tables for all activity
     // data — return realistic mock data scoped to the tenant session.

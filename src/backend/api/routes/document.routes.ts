@@ -15,7 +15,6 @@
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import { requireAuth } from '../../middleware/auth.middleware.js';
 import { requirePermissions } from '../../middleware/rbac.middleware.js';
@@ -43,20 +42,14 @@ export const documentRouter = Router();
 
 let _vaultService: DocumentVaultService | null = null;
 let _dossierService: ComplianceDossierService | null = null;
-let _prisma: PrismaClient | null = null;
-
-function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = sharedPrisma;
-  return _prisma;
-}
 
 function getVaultService(): DocumentVaultService {
-  if (!_vaultService) _vaultService = new DocumentVaultService(getPrisma());
+  if (!_vaultService) _vaultService = new DocumentVaultService(sharedPrisma);
   return _vaultService;
 }
 
 function getDossierService(): ComplianceDossierService {
-  if (!_dossierService) _dossierService = new ComplianceDossierService(getPrisma());
+  if (!_dossierService) _dossierService = new ComplianceDossierService(sharedPrisma);
   return _dossierService;
 }
 
@@ -426,7 +419,7 @@ documentRouter.post(
     });
 
     try {
-      const doc = await getPrisma().document.create({
+      const doc = await sharedPrisma.document.create({
         data: {
           tenantId: ctx.tenantId,
           businessId: businessId ?? null,

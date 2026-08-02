@@ -10,7 +10,6 @@
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import { z, ZodError } from 'zod';
 import { requireAuth } from '../../middleware/auth.middleware.js';
@@ -22,15 +21,9 @@ import logger from '../../config/logger.js';
 export const chatRouter = Router();
 
 let _chatService: ChatService | null = null;
-let _prisma: PrismaClient | null = null;
-
-function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = sharedPrisma;
-  return _prisma;
-}
 
 function getChatService(): ChatService {
-  if (!_chatService) _chatService = new ChatService(getPrisma());
+  if (!_chatService) _chatService = new ChatService(sharedPrisma);
   return _chatService;
 }
 

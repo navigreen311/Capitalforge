@@ -26,19 +26,12 @@
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import logger from '../../config/logger.js';
 
 export const platformOffboardingRouter = Router();
-
-let prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
 
 function ok<T>(res: Response, data: T) {
   const body: ApiResponse<T> = { success: true, data };
@@ -67,7 +60,7 @@ platformOffboardingRouter.get(
     }
 
     try {
-      const workflow = await getPrisma().offboardingWorkflow.findFirst({
+      const workflow = await sharedPrisma.offboardingWorkflow.findFirst({
         where: { id: workflowId, tenantId },
         select: { id: true },
       });
@@ -77,7 +70,7 @@ platformOffboardingRouter.get(
         return;
       }
 
-      const entries = await getPrisma().auditLog.findMany({
+      const entries = await sharedPrisma.auditLog.findMany({
         where: { tenantId, resource: 'offboarding_workflow', resourceId: workflowId },
         orderBy: { timestamp: 'asc' },
         take: 500,

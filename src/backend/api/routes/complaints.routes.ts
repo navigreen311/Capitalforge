@@ -22,7 +22,6 @@
 import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
@@ -54,22 +53,16 @@ export const complaintsRouter = Router();
 
 // ── Lazy service instances ─────────────────────────────────────────
 
-let prisma: PrismaClient | null = null;
 let complaintSvc: ComplaintService | null = null;
 let regulatorSvc: RegulatorResponseService | null = null;
 
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
-
 function getComplaintService(): ComplaintService {
-  if (!complaintSvc) complaintSvc = new ComplaintService(getPrisma());
+  if (!complaintSvc) complaintSvc = new ComplaintService(sharedPrisma);
   return complaintSvc;
 }
 
 function getRegulatoryService(): RegulatorResponseService {
-  if (!regulatorSvc) regulatorSvc = new RegulatorResponseService(getPrisma());
+  if (!regulatorSvc) regulatorSvc = new RegulatorResponseService(sharedPrisma);
   return regulatorSvc;
 }
 

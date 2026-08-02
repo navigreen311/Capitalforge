@@ -22,11 +22,6 @@ import logger from '../../config/logger.js';
 export const issuerRulesRouter = Router();
 
 // Lazy singleton — avoids instantiating Prisma in tests that don't need it
-let prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -59,7 +54,7 @@ issuerRulesRouter.get('/issuers', async (_req: Request, res: Response) => {
   try {
     logger.info('[issuer-rules] GET /issuers');
 
-    const issuers = await getPrisma().issuer.findMany({
+    const issuers = await sharedPrisma.issuer.findMany({
       where: { isActive: true },
       include: {
         rules: {
@@ -88,7 +83,7 @@ issuerRulesRouter.get('/issuers/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     logger.info('[issuer-rules] GET /issuers/:id', { id });
 
-    const issuer = await getPrisma().issuer.findUnique({
+    const issuer = await sharedPrisma.issuer.findUnique({
       where: { id },
       include: {
         rules: {
@@ -121,7 +116,7 @@ issuerRulesRouter.get(
       const { businessId } = req.query;
       logger.info('[issuer-rules] GET /issuers/:id/eligibility', { id, businessId });
 
-      const db = getPrisma();
+      const db = sharedPrisma;
       const engine = new IssuerRulesEngine(db);
 
       // Build context from business data if businessId is provided
@@ -153,7 +148,7 @@ issuerRulesRouter.get('/credit-unions', async (_req: Request, res: Response) => 
   try {
     logger.info('[issuer-rules] GET /credit-unions');
 
-    const creditUnions = await getPrisma().creditUnion.findMany({
+    const creditUnions = await sharedPrisma.creditUnion.findMany({
       where: { isActive: true },
       include: {
         products: {
@@ -194,7 +189,7 @@ issuerRulesRouter.get('/credit-unions/:id', async (req: Request, res: Response) 
     const { id } = req.params;
     logger.info('[issuer-rules] GET /credit-unions/:id', { id });
 
-    const creditUnion = await getPrisma().creditUnion.findUnique({
+    const creditUnion = await sharedPrisma.creditUnion.findUnique({
       where: { id },
       include: {
         products: {

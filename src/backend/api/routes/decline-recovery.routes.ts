@@ -17,7 +17,6 @@
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import {
@@ -30,12 +29,6 @@ import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
 
 // ── Lazy Prisma singleton ────────────────────────────────────
-
-let _prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!_prisma) _prisma = sharedPrisma;
-  return _prisma;
-}
 
 // ── Router ────────────────────────────────────────────────────
 
@@ -221,7 +214,7 @@ declineRecoveryRouter.get(
     }
 
     try {
-      const prisma = getPrisma();
+      const prisma = sharedPrisma;
       const records = await prisma.declineRecovery.findMany({
         where: { tenantId },
         orderBy: { createdAt: 'desc' },
@@ -264,7 +257,7 @@ declineRecoveryRouter.get(
     }
 
     try {
-      const prisma = getPrisma();
+      const prisma = sharedPrisma;
       const all = await prisma.declineRecovery.findMany({ where: { tenantId } });
 
       // Stage counts
@@ -372,7 +365,6 @@ declineRecoveryRouter.get(
   },
 );
 
-
 // ── PATCH /api/declines/:id/stage ───────────────────────────
 // Advance the recovery stage for a decline record.
 
@@ -394,7 +386,7 @@ declineRecoveryRouter.patch(
     }
 
     try {
-      const prisma = getPrisma();
+      const prisma = sharedPrisma;
       const existing = await prisma.declineRecovery.findFirst({ where: { id: recoveryId, tenantId } });
       if (!existing) {
         sendError(res, 404, 'NOT_FOUND', `Decline recovery record ${recoveryId} not found.`);
@@ -441,7 +433,7 @@ declineRecoveryRouter.patch(
     }
 
     try {
-      const prisma = getPrisma();
+      const prisma = sharedPrisma;
       const existing = await prisma.declineRecovery.findFirst({ where: { id: recoveryId, tenantId } });
       if (!existing) {
         sendError(res, 404, 'NOT_FOUND', `Decline recovery record ${recoveryId} not found.`);

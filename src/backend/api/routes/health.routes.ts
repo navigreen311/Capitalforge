@@ -6,7 +6,6 @@
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
@@ -14,11 +13,6 @@ import logger from '../../config/logger.js';
 export const healthRouter = Router();
 
 // Lazy singleton — avoids instantiating Prisma in tests that don't need it
-let prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
 
 // ── Types ─────────────────────────────────────────────────────
 interface HealthData {
@@ -97,7 +91,7 @@ healthRouter.get('/ready', async (req: Request, res: Response): Promise<void> =>
 async function checkDatabase(reqLog: ReturnType<typeof logger.child>): Promise<CheckResult> {
   const t = Date.now();
   try {
-    await getPrisma().$queryRaw`SELECT 1`;
+    await sharedPrisma.$queryRaw`SELECT 1`;
     return { status: 'ok', latencyMs: Date.now() - t };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

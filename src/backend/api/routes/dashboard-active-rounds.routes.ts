@@ -6,17 +6,10 @@
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '@shared/types/index.js';
 
 // ── Lazy PrismaClient singleton ─────────────────────────────────────────────
-
-let prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
 
 // ── Helper: extract tenantId from authenticated request ─────────────────────
 
@@ -38,7 +31,7 @@ dashboardActiveRoundsRouter.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const tenantId = getTenantId(req);
-      const db = getPrisma();
+      const db = sharedPrisma;
 
       // ── Fetch rounds NOT completed or closed, with business + applications ──
       const rounds = await db.fundingRound.findMany({

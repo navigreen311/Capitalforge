@@ -16,19 +16,12 @@
 import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 
 export const platformExtendedRouter = Router();
 
 // ── Lazy Prisma ──────────────────────────────────────────────
-
-let prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!prisma) prisma = sharedPrisma;
-  return prisma;
-}
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -51,7 +44,7 @@ platformExtendedRouter.get(
       return;
     }
 
-    const db = getPrisma();
+    const db = sharedPrisma;
     const tenantId = (req as any).tenantId ?? undefined;
 
     // Build report data based on type
@@ -140,7 +133,7 @@ platformExtendedRouter.get(
 platformExtendedRouter.get(
   '/platform/portfolio/summary',
   wrap(async (req: Request, res: Response) => {
-    const db = getPrisma();
+    const db = sharedPrisma;
     const tenantId = (req as any).tenantId ?? undefined;
     const where = tenantId ? { tenantId } : undefined;
 
@@ -189,7 +182,7 @@ platformExtendedRouter.get(
 platformExtendedRouter.get(
   '/platform/tenants',
   wrap(async (_req: Request, res: Response) => {
-    const db = getPrisma();
+    const db = sharedPrisma;
     const tenants = await db.tenant.findMany({
       include: { _count: { select: { businesses: true, users: true } } },
       orderBy: { createdAt: 'desc' },
@@ -226,7 +219,7 @@ platformExtendedRouter.post(
   '/platform/tenants',
   wrap(async (req: Request, res: Response) => {
     const body = CreateTenantSchema.parse(req.body);
-    const db = getPrisma();
+    const db = sharedPrisma;
 
     const existing = await db.tenant.findUnique({ where: { slug: body.slug } });
     if (existing) {
@@ -273,7 +266,7 @@ platformExtendedRouter.patch(
   '/platform/tenants/:id',
   wrap(async (req: Request, res: Response) => {
     const body = UpdateTenantSchema.parse(req.body);
-    const db = getPrisma();
+    const db = sharedPrisma;
 
     const tenant = await db.tenant.findUnique({ where: { id: req.params.id as string } });
     if (!tenant) {
@@ -298,7 +291,7 @@ platformExtendedRouter.patch(
 platformExtendedRouter.get(
   '/platform/offboarding',
   wrap(async (req: Request, res: Response) => {
-    const db = getPrisma();
+    const db = sharedPrisma;
     const tenantId = (req as any).tenantId ?? undefined;
 
     // Use ledger events with offboarding event types as offboarding requests
@@ -330,7 +323,7 @@ platformExtendedRouter.post(
   '/platform/offboarding',
   wrap(async (req: Request, res: Response) => {
     const body = CreateOffboardingSchema.parse(req.body);
-    const db = getPrisma();
+    const db = sharedPrisma;
 
     const business = await db.business.findUnique({ where: { id: body.businessId } });
     if (!business) {
@@ -384,7 +377,7 @@ platformExtendedRouter.patch(
   '/platform/offboarding/:id',
   wrap(async (req: Request, res: Response) => {
     const body = UpdateOffboardingSchema.parse(req.body);
-    const db = getPrisma();
+    const db = sharedPrisma;
 
     const event = await db.ledgerEvent.findUnique({ where: { id: req.params.id as string } });
     if (!event) {
@@ -422,7 +415,7 @@ platformExtendedRouter.patch(
 platformExtendedRouter.get(
   '/platform/data-lineage/:businessId',
   wrap(async (req: Request, res: Response) => {
-    const db = getPrisma();
+    const db = sharedPrisma;
     const businessId = req.params.businessId as string;
     const eventType = req.query.eventType as string | undefined;
 
