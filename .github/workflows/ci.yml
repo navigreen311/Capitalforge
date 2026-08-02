@@ -155,6 +155,110 @@ jobs:
           retention-days: 7
 
   # ─────────────────────────────────────────────────────────────
+  # Job 4: Browser tests (Playwright)
+  #
+  # These ran only on the machine they were written on. Everything the
+  # end-to-end suite guards — that a page states no figure it does not have,
+  # that a write survives a re-read, that a tenant cannot reach another
+  # tenant's records — was verified by somebody remembering to run it locally.
+  #
+  # The suite needs a database with the seed in it, because the assertions
+  # compare what a page renders against what the API returns rather than
+  # against fixtures. Migrations and a seed run before it for that reason.
+  #
+  # Playwright starts both servers itself (see webServer in
+  # playwright.config.ts) and, with CI set, always starts them fresh rather
+  # than attaching to whatever is listening.
+  # ─────────────────────────────────────────────────────────────
+  e2e-tests:
+    name: Browser Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    # The suite takes about eight minutes locally; the first request to each
+    # route also pays for a dev-server compile, which global setup does up
+    # front. This is a ceiling, not an expectation.
+    timeout-minutes: 30
+
+    env:
+      # The workflow sets NODE_ENV=test for the vitest jobs. Next treats any
+      # value other than development or production as non-standard, and these
+      # are the same dev servers the suite runs against locally.
+      NODE_ENV: development
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: capitalforge_test
+          POSTGRES_USER: capitalforge
+          POSTGRES_PASSWORD: capitalforge_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U capitalforge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+
+      # The suite asserts against seeded records by name and id — the client
+      # with a business credit file, the one without, the funding round, the
+      # card benefits. Without this it fails on its preconditions rather than
+      # on anything real.
+      - name: Seed the database
+        run: npm run db:seed
+
+      # Chromium only: the suite declares no other browser, and installing
+      # three costs minutes per run for coverage nothing asks for.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: npm run test:playwright
+
+      # Traces are retain-on-failure, so this is empty on a green run. A
+      # failure that happens once in twenty runs is only diagnosable if the
+      # trace outlives the job.
+      - name: Upload traces and failure snapshots
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ─────────────────────────────────────────────────────────────
   # Job 4: Build Check
   # Verifies the project builds cleanly for both backend and
   # frontend. Runs after tests pass.
@@ -165,6 +269,7 @@ jobs:
     needs:
       - unit-tests
       - integration-tests
+      - e2e-tests
 
     steps:
       - name: Checkout repository
