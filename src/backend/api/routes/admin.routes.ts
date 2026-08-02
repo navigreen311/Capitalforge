@@ -77,6 +77,37 @@ function requireAdminRole(req: Request, _res: Response, next: NextFunction): voi
   next();
 }
 
+/**
+ * Which tenants this caller may see.
+ *
+ * The tenant routes below took an :id from the URL and passed it straight to
+ * the service, and listTenants filtered on plan and isActive but never on
+ * tenant. Both roles reach these routes, so any tenant_admin could enumerate
+ * every tenant on the platform — names, slugs, plans, monthly prices — and
+ * read the usage of any of them by id. Only one tenant exists in development,
+ * so nothing looked wrong.
+ *
+ * Being an administrator of one tenant is not administration of the platform.
+ * super_admin is the role that spans tenants; tenant_admin is confined to its
+ * own, and asking for another one is a 404 rather than a 403, which would
+ * confirm that the id exists.
+ */
+function tenantScope(req: Request): { anyTenant: true } | { tenantId: string } {
+  if (req.tenant?.role === 'super_admin') return { anyTenant: true };
+  const tenantId = req.tenant?.tenantId;
+  if (!tenantId) throw forbidden('No tenant on this request.');
+  return { tenantId };
+}
+
+/** Throws unless the caller may act on this specific tenant. */
+function assertTenantVisible(req: Request, targetId: string): void {
+  const scope = tenantScope(req);
+  if ('anyTenant' in scope) return;
+  if (scope.tenantId !== targetId) {
+    throw notFound(`No tenant found with ID "${targetId}".`);
+  }
+}
+
 // ── Validation schemas ────────────────────────────────────────
 
 const CreateTenantSchema = z.object({
@@ -213,7 +244,18 @@ adminRouter.get(
         : undefined;
       const plan = req.query['plan'] as string | undefined;
 
-      const result = await getMultiTenantSvc().listTenants({ isActive, plan }, page, pageSize);
+      // A tenant_admin sees one row: their own. Filtering here rather than
+      // after the query so the pagination total is honest too.
+      const scope = tenantScope(req);
+      const result = await getMultiTenantSvc().listTenants(
+        {
+          isActive,
+          plan,
+          ...('anyTenant' in scope ? {} : { tenantId: scope.tenantId }),
+        },
+        page,
+        pageSize,
+      );
       const body: ApiResponse<typeof result> = {
         success: true,
         data:    result,
@@ -234,6 +276,7 @@ adminRouter.put(
   requirePermission(PERMISSIONS.ADMIN_TENANT),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      assertTenantVisible(req, req.params['id']!);
       const input  = parseOrThrow(UpdateTenantSchema, req.body);
       const tenant = await getMultiTenantSvc().updateTenant(req.params['id']!, input);
       ok(res, tenant);
@@ -251,6 +294,7 @@ adminRouter.put(
   requirePermission(PERMISSIONS.ADMIN_TENANT),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      assertTenantVisible(req, req.params['id']!);
       const input = parseOrThrow(UpdateFlagsSchema, req.body);
       const flags = await getMultiTenantSvc().updateFeatureFlags(req.params['id']!, input);
       ok(res, flags);
@@ -268,6 +312,7 @@ adminRouter.get(
   requirePermission(PERMISSIONS.ADMIN_TENANT),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      assertTenantVisible(req, req.params['id']!);
       const summary = await getMultiTenantSvc().getUsageSummary(req.params['id']!);
       ok(res, summary);
     } catch (err) {

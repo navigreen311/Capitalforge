@@ -311,14 +311,21 @@ export class MultiTenantService {
     };
   }
 
+  /**
+   * @param filters.tenantId Confines the result to one tenant. The caller
+   *   decides whether to pass it: a super_admin spans the platform, a
+   *   tenant_admin does not, and without this the query returned every tenant
+   *   to whoever asked.
+   */
   async listTenants(
-    filters: { isActive?: boolean; plan?: string } = {},
+    filters: { isActive?: boolean; plan?: string; tenantId?: string } = {},
     page = 1,
     pageSize = 50,
   ): Promise<{ tenants: TenantWithPlan[]; total: number }> {
     const where: Record<string, unknown> = {};
     if (filters.isActive !== undefined) where['isActive'] = filters.isActive;
     if (filters.plan)                   where['plan']     = filters.plan;
+    if (filters.tenantId)               where['id']       = filters.tenantId;
 
     const [tenants, total] = await Promise.all([
       this.prisma.tenant.findMany({
