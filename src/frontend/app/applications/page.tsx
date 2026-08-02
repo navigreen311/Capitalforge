@@ -368,21 +368,40 @@ export default function ApplicationsPage() {
   );
 
   // ── Chip definitions ──────────────────────────────────────
+  //
+  // These chips render above the loading branch, so they are on screen before
+  // anything has been fetched — and a zero is not nothing. "Total: 0" states
+  // that there are no applications, and "Pipeline Value: $0" states a pipeline
+  // with nothing live in it. Both were shown on every load, beside the words
+  // "Loading pipeline...", and again if the fetch failed, because an empty
+  // result set and an unanswered request produce the same sums.
+  //
+  // Approval Rate already refused to say 0% for exactly this reason. The same
+  // reasoning covers every figure here, so none of them is stated until it is
+  // known.
+  const figuresKnown = !loading && loadError === null;
+
   const chipDefs: { key: PipelineFilter; label: string; value: string }[] = [
-    { key: 'total',          label: 'Total',          value: `${summary.total}` },
-    { key: 'pipeline_value', label: 'Pipeline Value', value: formatCurrency(summary.pipelineValue) },
-    { key: 'approved_value', label: 'Approved',       value: formatCurrency(summary.approvedValue) },
+    { key: 'total',          label: 'Total',          value: figuresKnown ? `${summary.total}` : '—' },
+    { key: 'pipeline_value', label: 'Pipeline Value', value: figuresKnown ? formatCurrency(summary.pipelineValue) : '—' },
+    { key: 'approved_value', label: 'Approved',       value: figuresKnown ? formatCurrency(summary.approvedValue) : '—' },
     {
       key: 'avg_time',
       label: 'Avg Time',
-      value: summary.avgDaysInStatus === null ? '—' : `${summary.avgDaysInStatus.toFixed(1)}d`,
+      value:
+        !figuresKnown || summary.avgDaysInStatus === null
+          ? '—'
+          : `${summary.avgDaysInStatus.toFixed(1)}d`,
     },
     {
       key: 'approval_rate',
       label: 'Approval Rate',
       // A dash until an issuer has decided something. "0%" reads as a
       // rejection rate of one hundred percent.
-      value: summary.approvalRate === null ? '—' : `${summary.approvalRate.toFixed(0)}%`,
+      value:
+        !figuresKnown || summary.approvalRate === null
+          ? '—'
+          : `${summary.approvalRate.toFixed(0)}%`,
     },
   ];
 

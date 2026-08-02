@@ -256,3 +256,56 @@ test.describe('Board figures', () => {
     await expect(page.getByText('Drop here')).toHaveCount(0);
   });
 });
+
+test.describe('Figures before the data arrives', () => {
+  /**
+   * The board's chips render outside the loading branch, so until the fetch
+   * returns they showed "Total: 0", "Pipeline Value: $0" and "Approved: $0"
+   * beside the words "Loading pipeline...". A pipeline of zero is a claim
+   * about the business — no live applications, nothing approved — and it was
+   * being made on every load before anything was known.
+   *
+   * The page already had the right idea one line further down: Approval Rate
+   * shows a dash rather than 0%, because "0% reads as a rejection rate of one
+   * hundred percent". Same reasoning, same treatment, for the other three.
+   *
+   * Caught by delaying the API rather than by reading the source: whether a
+   * figure renders before its data is a runtime property, and a first attempt
+   * to find these statically matched the wrong `return (`.
+   */
+  const SLOW_API_MS = 4000;
+
+  test('states a dash, not a zero, until the numbers are known', async ({
+    signedInPage: page,
+  }) => {
+    await page.route('**/api/**', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, SLOW_API_MS));
+      await route.continue();
+    });
+
+    await page.goto('/applications', { waitUntil: 'commit' });
+
+    // While it is still loading, and saying so.
+    await expect(page.getByText('Loading pipeline...')).toBeVisible({ timeout: 30000 });
+
+    await expect(page.getByRole('button', { name: /^Total: / })).toHaveText('Total: —');
+    await expect(page.getByRole('button', { name: /^Pipeline Value: / })).toHaveText(
+      'Pipeline Value: —',
+    );
+    await expect(page.getByRole('button', { name: /^Approved: / })).toHaveText('Approved: —');
+
+    // The specific claim this exists to prevent.
+    await expect(page.getByText('Pipeline Value: $0')).toHaveCount(0);
+  });
+
+  test('shows the figures once they are known', async ({ signedInPage: page }) => {
+    // The dash must be a loading state, not a permanent regression: with the
+    // API answering normally the real numbers still arrive.
+    await page.goto('/applications');
+    await expect(page.getByRole('button', { name: /^Pipeline Value: / })).not.toHaveText(
+      'Pipeline Value: —',
+      { timeout: 30000 },
+    );
+    await expect(page.getByText('Loading pipeline...')).toHaveCount(0);
+  });
+});
