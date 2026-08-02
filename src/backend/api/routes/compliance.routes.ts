@@ -375,7 +375,13 @@ complianceRouter.get(
       };
 
       // Score
-      const score = total === 0 ? 100 : Math.max(0, Math.round(
+      //
+      // Null when nothing has been checked. This returned 100 for a tenant
+      // with no checks on record, which is the strongest claim the endpoint
+      // can make — a clean bill of health — derived from the absence of any
+      // evidence at all. A new tenant scored perfectly until the first check
+      // ran and could only go down from there.
+      const score = total === 0 ? null : Math.max(0, Math.round(
         ((passed / total) * 100)
         - (critical * 12)
         - (checks.filter((c) => c.riskLevel === 'high').length * 6)
@@ -1032,69 +1038,74 @@ complianceRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
+      const prismaClient = getPrisma();
 
-      const breakdown = [
-        {
-          checkType: 'udap',
-          label: 'UDAP / Deceptive Practices',
-          score: 92,
-          maxScore: 100,
-          status: 'pass',
-          reasons: ['All marketing materials reviewed', 'No deceptive practices found'],
+      // This returned four fixed rows — UDAP 92, State Law 78, Vendor 85, KYB
+      // 88 — with reasons like "All marketing materials reviewed" and "No
+      // deceptive practices found", for every tenant. A compliance score is a
+      // statement about a regulated firm's exposure; inventing one is worse
+      // than showing nothing, in both directions. A fabricated pass hides a
+      // real failure, and a fabricated failure sends somebody to file
+      // something they do not owe.
+      const checks = await prismaClient.complianceCheck.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: {
+          checkType: true,
+          riskLevel: true,
+          riskScore: true,
+          findings: true,
+          resolvedAt: true,
         },
-        {
-          checkType: 'state_law',
-          label: 'State Law Compliance',
-          score: 78,
-          maxScore: 100,
-          status: 'warning',
-          reasons: ['CA SB 1235 disclosure pending update', 'NY disclosure filed on time'],
-        },
-        {
-          checkType: 'vendor',
-          label: 'Vendor Due Diligence',
-          score: 85,
-          maxScore: 100,
-          status: 'pass',
-          reasons: ['All vendor contracts current', '2 vendors due for annual review'],
-        },
-        {
-          checkType: 'kyb',
-          label: 'KYB Verification',
-          score: 100,
-          maxScore: 100,
-          status: 'pass',
-          reasons: ['All businesses verified', 'No expired verifications'],
-        },
-        {
-          checkType: 'kyc',
-          label: 'KYC / Identity',
-          score: 95,
-          maxScore: 100,
-          status: 'pass',
-          reasons: ['1 pending re-verification', 'All others current'],
-        },
-        {
-          checkType: 'aml',
-          label: 'AML / Sanctions',
-          score: 88,
-          maxScore: 100,
-          status: 'warning',
-          reasons: ['Screening current', '1 pending enhanced due diligence review'],
-        },
-      ];
+      });
 
-      const overallScore = Math.round(
-        breakdown.reduce((sum, b) => sum + b.score, 0) / breakdown.length,
-      );
+      const byType = new Map<string, typeof checks>();
+      for (const check of checks) {
+        byType.set(check.checkType, [...(byType.get(check.checkType) ?? []), check]);
+      }
+
+      const breakdown = [...byType.entries()].map(([checkType, rows]) => {
+        const scored = rows.filter((r) => typeof r.riskScore === 'number');
+        const failing = rows.filter(
+          (r) => r.riskLevel === 'high' || r.riskLevel === 'critical',
+        );
+
+        return {
+          checkType,
+          // Null rather than 0 where no check of this type carries a score:
+          // unscored is not scored badly.
+          score: scored.length
+            ? Math.round(scored.reduce((sum, r) => sum + (r.riskScore ?? 0), 0) / scored.length)
+            : null,
+          scoredChecks: scored.length,
+          totalChecks: rows.length,
+          openFindings: failing.filter((r) => r.resolvedAt === null).length,
+          // The findings the checks actually recorded, deduplicated. Not
+          // advice, and not written here.
+          reasons: [
+            ...new Set(
+              failing
+                .map((r) => (typeof r.findings === 'string' ? r.findings : null))
+                .filter((f): f is string => f !== null && f.length > 0),
+            ),
+          ].slice(0, 5),
+        };
+      });
 
       const responseData = {
-        overallScore,
         breakdown,
-        generatedAt: new Date().toISOString(),
+        totalChecks: checks.length,
+        // Says plainly that an empty breakdown means nothing has run, rather
+        // than leaving a reader to infer a clean result from empty tables.
+        checksHaveRun: checks.length > 0,
       };
 
-      logger.info('Score breakdown retrieved', { requestId: req.requestId, tenantId, overallScore });
+      logger.info('Compliance score breakdown retrieved', {
+        requestId: req.requestId,
+        tenantId,
+        types: breakdown.length,
+      });
 
       const body: ApiResponse<typeof responseData> = { success: true, data: responseData };
       res.status(200).json(body);
@@ -1115,43 +1126,97 @@ complianceRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
+      const prismaClient = getPrisma();
 
-      const reportText = [
+      // This produced a fixed report for every tenant: "Overall Compliance
+      // Score: 89/100", "Total Checks Run: 42", a critical issue reading
+      // "CA SB 1235 disclosure update overdue - Due: 2026-03-31", and a
+      // recommendation to "Prioritize CA disclosure update to avoid
+      // regulatory penalty". Nothing in the app called it, so it sat here as
+      // a regulatory document waiting to be exported and acted on.
+      const checks = await prismaClient.complianceCheck.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        include: { business: { select: { legalName: true } } },
+      });
+
+      const lines: string[] = [
         '=== COMPLIANCE REPORT ===',
-        `Tenant: ${tenantId}`,
         `Generated: ${new Date().toISOString()}`,
         '',
-        '--- Summary ---',
-        'Overall Compliance Score: 89/100',
-        'Total Checks Run: 42',
-        'Passed: 38',
-        'Failed: 4',
-        'Critical Issues: 1',
-        '',
-        '--- Critical Issues ---',
-        '1. [STATE_LAW] CA SB 1235 disclosure update overdue - Due: 2026-03-31',
-        '',
-        '--- Warnings ---',
-        '1. [VENDOR] 2 vendor contracts approaching renewal deadline',
-        '2. [AML] 1 enhanced due diligence review pending',
-        '3. [STATE_LAW] NY commercial finance disclosure needs annual refresh',
-        '',
-        '--- Recommendations ---',
-        '1. Prioritize CA disclosure update to avoid regulatory penalty',
-        '2. Schedule vendor renewal meetings for next 30 days',
-        '3. Complete pending EDD review within 2 weeks',
-        '',
-        '=== END OF REPORT ===',
-      ].join('\n');
+      ];
+
+      if (checks.length === 0) {
+        // The one honest thing to say when no check has been run. The report
+        // used to fill this space with a score of 89 and four findings.
+        lines.push(
+          '--- Summary ---',
+          'No compliance checks are on record for this tenant.',
+          '',
+          'No score is stated. A score requires checks to have run, and none have.',
+        );
+      } else {
+        const failing = checks.filter(
+          (c) => c.riskLevel === 'high' || c.riskLevel === 'critical',
+        );
+        const critical = checks.filter((c) => c.riskLevel === 'critical');
+        const passed = checks.filter(
+          (c) => c.riskLevel === 'low' || c.riskLevel === 'medium',
+        );
+
+        lines.push(
+          '--- Summary ---',
+          `Total Checks Run: ${checks.length}`,
+          `Passed: ${passed.length}`,
+          `Failed: ${checks.length - passed.length}`,
+          `Critical: ${critical.length}`,
+          '',
+        );
+
+        const section = (title: string, rows: typeof checks): void => {
+          lines.push(`--- ${title} ---`);
+          if (rows.length === 0) {
+            lines.push('  none on record');
+          } else {
+            rows.forEach((c, i) => {
+              const finding =
+                typeof c.findings === 'string' && c.findings.length > 0
+                  ? c.findings
+                  : 'no finding recorded';
+              lines.push(
+                `  ${i + 1}. [${c.checkType.toUpperCase()}] ${
+                  c.business?.legalName ?? 'unassigned'
+                } — ${finding}` + (c.resolvedAt === null ? '' : ' (resolved)'),
+              );
+            });
+          }
+          lines.push('');
+        };
+
+        section('Critical', critical);
+        section(
+          'High',
+          failing.filter((c) => c.riskLevel === 'high'),
+        );
+        // No recommendations section. What a firm ought to do about a finding
+        // is advice, and nothing here computes it.
+      }
+
+      lines.push('=== END OF REPORT ===');
 
       const responseData = {
-        reportText,
+        reportText: lines.join('\n'),
         format: 'text',
         generatedAt: new Date().toISOString(),
-        tenantId,
+        checkCount: checks.length,
       };
 
-      logger.info('Compliance report exported', { requestId: req.requestId, tenantId });
+      logger.info('Compliance report exported', {
+        requestId: req.requestId,
+        tenantId,
+        checkCount: checks.length,
+      });
 
       const body: ApiResponse<typeof responseData> = { success: true, data: responseData };
       res.status(200).json(body);

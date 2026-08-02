@@ -1,710 +1,418 @@
 'use client';
 
 // ============================================================
-// /compliance — Compliance Center
-// Portfolio compliance dashboard with overall score,
-// breakdown by check type, risk tier distribution,
-// open compliance items, run-all checks, export report.
+// /compliance — Compliance Center, from compliance_checks
+//
+// This page stated a regulated firm's compliance position out of literals.
+// Ten findings against businesses that do not exist: "NY disclosure deadline
+// missed — immediate filing required" for Apex Ventures LLC, "Affiliated
+// vendor on CFPB enforcement watch list" for Blue Ridge Consulting, KYB gaps
+// for Horizon Retail Partners, enhanced due diligence for Pinnacle Freight
+// LLC. It scored them into a six-component breakdown — UDAP 0 of 25, State
+// Disclosures 5 of 25 — named a top priority reading "File the 2 overdue
+// state disclosures (+10 points)", and listed quick wins naming more
+// businesses that do not exist.
+//
+// Then it wrote all of it to disk as compliance-report-<date>.txt.
+//
+// Running checks was simulated too: a progress bar, a two-second timer, and a
+// count of "new issues found" invented in the browser.
+//
+// GET /api/compliance/overview reads compliance_checks and always has.
+// POST /api/compliance/run-all really runs them, through the service, and
+// persists what it finds. POST /api/compliance/export-report now builds the
+// report from those rows. This page uses all three.
+//
+// Two things are deliberately absent:
+//
+//   A score when nothing has been checked. The endpoint returned 100 for a
+//   tenant with no checks on record — the strongest claim it could make,
+//   derived from never having looked. It is null now, and this page says so
+//   rather than drawing a full ring.
+//
+//   Recommendations. "Top priority" and "quick wins" told an operator which
+//   regulatory filings to make, with point values attached. What a firm owes
+//   a regulator is advice, and nothing in this system computes it.
 // ============================================================
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { complianceApi, authHeaders } from '../../lib/api-client';
+import { useCallback, useMemo, useState } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { apiClient } from '@/lib/api-client';
+import {
+  toComplianceOverview,
+  riskShare,
+  type RiskLevel,
+  type ComplianceCheckView,
+} from '@/lib/compliance-overview-view';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type RiskLevel = 'critical' | 'high' | 'medium' | 'low';
-type CheckType = 'UDAP' | 'AML' | 'KYB' | 'Product-Reality' | 'State Disclosures' | 'TCPA';
-
-interface ComplianceItem {
-  id: string;
-  checkType: CheckType;
-  businessName: string;
-  riskLevel: RiskLevel;
-  passed: boolean;
-  findings: string;
-  checkedAt: string;
-  priority: number; // lower = higher priority
-}
-
-interface CheckTypeBreakdown {
-  type: CheckType;
-  total: number;
-  passed: number;
-  failed: number;
-  criticalCount: number;
-}
-
-// ---------------------------------------------------------------------------
-// Placeholder data
-// ---------------------------------------------------------------------------
-
-const PLACEHOLDER_ITEMS: ComplianceItem[] = [
-  { id: 'cc_001', checkType: 'UDAP',              businessName: 'Apex Ventures LLC',       riskLevel: 'low',      passed: true,  findings: 'No unfair or deceptive practices identified.',              checkedAt: '2026-03-30T09:00:00Z', priority: 4 },
-  { id: 'cc_002', checkType: 'State Disclosures', businessName: 'NovaTech Solutions Inc.', riskLevel: 'medium',   passed: true,  findings: 'CA disclosure requirement met; rate disclosure reviewed.',   checkedAt: '2026-03-29T14:00:00Z', priority: 3 },
-  { id: 'cc_003', checkType: 'KYB',               businessName: 'Horizon Retail Partners', riskLevel: 'high',     passed: false, findings: 'Beneficial ownership docs incomplete. Follow-up required.', checkedAt: '2026-03-28T11:00:00Z', priority: 2 },
-  { id: 'cc_004', checkType: 'AML',               businessName: 'Summit Capital Group',    riskLevel: 'low',      passed: true,  findings: 'Sanctions screening clear. No SAR indicators.',             checkedAt: '2026-03-27T16:00:00Z', priority: 4 },
-  { id: 'cc_005', checkType: 'UDAP',              businessName: 'Blue Ridge Consulting',   riskLevel: 'critical', passed: false, findings: 'Affiliated vendor on CFPB enforcement watch list.',         checkedAt: '2026-03-26T10:00:00Z', priority: 1 },
-  { id: 'cc_006', checkType: 'TCPA',              businessName: 'Crestline Medical LLC',   riskLevel: 'low',      passed: true,  findings: 'Consent records verified for all outreach channels.',       checkedAt: '2026-03-25T08:00:00Z', priority: 4 },
-  { id: 'cc_007', checkType: 'Product-Reality',   businessName: 'Meridian Capital',        riskLevel: 'high',     passed: false, findings: 'Product terms mismatch with marketing materials.',          checkedAt: '2026-03-24T12:00:00Z', priority: 2 },
-  { id: 'cc_008', checkType: 'AML',               businessName: 'Pinnacle Freight LLC',    riskLevel: 'medium',   passed: false, findings: 'Enhanced due diligence recommended — high-risk industry.',  checkedAt: '2026-03-23T15:00:00Z', priority: 3 },
-  { id: 'cc_009', checkType: 'State Disclosures', businessName: 'Apex Ventures LLC',       riskLevel: 'critical', passed: false, findings: 'NY disclosure deadline missed — immediate filing required.', checkedAt: '2026-03-22T10:00:00Z', priority: 1 },
-  { id: 'cc_010', checkType: 'KYB',               businessName: 'Summit Capital Group',    riskLevel: 'medium',   passed: true,  findings: 'All beneficial owners verified.',                           checkedAt: '2026-03-21T09:00:00Z', priority: 3 },
-];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ─── Presentation ────────────────────────────────────────────────────────────
 
 const RISK_CONFIG: Record<RiskLevel, { label: string; badge: string; dot: string }> = {
-  critical: { label: 'Critical', badge: 'bg-red-900/60 text-red-300 border border-red-700',       dot: 'bg-red-400' },
-  high:     { label: 'High',     badge: 'bg-orange-900/60 text-orange-300 border border-orange-700', dot: 'bg-orange-400' },
-  medium:   { label: 'Medium',   badge: 'bg-yellow-900/60 text-yellow-300 border border-yellow-700', dot: 'bg-yellow-400' },
-  low:      { label: 'Low',      badge: 'bg-green-900/60 text-green-300 border border-green-700',    dot: 'bg-green-400' },
+  critical: { label: 'Critical', badge: 'bg-red-900 text-red-300 border-red-700', dot: 'bg-red-500' },
+  high: { label: 'High', badge: 'bg-orange-900 text-orange-300 border-orange-700', dot: 'bg-orange-500' },
+  medium: { label: 'Medium', badge: 'bg-yellow-900 text-yellow-300 border-yellow-700', dot: 'bg-yellow-500' },
+  low: { label: 'Low', badge: 'bg-green-900 text-green-300 border-green-700', dot: 'bg-green-500' },
 };
 
-const CHECK_TYPES: CheckType[] = ['UDAP', 'AML', 'KYB', 'Product-Reality', 'State Disclosures', 'TCPA'];
+const RISK_ORDER: RiskLevel[] = ['critical', 'high', 'medium', 'low'];
 
-function formatDate(iso: string) {
-  try { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
-  catch { return iso; }
-}
-
-function computeScore(items: ComplianceItem[]): number {
-  if (!items.length) return 100;
-  const passing = items.filter((c) => c.passed).length;
-  const base = (passing / items.length) * 100;
-  const critPenalty = items.filter((c) => !c.passed && c.riskLevel === 'critical').length * 12;
-  const highPenalty = items.filter((c) => !c.passed && c.riskLevel === 'high').length * 6;
-  return Math.max(0, Math.round(base - critPenalty - highPenalty));
-}
-
-function buildBreakdown(items: ComplianceItem[]): CheckTypeBreakdown[] {
-  return CHECK_TYPES.map((type) => {
-    const subset = items.filter((i) => i.checkType === type);
-    return {
-      type,
-      total: subset.length,
-      passed: subset.filter((i) => i.passed).length,
-      failed: subset.filter((i) => !i.passed).length,
-      criticalCount: subset.filter((i) => i.riskLevel === 'critical').length,
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Score Breakdown mock data (1C)
-// ---------------------------------------------------------------------------
-
-interface ScoreComponent {
-  name: CheckType;
-  score: number;
-  max: number;
-  reason: string;
-}
-
-const SCORE_BREAKDOWN: ScoreComponent[] = [
-  { name: 'UDAP',              score: 0,  max: 25, reason: 'Affiliated vendor on CFPB enforcement watch list; no mitigation plan filed.' },
-  { name: 'State Disclosures', score: 5,  max: 25, reason: '2 overdue state filings (NY, CA); 3 of 5 states compliant.' },
-  { name: 'KYB',               score: 4,  max: 20, reason: 'Beneficial ownership docs incomplete for 2 entities.' },
-  { name: 'Product-Reality',   score: 0,  max: 15, reason: 'Product terms mismatch with marketing materials across all products.' },
-  { name: 'AML',               score: 4,  max: 10, reason: '1 enhanced due-diligence review pending; sanctions screening clear.' },
-  { name: 'TCPA',              score: 1,  max: 5,  reason: 'Consent records verified for 1 of 2 outreach channels.' },
-];
-
-const TOP_PRIORITY = 'File the 2 overdue state disclosures (+10 points)';
-
-const QUICK_WINS: string[] = [
-  'Upload missing KYB beneficial-ownership docs for Horizon Retail Partners (+4 pts)',
-  'Complete TCPA consent audit for SMS channel (+2 pts)',
-  'Resolve AML enhanced due-diligence for Pinnacle Freight LLC (+3 pts)',
-];
-
-function computeBreakdownTotal(components: ScoreComponent[]): { earned: number; possible: number } {
-  return components.reduce(
-    (acc, c) => ({ earned: acc.earned + c.score, possible: acc.possible + c.max }),
-    { earned: 0, possible: 0 },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Export report generator (1E)
-// ---------------------------------------------------------------------------
-
-function generateTextReport(items: ComplianceItem[], score: number, breakdown: CheckTypeBreakdown[]): string {
-  const now = new Date().toISOString().slice(0, 10);
-  const openItems = items.filter((i) => !i.passed).sort((a, b) => a.priority - b.priority);
-  const lines: string[] = [
-    '=== CapitalForge Compliance Report ===',
-    `Generated: ${now}`,
-    '',
-    `Overall Compliance Score: ${score} / 100`,
-    '',
-    '--- Score Breakdown ---',
-    ...SCORE_BREAKDOWN.map((c) => `  ${c.name}: ${c.score}/${c.max} — ${c.reason}`),
-    '',
-    '--- Check Type Summary ---',
-    ...breakdown.map((b) => `  ${b.type}: ${b.total} total, ${b.passed} passed, ${b.failed} failed${b.criticalCount > 0 ? ` (${b.criticalCount} critical)` : ''}`),
-    '',
-    `--- Open Compliance Items (${openItems.length}) ---`,
-    ...openItems.map((item, i) =>
-      `  ${i + 1}. [${item.riskLevel.toUpperCase()}] ${item.checkType} — ${item.businessName}\n     ${item.findings} (checked ${formatDate(item.checkedAt)})`
-    ),
-    '',
-    '--- Top Priority ---',
-    `  ${TOP_PRIORITY}`,
-    '',
-    '--- Quick Wins ---',
-    ...QUICK_WINS.map((w, i) => `  ${i + 1}. ${w}`),
-    '',
-    '=== End of Report ===',
-  ];
-  return lines.join('\n');
-}
-
-function downloadTextFile(content: string, filename: string) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function ScoreRing({ score }: { score: number }) {
-  const color = score >= 75 ? '#22c55e' : score >= 50 ? '#eab308' : '#ef4444';
-  const size = 160;
-  const r = 62;
-  const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - score / 100);
-  const cx = size / 2;
-  const cy = size / 2;
-
-  return (
-    <div className="flex flex-col items-center">
-      <svg width={size} height={size} aria-label={`Compliance score ${score}`}>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1e293b" strokeWidth={14} />
-        <circle
-          cx={cx} cy={cy} r={r} fill="none"
-          stroke={color} strokeWidth={14} strokeLinecap="round"
-          strokeDasharray={circ} strokeDashoffset={offset}
-          transform={`rotate(-90 ${cx} ${cy})`}
-          style={{ transition: 'stroke-dashoffset 0.6s ease' }}
-        />
-        <text x={cx} y={cy - 8} textAnchor="middle" fontSize={32} fontWeight="900" fill={color}>{score}</text>
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={12} fill="#9ca3af">/ 100</text>
-      </svg>
-      <p className="text-sm font-semibold mt-1" style={{ color }}>
-        {score >= 75 ? 'Healthy' : score >= 50 ? 'At Risk' : 'Critical'}
-      </p>
-    </div>
-  );
-}
-
-function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
-  useEffect(() => {
-    const t = setTimeout(onDismiss, 4000);
-    return () => clearTimeout(t);
-  }, [onDismiss]);
-
-  return (
-    <div className="fixed bottom-6 right-6 z-50 max-w-sm bg-[#0A1628] border border-[#C9A84C]/30 text-gray-100 text-sm rounded-xl shadow-2xl px-5 py-3 flex items-center gap-3">
-      <span className="flex-1">{message}</span>
-      <button onClick={onDismiss} className="text-gray-400 hover:text-white text-lg leading-none">&times;</button>
-    </div>
-  );
-}
-
-function ScoreBreakdownPanel() {
-  const [expanded, setExpanded] = useState(false);
-  const { earned, possible } = computeBreakdownTotal(SCORE_BREAKDOWN);
-
-  return (
-    <div className="mt-4 w-full">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between text-xs font-semibold text-[#C9A84C] hover:text-[#dbb85c] transition-colors py-1"
-      >
-        <span>Score Breakdown ({earned}/{possible})</span>
-        <svg
-          className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {expanded && (
-        <div className="mt-3 space-y-4">
-          {/* Per-component bars */}
-          <div className="space-y-2.5">
-            {SCORE_BREAKDOWN.map((c) => {
-              const pct = c.max > 0 ? (c.score / c.max) * 100 : 0;
-              const barColor = pct >= 60 ? 'bg-green-500' : pct >= 30 ? 'bg-yellow-500' : 'bg-red-500';
-              return (
-                <div key={c.name}>
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-xs font-semibold text-gray-200">{c.name}</span>
-                    <span className="text-xs text-gray-400">{c.score}/{c.max}</span>
-                  </div>
-                  <div className="w-full bg-gray-800 rounded-full h-2 mb-0.5">
-                    <div
-                      className={`${barColor} h-2 rounded-full transition-all duration-500`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <p className="text-[10px] text-gray-500 leading-tight">{c.reason}</p>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Top Priority callout */}
-          <div className="rounded-lg border border-[#C9A84C]/40 bg-[#C9A84C]/10 p-3">
-            <p className="text-xs font-bold text-[#C9A84C] uppercase tracking-wide mb-1">Top Priority</p>
-            <p className="text-sm text-gray-100">{TOP_PRIORITY}</p>
-          </div>
-
-          {/* Quick Wins */}
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Quick Wins</p>
-            <ul className="space-y-1.5">
-              {QUICK_WINS.map((w, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs text-gray-300">
-                  <span className="text-green-400 mt-0.5 shrink-0">&#x2714;</span>
-                  <span>{w}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
-export default function ComplianceCenterPage() {
-  const [items, setItems] = useState<ComplianceItem[]>(PLACEHOLDER_ITEMS);
-  const [loading, setLoading] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-
-  const router = useRouter();
-  const [activeFilter, setActiveFilter] = useState<CheckType | null>(null);
-
-  // Fetch from API on mount
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await complianceApi.dashboard();
-        if (res.success && res.data) {
-          const d = res.data as { checks?: ComplianceItem[] };
-          if (d.checks?.length) setItems(d.checks);
-        }
-      } catch { /* use placeholder */ }
-      finally { setLoading(false); }
-    })();
-  }, []);
-
-  const score = computeScore(items);
-  const breakdown = buildBreakdown(items);
-  const allOpenItems = items.filter((i) => !i.passed).sort((a, b) => a.priority - b.priority);
-  const openItems = activeFilter
-    ? allOpenItems.filter((i) => i.checkType === activeFilter)
-    : allOpenItems;
-
-  // 1D — Set/clear check type URL filter
-  const handleFilterClick = useCallback((type: CheckType) => {
-    if (activeFilter === type) {
-      router.push('/compliance', { scroll: false });
-    } else {
-      router.push(`/compliance?filter=${encodeURIComponent(type)}`, { scroll: false });
-    }
-  }, [activeFilter, router]);
-
-  // Risk tier distribution
-  const riskTiers: { level: RiskLevel; count: number }[] = [
-    { level: 'critical', count: items.filter((i) => i.riskLevel === 'critical').length },
-    { level: 'high',     count: items.filter((i) => i.riskLevel === 'high').length },
-    { level: 'medium',   count: items.filter((i) => i.riskLevel === 'medium').length },
-    { level: 'low',      count: items.filter((i) => i.riskLevel === 'low').length },
-  ];
-
-  const [runProgress, setRunProgress] = useState(0);
-
-  // Mark an item as resolved
-  const handleMarkResolved = useCallback((itemId: string, businessName: string) => {
-    setItems((prev) =>
-      prev.map((i) => (i.id === itemId ? { ...i, passed: true, findings: 'Manually marked as resolved.' } : i))
-    );
-    setToast(`"${businessName}" marked as resolved`);
-  }, []);
-
-  // Get context-appropriate action buttons for a compliance item
-  function getItemActions(item: ComplianceItem): { label: string; onClick: () => void; variant?: 'primary' | 'default' }[] {
-    const actions: { label: string; onClick: () => void; variant?: 'primary' | 'default' }[] = [];
-
-    switch (item.checkType) {
-      case 'UDAP':
-        actions.push({ label: 'View Client', onClick: () => setToast(`Opening client profile for ${item.businessName}...`) });
-        actions.push({ label: 'Remove Vendor', onClick: () => setToast(`Vendor removal initiated for ${item.businessName}`) });
-        break;
-      case 'State Disclosures':
-        // Not "File Now": nothing here files a disclosure, and the page it
-        // links to no longer offers to. It shows which clients are formed
-        // where, and says what is not recorded.
-        actions.push({ label: 'View clients by state', onClick: () => router.push('/compliance/disclosures') });
-        actions.push({ label: 'Assign to Advisor', onClick: () => setToast(`Advisor assignment initiated for ${item.businessName}`) });
-        break;
-      case 'KYB':
-        actions.push({ label: 'View Client', onClick: () => setToast(`Opening client profile for ${item.businessName}...`) });
-        actions.push({ label: 'Request Documents', onClick: () => setToast(`Document request sent to ${item.businessName}`) });
-        break;
-      case 'Product-Reality':
-        actions.push({ label: 'Send Acknowledgment', onClick: () => setToast(`Acknowledgment sent for ${item.businessName}`) });
-        break;
-      case 'AML':
-        actions.push({ label: 'Review Transaction', onClick: () => router.push('/spend-governance'), variant: 'primary' });
-        break;
-      default:
-        break;
-    }
-
-    return actions;
+function formatDate(iso: string): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return iso;
   }
+}
 
-  const handleRunAll = useCallback(async () => {
-    if (running) return;
-    setRunning(true);
-    setRunProgress(0);
+function humanise(value: string): string {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
-    // Animate progress over ~2s
-    const progressInterval = setInterval(() => {
-      setRunProgress((prev) => {
-        if (prev >= 95) { clearInterval(progressInterval); return 95; }
-        return prev + Math.random() * 18 + 5;
-      });
-    }, 250);
-
-    try {
-      // Try real API
-      await fetch('/api/compliance/run-all', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() } });
-    } catch { /* ignore */ }
-
-    // Simulate completion after 2 seconds total
-    setTimeout(() => {
-      clearInterval(progressInterval);
-      setRunProgress(100);
-
-      // Snapshot previous open count
-      const prevOpen = items.filter((i) => !i.passed).length;
-
-      // Simulate: randomly resolve 1-2 items, add 0-1 new issues
-      const updated = items.map((item) => {
-        if (!item.passed && Math.random() < 0.3) {
-          return { ...item, passed: true, findings: 'Resolved during compliance run.' };
-        }
-        return item;
-      });
-
-      const newIssueCount = Math.random() < 0.5 ? 1 : 0;
-      if (newIssueCount > 0) {
-        updated.push({
-          id: `cc_new_${Date.now()}`,
-          checkType: 'AML',
-          businessName: 'Vanguard Logistics Inc.',
-          riskLevel: 'medium',
-          passed: false,
-          findings: 'New SAR threshold flag detected during automated scan.',
-          checkedAt: new Date().toISOString(),
-          priority: 3,
-        });
-      }
-
-      setItems(updated);
-
-      const newOpen = updated.filter((i) => !i.passed).length;
-      const resolved = Math.max(0, prevOpen - newOpen + newIssueCount);
-      setToast(`Compliance check complete — ${newIssueCount} new issue${newIssueCount !== 1 ? 's' : ''} found, ${resolved} resolved`);
-
-      setTimeout(() => {
-        setRunning(false);
-        setRunProgress(0);
-      }, 300);
-    }, 2000);
-  }, [running, items]);
-
-  const handleExport = useCallback(() => {
-    const report = generateTextReport(items, score, breakdown);
-    const dateStamp = new Date().toISOString().slice(0, 10);
-    downloadTextFile(report, `compliance-report-${dateStamp}.txt`);
-    setToast('Compliance report downloaded');
-  }, [items, score, breakdown]);
+/** The score ring. Renders as unknown rather than as zero. */
+function ScoreRing({ score }: { score: number | null }) {
+  const size = 132;
+  const stroke = 10;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const pct = score === null ? 0 : Math.min(100, Math.max(0, score));
+  const colour = score === null ? '#4B5563' : score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444';
 
   return (
-    <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+    <svg
+      width={size}
+      height={size}
+      aria-label={score === null ? 'Compliance score not available' : `Compliance score ${score}`}
+    >
+      <circle cx={size / 2} cy={size / 2} r={radius} stroke="#1F2937" strokeWidth={stroke} fill="none" />
+      {score !== null && (
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={colour}
+          strokeWidth={stroke}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference - (pct / 100) * circumference}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      )}
+      <text
+        x="50%"
+        y="50%"
+        textAnchor="middle"
+        dominantBaseline="central"
+        className="fill-white font-bold"
+        style={{ fontSize: score === null ? 28 : 34 }}
+      >
+        {score === null ? '—' : score}
+      </text>
+    </svg>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
+export default function CompliancePage() {
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null);
+
+  const { data: raw, isLoading, error, refetch } = useAuthFetch<unknown>('/api/compliance/overview');
+
+  const view = useMemo(() => toComplianceOverview(raw), [raw]);
+  const known = view.loaded && !isLoading && error === null;
+
+  const visibleChecks: ComplianceCheckView[] = useMemo(
+    () => (riskFilter === null ? view.checks : view.checks.filter((c) => c.riskLevel === riskFilter)),
+    [view.checks, riskFilter],
+  );
+
+  const runChecks = useCallback(async () => {
+    setBusy(true);
+    setActionError(null);
+    setNotice(null);
+    try {
+      // The real run. This used to be a two-second timer that incremented a
+      // progress bar and invented a count of new issues in the browser.
+      const res = await apiClient.post<{ businessCount: number; checkCount: number }>(
+        '/compliance/run-all',
+      );
+      await refetch();
+      setNotice(
+        `Ran ${res.data?.checkCount ?? 0} checks across ${res.data?.businessCount ?? 0} businesses.`,
+      );
+    } catch (err) {
+      setActionError(
+        `Could not run compliance checks: ${
+          err instanceof Error ? err.message : 'the request failed'
+        }`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [refetch]);
+
+  const exportReport = useCallback(async () => {
+    setBusy(true);
+    setActionError(null);
+    setNotice(null);
+    try {
+      // Built server-side from the rows. The browser used to assemble this
+      // from its own literals and write it to disk.
+      const res = await apiClient.post<{ reportText: string }>('/compliance/export-report');
+      const text = res.data?.reportText ?? '';
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compliance-report-${new Date().toISOString().slice(0, 10)}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setNotice('Compliance report downloaded.');
+    } catch (err) {
+      setActionError(
+        `Could not build the report: ${err instanceof Error ? err.message : 'the request failed'}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6 space-y-6">
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-white">Compliance Center</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            Portfolio compliance overview &middot; {items.length} checks &middot; {openItems.length} open items
+            {known
+              ? `${view.total} checks on record · ${view.failed} open`
+              : 'Checks on record for this tenant.'}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={handleExport}
-            className="px-4 py-2 rounded-lg bg-[#0A1628] border border-[#C9A84C]/40 hover:border-[#C9A84C] text-[#C9A84C] text-sm font-semibold transition-colors"
+            type="button"
+            disabled={busy}
+            onClick={() => void exportReport()}
+            className="px-4 py-2 rounded-lg border border-gray-700 text-gray-300 text-sm font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors"
           >
-            Export Report
+            Export report
           </button>
           <button
-            onClick={handleRunAll}
-            disabled={running}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 ${
-              running
-                ? 'bg-[#C9A84C]/30 cursor-not-allowed opacity-70 text-[#C9A84C]'
-                : 'bg-[#C9A84C] hover:bg-[#b8973f] text-[#0A1628]'
-            }`}
+            type="button"
+            disabled={busy}
+            onClick={() => void runChecks()}
+            className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-[#b8933e] text-[#0A1628] text-sm font-semibold disabled:opacity-50 transition-colors"
           >
-            {running && (
-              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            )}
-            {running ? 'Running...' : 'Run All Checks'}
+            {busy ? 'Running…' : 'Run all checks'}
           </button>
         </div>
       </div>
 
-      {/* Progress bar during Run All Checks */}
-      {running && (
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-[#C9A84C] font-semibold">Running compliance checks...</span>
-            <span className="text-xs text-gray-400">{Math.min(100, Math.round(runProgress))}%</span>
-          </div>
-          <div className="w-full bg-gray-800 rounded-full h-2">
-            <div
-              className="bg-[#C9A84C] h-2 rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(100, runProgress)}%` }}
-            />
-          </div>
+      {actionError !== null && (
+        <div className="rounded-xl border border-red-800 bg-red-900/20 p-4">
+          <p className="text-sm font-semibold text-red-300">{actionError}</p>
+        </div>
+      )}
+      {notice !== null && (
+        <div className="rounded-xl border border-gray-700 bg-gray-900 p-4">
+          <p className="text-sm text-gray-300">{notice}</p>
         </div>
       )}
 
-      {/* Top row: Score + Risk Tiers */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        {/* Overall Score + Breakdown (1C) */}
-        <div className="rounded-xl border border-gray-800 bg-[#0f1d32] p-6 flex flex-col items-center">
-          <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-3">Overall Compliance Score</p>
-          <ScoreRing score={score} />
-          <ScoreBreakdownPanel />
-        </div>
+      {isLoading && <p className="text-sm text-gray-500">Loading compliance checks…</p>}
 
-        {/* Risk Tier Distribution */}
-        <div className="rounded-xl border border-gray-800 bg-[#0f1d32] p-6">
-          <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-4">Risk Tier Distribution</p>
-          <div className="space-y-3">
-            {riskTiers.map(({ level, count }) => {
-              const pct = items.length ? Math.round((count / items.length) * 100) : 0;
-              return (
-                <div key={level}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2.5 h-2.5 rounded-full ${RISK_CONFIG[level].dot}`} />
-                      <span className="text-sm font-semibold text-gray-200">{RISK_CONFIG[level].label}</span>
-                    </div>
-                    <span className="text-sm text-gray-400">{count} ({pct}%)</span>
-                  </div>
-                  <div className="w-full bg-gray-800 rounded-full h-2">
-                    <div
-                      className={`${RISK_CONFIG[level].dot} h-2 rounded-full transition-all duration-500`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      {!isLoading && error !== null && (
+        <div className="rounded-xl border border-red-800 bg-red-900/20 p-4 space-y-1">
+          <p className="text-sm font-semibold text-red-300">
+            Compliance checks could not be read.
+          </p>
+          <p className="text-xs text-red-200">
+            No score and no findings are shown. This page states a firm&apos;s regulatory
+            position, so it shows nothing rather than a sample.
+          </p>
         </div>
+      )}
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'Total Checks',   value: items.length,                                color: 'text-gray-100' },
-            { label: 'Passed',          value: items.filter((i) => i.passed).length,        color: 'text-green-400' },
-            { label: 'Failed',          value: openItems.length,                             color: openItems.length > 0 ? 'text-red-400' : 'text-gray-400' },
-            { label: 'Critical',        value: riskTiers[0].count,                           color: riskTiers[0].count > 0 ? 'text-red-400' : 'text-gray-400' },
-          ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-gray-800 bg-[#0f1d32] p-4 flex flex-col justify-center">
-              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{s.label}</p>
-              <p className={`text-3xl font-black ${s.color}`}>{s.value}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Check Type Breakdown */}
-      <div className="rounded-xl border border-gray-800 bg-[#0f1d32] p-6 mb-6">
-        <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-4">Breakdown by Check Type</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {breakdown.map((b) => {
-            const isActive = activeFilter === b.type;
-            return (
-              <button
-                key={b.type}
-                onClick={() => handleFilterClick(b.type)}
-                className={`rounded-lg border p-4 text-center transition-colors cursor-pointer ${
-                  isActive
-                    ? 'border-[#C9A84C] bg-[#C9A84C]/10 ring-1 ring-[#C9A84C]/40'
-                    : 'border-gray-700 bg-[#0A1628] hover:border-[#C9A84C]/40'
-                }`}
-              >
-                <p className={`text-xs font-semibold mb-2 ${isActive ? 'text-[#C9A84C]' : 'text-gray-400'}`}>{b.type}</p>
-                <p className="text-2xl font-black text-gray-100">{b.total}</p>
-                <div className="flex items-center justify-center gap-2 mt-2 text-xs">
-                  <span className="text-green-400">{b.passed} pass</span>
-                  <span className="text-gray-600">|</span>
-                  <span className={b.failed > 0 ? 'text-red-400' : 'text-gray-500'}>{b.failed} fail</span>
-                </div>
-                {b.criticalCount > 0 && (
-                  <span className="inline-block mt-2 text-xs font-bold px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 border border-red-700">
-                    {b.criticalCount} critical
-                  </span>
+      {known && (
+        <>
+          {/* ── Score ──────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 flex items-center gap-6">
+              <ScoreRing score={view.score} />
+              <div className="space-y-1">
+                <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">
+                  Compliance score
+                </p>
+                {view.score === null ? (
+                  <p className="text-sm text-gray-300 max-w-xs">
+                    No checks have run for this tenant, so there is no score. This showed
+                    100 out of 100 in that state — a clean bill of health from never
+                    having looked.
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-400">
+                    From {view.total} checks · {view.passed} passed, {view.failed} open
+                  </p>
                 )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+              </div>
+            </div>
 
-      {/* Open Compliance Items */}
-      <div className="rounded-xl border border-gray-800 bg-[#0f1d32] p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold">
-              Open Compliance Items
-              <span className="ml-2 text-gray-500 normal-case">Sorted by priority</span>
-            </p>
-            {activeFilter && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#C9A84C]/15 text-[#C9A84C] border border-[#C9A84C]/30">
-                {activeFilter}
+            {/* ── Risk distribution ────────────────────────────── */}
+            <div className="lg:col-span-2 rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-3">
+              <h2 className="text-sm font-semibold text-gray-200">Risk distribution</h2>
+              {view.total === 0 ? (
+                <p className="text-xs text-gray-500">
+                  Nothing has been assessed, so no share is shown. A row of 0% would state
+                  that no check is critical, which is itself a finding.
+                </p>
+              ) : (
+                RISK_ORDER.map((level) => {
+                  const count = view.riskDistribution[level];
+                  const pct = riskShare(count, view.total);
+                  return (
+                    <div key={level}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${RISK_CONFIG[level].dot}`} />
+                          <span className="text-sm font-semibold text-gray-200">
+                            {RISK_CONFIG[level].label}
+                          </span>
+                        </div>
+                        <span className="text-sm text-gray-400">
+                          {count}
+                          {pct === null ? '' : ` (${pct}%)`}
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-800 rounded-full h-2">
+                        <div
+                          className={`${RISK_CONFIG[level].dot} h-2 rounded-full transition-all duration-500`}
+                          style={{ width: `${pct ?? 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* ── Checks ─────────────────────────────────────────── */}
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <h2 className="text-sm font-semibold text-gray-200">Compliance checks</h2>
+              {riskFilter !== null && (
                 <button
-                  onClick={() => router.push('/compliance', { scroll: false })}
-                  className="hover:text-white transition-colors leading-none"
+                  type="button"
+                  onClick={() => setRiskFilter(null)}
                   aria-label="Clear filter"
+                  className="text-xs text-gray-400 hover:text-gray-200"
                 >
-                  &times;
+                  Clear filter
                 </button>
-              </span>
+              )}
+            </div>
+
+            {view.checks.length === 0 ? (
+              <div className="space-y-1">
+                <p className="text-sm text-gray-300">No compliance checks are on record.</p>
+                <p className="text-xs text-gray-500">
+                  Ten were shown here — against Apex Ventures LLC, Horizon Retail Partners,
+                  Blue Ridge Consulting and others — and none of those businesses exist. Run
+                  the checks to populate this from real ones.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2 flex-wrap">
+                  {RISK_ORDER.map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => setRiskFilter(riskFilter === level ? null : level)}
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                        riskFilter === level
+                          ? RISK_CONFIG[level].badge
+                          : 'bg-gray-950 text-gray-400 border-gray-700 hover:border-gray-500'
+                      }`}
+                    >
+                      {RISK_CONFIG[level].label} ({view.riskDistribution[level]})
+                    </button>
+                  ))}
+                </div>
+
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500">
+                      <th className="pb-2 font-medium">Check</th>
+                      <th className="pb-2 font-medium">Business</th>
+                      <th className="pb-2 font-medium">Risk</th>
+                      <th className="pb-2 font-medium">Finding</th>
+                      <th className="pb-2 font-medium">Checked</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleChecks.map((check) => (
+                      <tr key={check.id} className="border-t border-gray-800 align-top">
+                        <td className="py-2 text-gray-200">{humanise(check.checkType)}</td>
+                        <td className="py-2 text-gray-300">{check.businessName}</td>
+                        <td className="py-2">
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                              RISK_CONFIG[check.riskLevel].badge
+                            }`}
+                          >
+                            {RISK_CONFIG[check.riskLevel].label}
+                          </span>
+                        </td>
+                        <td className="py-2 text-gray-400 max-w-md">
+                          {check.findings === '' ? (
+                            <span className="italic text-gray-600">no finding recorded</span>
+                          ) : (
+                            check.findings
+                          )}
+                        </td>
+                        <td className="py-2 text-gray-500 whitespace-nowrap">
+                          {formatDate(check.checkedAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )}
           </div>
-          <span className="text-xs text-gray-500">{openItems.length} items</span>
-        </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <svg className="animate-spin h-6 w-6 text-[#C9A84C]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
+          {/* ── What this page no longer claims ────────────────── */}
+          <div className="rounded-xl border border-gray-800 bg-gray-950 p-5 space-y-2">
+            <h2 className="text-sm font-semibold text-gray-300">Not shown here</h2>
+            <ul className="text-xs text-gray-500 space-y-1.5 list-disc pl-4">
+              <li>
+                <strong className="text-gray-400">A recommended next filing.</strong> A
+                &quot;top priority&quot; and three &quot;quick wins&quot; told an operator
+                which regulatory filings to make, with point values attached, naming
+                businesses that do not exist. What a firm owes a regulator is advice, and
+                nothing here computes it.
+              </li>
+              <li>
+                <strong className="text-gray-400">A per-category score.</strong> UDAP 0 of
+                25, State Disclosures 5 of 25 and four more were written into the page, as
+                was the endpoint behind them. Scores now come from the checks that ran, and
+                a category nothing has scored shows no score.
+              </li>
+            </ul>
           </div>
-        ) : openItems.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-8">No open compliance items. All checks passed.</p>
-        ) : (
-          <div className="space-y-3">
-            {openItems.map((item) => {
-              const actions = getItemActions(item);
-              return (
-                <div
-                  key={item.id}
-                  className="rounded-xl border border-gray-700 bg-[#0A1628] p-4"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${RISK_CONFIG[item.riskLevel].badge}`}>
-                          {RISK_CONFIG[item.riskLevel].label}
-                        </span>
-                        <span className="text-xs bg-gray-800 text-gray-400 border border-gray-700 px-1.5 py-0.5 rounded">
-                          {item.checkType}
-                        </span>
-                        <span className="text-xs font-semibold text-red-400">FAIL</span>
-                      </div>
-                      <p className="font-semibold text-gray-100 text-sm">{item.businessName}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{item.findings}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <p className="text-xs text-gray-500 whitespace-nowrap">{formatDate(item.checkedAt)}</p>
-                      <span className="text-xs text-gray-600">P{item.priority}</span>
-                    </div>
-                  </div>
-
-                  {/* Action CTAs */}
-                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-800">
-                    {actions.map((action) => (
-                      <button
-                        key={action.label}
-                        onClick={action.onClick}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-                          action.variant === 'primary'
-                            ? 'bg-[#C9A84C] text-[#0A1628] hover:bg-[#b8973f]'
-                            : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-gray-500 hover:text-white'
-                        }`}
-                      >
-                        {action.label}
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => handleMarkResolved(item.id, item.businessName)}
-                      className="ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-900/40 text-green-400 border border-green-800 hover:bg-green-900/70 hover:text-green-300 transition-colors"
-                    >
-                      Mark Resolved &#10003;
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Navigation links to sub-pages */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-        {[
-          { label: 'Document Vault',  href: '/compliance/documents',   desc: 'Manage documents across all businesses' },
-          { label: 'Disclosures',     href: '/compliance/disclosures', desc: 'State disclosures and filing deadlines' },
-          { label: 'Contracts',       href: '/compliance/contracts',   desc: 'Contract tracking and clause analysis' },
-          { label: 'Complaints',      href: '/compliance/complaints',  desc: 'Complaint intake and SLA tracking' },
-        ].map((link) => (
-          <a
-            key={link.href}
-            href={link.href}
-            className="rounded-xl border border-gray-800 bg-[#0f1d32] p-5 hover:border-[#C9A84C]/40 transition-colors group"
-          >
-            <p className="text-sm font-semibold text-[#C9A84C] group-hover:text-[#dbb85c] mb-1">{link.label}</p>
-            <p className="text-xs text-gray-400">{link.desc}</p>
-          </a>
-        ))}
-      </div>
-
-      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
+        </>
+      )}
     </div>
   );
 }

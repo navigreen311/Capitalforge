@@ -89,21 +89,12 @@ const EXEMPT: Record<string, string> = {
  * test.fail() means the run is red if these ever start passing, so a fix
  * cannot land without removing the entry. That is the point: an exemption is
  * silent, and this is not.
+ *
+ * Empty. /compliance was the one entry — a fabricated regulatory assessment
+ * over two mock endpoints — and it has since been fixed, which is exactly the
+ * sequence this mechanism is for.
  */
-const KNOWN_VIOLATIONS: Record<string, string> = {
-  // /compliance renders a fabricated regulatory assessment: UDAP 0 of 25
-  // citing an "affiliated vendor on CFPB enforcement watch list", 2 overdue
-  // state filings in NY and CA, KYB gaps against Horizon Retail Partners and
-  // Pinnacle Freight LLC, and a "top priority" telling the operator what to
-  // file next. It exports all of it as a report. The endpoint behind it,
-  // GET /api/compliance/score-breakdown, is mock too — 92, 78 and 85 with
-  // reasons like "No deceptive practices found".
-  //
-  // Left alone because it is a page and a backend of its own, not a figure to
-  // gate, and it is the most consequential fabrication left in the app: it
-  // tells a firm it has specific regulatory failures, or that it has none.
-  '/compliance': 'fabricated compliance score breakdown — see the report on this run',
-};
+const KNOWN_VIOLATIONS: Record<string, string> = {};
 
 /** Money, a percentage, or a label asserting a number. */
 const FIGURE = /\$[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?%|[A-Za-z][\w ]{1,24}:\s*(?:\$?[\d,]+(?:\.\d+)?)/g;

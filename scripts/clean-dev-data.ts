@@ -356,6 +356,34 @@ e2e workflow rules         : ${e2eWorkflows.length}`);
     })).count);
   }
 
+  // Seeded card benefits are reset rather than deleted.
+  //
+  // The card-benefits suite marks one used and re-reads it to prove the write
+  // persists — which it now does, in card_benefits rather than in a
+  // module-level object. That makes the test self-exhausting: the seed is
+  // create-only by design, so re-seeding never clears `utilized`, and the
+  // second run finds no unused benefit to mark. Restoring the seeded rows here
+  // is what makes the run repeatable, and this script already exists to put
+  // the database back into a state the suite can run against.
+  //
+  // Scoped to the seed-benefit- ids so a benefit somebody marked used through
+  // the UI on real data is left alone.
+  const seededBenefits = await prisma.cardBenefit.findMany({
+    where: { id: { startsWith: 'seed-benefit-' }, utilized: true },
+    select: { id: true },
+  });
+  if (seededBenefits.length > 0) {
+    // seed-benefit-002 is seeded as already used, so it is put back that way
+    // rather than cleared with the rest.
+    const toReset = seededBenefits.filter((b) => b.id !== 'seed-benefit-002');
+    if (toReset.length > 0) {
+      note('seededCardBenefitsReset', (await prisma.cardBenefit.updateMany({
+        where: { id: { in: toReset.map((b) => b.id) } },
+        data: { utilized: false, utilizedDate: null },
+      })).count);
+    }
+  }
+
   // Commissions reference invoices, so they go first.
   const e2eCommissions = await prisma.commissionRecord.findMany({ select: { id: true } });
   if (e2eCommissions.length > 0) {
