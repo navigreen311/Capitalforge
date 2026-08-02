@@ -23,6 +23,7 @@ import {
 } from '../../services/statement-reconciliation.service.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
 
 export const statementsRouter = Router({ mergeParams: true });
 
@@ -352,6 +353,15 @@ const disputes: Array<{
 //
 // Returns a mock list of statements for a client.
 
+// ── GET /api/statements?client_id= ───────────────────────────
+//
+// From statement_records. This returned three invented statements — an Amex
+// Business Platinum closing at $12,450.32 with one anomaly, a Chase Sapphire
+// Reserve at $8,320.15 with two, an Amex Business Gold reconciled with none
+// — the same three for every client and every tenant, with balances,
+// minimum payments and due dates.
+//
+// The per-business endpoints above already read the table. This one did not.
 statementsRouter.get(
   '/',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
@@ -365,99 +375,92 @@ statementsRouter.get(
       return;
     }
 
-    logger.debug('GET statements list', { clientId });
+    try {
+      const { statements, total } = await getService().listStatements(
+        tenantId(req),
+        clientId,
+      );
 
-    const statements = [
-      {
-        id: 'stmt-001',
-        cardId: 'card-amex-plat',
-        cardName: 'Amex Business Platinum',
-        issuer: 'American Express',
-        statementDate: '2026-03-15',
-        closingBalance: 12450.32,
-        minimumPayment: 622.52,
-        dueDate: '2026-04-10',
-        status: 'reviewed',
-        anomalyCount: 1,
-      },
-      {
-        id: 'stmt-002',
-        cardId: 'card-chase-sapphire',
-        cardName: 'Chase Sapphire Reserve',
-        issuer: 'Chase',
-        statementDate: '2026-03-18',
-        closingBalance: 8320.15,
-        minimumPayment: 416.01,
-        dueDate: '2026-04-13',
-        status: 'pending_review',
-        anomalyCount: 2,
-      },
-      {
-        id: 'stmt-003',
-        cardId: 'card-amex-gold',
-        cardName: 'Amex Business Gold',
-        issuer: 'American Express',
-        statementDate: '2026-03-20',
-        closingBalance: 5670.88,
-        minimumPayment: 283.54,
-        dueDate: '2026-04-15',
-        status: 'reconciled',
-        anomalyCount: 0,
-      },
-    ];
-
-    res.status(200).json({
-      success: true,
-      data: { clientId, statements },
-      meta: { total: statements.length },
-    } satisfies ApiResponse);
+      res.status(200).json({
+        success: true,
+        data: {
+          clientId,
+          statements: statements.map((st) => ({
+            id: st.id,
+            issuer: st.issuer,
+            statementDate: st.statementDate,
+            closingBalance: st.closingBalance,
+            minimumPayment: st.minimumPayment,
+            dueDate: st.dueDate,
+            feesCharged: st.feesCharged,
+            interestCharged: st.interestCharged,
+            reconciled: st.reconciled,
+            anomalyCount: st.anomalyCount,
+          })),
+        },
+        meta: { total },
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleError(res, err, 'GET /statements');
+    }
   },
 );
 
 // ── GET /api/statements/:id/line-items ───────────────────────
 //
-// Returns mock transactions, payments, fees, and reconciliation
-// differences for a specific statement.
+// Answers with what the record holds, which is not a line-item breakdown.
+//
+// This returned five transactions — Office Depot $347.89, Delta Air Lines
+// $1,245.00, AWS $2,890.42 — a payment, two fees, and a reconciliation
+// difference of $11.59 with "possible causes". Identical for every
+// statement id, including ids that do not exist. An advisor reconciling
+// against that is reconciling against fiction.
+//
+// statement_records holds normalizedData from whatever was imported. No
+// transaction table exists, and nothing parses a statement into one.
 
 statementsRouter.get(
   '/:id/line-items',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     const statementId = String(req.params['id']);
 
-    logger.debug('GET statement line-items', { statementId });
+    try {
+      const record = await sharedPrisma.statementRecord.findFirst({
+        where: { id: statementId, tenantId: tenantId(req) },
+        select: { id: true, normalizedData: true, feesCharged: true, interestCharged: true },
+      });
 
-    const data = {
-      statementId,
-      transactions: [
-        { id: 'txn-001', date: '2026-03-02', description: 'Office Depot - Supplies', amount: 347.89, category: 'office_supplies', mcc: '5943' },
-        { id: 'txn-002', date: '2026-03-05', description: 'Delta Air Lines', amount: 1245.00, category: 'travel', mcc: '3058' },
-        { id: 'txn-003', date: '2026-03-08', description: 'AWS Cloud Services', amount: 2890.42, category: 'technology', mcc: '7372' },
-        { id: 'txn-004', date: '2026-03-12', description: 'Uber for Business', amount: 156.30, category: 'transportation', mcc: '4121' },
-        { id: 'txn-005', date: '2026-03-15', description: 'WeWork Membership', amount: 800.00, category: 'office_rent', mcc: '6513' },
-      ],
-      payments: [
-        { id: 'pmt-001', date: '2026-03-01', amount: -5000.00, method: 'ACH', reference: 'ACH-20260301-001' },
-      ],
-      fees: [
-        { id: 'fee-001', type: 'annual_fee', description: 'Annual Card Fee', amount: 695.00, date: '2026-03-01' },
-        { id: 'fee-002', type: 'interest', description: 'Interest Charge', amount: 89.12, date: '2026-03-15', apr: 21.49 },
-      ],
-      reconDiff: {
-        expectedBalance: 12450.32,
-        calculatedBalance: 12438.73,
-        difference: 11.59,
-        status: 'mismatch' as const,
-        possibleCauses: [
-          'Pending transaction not yet posted',
-          'Rounding differences across multi-currency transactions',
-        ],
-      },
-    };
+      if (!record) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Statement not found.' },
+        } satisfies ApiResponse);
+        return;
+      }
 
-    res.status(200).json({
-      success: true,
-      data,
-    } satisfies ApiResponse);
+      res.status(200).json({
+        success: true,
+        data: {
+          statementId,
+          // What was imported, as imported. Not parsed into transactions,
+          // because nothing parses it.
+          normalizedData: record.normalizedData ?? null,
+          feesCharged: record.feesCharged === null ? null : Number(record.feesCharged),
+          interestCharged:
+            record.interestCharged === null ? null : Number(record.interestCharged),
+          lineItems: {
+            available: false,
+            why:
+              'Statements are stored as imported. Nothing breaks one into transactions, ' +
+              'payments and fees, and no reconciliation difference is computed — the five ' +
+              'transactions and the $11.59 difference returned here previously were the same ' +
+              'for every statement id.',
+          },
+        },
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleError(res, err, 'GET /statements/:id/line-items');
+    }
   },
 );
 
