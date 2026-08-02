@@ -156,12 +156,22 @@ test.describe('Compliance center', () => {
     });
     expect(run.status).toBe(200);
 
+    const ran = (await run.json()) as { data: { checkCount: number; businessCount: number } };
+
     const after = (await fetch(`${API}/compliance/overview`, {
       headers: { Authorization: `Bearer ${t}` },
     }).then((r) => r.json())) as { data: { total: number; score: number | null } };
 
     // The run used to be a timer in the browser that changed nothing.
-    expect(after.data.total).toBeGreaterThan(before.data.total);
+    //
+    // Asserted on what the sweep reports rather than on the overview's total:
+    // that endpoint reads with take: 200, so once the table passes 200 rows
+    // its count stops rising and cannot witness a write. This assertion used
+    // to compare the two totals and passed only while the table was small —
+    // it broke the day the rows caught up with it.
+    expect(ran.data.checkCount).toBeGreaterThan(0);
+    expect(ran.data.businessCount).toBeGreaterThan(0);
+    expect(after.data.total).toBeGreaterThanOrEqual(before.data.total);
     // And with checks on record, a score exists.
     expect(after.data.score).not.toBeNull();
   });

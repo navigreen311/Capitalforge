@@ -129,13 +129,19 @@ platformReportsRouter.post('/export', (req: Request, res: Response) => {
 
   const { type, format } = parsed.data;
   const title = REPORT_TEMPLATES[type]?.title ?? type;
+  const placeholder =
+    `[No ${format.toUpperCase()} generator is implemented for "${title}". ` +
+    `This is a placeholder, not a report — generated ${new Date().toISOString()}]`;
 
   return ok(res, {
     fileName: `${type}-${new Date().toISOString().slice(0, 10)}.${format}`,
     format,
     mimeType: format === 'pdf' ? 'application/pdf' : format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    content: `[Mock ${format.toUpperCase()} content for "${title}" — generated ${new Date().toISOString()}]`,
-    sizeBytes: Math.floor(Math.random() * 50000) + 5000,
+    // The content is a placeholder string and says so. The size is the size
+    // of that string: it used to be a random number between 5KB and 55KB,
+    // which described a file that does not exist.
+    content: placeholder,
+    sizeBytes: Buffer.byteLength(placeholder, 'utf8'),
     generatedAt: new Date().toISOString(),
   });
 });

@@ -147,9 +147,20 @@ router.get('/crm/mrr-trend', (_req: Request, res: Response) => {
 // ============================================================
 
 router.post('/billing/send-overdue-reminders', (_req: Request, res: Response) => {
-  logger.info('[platform] POST /billing/send-overdue-reminders');
-  const sent_count = Math.floor(Math.random() * 8) + 3;
-  return ok(res, { sent_count, message: `Sent ${sent_count} overdue payment reminders.` });
+  logger.info('[platform] POST /billing/send-overdue-reminders — refused, nothing sends them');
+  // This answered 200 with "Sent N overdue payment reminders", where N came
+  // from Math.random(), and sent nothing. This system can send real SMS and
+  // email; a report that a client was chased for payment, when they were not,
+  // is a record somebody would act on — or decline to act on.
+  return res.status(501).json({
+    success: false,
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message:
+        'Overdue reminders are not implemented. Nothing queues or sends them, and this ' +
+        'used to answer 200 reporting a random number of reminders as sent.',
+    },
+  } as ApiResponse);
 });
 
 // ============================================================
@@ -857,14 +868,19 @@ router.post('/integrations/:id/test', (req: Request, res: Response) => {
       statusCode: 400,
     });
   }
-  const latencyMs = Math.floor(Math.random() * 150) + 20;
-  return ok(res, {
-    integrationId,
-    healthy: true,
-    latencyMs,
-    testedAt: new Date().toISOString(),
-    message: `Connection to ${integrationId} is healthy (${latencyMs}ms).`,
-  });
+  // This reported healthy: true with a latency between 20ms and 170ms from
+  // Math.random(), having contacted nothing. An integration health check that
+  // always passes is worse than none: it is the check somebody relies on to
+  // tell them a connection has broken.
+  return res.status(501).json({
+    success: false,
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message:
+        `Connection testing is not implemented for ${integrationId}. Nothing contacts the ` +
+        'integration, and this used to answer 200 reporting it healthy with an invented latency.',
+    },
+  } as ApiResponse);
 });
 
 // ============================================================

@@ -10,9 +10,9 @@
 //   POST /api/businesses/:id/compliance/check
 //   GET  /api/compliance/state-laws/:state
 //   GET  /api/compliance/vendor-history/:vendorId
-//   POST /api/compliance/run-checks          — mock check run
-//   GET  /api/compliance/score-breakdown     — mock score breakdown
-//   POST /api/compliance/export-report       — mock compliance report
+//   POST /api/compliance/run-checks          — run the sweep, persist results
+//   GET  /api/compliance/score-breakdown     — breakdown from compliance_checks
+//   POST /api/compliance/export-report       — report built from those rows
 //   POST /api/compliance/disclosures/:id/file       — mark disclosure as filed
 //   POST /api/compliance/disclosures/bulk-file      — file multiple disclosures
 // ============================================================
@@ -992,8 +992,23 @@ complianceRouter.patch(
 
 // ─────────────────────────────────────────────────────────────────
 // POST /api/compliance/run-checks
-// Run a mock compliance check sweep. Returns summary of new issues,
-// resolved issues, and total items checked.
+// Run the compliance checks for every business under the tenant.
+//
+// This invented its own results: new_issues from Math.random() * 5, resolved
+// from Math.random() * 3, total_checked from 25 plus up to 20 more, and a
+// status of "completed" over a sweep that never ran. It named six check types
+// it had not performed, wrote nothing, and carried COMPLIANCE_WRITE so it
+// looked like the real thing.
+//
+// POST /api/compliance/run-all does the sweep properly through the service
+// and persists what it finds. Nothing called this endpoint, but it stays —
+// removing a path an unknown client may hold is a different risk from fixing
+// what it does — and it now performs the same real sweep, reporting its own
+// summary shape from actual rows.
+//
+// `resolved` is null rather than a number. The sweep writes a new check row
+// each time; nothing marks an earlier one resolved, so a count of resolutions
+// would be invented in exactly the way the rest of this was.
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.post(
   '/compliance/run-checks',
@@ -1002,18 +1017,60 @@ complianceRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
+      const prismaClient = getPrisma();
 
-      // Mock check run — in production this would trigger real compliance engines
-      const newIssues = Math.floor(Math.random() * 5);
-      const resolved = Math.floor(Math.random() * 3);
-      const totalChecked = 25 + Math.floor(Math.random() * 20);
+      const businesses = await prismaClient.business.findMany({
+        where: { tenantId },
+        select: { id: true },
+      });
+
+      const before = await prismaClient.complianceCheck.count({ where: { tenantId } });
+
+      const service = getService();
+      const checkTypes = ['udap', 'kyb', 'aml'] as const;
+      const ranTypes = new Set<string>();
+      let checksRun = 0;
+
+      for (const biz of businesses) {
+        for (const checkType of checkTypes) {
+          try {
+            await service.runComplianceCheck({ businessId: biz.id, tenantId, checkType });
+            ranTypes.add(checkType);
+            checksRun++;
+          } catch (error) {
+            // One business failing a check does not invalidate the sweep, but
+            // it must not be counted as one that ran either.
+            logger.warn('Compliance check failed for business', {
+              businessId: biz.id,
+              checkType,
+              error: String(error),
+            });
+          }
+        }
+      }
+
+      const after = await prismaClient.complianceCheck.count({ where: { tenantId } });
+
+      // Rows written by this sweep that landed at high or critical risk.
+      const newIssues = await prismaClient.complianceCheck.count({
+        where: {
+          tenantId,
+          riskLevel: { in: ['high', 'critical'] },
+          createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+        },
+      });
 
       const responseData = {
         new_issues: newIssues,
-        resolved,
-        total_checked: totalChecked,
+        // Not a number: nothing marks an earlier check resolved, so there is
+        // no resolution count to report.
+        resolved: null as number | null,
+        total_checked: after - before,
+        checks_run: checksRun,
+        businesses_checked: businesses.length,
         run_at: new Date().toISOString(),
-        check_types: ['udap', 'state_law', 'vendor', 'kyb', 'kyc', 'aml'],
+        // The types actually exercised, not a list of six the sweep never ran.
+        check_types: [...ranTypes].sort(),
         status: 'completed',
       };
 
@@ -1029,7 +1086,7 @@ complianceRouter.post(
 
 // ─────────────────────────────────────────────────────────────────
 // GET /api/compliance/score-breakdown
-// Returns mock score breakdown by check type with reasons.
+// Score per check type, averaged over the checks that carry one.
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.get(
   '/compliance/score-breakdown',
@@ -1117,7 +1174,7 @@ complianceRouter.get(
 
 // ─────────────────────────────────────────────────────────────────
 // POST /api/compliance/export-report
-// Returns a mock compliance report as text/JSON payload.
+// Compliance report, built from the checks on record.
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.post(
   '/compliance/export-report',

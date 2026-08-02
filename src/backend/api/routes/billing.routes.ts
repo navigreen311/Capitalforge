@@ -11,11 +11,11 @@
 // POST /api/tenants/:tenantId/usage/record   — record a usage event
 //
 // Extended billing management:
-// GET  /api/billing/invoices/:id/pdf         — mock invoice PDF text
+// GET  /api/billing/invoices/:id/pdf         — invoice as text, not a PDF
 // POST /api/billing/invoices/:id/void        — void an invoice
 // POST /api/billing/invoices/:id/unpay       — revert invoice to unpaid
 // POST /api/billing/commissions/:id/resolve  — resolve a commission dispute
-// GET  /api/billing/revenue-trend            — mock 6-month revenue trend
+// GET  /api/billing/revenue-trend            — 6 months from the invoices table
 // ============================================================
 
 import { Router } from 'express';
@@ -881,90 +881,147 @@ billingRouter.post(
 // ============================================================
 
 // In-memory state for voids, unpays, and commission resolutions
-const voidedInvoices: Record<string, { voidedAt: string; reason: string }> = {};
-const unpaidInvoices: Record<string, { revertedAt: string }> = {};
 
-// ── GET /api/billing/invoices/:id/pdf ────────────────────────
+// ── GET /api/billing/invoices/:id/pdf ────────────────────
 //
-// Returns a mock invoice as text (simulating PDF content).
+// The invoice as text, from the row.
+//
+// This returned a fabricated document for any id at all: a fixed billing
+// address at "123 Business Ave, Suite 400, New York, NY 10001", four invented
+// line items — advisory fee, credit optimization, portfolio monitoring,
+// compliance review — totalling $4,549.00, and a due date thirty days out.
+// It is a demand for payment somebody could send to a client.
 
 billingRouter.get(
   '/billing/invoices/:id/pdf',
   async (req: Request, res: Response): Promise<void> => {
     const invoiceId = String(req.params['id'] ?? '');
+    const tenantId = req.tenant?.tenantId;
 
-    if (!invoiceId) {
+    if (!invoiceId || !tenantId) {
       const body: ApiResponse = {
         success: false,
-        error: { code: 'MISSING_PARAM', message: 'Invoice ID is required.' },
+        error: { code: 'MISSING_PARAM', message: 'Invoice ID and tenant context are required.' },
       };
       res.status(400).json(body);
       return;
     }
 
-    logger.debug('GET invoice PDF', { invoiceId });
+    const invoice = await sharedPrisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+    });
 
-    const invoiceText = [
+    if (!invoice) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'NOT_FOUND', message: `Invoice ${invoiceId} not found.` },
+      };
+      res.status(404).json(body);
+      return;
+    }
+
+    const business = await sharedPrisma.business.findFirst({
+      where: { id: invoice.businessId, tenantId },
+      select: { legalName: true },
+    });
+
+    const money = (n: number): string => `$${n.toFixed(2)}`;
+    const date = (d: Date | null): string =>
+      d === null ? 'not recorded' : d.toISOString().slice(0, 10);
+
+    const breakdown = invoice.feeBreakdown as {
+      lineItems?: { description?: string; totalAmount?: number }[];
+    } | null;
+    const lineItems = breakdown?.lineItems ?? [];
+
+    const lines: string[] = [
       'INVOICE',
       '='.repeat(50),
-      `Invoice #: ${invoiceId}`,
-      `Date: ${new Date().toISOString().split('T')[0]}`,
-      `Due Date: ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}`,
+      `Invoice #: ${invoice.invoiceNumber}`,
+      `Status: ${invoice.status}`,
+      `Issued: ${date(invoice.issuedAt)}`,
+      `Due: ${date(invoice.dueDate)}`,
       '',
       'Bill To:',
-      '  CapitalForge Client',
-      '  123 Business Ave, Suite 400',
-      '  New York, NY 10001',
+      // The client on the invoice, or nothing. No address is on file, so none
+      // is printed — the one that used to be here belonged to nobody.
+      `  ${business?.legalName ?? 'client not found'}`,
       '',
       'Items:',
-      '  Card Stacking Advisory Fee          $2,500.00',
-      '  Credit Optimization Service          $1,200.00',
-      '  Portfolio Monitoring (Monthly)          $499.00',
-      '  Compliance Review                       $350.00',
-      '  ─────────────────────────────────────────────',
-      '  Subtotal                             $4,549.00',
-      '  Tax (0%)                                 $0.00',
-      '  ─────────────────────────────────────────────',
-      '  TOTAL DUE                            $4,549.00',
+    ];
+
+    if (lineItems.length === 0) {
+      lines.push('  no line items recorded on this invoice');
+    } else {
+      for (const item of lineItems) {
+        const amount =
+          typeof item.totalAmount === 'number' ? money(item.totalAmount) : 'not recorded';
+        lines.push(`  ${item.description ?? 'unnamed item'}  ${amount}`);
+      }
+    }
+
+    lines.push(
+      '  ' + '-'.repeat(45),
+      `  TOTAL  ${money(Number(invoice.amount))}`,
       '',
-      'Payment Terms: Net 30',
-      'Payment Methods: ACH, Wire, Check',
-      '',
-      'Thank you for your business.',
-    ].join('\n');
+      // No payment terms or methods: nothing records what was agreed, and
+      // "Net 30 / ACH, Wire, Check" was printed on every one of these.
+      'This is a text rendering of the invoice record, not a PDF.',
+    );
+
+    logger.debug('GET invoice text', { invoiceId, tenantId });
 
     res.status(200).json({
       success: true,
       data: {
         invoiceId,
         format: 'text',
-        content: invoiceText,
+        content: lines.join('\n'),
         generatedAt: new Date().toISOString(),
       },
     });
   },
 );
 
-// ── POST /api/billing/invoices/:id/void ──────────────────────
+// ── POST /api/billing/invoices/:id/void ──────────────────
 //
-// Void an invoice (mark as cancelled/void).
+// Void an invoice.
+//
+// This wrote to `voidedInvoices`, a module-level object, and answered 200 with
+// status "voided" while the row kept whatever status it had. The invoice went
+// on being listed, payable and refundable, and the void was gone at the next
+// restart.
 
 billingRouter.post(
   '/billing/invoices/:id/void',
   async (req: Request, res: Response): Promise<void> => {
     const invoiceId = String(req.params['id'] ?? '');
+    const tenantId = req.tenant?.tenantId;
     const { reason } = req.body as Record<string, unknown>;
 
-    if (!invoiceId) {
+    if (!invoiceId || !tenantId) {
       const body: ApiResponse = {
         success: false,
-        error: { code: 'MISSING_PARAM', message: 'Invoice ID is required.' },
+        error: { code: 'MISSING_PARAM', message: 'Invoice ID and tenant context are required.' },
       };
       res.status(400).json(body);
       return;
     }
 
-    if (voidedInvoices[invoiceId]) {
+    const existing = await sharedPrisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+    });
+
+    if (!existing) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'NOT_FOUND', message: `Invoice ${invoiceId} not found.` },
+      };
+      res.status(404).json(body);
+      return;
+    }
+
+    if (existing.status === 'void') {
       const body: ApiResponse = {
         success: false,
         error: { code: 'ALREADY_VOIDED', message: `Invoice ${invoiceId} is already voided.` },
@@ -973,64 +1030,144 @@ billingRouter.post(
       return;
     }
 
-    const entry = {
-      voidedAt: new Date().toISOString(),
-      reason: typeof reason === 'string' ? reason : 'No reason provided',
-    };
-    voidedInvoices[invoiceId] = entry;
+    if (existing.status === 'paid') {
+      // Voiding a paid invoice would erase the record of a payment. A refund
+      // is the operation for that, and it leaves a credit note behind.
+      const body: ApiResponse = {
+        success: false,
+        error: {
+          code: 'INVALID_STATE',
+          message:
+            'A paid invoice cannot be voided. Issue a refund instead, which records a credit note.',
+        },
+      };
+      res.status(422).json(body);
+      return;
+    }
 
-    logger.info('Invoice voided', { invoiceId, reason: entry.reason });
+    const voidReason = typeof reason === 'string' && reason.trim() !== '' ? reason : null;
+
+    const [updated] = await sharedPrisma.$transaction([
+      sharedPrisma.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'void' },
+      }),
+      // The reason has no column, and voiding an invoice is a decision about
+      // money — it goes where the other such decisions go.
+      sharedPrisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: req.tenant?.userId ?? null,
+          action: 'invoice.voided',
+          resource: 'invoice',
+          resourceId: invoiceId,
+          metadata: { reason: voidReason, previousStatus: existing.status },
+        },
+      }),
+    ]);
+
+    logger.info('Invoice voided', { invoiceId, tenantId });
 
     const body: ApiResponse = {
       success: true,
       data: {
         invoiceId,
-        status: 'voided',
-        ...entry,
+        status: updated.status,
+        voidedAt: new Date().toISOString(),
+        reason: voidReason,
       },
     };
     res.status(200).json(body);
   },
 );
 
-// ── POST /api/billing/invoices/:id/unpay ─────────────────────
+// ── POST /api/billing/invoices/:id/unpay ─────────────────
 //
-// Revert a paid invoice back to unpaid status.
+// Revert a paid invoice to unpaid.
+//
+// This wrote to `unpaidInvoices`, another module-level object, and answered
+// 200 with status "unpaid" while the row stayed paid — so the invoice was
+// reported reverted and remained settled everywhere else.
 
 billingRouter.post(
   '/billing/invoices/:id/unpay',
   async (req: Request, res: Response): Promise<void> => {
     const invoiceId = String(req.params['id'] ?? '');
+    const tenantId = req.tenant?.tenantId;
 
-    if (!invoiceId) {
+    if (!invoiceId || !tenantId) {
       const body: ApiResponse = {
         success: false,
-        error: { code: 'MISSING_PARAM', message: 'Invoice ID is required.' },
+        error: { code: 'MISSING_PARAM', message: 'Invoice ID and tenant context are required.' },
       };
       res.status(400).json(body);
       return;
     }
 
-    if (voidedInvoices[invoiceId]) {
+    const existing = await sharedPrisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+    });
+
+    if (!existing) {
       const body: ApiResponse = {
         success: false,
-        error: { code: 'INVALID_STATE', message: `Invoice ${invoiceId} is voided and cannot be unpaid.` },
+        error: { code: 'NOT_FOUND', message: `Invoice ${invoiceId} not found.` },
+      };
+      res.status(404).json(body);
+      return;
+    }
+
+    if (existing.status === 'void') {
+      const body: ApiResponse = {
+        success: false,
+        error: {
+          code: 'INVALID_STATE',
+          message: `Invoice ${invoiceId} is voided and cannot be unpaid.`,
+        },
       };
       res.status(422).json(body);
       return;
     }
 
-    const entry = { revertedAt: new Date().toISOString() };
-    unpaidInvoices[invoiceId] = entry;
+    if (existing.status !== 'paid') {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_STATE', message: `Invoice ${invoiceId} is not paid.` },
+      };
+      res.status(422).json(body);
+      return;
+    }
 
-    logger.info('Invoice reverted to unpaid', { invoiceId });
+    const [updated] = await sharedPrisma.$transaction([
+      sharedPrisma.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'issued', paidAt: null, stripePaymentId: null },
+      }),
+      sharedPrisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: req.tenant?.userId ?? null,
+          action: 'invoice.unpaid',
+          resource: 'invoice',
+          resourceId: invoiceId,
+          metadata: {
+            previousPaidAt: existing.paidAt?.toISOString() ?? null,
+            previousStripePaymentId: existing.stripePaymentId,
+          },
+        },
+      }),
+    ]);
+
+    logger.info('Invoice reverted to unpaid', { invoiceId, tenantId });
 
     const body: ApiResponse = {
       success: true,
       data: {
         invoiceId,
-        status: 'unpaid',
-        ...entry,
+        status: updated.status,
+        revertedAt: new Date().toISOString(),
+        // Reverting the record does not reverse a payment with the processor.
+        refunded: false,
       },
     };
     res.status(200).json(body);

@@ -22,19 +22,45 @@ function getTenantId(req: Request): string {
   return tenantId;
 }
 
-// ── Sparkline generator (random walk seeded from a real value) ──────────────
+// ── Sparkline series, from the rows that carry a date ───────────────────────
+//
+// These were a random walk. Each line started at 60% of the real current
+// value and stepped toward it with `(Math.random() - 0.4) * step * 2` of
+// noise per point — biased upward, because the offset is 0.4 rather than 0.5,
+// so a card's history tended to climb whatever had actually happened. Thirty
+// points of invented past under a real present, redrawn differently on every
+// request.
+//
+// Four of the five are derivable from timestamps already on the rows. The
+// fifth is not, and says so rather than being walked.
 
-function generateSparkline(baseValue: number, points: number = 30): number[] {
-  const data: number[] = [];
-  let current = Math.max(baseValue * 0.6, 1);
-  const step = (baseValue - current) / points;
+const SPARKLINE_POINTS = 30;
 
-  for (let i = 0; i < points; i++) {
-    const noise = (Math.random() - 0.4) * step * 2;
-    current = Math.max(0, current + step + noise);
-    data.push(Math.round(current * 100) / 100);
+/** Midnight boundaries for the last N days, oldest first. */
+function dayBoundaries(points: number, now: Date): Date[] {
+  const days: Date[] = [];
+  for (let i = points - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    // End of that day: everything created up to and including it.
+    days.push(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1));
   }
-  return data;
+  return days;
+}
+
+/** Running total of events at or before each day boundary. */
+function cumulativeByDay(
+  dates: (Date | null)[],
+  boundaries: Date[],
+  weight: (index: number) => number = () => 1,
+): number[] {
+  return boundaries.map((edge) =>
+    Math.round(
+      dates.reduce(
+        (sum, d, i) => (d !== null && d < edge ? sum + weight(i) : sum),
+        0,
+      ) * 100,
+    ) / 100,
+  );
 }
 
 // ── Trend formatting helper ─────────────────────────────────────────────────
@@ -204,6 +230,36 @@ dashboardKpiRouter.get(
       const prevFeesMtd = Number(prevCostCalc._sum.programFees ?? 0);
 
       // ── Build response ─────────────────────────────────────────────────
+      // ── Rows behind the sparklines ──────────────────────────────────────
+      //
+      // One read each, bucketed in memory: thirty queries per card would be
+      // thirty round trips for a line drawing.
+      const boundaries = dayBoundaries(SPARKLINE_POINTS, now);
+
+      const [clientRows, decidedRows, costRows] = await Promise.all([
+        db.business.findMany({ where: { tenantId }, select: { createdAt: true } }),
+        db.cardApplication.findMany({
+          where: { business: { tenantId }, status: { in: ['approved', 'declined'] } },
+          select: { decidedAt: true, status: true, creditLimit: true },
+        }),
+        db.costCalculation.findMany({
+          where: { business: { tenantId }, createdAt: { gte: monthStart } },
+          select: { createdAt: true, programFees: true },
+        }),
+      ]);
+
+      const decidedDates = decidedRows.map((r) => r.decidedAt);
+      const approvedDates = decidedRows.map((r) => (r.status === 'approved' ? r.decidedAt : null));
+
+      // Cumulative approvals over cumulative decisions, per day. Null before
+      // anything has been decided — a rate of 0% would say every application
+      // was declined.
+      const decidedSeries = cumulativeByDay(decidedDates, boundaries);
+      const approvedSeries = cumulativeByDay(approvedDates, boundaries);
+      const approvalRateSeries = decidedSeries.map((decided, i) =>
+        decided === 0 ? 0 : Math.round(((approvedSeries[i] ?? 0) / decided) * 1000) / 10,
+      );
+
       const body: ApiResponse = {
         success: true,
         data: {
@@ -222,11 +278,23 @@ dashboardKpiRouter.get(
           },
 
           sparklines: {
-            clients: generateSparkline(totalClients),
-            applications: generateSparkline(activeApplications),
-            funding: generateSparkline(totalFunding),
-            approval_rate: generateSparkline(approvalRate),
-            fees_mtd: generateSparkline(feesMtd),
+            clients: cumulativeByDay(clientRows.map((r) => r.createdAt), boundaries),
+            // Null, not a line. "Active" is a current status with no history
+            // on the row — an application approved last week has never been
+            // anything else as far as the database is concerned, so a past
+            // count of active applications cannot be derived, only invented.
+            applications: null,
+            funding: cumulativeByDay(
+              decidedRows.map((r) => (r.status === 'approved' ? r.decidedAt : null)),
+              boundaries,
+              (i) => Number(decidedRows[i]?.creditLimit ?? 0),
+            ),
+            approval_rate: approvalRateSeries,
+            fees_mtd: cumulativeByDay(
+              costRows.map((r) => r.createdAt),
+              boundaries,
+              (i) => Number(costRows[i]?.programFees ?? 0),
+            ),
           },
 
           last_updated: new Date().toISOString(),

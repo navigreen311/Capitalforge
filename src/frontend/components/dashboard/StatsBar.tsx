@@ -24,11 +24,16 @@ interface KpiData {
     fees_mtd: string;
   };
   sparklines: {
-    clients: number[];
-    applications: number[];
-    funding: number[];
-    approval_rate: number[];
-    fees_mtd: number[];
+    // Null where the metric has no derivable history. Active applications is
+    // a current status with nothing on the row recording what it was before,
+    // so a past count can only be invented — which is what the endpoint used
+    // to do, walking every one of these from 60% of its present value with
+    // noise biased upward.
+    clients: number[] | null;
+    applications: number[] | null;
+    funding: number[] | null;
+    approval_rate: number[] | null;
+    fees_mtd: number[] | null;
   };
   last_updated: string;
 }
@@ -250,7 +255,7 @@ function KpiCard({
   config: CardConfig;
   value: number;
   trend: string;
-  sparkline: number[];
+  sparkline: number[] | null;
 }) {
   const animatedValue = useCountUp(value);
 
@@ -292,9 +297,12 @@ function KpiCard({
         </span>
       </div>
 
-      {/* Sparkline */}
-      {sparkline && sparkline.length > 0 && (
+      {/* Sparkline, or a note in its place — an absent line should read as
+          deliberate rather than as a rendering failure. */}
+      {sparkline && sparkline.length > 0 ? (
         <Sparkline data={sparkline} color={config.accentHex} />
+      ) : (
+        <p className="text-[10px] text-gray-400 italic">No history recorded</p>
       )}
     </a>
   );
