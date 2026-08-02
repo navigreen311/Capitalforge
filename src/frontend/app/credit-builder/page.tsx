@@ -9,7 +9,12 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
-import { toBusinessScoreSet, toTradelineCount, toCreditBuilderClients } from '@/lib/credit-view';
+import {
+  toBusinessScoreSet,
+  toTradelineCount,
+  toCreditBuilderClients,
+  toScoreHistoryPoints,
+} from '@/lib/credit-view';
 import { useRouter } from 'next/navigation';
 import {
   CreditBuilderClientSelector,
@@ -237,6 +242,12 @@ export default function CreditBuilderPage() {
   const { data: tradelinesRaw } = useAuthFetch<unknown>(
     `/api/credit-builder/${selectedClient?.id}/tradelines`,
   );
+  // The trajectory chart drew a fixed six-month climb for every client. This
+  // endpoint builds the real one from credit_profiles and omits months with
+  // no pull rather than interpolating across them.
+  const { data: historyRaw } = useAuthFetch<unknown>(
+    `/api/credit-builder/${selectedClient?.id}/score-history`,
+  );
 
   // The picker's clients. It held eight literals under ids cb_001 to cb_008,
   // so selecting one sent every request above to a business that does not
@@ -251,6 +262,7 @@ export default function CreditBuilderPage() {
 
   const scores = useMemo(() => toBusinessScoreSet(scoresRaw), [scoresRaw]);
   const tradelineCount = useMemo(() => toTradelineCount(tradelinesRaw), [tradelinesRaw]);
+  const scoreHistory = useMemo(() => toScoreHistoryPoints(historyRaw), [historyRaw]);
 
   const completedCount = dunsSteps.filter((s) => s.completed).length;
   const overallProgress = Math.round((completedCount / dunsSteps.length) * 100);
@@ -339,6 +351,7 @@ export default function CreditBuilderPage() {
         paydex={scores.paydex} paydexDate={scores.paydexDate}
         experianBusiness={scores.experianBusiness} experianDate={scores.experianDate}
         sbss={scores.sbss} sbssDate={scores.sbssDate}
+        history={scoreHistory}
       />
 
       {/* ── DUNS Registration Steps ──────────────────────────────── */}
@@ -567,8 +580,23 @@ export default function CreditBuilderPage() {
               );
             })}
           </div>
+          {/* This read "Current SBSS: 148 · Next milestone: 160" as literal
+              text. The milestone array above had already been nulled for the
+              same reason — no SBSS score is recorded anywhere in this system
+              — and this line was missed, so the page went on stating a score
+              for every client underneath a table saying it had none. */}
           <div className="mt-5 pt-4 border-t border-gray-800 text-xs text-gray-500">
-            Current SBSS: <span className="text-yellow-400 font-bold text-sm">148</span><span className="mx-2">·</span>Next milestone: 160
+            {scores.sbss === null ? (
+              <>No SBSS score is on record for this client, so no milestone is measured against one.</>
+            ) : (
+              <>
+                Current SBSS:{' '}
+                <span className="text-yellow-400 font-bold text-sm">{scores.sbss}</span>
+                <span className="mx-2">·</span>
+                Next milestone:{' '}
+                {SBSS_MILESTONES.find((m) => m.targetValue > scores.sbss!)?.targetValue ?? 'none above this score'}
+              </>
+            )}
           </div>
         </section>
 

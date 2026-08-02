@@ -31,6 +31,8 @@ export interface BusinessCreditScoresPanelProps {
   experianDate: string | null;
   sbss: number | null;
   sbssDate: string | null;
+  /** Pulls on record, oldest first. Empty when none have been taken. */
+  history: ScoreHistoryPoint[];
 }
 
 // ---------------------------------------------------------------------------
@@ -146,14 +148,18 @@ function ScoreCard({ title, score, maxScore, pullDate, target, targetLabel, thre
 // Score History — mock data (Oct 2025 → Mar 2026, improving trend)
 // ---------------------------------------------------------------------------
 
-const SCORE_HISTORY = [
-  { month: 'Oct 25', paydex: 45, intelliscore: 32, sbss: 110 },
-  { month: 'Nov 25', paydex: 52, intelliscore: 38, sbss: 122 },
-  { month: 'Dec 25', paydex: 58, intelliscore: 42, sbss: 131 },
-  { month: 'Jan 26', paydex: 64, intelliscore: 47, sbss: 138 },
-  { month: 'Feb 26', paydex: 68, intelliscore: 51, sbss: 144 },
-  { month: 'Mar 26', paydex: 72, intelliscore: 54, sbss: 148 },
-];
+// This was a six-month series ending in paydex 72, intelliscore 54, sbss 148
+// — a rising curve drawn for every client, including ones with no business
+// credit file at all. GET /api/credit-builder/:clientId/score-history builds
+// the real one from credit_profiles, and omits months with no pull rather
+// than interpolating across them.
+
+export interface ScoreHistoryPoint {
+  month: string;
+  paydex?: number | null;
+  intelliscore?: number | null;
+  sbss?: number | null;
+}
 
 // ---------------------------------------------------------------------------
 // Custom tooltip for dark theme
@@ -189,6 +195,7 @@ export function BusinessCreditScoresPanel({
   experianDate,
   sbss,
   sbssDate,
+  history,
 }: BusinessCreditScoresPanelProps) {
   const [showHistory, setShowHistory] = useState(false);
 
@@ -258,10 +265,17 @@ export function BusinessCreditScoresPanel({
       {showHistory && (
         <div className="mt-4 rounded-xl border border-gray-800 bg-gray-900/60 p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">
-            Score Trajectory &mdash; Last 6 Months
+            Score Trajectory
           </h3>
+          {history.length === 0 ? (
+            <p className="text-xs text-gray-500">
+              No business credit pulls are on record for this client, so there is no
+              trajectory to plot. This used to draw a six-month climb ending at paydex
+              72 and SBSS 148 for everybody, including clients with no file at all.
+            </p>
+          ) : (
           <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={SCORE_HISTORY} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+            <LineChart data={history} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis
                 dataKey="month"
@@ -318,6 +332,7 @@ export function BusinessCreditScoresPanel({
               />
             </LineChart>
           </ResponsiveContainer>
+          )}
         </div>
       )}
     </section>

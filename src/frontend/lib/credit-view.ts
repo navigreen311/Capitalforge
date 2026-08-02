@@ -374,3 +374,48 @@ export function toTradelines(data: unknown): TradelineView[] {
 export function reportingCount(tradelines: TradelineView[]): number {
   return tradelines.filter((t) => t.status === 'Reporting').length;
 }
+
+// ── Score history ───────────────────────────────────────────────────────────
+
+export interface ScoreHistoryPoint {
+  month: string;
+  paydex?: number | null;
+  intelliscore?: number | null;
+  sbss?: number | null;
+}
+
+/**
+ * Points for the trajectory chart, from GET /:clientId/score-history.
+ *
+ * The chart drew a fixed six-month climb ending at paydex 72, intelliscore 54
+ * and SBSS 148 — for every client, including ones with no business credit
+ * file. The endpoint returns one entry per month that actually has a pull, so
+ * an empty array means no pulls rather than a flat line at zero.
+ */
+export function toScoreHistoryPoints(data: unknown): ScoreHistoryPoint[] {
+  const root = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  const body = root['data'] && typeof root['data'] === 'object'
+    ? (root['data'] as Record<string, unknown>)
+    : root;
+
+  const months = Array.isArray(body['months']) ? (body['months'] as unknown[]) : [];
+
+  return months.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const m = raw as Record<string, unknown>;
+    const month = typeof m['month'] === 'string' ? m['month'] : null;
+    if (month === null) return [];
+
+    const score = (key: string): number | null =>
+      typeof m[key] === 'number' && Number.isFinite(m[key]) ? (m[key] as number) : null;
+
+    return [
+      {
+        month,
+        paydex: score('paydex'),
+        intelliscore: score('intelliscore'),
+        sbss: score('sbss'),
+      },
+    ];
+  });
+}
