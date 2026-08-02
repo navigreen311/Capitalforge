@@ -72,32 +72,37 @@ const REFERRAL_SOURCES = [
 ] as const;
 // ── Tier helpers ────────────────────────────────────────────
 
-function getTier(conversions: number): { name: string; rate: string; color: string } {
-  if (conversions >= 16) return { name: 'Gold', rate: '20%', color: '#C9A84C' };
-  if (conversions >= 6) return { name: 'Silver', rate: '15%', color: '#9E9E9E' };
-  return { name: 'Bronze', rate: '10%', color: '#CD7F32' };
+// Tiers came from three hardcoded rates — Bronze 10%, Silver 15%, Gold 20% —
+// with a "6 more for Silver" progress line per advisor. Nothing holds a
+// commission rate, a conversion or a referral, so both the rate and the
+// distance to the next one were invented, and every advisor rendered as
+// Bronze on zero conversions because that is what the ladder returns for no
+// data.
+//
+// The tier ladder now comes from the API, which returns none, so no advisor
+// carries a rate.
+
+/** The tier a conversion count falls in, given the ladder the API returned. */
+function tierFor(conversions: number, ladder: CommissionTier[]): CommissionTier | null {
+  if (ladder.length === 0) return null;
+  const sorted = [...ladder].sort((a, b) => b.minReferrals - a.minReferrals);
+  return sorted.find((t) => conversions >= t.minReferrals) ?? null;
 }
 
-function getTierProgress(conversions: number): string | null {
-  if (conversions >= 16) return null; // Already Gold
-  if (conversions >= 6) return `${16 - conversions} more for Gold`;
-  return `${6 - conversions} more for Silver`;
-}
+function TierBadge({ conversions, ladder }: { conversions: number; ladder: CommissionTier[] }) {
+  const tier = tierFor(conversions, ladder);
 
-function TierBadge({ conversions }: { conversions: number }) {
-  const tier = getTier(conversions);
-  const progress = getTierProgress(conversions);
+  if (tier === null) {
+    // No ladder on record. A rate here would be this system telling an
+    // advisor what share of a deal they earn.
+    return <span className="text-[10px] text-gray-500">No commission tier on record</span>;
+  }
+
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span
-        className="px-2 py-0.5 rounded-full text-xs font-bold"
-        style={{ backgroundColor: `${tier.color}20`, color: tier.color, border: `1px solid ${tier.color}40` }}
-      >
-        {tier.name} {tier.rate}
+      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-800 text-gray-300 border border-gray-700">
+        {tier.tier} {tier.rate}
       </span>
-      {progress && (
-        <span className="text-[10px] text-gray-500">{progress}</span>
-      )}
     </span>
   );
 }
@@ -402,11 +407,18 @@ export default function PlatformReferralsPage() {
       <section>
         <h2 className="text-lg font-semibold text-white mb-4">Advisor Referral Links</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {advisorLinks.length === 0 && (
+            <p className="text-xs text-gray-500 sm:col-span-2 lg:col-span-3">
+              No advisor has a referral link. Links were generated per advisor under
+              app.capitalforge.io and resolved to nothing, so none is offered until
+              something stores one.
+            </p>
+          )}
           {advisorLinks.map(([name, link]) => (
             <div key={name} className="rounded-xl border border-gray-700/60 bg-gray-900/60 p-4 flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-medium text-gray-200">{name}</p>
-                <TierBadge conversions={advisorConversions[name] || 0} />
+                <TierBadge conversions={advisorConversions[name] || 0} ladder={commissionTiers} />
               </div>
               <div className="flex items-center gap-2">
                 <code className="text-xs text-[#C9A84C] bg-gray-800 px-2 py-1 rounded flex-1 truncate">{link}</code>
@@ -495,6 +507,15 @@ export default function PlatformReferralsPage() {
                 </tr>
               </thead>
               <tbody>
+                {commissionTiers.length === 0 && (
+                  <tr className="border-t border-gray-800">
+                    <td colSpan={3} className="px-4 py-4 text-xs text-gray-500">
+                      No commission tiers are on record. The three rates shown here —
+                      Bronze 10%, Silver 15%, Gold 20% — were written into this page, and
+                      nothing stores a commission rate or pays against one.
+                    </td>
+                  </tr>
+                )}
                 {commissionTiers.map((t) => (
                   <tr key={t.tier} className="border-t border-gray-800">
                     <td className="px-4 py-3 text-[#C9A84C] font-medium">{t.tier}</td>
@@ -524,6 +545,15 @@ export default function PlatformReferralsPage() {
                 </tr>
               </thead>
               <tbody>
+                {leaderboard.length === 0 && (
+                  <tr className="border-t border-gray-800">
+                    <td colSpan={5} className="px-4 py-4 text-xs text-gray-500">
+                      No advisor has a referral on record, so there is nothing to rank. The
+                      five ranked here were literals, with commissions of $1,500 and $2,200
+                      that nothing had paid or owed.
+                    </td>
+                  </tr>
+                )}
                 {leaderboard.map((e, i) => (
                   <tr key={e.advisorName} className="border-t border-gray-800">
                     <td className="px-4 py-3 text-center">
@@ -534,7 +564,7 @@ export default function PlatformReferralsPage() {
                     <td className="px-4 py-3">
                       <div className="flex flex-col gap-1">
                         <span className="text-gray-200 font-medium">{e.advisorName}</span>
-                        <TierBadge conversions={e.conversions} />
+                        <TierBadge conversions={e.conversions} ladder={commissionTiers} />
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right text-white">{e.totalReferrals}</td>
