@@ -324,8 +324,10 @@ export default function BillingPage() {
             <h2 className="text-sm font-semibold text-gray-900">What is not here</h2>
             <p className="text-xs text-gray-600 leading-relaxed">
               <strong>Commissions.</strong> The page showed amounts owed to named partners and
-              advisors, with approval statuses and due dates. commission_records exists as a
-              table and nothing writes to it, so there is nothing to show.
+              advisors, with approval statuses and due dates, from literals. They are rows in
+              commission_records now — created against an invoice through the API and listed at
+              /api/commissions — and none has been created for this tenant, which is why none
+              appears.
             </p>
             <p className="text-xs text-gray-600 leading-relaxed">
               <strong>Usage metering.</strong> It reported 87,400 of 100,000 API calls, 48 of 50

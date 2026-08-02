@@ -356,6 +356,14 @@ e2e workflow rules         : ${e2eWorkflows.length}`);
     })).count);
   }
 
+  // Commissions reference invoices, so they go first.
+  const e2eCommissions = await prisma.commissionRecord.findMany({ select: { id: true } });
+  if (e2eCommissions.length > 0) {
+    note('e2eCommissions', (await prisma.commissionRecord.deleteMany({
+      where: { id: { in: e2eCommissions.map((c) => c.id) } },
+    })).count);
+  }
+
   if (e2eInvoices.length > 0) {
     note('e2eInvoices', (await prisma.invoice.deleteMany({
       where: { id: { in: e2eInvoices.map((i) => i.id) } },

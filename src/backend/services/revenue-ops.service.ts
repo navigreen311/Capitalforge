@@ -143,7 +143,26 @@ function nextInvoiceNumber(tenantId: string): string {
   return `INV-${prefix}${ts}-${String(invoiceSequence).padStart(6, '0')}`;
 }
 
-// ── In-memory stores (swap for Prisma calls in production) ───────────────────
+// ── Working memory, not storage ──────────────────────────────────────────────
+//
+// These two Maps are not a database and never were, whatever "swap for
+// Prisma calls in production" suggested. Everything in them is gone when the
+// process restarts and is invisible to any other worker.
+//
+// Invoices no longer depend on them: the billing routes compute an invoice
+// here and write the row themselves, then read, list and pay against the
+// invoices table. What is still memory-only, and therefore not to be relied
+// on, is:
+//
+//   issueRefund / credit notes   computed, never written — a refund issued
+//                                through this service leaves no record
+//   commissions                  createCommission, approve, markPaid and
+//                                clawBack all mutate commissionStore, while
+//                                commission_records sits unused
+//
+// None of those is reachable from an API route today, which is the only
+// reason the gap is not doing harm. Wiring them means the same treatment
+// the invoice path got: compute here, write at the boundary.
 
 const invoiceStore = new Map<string, Invoice>();
 const commissionStore = new Map<string, CommissionRecord>();

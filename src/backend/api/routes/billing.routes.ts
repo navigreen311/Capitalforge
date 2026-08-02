@@ -239,8 +239,118 @@ billingRouter.get(
       return;
     }
 
-    const invoice = revenueOpsService.getInvoice(invoiceId);
+    // From the table, scoped in the query. This read revenue-ops' in-memory
+    // Map, so an invoice raised before the last restart came back 404 while
+    // its row sat in the database.
+    const row = await sharedPrisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+    });
 
+    if (!row) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'NOT_FOUND', message: `Invoice ${invoiceId} not found.` },
+      };
+      res.status(404).json(body);
+      return;
+    }
+
+    const invoice = {
+      id: row.id,
+      tenantId: row.tenantId,
+      businessId: row.businessId,
+      invoiceNumber: row.invoiceNumber,
+      type: row.type,
+      amount: Number(row.amount),
+      feeBreakdown: row.feeBreakdown ?? null,
+      status: row.status,
+      issuedAt: row.issuedAt?.toISOString() ?? null,
+      dueDate: row.dueDate?.toISOString() ?? null,
+      paidAt: row.paidAt?.toISOString() ?? null,
+      stripePaymentId: row.stripePaymentId,
+      createdAt: row.createdAt.toISOString(),
+    };
+
+    const body: ApiResponse<typeof invoice> = { success: true, data: invoice };
+    res.status(200).json(body);
+  },
+);
+
+// ── GET /api/commissions ──────────────────────────────────────────────────────
+//
+// From commission_records. The table existed and nothing wrote to it: the
+// commission functions in revenue-ops mutated a Map held by the process, so
+// a commission "created" through this system was gone on restart and
+// invisible to every other worker — and the billing page had to say
+// commissions could not be shown at all.
+
+billingRouter.get(
+  '/commissions',
+  async (req: Request, res: Response): Promise<void> => {
+    const tenantId = req.tenant?.tenantId;
+    if (!tenantId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_PARAMS', message: 'Tenant context is required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    const rows = await sharedPrisma.commissionRecord.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    const data = rows.map((r) => ({
+      id: r.id,
+      invoiceId: r.invoiceId,
+      partnerId: r.partnerId,
+      advisorId: r.advisorId,
+      amount: Number(r.amount),
+      // Null where the commission was a flat amount rather than a rate.
+      percentage: r.percentage === null ? null : Number(r.percentage),
+      type: r.type,
+      status: r.status,
+      paidAt: r.paidAt?.toISOString() ?? null,
+      createdAt: r.createdAt.toISOString(),
+    }));
+
+    const body: ApiResponse<typeof data> = {
+      success: true,
+      data,
+      meta: { total: data.length },
+    };
+    res.status(200).json(body);
+  },
+);
+
+// ── POST /api/invoices/:id/commissions ────────────────────────────────────────
+//
+// Computes the commission with revenue-ops — which validates that exactly
+// one of amount or percentage-with-base is given, and that a partner or an
+// advisor is named — and writes the row.
+
+billingRouter.post(
+  '/invoices/:id/commissions',
+  async (req: Request, res: Response): Promise<void> => {
+    const tenantId = req.tenant?.tenantId;
+    const invoiceId = req.params['id'];
+    if (!tenantId || !invoiceId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_PARAMS', message: 'Invoice ID and tenant context are required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    // Scoped: a commission cannot be attached to another tenant's invoice.
+    const invoice = await sharedPrisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+      select: { id: true, amount: true },
+    });
     if (!invoice) {
       const body: ApiResponse = {
         success: false,
@@ -250,18 +360,61 @@ billingRouter.get(
       return;
     }
 
-    // Tenant isolation check
-    if (invoice.tenantId !== tenantId) {
+    const raw = req.body as {
+      partnerId?: string;
+      advisorId?: string;
+      type?: string;
+      amount?: number;
+      percentage?: number;
+    };
+
+    try {
+      const computed = revenueOpsService.createCommission({
+        tenantId,
+        invoiceId,
+        partnerId: raw.partnerId,
+        advisorId: raw.advisorId,
+        type: (raw.type ?? 'partner_referral') as Parameters<
+          typeof revenueOpsService.createCommission
+        >[0]['type'],
+        amount: raw.amount,
+        percentage: raw.percentage,
+        baseAmount: raw.percentage === undefined ? undefined : Number(invoice.amount),
+      });
+
+      const saved = await sharedPrisma.commissionRecord.create({
+        data: {
+          tenantId,
+          invoiceId,
+          partnerId: computed.partnerId,
+          advisorId: computed.advisorId,
+          amount: computed.amount,
+          percentage: computed.percentage,
+          type: computed.type,
+          status: computed.status,
+        },
+      });
+
+      const data = {
+        id: saved.id,
+        invoiceId: saved.invoiceId,
+        amount: Number(saved.amount),
+        percentage: saved.percentage === null ? null : Number(saved.percentage),
+        type: saved.type,
+        status: saved.status,
+        createdAt: saved.createdAt.toISOString(),
+      };
+
+      const body: ApiResponse<typeof data> = { success: true, data };
+      res.status(201).json(body);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not create the commission.';
       const body: ApiResponse = {
         success: false,
-        error: { code: 'FORBIDDEN', message: 'Access denied to this invoice.' },
+        error: { code: 'VALIDATION_ERROR', message },
       };
-      res.status(403).json(body);
-      return;
+      res.status(422).json(body);
     }
-
-    const body: ApiResponse<typeof invoice> = { success: true, data: invoice };
-    res.status(200).json(body);
   },
 );
 

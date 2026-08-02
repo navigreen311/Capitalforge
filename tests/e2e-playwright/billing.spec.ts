@@ -124,7 +124,55 @@ test.describe('Billing', () => {
     await expect(page.getByRole('heading', { name: 'What is not here' })).toBeVisible({
       timeout: 30000,
     });
-    await expect(page.getByText('nothing writes to it', { exact: false })).toBeVisible();
+    // The commissions note changed when commission_records was wired.
+    await expect(page.getByText('rows in commission_records now', { exact: false })).toBeVisible();
     await expect(page.getByText('It does not charge anything', { exact: false })).toBeVisible();
+  });
+});
+
+test.describe('Commissions', () => {
+  test('a commission survives being created', async ({ signedInPage: page }) => {
+    await page.goto('/billing');
+    const t = await token(page);
+    const businessId = await firstBusinessId(t);
+
+    const invoice = (await fetch(`${API}/businesses/${businessId}/invoices`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
+    }).then((r) => r.json())) as { data: { id: string } };
+
+    const created = await fetch(`${API}/invoices/${invoice.data.id}/commissions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ advisorId: 'e2e-advisor', type: 'advisor_commission', amount: 250 }),
+    });
+    expect(created.status).toBe(201);
+
+    // commission_records had a table and nothing wrote to it; the service
+    // mutated a Map that a restart emptied.
+    const listed = await fetch(`${API}/commissions`, {
+      headers: { Authorization: `Bearer ${t}` },
+    })
+      .then((r) => r.json())
+      .then((b) => (b as { data: { invoiceId: string | null; amount: number }[] }).data);
+
+    const found = listed.find((c) => c.invoiceId === invoice.data.id);
+    expect(found, 'the commission must come back from the database').toBeTruthy();
+    expect(found!.amount).toBe(250);
+  });
+
+  test('a commission cannot be attached to another tenant’s invoice', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/billing');
+    const t = await token(page);
+
+    const res = await fetch(`${API}/invoices/not-a-real-invoice/commissions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ advisorId: 'x', type: 'advisor_commission', amount: 10 }),
+    });
+    expect(res.status).toBe(404);
   });
 });
