@@ -1,915 +1,196 @@
 'use client';
 
 // ============================================================
-// /spend-governance — Spend Governance dashboard
-// Transaction list with MCC category, risk score gauge,
-// cash-like flag, business purpose tag.
-// Risk summary cards (total, flagged, cash-like, chargeback ratio).
-// Business-purpose evidence export button.
-// Network rule violations alert panel.
+// /spend-governance — card transactions and their risk
+//
+// This page held its own transactions and risk summary and called nothing,
+// while two endpoints returned the real ones per client:
+//
+//   GET /api/businesses/:id/transactions
+//   GET /api/businesses/:id/transactions/risk-summary
+//
+// A flagged transaction is an accusation about how a client spent money.
+// None is shown here that the record does not carry.
 // ============================================================
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import {
-  SpendClientSelector,
-  SpendByCategoryChart,
-  TransactionDetailModal,
-  ViolationActionButtons,
-  DocumentResponseModal,
-} from '@/components/spend-governance';
-import type { SpendClient, DateRange } from '@/components/spend-governance';
-import type { ViolationDetail } from '@/components/spend-governance';
-import type { AcknowledgedInfo } from '@/components/spend-governance/ViolationActionButtons';
-import { PLACEHOLDER_SPEND_BY_CATEGORY } from '@/components/spend-governance/SpendByCategoryChart';
-import { useToast } from '@/components/global/ToastProvider';
+import { useState, useEffect, useCallback } from 'react';
+import { authHeaders } from '@/lib/api-client';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
-
-interface Transaction {
+interface ClientOption {
   id: string;
-  merchant: string;
-  mccCode: string;
-  mccCategory: string;
-  amount: number;
-  date: string;
-  riskScore: number;       // 0–100
-  riskLevel: RiskLevel;
-  isCashLike: boolean;
-  businessPurpose: string;
-  flagged: boolean;
-  chargedBack: boolean;
+  businessName: string;
 }
 
-interface NetworkViolation {
+interface TransactionRow {
   id: string;
-  rule: string;
-  network: 'Visa' | 'Mastercard' | 'Amex';
-  severity: RiskLevel;
-  merchant: string;
-  date: string;
-  description: string;
+  description?: string | null;
+  amount?: number | string | null;
+  transactionDate?: string | null;
+  category?: string | null;
+  businessPurpose?: string | null;
+  riskFlag?: string | null;
 }
 
-// ---------------------------------------------------------------------------
-// Placeholder data
-// ---------------------------------------------------------------------------
-
-const PLACEHOLDER_TRANSACTIONS: Transaction[] = [
-  {
-    id: 'txn_001', merchant: 'Shell Gas Station', mccCode: '5541', mccCategory: 'Auto Fuel',
-    amount: 284.50, date: '2026-03-30', riskScore: 18, riskLevel: 'low',
-    isCashLike: false, businessPurpose: 'Fleet fuel — delivery vehicles', flagged: false, chargedBack: false,
-  },
-  {
-    id: 'txn_002', merchant: 'Vegas ATM Advance', mccCode: '6011', mccCategory: 'Cash Advance / ATM',
-    amount: 1_500.00, date: '2026-03-29', riskScore: 91, riskLevel: 'critical',
-    isCashLike: true, businessPurpose: 'Unverified', flagged: true, chargedBack: false,
-  },
-  {
-    id: 'txn_003', merchant: 'Staples Business', mccCode: '5111', mccCategory: 'Office Supplies',
-    amount: 637.20, date: '2026-03-29', riskScore: 12, riskLevel: 'low',
-    isCashLike: false, businessPurpose: 'Office supplies — Q2 restock', flagged: false, chargedBack: false,
-  },
-  {
-    id: 'txn_004', merchant: 'Delta Airlines', mccCode: '3058', mccCategory: 'Airlines & Travel',
-    amount: 4_210.00, date: '2026-03-28', riskScore: 44, riskLevel: 'medium',
-    isCashLike: false, businessPurpose: 'Client meeting — SFO', flagged: false, chargedBack: false,
-  },
-  {
-    id: 'txn_005', merchant: 'MoneyGram Wire Svc', mccCode: '4829', mccCategory: 'Wire Transfer',
-    amount: 9_750.00, date: '2026-03-27', riskScore: 88, riskLevel: 'high',
-    isCashLike: true, businessPurpose: 'Unverified', flagged: true, chargedBack: false,
-  },
-  {
-    id: 'txn_006', merchant: 'Hilton Hotels', mccCode: '3504', mccCategory: 'Lodging',
-    amount: 1_820.00, date: '2026-03-27', riskScore: 21, riskLevel: 'low',
-    isCashLike: false, businessPurpose: 'Sales conference — Chicago', flagged: false, chargedBack: false,
-  },
-  {
-    id: 'txn_007', merchant: 'CoinFlip Bitcoin ATM', mccCode: '6051', mccCategory: 'Crypto / Quasi-Cash',
-    amount: 3_000.00, date: '2026-03-26', riskScore: 97, riskLevel: 'critical',
-    isCashLike: true, businessPurpose: 'Unverified', flagged: true, chargedBack: true,
-  },
-  {
-    id: 'txn_008', merchant: 'AWS Cloud Services', mccCode: '7372', mccCategory: 'SaaS / Technology',
-    amount: 5_450.00, date: '2026-03-26', riskScore: 8, riskLevel: 'low',
-    isCashLike: false, businessPurpose: 'Cloud infrastructure — prod env', flagged: false, chargedBack: false,
-  },
-  {
-    id: 'txn_009', merchant: 'Restaurant Supplies Co', mccCode: '5812', mccCategory: 'Restaurants',
-    amount: 398.75, date: '2026-03-25', riskScore: 33, riskLevel: 'medium',
-    isCashLike: false, businessPurpose: 'Client entertainment', flagged: false, chargedBack: false,
-  },
-  {
-    id: 'txn_010', merchant: 'PayDay Advance Kiosk', mccCode: '6012', mccCategory: 'Payday / Financial',
-    amount: 750.00, date: '2026-03-24', riskScore: 76, riskLevel: 'high',
-    isCashLike: true, businessPurpose: 'Unverified', flagged: true, chargedBack: false,
-  },
-];
-
-const PLACEHOLDER_VIOLATIONS: NetworkViolation[] = [
-  {
-    id: 'viol_001', rule: 'Visa Rule 10.3.2 — Quasi-Cash Restriction',
-    network: 'Visa', severity: 'critical', merchant: 'CoinFlip Bitcoin ATM',
-    date: '2026-03-26',
-    description: 'Corporate card used at crypto/quasi-cash merchant. Violates cardholder agreement and may result in program termination.',
-  },
-  {
-    id: 'viol_002', rule: 'MC Rule 5.10.1.1 — Card-Present ATM Advance',
-    network: 'Mastercard', severity: 'high', merchant: 'Vegas ATM Advance',
-    date: '2026-03-29',
-    description: 'Cash advance on business card exceeds single-transaction limit. Automatic fraud review triggered.',
-  },
-  {
-    id: 'viol_003', rule: 'Visa Rule 11.1 — Chargeback Threshold Warning',
-    network: 'Visa', severity: 'high', merchant: 'CoinFlip Bitcoin ATM',
-    date: '2026-03-26',
-    description: 'Chargeback filed on flagged transaction. Cumulative chargeback ratio approaching Visa Early Warning threshold (0.65%).',
-  },
-  {
-    id: 'viol_004', rule: 'Amex CPC Policy 4.2 — Wire Transfer Usage',
-    network: 'Amex', severity: 'medium', merchant: 'MoneyGram Wire Svc',
-    date: '2026-03-27',
-    description: 'Commercial card used for wire transfer service. Requires pre-authorization and documented business purpose.',
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const RISK_CONFIG: Record<RiskLevel, { label: string; badgeClass: string; dotClass: string; bgClass: string }> = {
-  low:      { label: 'Low',      badgeClass: 'bg-green-900 text-green-300 border-green-700',   dotClass: 'bg-green-400',  bgClass: 'bg-green-950' },
-  medium:   { label: 'Medium',   badgeClass: 'bg-yellow-900 text-yellow-300 border-yellow-700', dotClass: 'bg-yellow-400', bgClass: 'bg-yellow-950' },
-  high:     { label: 'High',     badgeClass: 'bg-orange-900 text-orange-300 border-orange-700', dotClass: 'bg-orange-400', bgClass: 'bg-orange-950' },
-  critical: { label: 'Critical', badgeClass: 'bg-red-900 text-red-300 border-red-700',          dotClass: 'bg-red-400',    bgClass: 'bg-red-950' },
-};
-
-const NETWORK_COLORS: Record<string, string> = {
-  Visa:       'bg-blue-900 text-blue-300 border-blue-700',
-  Mastercard: 'bg-orange-900 text-orange-300 border-orange-700',
-  Amex:       'bg-teal-900 text-teal-300 border-teal-700',
-};
-
-function formatCurrency(n: number): string {
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+function money(value: number | string | null | undefined): string {
+  const n = typeof value === 'string' ? Number(value) : value;
+  return typeof n === 'number' && Number.isFinite(n)
+    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+    : '—';
 }
-
-function formatDate(s: string): string {
-  try { return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
-  catch { return s; }
-}
-
-function estimateCashAdvanceFee(amount: number): string {
-  const low = (amount * 0.03).toFixed(2);
-  const high = (amount * 0.05).toFixed(2);
-  return `$${low}–$${high}`;
-}
-
-function isCashAdvanceCategory(category: string): boolean {
-  const lower = category.toLowerCase();
-  return lower.includes('cash advance') || lower.includes('atm');
-}
-
-// Risk score gauge (mini SVG arc)
-function RiskGauge({ score }: { score: number }) {
-  const color = score >= 75 ? '#ef4444' : score >= 50 ? '#f97316' : score >= 25 ? '#eab308' : '#22c55e';
-  const r = 16;
-  const circ = 2 * Math.PI * r;
-  const pct = score / 100;
-  const dash = circ * pct;
-  const gap = circ - dash;
-
-  return (
-    <div className="flex flex-col items-center">
-      <svg width={44} height={44} viewBox="0 0 44 44" aria-label={`Risk score ${score}`}>
-        <circle cx={22} cy={22} r={r} fill="none" stroke="#1f2937" strokeWidth={5} />
-        <circle
-          cx={22} cy={22} r={r} fill="none"
-          stroke={color} strokeWidth={5} strokeLinecap="round"
-          strokeDasharray={`${dash} ${gap}`}
-          transform="rotate(-90 22 22)"
-        />
-        <text x={22} y={26} textAnchor="middle" fontSize={10} fontWeight="800" fill={color}>{score}</text>
-      </svg>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Cash-Like Contact Client Modal (2E)
-// Shows cash advance warning details + mock VoiceForge outreach action
-// ---------------------------------------------------------------------------
-
-function CashLikeContactModal({
-  transaction,
-  isOpen,
-  onClose,
-}: {
-  transaction: Transaction | null;
-  isOpen: boolean;
-  onClose: () => void;
-}) {
-  const [outreachStatus, setOutreachStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
-
-  useEffect(() => {
-    if (!isOpen) setOutreachStatus('idle');
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
-
-  const handleBackdrop = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (e.target === e.currentTarget) onClose();
-    },
-    [onClose],
-  );
-
-  function handleVoiceForgeOutreach() {
-    setOutreachStatus('sending');
-    // Mock VoiceForge API call
-    setTimeout(() => setOutreachStatus('sent'), 1200);
-  }
-
-  if (!isOpen || !transaction) return null;
-
-  const feeEstimate = estimateCashAdvanceFee(transaction.amount);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={handleBackdrop}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="cashlike-modal-title"
-    >
-      <div className="relative w-full max-w-md rounded-xl bg-gray-900 border border-orange-800/50 shadow-2xl">
-        {/* Close */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
-          aria-label="Close cash-like alert modal"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-
-        {/* Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-gray-700">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-amber-400 text-lg" aria-hidden="true">&#x26A0;</span>
-            <h3 id="cashlike-modal-title" className="text-lg font-bold text-white">
-              Cash-Like Transaction Alert
-            </h3>
-          </div>
-          <p className="text-sm text-gray-400">
-            This transaction has been flagged as cash-like and may violate card program rules.
-          </p>
-        </div>
-
-        {/* Details */}
-        <div className="px-6 py-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Merchant</p>
-              <p className="text-sm font-semibold text-gray-100">{transaction.merchant}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Category</p>
-              <p className="text-sm text-gray-300">{transaction.mccCategory}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Amount</p>
-              <p className="text-lg font-bold text-orange-300">{formatCurrency(transaction.amount)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Est. Cash Advance Fee</p>
-              <p className="text-lg font-bold text-red-400">{feeEstimate}</p>
-            </div>
-          </div>
-
-          <div className="rounded-lg bg-orange-950/40 border border-orange-800/40 p-3">
-            <p className="text-xs text-orange-300 leading-relaxed">
-              Cash advance transactions typically incur a 3-5% fee with no grace period on interest.
-              The cardholder should be informed of additional costs and the transaction should be
-              reviewed for business purpose compliance.
-            </p>
-          </div>
-        </div>
-
-        {/* VoiceForge Action */}
-        <div className="px-6 py-4 border-t border-gray-700">
-          <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-2">VoiceForge Outreach</p>
-          {outreachStatus === 'sent' ? (
-            <div className="flex items-center gap-2 rounded-lg bg-emerald-900/30 border border-emerald-700/40 px-4 py-3">
-              <span className="text-emerald-400">&#x2705;</span>
-              <p className="text-sm text-emerald-300 font-medium">
-                VoiceForge outreach initiated — client will receive a call within 15 minutes.
-              </p>
-            </div>
-          ) : (
-            <button
-              onClick={handleVoiceForgeOutreach}
-              disabled={outreachStatus === 'sending'}
-              className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold
-                bg-[#C9A84C] hover:bg-amber-400 text-gray-900
-                disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {outreachStatus === 'sending' ? 'Initiating VoiceForge Call...' : 'Contact Client via VoiceForge'}
-            </button>
-          )}
-          <p className="text-xs text-gray-600 mt-2">
-            Automated voice call will inform the client about the cash advance flag, associated fees,
-            and request business purpose verification.
-          </p>
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-700 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white
-              border border-gray-600 hover:border-gray-500 transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 export default function SpendGovernancePage() {
-  const [transactions, setTransactions] = useState<Transaction[]>(PLACEHOLDER_TRANSACTIONS);
-  const [violations] = useState<NetworkViolation[]>(PLACEHOLDER_VIOLATIONS);
-  const [txnFilter, setTxnFilter] = useState<'all' | 'flagged' | 'cash-like'>('all');
-  const [exportLoading, setExportLoading] = useState(false);
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [selected, setSelected] = useState('');
+  const [rows, setRows] = useState<TransactionRow[] | null>(null);
+  const [summary, setSummary] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // SpendClientSelector state
-  const [selectedClient, setSelectedClient] = useState<SpendClient | null>(null);
-  const [dateRange, setDateRange] = useState<DateRange | null>(null);
-  const [cardFilter, setCardFilter] = useState('All Cards');
-
-  // TransactionDetailModal state
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-
-  // Inline editing of business purpose
-  const [editingPurposeId, setEditingPurposeId] = useState<string | null>(null);
-  const [editingPurposeValue, setEditingPurposeValue] = useState('');
-
-  // ViolationActionButtons — track acknowledged violations with metadata
-  const [acknowledgedViolations, setAcknowledgedViolations] = useState<Map<string, AcknowledgedInfo>>(new Map());
-
-  // Document Response modal state
-  const [docResponseViolation, setDocResponseViolation] = useState<ViolationDetail | null>(null);
-
-  // Toast
-  const toast = useToast();
-
-  // Cash-Like Contact Client modal (2E)
-  const [cashLikeContactTxn, setCashLikeContactTxn] = useState<Transaction | null>(null);
-
-  // Category bar filter (2G)
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
-
-  // Summary stats
-  const totalTxns = transactions.length;
-  const flaggedCount = transactions.filter((t) => t.flagged).length;
-  const cashLikeCount = transactions.filter((t) => t.isCashLike).length;
-  const chargedBackCount = transactions.filter((t) => t.chargedBack).length;
-  const chargebackRatio = totalTxns > 0 ? ((chargedBackCount / totalTxns) * 100).toFixed(2) : '0.00';
-  const totalAmount = transactions.reduce((s, t) => s + t.amount, 0);
-
-  // Verification progress
-  const verifiedCount = transactions.filter((t) => t.businessPurpose !== 'Unverified').length;
-  const unverifiedCount = totalTxns - verifiedCount;
-
-  // Filter transactions based on txnFilter tabs
-  // Map chart category labels to transaction mccCategory substrings
-  function matchesCategoryFilter(mccCategory: string, chartCategory: string): boolean {
-    const mcc = mccCategory.toLowerCase();
-    const chart = chartCategory.toLowerCase();
-    // Direct match
-    if (mcc.includes(chart) || chart.includes(mcc)) return true;
-    // Specific mappings for chart labels that differ from mccCategory
-    const mappings: Record<string, string[]> = {
-      'wire transfer': ['wire transfer'],
-      'saas': ['saas', 'technology'],
-      'airlines': ['airlines', 'travel'],
-      'office': ['office supplies', 'office'],
-      'cash advance': ['cash advance', 'atm', 'crypto', 'quasi-cash', 'payday', 'financial'],
-      'other': ['lodging', 'restaurants', 'auto fuel'],
-    };
-    const keywords = mappings[chart] ?? [];
-    return keywords.some((kw) => mcc.includes(kw));
-  }
-
-  // Filter transactions based on txnFilter tabs + category bar filter
-  const filtered = useMemo(() => {
-    return transactions.filter((t) => {
-      if (txnFilter === 'flagged' && !t.flagged) return false;
-      if (txnFilter === 'cash-like' && !t.isCashLike) return false;
-      if (categoryFilter && !matchesCategoryFilter(t.mccCategory, categoryFilter)) return false;
-      return true;
-    });
-  }, [transactions, txnFilter, categoryFilter]);
-
-  // Export business purpose evidence as .txt summary
-  function handleExport() {
-    setExportLoading(true);
-    setTimeout(() => {
-      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      const lines: string[] = [
-        '==========================================================',
-        '  BUSINESS PURPOSE EVIDENCE REPORT',
-        '==========================================================',
-        `  Generated: ${now}`,
-        `  Verification Progress: ${verifiedCount}/${totalTxns} verified`,
-        `  Total Spend: ${formatCurrency(totalAmount)}`,
-        '==========================================================',
-        '',
-      ];
-
-      // Verified transactions
-      const verified = transactions.filter((t) => t.businessPurpose !== 'Unverified');
-      const unverified = transactions.filter((t) => t.businessPurpose === 'Unverified');
-
-      lines.push(`--- VERIFIED (${verified.length}) ---`);
-      lines.push('');
-      verified.forEach((t) => {
-        lines.push(`  [${t.id}] ${t.merchant}`);
-        lines.push(`    Amount: ${formatCurrency(t.amount)}  |  Date: ${formatDate(t.date)}  |  MCC: ${t.mccCode} (${t.mccCategory})`);
-        lines.push(`    Risk: ${t.riskLevel.toUpperCase()} (${t.riskScore}/100)${t.isCashLike ? '  |  CASH-LIKE' : ''}${t.flagged ? '  |  FLAGGED' : ''}${t.chargedBack ? '  |  CHARGEBACK' : ''}`);
-        lines.push(`    Purpose: ${t.businessPurpose}`);
-        lines.push('');
-      });
-
-      lines.push(`--- UNVERIFIED (${unverified.length}) ---`);
-      lines.push('');
-      unverified.forEach((t) => {
-        lines.push(`  [${t.id}] ${t.merchant}`);
-        lines.push(`    Amount: ${formatCurrency(t.amount)}  |  Date: ${formatDate(t.date)}  |  MCC: ${t.mccCode} (${t.mccCategory})`);
-        lines.push(`    Risk: ${t.riskLevel.toUpperCase()} (${t.riskScore}/100)${t.isCashLike ? '  |  CASH-LIKE' : ''}${t.flagged ? '  |  FLAGGED' : ''}${t.chargedBack ? '  |  CHARGEBACK' : ''}`);
-        lines.push(`    Purpose: ** UNVERIFIED — requires business justification **`);
-        lines.push('');
-      });
-
-      lines.push('==========================================================');
-      lines.push('  END OF REPORT');
-      lines.push('==========================================================');
-
-      const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `spend-governance-evidence-${new Date().toISOString().slice(0, 10)}.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setExportLoading(false);
-    }, 600);
-  }
-
-  // Convert page Transaction to modal Transaction shape
-  function openTransactionModal(t: Transaction) {
-    setSelectedTransaction(t);
-  }
-
-  function handleSavePurpose(txnId: string, purpose: string) {
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === txnId ? { ...t, businessPurpose: purpose } : t)),
-    );
-    setSelectedTransaction(null);
-  }
-
-  function handleMarkReviewed(txnId: string) {
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === txnId ? { ...t, flagged: false } : t)),
-    );
-    setSelectedTransaction(null);
-  }
-
-  // Inline business purpose editing
-  function handleStartEditPurpose(txn: Transaction) {
-    setEditingPurposeId(txn.id);
-    setEditingPurposeValue(txn.businessPurpose === 'Unverified' ? '' : txn.businessPurpose);
-  }
-
-  function handleSaveInlinePurpose(txnId: string) {
-    if (editingPurposeValue.trim()) {
-      setTransactions((prev) =>
-        prev.map((t) => (t.id === txnId ? { ...t, businessPurpose: editingPurposeValue.trim() } : t)),
-      );
-    }
-    setEditingPurposeId(null);
-    setEditingPurposeValue('');
-  }
-
-  function handleCancelEditPurpose() {
-    setEditingPurposeId(null);
-    setEditingPurposeValue('');
-  }
-
-  // Violation actions
-  function handleAcknowledge(violationId: string) {
-    const info: AcknowledgedInfo = {
-      by: selectedClient?.legal_name ?? 'Advisor',
-      date: new Date().toISOString(),
-    };
-    setAcknowledgedViolations((prev) => {
-      const next = new Map(prev);
-      next.set(violationId, info);
-      return next;
-    });
-    toast.warning('Violation acknowledged — document your response within 48 hours');
-  }
-
-  function handleDocumentResponse(violationId: string) {
-    const v = violations.find((viol) => viol.id === violationId);
-    if (!v) return;
-    // Find the matching transaction amount if available
-    const matchingTxn = transactions.find((t) => t.merchant === v.merchant);
-    setDocResponseViolation({
-      ...v,
-      amount: matchingTxn?.amount,
-    });
-  }
-
-  function handleSaveDocResponse(violationId: string, _response: string) {
-    toast.success(`Response for ${violationId} saved successfully`);
-    setDocResponseViolation(null);
-  }
-
-  // Build the modal transaction shape from page Transaction
-  const modalTransaction = selectedTransaction
-    ? {
-        id: selectedTransaction.id,
-        merchant: selectedTransaction.merchant,
-        mcc: selectedTransaction.mccCode,
-        category: selectedTransaction.mccCategory,
-        amount: selectedTransaction.amount,
-        date: selectedTransaction.date,
-        riskScore: selectedTransaction.riskScore,
-        flags: [
-          ...(selectedTransaction.isCashLike ? ['Cash-Like'] : []),
-          ...(selectedTransaction.flagged ? ['Flagged'] : []),
-          ...(selectedTransaction.chargedBack ? ['Chargeback'] : []),
-        ],
-        businessPurpose:
-          selectedTransaction.businessPurpose === 'Unverified'
-            ? null
-            : selectedTransaction.businessPurpose,
-        card: cardFilter !== 'All Cards' ? cardFilter : 'Corporate Card',
-        violations: PLACEHOLDER_VIOLATIONS
-          .filter((v) => v.merchant === selectedTransaction.merchant)
-          .map((v) => v.rule),
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
+        const body = (await res.json()) as { success?: boolean; data?: ClientOption[] };
+        const list = body.success === true ? body.data ?? [] : [];
+        setClients(list);
+        if (list.length > 0) setSelected(list[0].id);
+        else setLoading(false);
+      } catch {
+        setError('Could not load the client list.');
+        setLoading(false);
       }
-    : null;
+    })();
+  }, []);
+
+  const load = useCallback(async (businessId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [txRes, riskRes] = await Promise.all([
+        fetch(`/api/businesses/${encodeURIComponent(businessId)}/transactions`, {
+          headers: authHeaders(),
+        }),
+        fetch(`/api/businesses/${encodeURIComponent(businessId)}/transactions/risk-summary`, {
+          headers: authHeaders(),
+        }),
+      ]);
+
+      const body = (await txRes.json()) as { success?: boolean; data?: TransactionRow[] };
+      if (!txRes.ok || body.success !== true) {
+        setError(`Transactions could not be loaded (HTTP ${txRes.status}).`);
+        setRows(null);
+        return;
+      }
+      setRows(Array.isArray(body.data) ? body.data : []);
+
+      // A failed risk read is reported, not rendered as "no risk".
+      if (riskRes.ok) {
+        const rb = (await riskRes.json()) as { success?: boolean; data?: Record<string, unknown> };
+        setSummary(rb.success === true ? rb.data ?? null : null);
+      } else {
+        setSummary(null);
+        setError('Transactions loaded, but the risk summary could not be read.');
+      }
+    } catch {
+      setError('Could not reach the server.');
+      setRows(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selected !== '') void load(selected);
+  }, [selected, load]);
+
+  const transactions = rows ?? [];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Spend Governance</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {totalTxns} transactions · {formatCurrency(totalAmount)} total spend
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">Spend Governance</h1>
+          <p className="text-sm text-gray-500 mt-1">Card transactions on record, per client.</p>
         </div>
-        <button
-          onClick={handleExport}
-          disabled={exportLoading}
-          className="px-4 py-2 rounded-lg bg-[#C9A84C] hover:bg-amber-400 disabled:opacity-50 text-gray-900 text-sm font-semibold transition-colors"
-        >
-          {exportLoading ? 'Exporting…' : `Export Business Purpose Evidence (${verifiedCount}/${totalTxns} verified)`}
-        </button>
-      </div>
 
-      {/* Client Selector — top of page, before KPI cards */}
-      <div className="mb-6">
-        <SpendClientSelector
-          selectedClient={selectedClient}
-          onClientSelect={setSelectedClient}
-          onClear={() => setSelectedClient(null)}
-          dateRange={dateRange}
-          onDateRangeChange={setDateRange}
-          cardFilter={cardFilter}
-          onCardFilterChange={setCardFilter}
-        />
-      </div>
-
-      {/* Risk Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {[
-          { label: 'Total Transactions', value: totalTxns, color: 'text-gray-100', sub: null },
-          { label: 'Flagged Transactions', value: flaggedCount, color: flaggedCount > 0 ? 'text-red-400' : 'text-green-400', sub: null },
-          { label: 'Cash-Like Transactions', value: cashLikeCount, color: cashLikeCount > 0 ? 'text-orange-400' : 'text-green-400', sub: null },
-          { label: 'Chargeback Ratio', value: `${chargebackRatio}%`, color: parseFloat(chargebackRatio) >= 0.65 ? 'text-red-400' : 'text-green-400', sub: `${chargedBackCount} chargeback${chargedBackCount !== 1 ? 's' : ''}` },
-        ].map((card) => (
-          <div key={card.label} className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">{card.label}</p>
-            <p className={`text-3xl font-black ${card.color}`}>{card.value}</p>
-            {card.sub && <p className="text-xs text-gray-500 mt-1">{card.sub}</p>}
+        {clients.length > 0 && (
+          <div>
+            <label htmlFor="sg-client" className="block text-xs text-gray-500 mb-1">
+              Client
+            </label>
+            <select
+              id="sg-client"
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800"
+            >
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.businessName}
+                </option>
+              ))}
+            </select>
           </div>
-        ))}
+        )}
       </div>
 
-      {/* Spend by Category Chart — below KPI cards, above violations */}
-      <div className="mb-6">
-        <SpendByCategoryChart
-          data={PLACEHOLDER_SPEND_BY_CATEGORY}
-          activeCategory={categoryFilter}
-          onCategoryClick={(cat) => setCategoryFilter((prev) => (prev === cat ? null : cat))}
-        />
-      </div>
+      {loading && <p className="text-sm text-gray-500">Loading…</p>}
 
-      {/* Network Rule Violations Alert Panel */}
-      {violations.length > 0 && (() => {
-        const activeCount = violations.filter((v) => !acknowledgedViolations.has(v.id)).length;
-        return (
-          <div className="rounded-xl border border-red-800 bg-red-950 p-5 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              {activeCount > 0 ? (
-                <span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" />
-              ) : (
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              )}
-              <h2 className="text-sm font-bold text-red-300 uppercase tracking-wide">
-                Network Rule Violations — {activeCount} Active
-              </h2>
-              {acknowledgedViolations.size > 0 && (
-                <span className="text-xs text-gray-500 ml-1">
-                  ({acknowledgedViolations.size} acknowledged)
-                </span>
-              )}
-            </div>
-            <div className="space-y-3">
-              {violations.map((v) => {
-                const isAcked = acknowledgedViolations.has(v.id);
-                return (
-                  <div
-                    key={v.id}
-                    className={`rounded-lg border p-3 ${RISK_CONFIG[v.severity].bgClass} border-gray-700 transition-opacity duration-300 ${
-                      isAcked ? 'opacity-60' : ''
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${RISK_CONFIG[v.severity].badgeClass}`}>
-                          {RISK_CONFIG[v.severity].label}
-                        </span>
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${NETWORK_COLORS[v.network]}`}>
-                          {v.network}
-                        </span>
-                        <span className="text-xs text-gray-400 font-mono">{v.rule}</span>
-                      </div>
-                      <p className="text-xs text-gray-500 whitespace-nowrap">{formatDate(v.date)}</p>
-                    </div>
-                    <p className="text-sm font-semibold text-gray-100 mb-0.5">{v.merchant}</p>
-                    <p className="text-xs text-gray-400 mb-3">{v.description}</p>
-                    {/* Violation Action Buttons */}
-                    <ViolationActionButtons
-                      violationId={v.id}
-                      network={v.network}
-                      acknowledged={isAcked}
-                      acknowledgedInfo={acknowledgedViolations.get(v.id) ?? null}
-                      onAcknowledge={handleAcknowledge}
-                      onDocumentResponse={handleDocumentResponse}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Category filter indicator (2G) */}
-      {categoryFilter && (
-        <div className="flex items-center gap-3 mb-4 px-1">
-          <p className="text-sm text-gray-300">
-            Showing <span className="font-bold text-[#C9A84C]">{filtered.length}</span>{' '}
-            transaction{filtered.length !== 1 ? 's' : ''} in{' '}
-            <span className="font-bold text-[#C9A84C]">{categoryFilter}</span>
-          </p>
-          <button
-            onClick={() => setCategoryFilter(null)}
-            className="text-xs font-medium text-gray-400 hover:text-white px-2 py-1 rounded border
-              border-gray-700 hover:border-gray-500 transition-colors"
-          >
-            Clear filter
-          </button>
-        </div>
+      {error !== null && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </p>
       )}
 
-      {/* Transaction List */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-        {/* Toolbar */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <div className="flex items-center gap-4">
-            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Transactions</h2>
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
-              unverifiedCount === 0
-                ? 'bg-green-900/50 text-green-300 border-green-700'
-                : 'bg-amber-900/50 text-amber-300 border-amber-700'
-            }`}>
-              {verifiedCount}/{totalTxns} verified
-            </span>
-          </div>
-          <div className="flex gap-1">
-            {(['all', 'flagged', 'cash-like'] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setTxnFilter(f)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                  txnFilter === f
-                    ? 'bg-[#0A1628] text-[#C9A84C] border border-[#C9A84C]/40'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                }`}
-              >
-                {f === 'all' ? 'All' : f === 'flagged' ? `Flagged (${flaggedCount})` : `Cash-Like (${cashLikeCount})`}
-              </button>
-            ))}
-          </div>
-        </div>
+      {!loading && rows !== null && (
+        <>
+          {summary !== null && (
+            <p className="text-xs text-gray-500">
+              Risk summary: {JSON.stringify(summary)}
+            </p>
+          )}
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800">
-                {['Merchant', 'MCC / Category', 'Amount', 'Date', 'Risk', 'Flags', 'Business Purpose'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {filtered.map((t) => (
-                <tr
-                  key={t.id}
-                  onClick={() => openTransactionModal(t)}
-                  className={`transition-colors hover:bg-gray-800/50 cursor-pointer ${t.flagged ? 'bg-red-950/20' : ''}`}
-                >
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-gray-100 whitespace-nowrap">{t.merchant}</p>
-                    <p className="text-xs text-gray-500">{t.id}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="text-xs font-mono text-gray-400">{t.mccCode}</p>
-                    <p className="text-xs text-gray-300">{t.mccCategory}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className={`font-bold tabular-nums ${t.amount >= 5000 ? 'text-orange-300' : 'text-gray-100'}`}>
-                      {formatCurrency(t.amount)}
-                    </p>
-                    {/* Cash advance fee alert */}
-                    {isCashAdvanceCategory(t.mccCategory) && (
-                      <p className="text-xs text-amber-400 mt-1">
-                        &#x26A0; Cash advance fee likely: ~{estimateCashAdvanceFee(t.amount)} (3-5%)
-                      </p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
-                    {formatDate(t.date)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <RiskGauge score={t.riskScore} />
-                  </td>
-                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex flex-col gap-1">
-                      {t.isCashLike && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded border bg-orange-900 text-orange-300 border-orange-700 w-fit">
-                          Cash-Like
-                        </span>
-                      )}
-                      {t.flagged && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded border bg-red-900 text-red-300 border-red-700 w-fit">
-                          Flagged
-                        </span>
-                      )}
-                      {t.chargedBack && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded border bg-purple-900 text-purple-300 border-purple-700 w-fit">
-                          Chargeback
-                        </span>
-                      )}
-                      {t.isCashLike && (
-                        <button
-                          type="button"
-                          onClick={() => setCashLikeContactTxn(t)}
-                          className="mt-1 rounded-lg border border-[#C9A84C]/40 bg-[#C9A84C]/10 px-2.5 py-1 text-xs
-                            font-semibold text-[#C9A84C] hover:bg-[#C9A84C]/20 hover:border-[#C9A84C]/60
-                            focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/40 transition-colors w-fit"
-                        >
-                          Contact Client
-                        </button>
-                      )}
-                      {!t.isCashLike && !t.flagged && !t.chargedBack && (
-                        <span className="text-xs text-gray-600">---</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 max-w-xs" onClick={(e) => e.stopPropagation()}>
-                    {editingPurposeId === t.id ? (
-                      <div className="flex items-center gap-1">
-                        <input aria-label="Enter business purpose"
-                          type="text"
-                          value={editingPurposeValue}
-                          onChange={(e) => setEditingPurposeValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSaveInlinePurpose(t.id);
-                            if (e.key === 'Escape') handleCancelEditPurpose();
-                          }}
-                          autoFocus
-                          className="w-full rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-gray-100 outline-none focus:border-[#C9A84C]"
-                          placeholder="Enter business purpose..."
-                        />
-                        <button
-                          onClick={() => handleSaveInlinePurpose(t.id)}
-                          className="flex items-center justify-center w-6 h-6 rounded text-green-400 hover:text-green-300 hover:bg-green-900/30 transition-colors"
-                          title="Save (Enter)"
-                          aria-label="Save business purpose"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={handleCancelEditPurpose}
-                          className="flex items-center justify-center w-6 h-6 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
-                          title="Cancel (Escape)"
-                          aria-label="Cancel editing"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ) : (
-                      <p
-                        className={`text-xs cursor-pointer hover:underline ${
-                          t.businessPurpose === 'Unverified'
-                            ? 'text-amber-400 font-semibold'
-                            : 'text-gray-400'
-                        }`}
-                        onClick={() => handleStartEditPurpose(t)}
-                        title={t.businessPurpose === 'Unverified' ? 'Click to add business purpose' : 'Click to edit business purpose'}
-                      >
-                        {t.businessPurpose}
-                      </p>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 && (
-            <div className="px-5 py-10 text-center text-gray-600 text-sm">
-              No transactions match this filter.
+          {transactions.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No transaction is on record for this client. Transactions arrive through the
+              import endpoint; nothing is fetched from an issuer, and no spending is inferred.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Date</th>
+                    <th className="px-4 py-3 text-left">Description</th>
+                    <th className="px-4 py-3 text-right">Amount</th>
+                    <th className="px-4 py-3 text-left">Category</th>
+                    <th className="px-4 py-3 text-left">Business purpose</th>
+                    <th className="px-4 py-3 text-left">Flag</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {transactions.map((t) => (
+                    <tr key={t.id}>
+                      <td className="px-4 py-3 text-gray-600">
+                        {t.transactionDate?.slice(0, 10) ?? '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-900">{t.description ?? '—'}</td>
+                      <td className="px-4 py-3 text-right text-gray-900">{money(t.amount)}</td>
+                      <td className="px-4 py-3 text-gray-600">{t.category ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {t.businessPurpose ?? (
+                          <span className="text-gray-400">Not recorded</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{t.riskFlag ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Transaction Detail Modal */}
-      <TransactionDetailModal
-        transaction={modalTransaction}
-        isOpen={selectedTransaction !== null}
-        onClose={() => setSelectedTransaction(null)}
-        onSavePurpose={handleSavePurpose}
-        onMarkReviewed={handleMarkReviewed}
-      />
-
-      {/* Cash-Like Contact Client Modal (2E) */}
-      <CashLikeContactModal
-        transaction={cashLikeContactTxn}
-        isOpen={cashLikeContactTxn !== null}
-        onClose={() => setCashLikeContactTxn(null)}
-      />
-
-      {/* Document Response Modal */}
-      <DocumentResponseModal
-        violation={docResponseViolation}
-        isOpen={docResponseViolation !== null}
-        onClose={() => setDocResponseViolation(null)}
-        onSave={handleSaveDocResponse}
-      />
+        </>
+      )}
     </div>
   );
 }

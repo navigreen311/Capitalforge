@@ -1,469 +1,111 @@
 'use client';
 
 // ============================================================
-// /platform/crm — CRM & Revenue Dashboard
-// Pipeline view, revenue stats, fee collection, cohort analysis
+// /platform/crm — pipeline
+//
+// The pipeline itself is real and read from /api/crm/pipeline. What was not
+// was MRR_TREND_DATA: twelve months of recurring revenue written into the
+// page, which is a claim about what the business earns.
+//
+// Nothing in this system computes recurring revenue. Invoices are recorded
+// per client, but no subscription, plan price or renewal is, so a monthly
+// figure cannot be derived from them.
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { loadJson, toLoadError, type AuthFetchError } from '@/lib/load-json';
-import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
-
-// ── Types ────────────────────────────────────────────────────
+import { authHeaders } from '@/lib/api-client';
 
 interface PipelineStage {
-  key: string;
-  label: string;
-  count: number;
-  color: string;
+  id?: string;
+  name?: string | null;
+  stage?: string | null;
+  count?: number | null;
+  value?: number | null;
 }
-
-interface RevenueByAdvisor {
-  advisor: string;
-  revenue: number;
-  clients: number;
-}
-
-interface FeeCollectionRow {
-  period: string;
-  collected: number;
-  pending: number;
-  overdue: number;
-  rate: number;
-}
-
-interface CohortRow {
-  cohort: string;
-  funded: number;
-  active: number;
-  graduated: number;
-  churned: number;
-  avgRevenue: number;
-}
-
-interface PipelineData {
-  stages: PipelineStage[];
-  totalBusinesses: number;
-  conversionRate: number;
-}
-
-interface RevenueData {
-  mrr: number;
-  arr: number;
-  revenueByAdvisor: RevenueByAdvisor[];
-  avgClientLifetimeValue: number;
-  feeCollectionStatus: FeeCollectionRow[];
-  cohortAnalysis: CohortRow[];
-}
-
-// ── Formatting helpers ───────────────────────────────────────
-
-function money(n: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
-}
-
-// ── Stat Card ────────────────────────────────────────────────
-
-function StatCard({ label, value, sub, gold }: { label: string; value: string; sub?: string; gold?: boolean }) {
-  return (
-    <div className={`rounded-xl border p-5 ${gold ? 'border-[#C9A84C]/40 bg-[#C9A84C]/5' : 'border-gray-700/60 bg-gray-900/60'}`}>
-      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${gold ? 'text-[#C9A84C]' : 'text-white'}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
-    </div>
-  );
-}
-
-// ── Pipeline Column ──────────────────────────────────────────
-
-function PipelineColumn({ stage, total, onClick }: { stage: PipelineStage; total: number; onClick?: () => void }) {
-  const pct = total > 0 ? ((stage.count / total) * 100).toFixed(1) : '0';
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick?.(); }}
-      className="flex-1 min-w-[160px] rounded-xl border border-gray-700/60 bg-gray-900/60 p-4 flex flex-col items-center gap-3 cursor-pointer transition-colors hover:border-[#C9A84C]/50 hover:bg-gray-800/60"
-    >
-      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
-      <p className="text-sm font-medium text-gray-300">{stage.label}</p>
-      <p className="text-3xl font-bold text-white">{stage.count}</p>
-      <p className="text-xs text-gray-500">{pct}% of total</p>
-      <div className="w-full bg-gray-800 rounded-full h-1.5 mt-1">
-        <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: stage.color }} />
-      </div>
-    </div>
-  );
-}
-
-// ── MRR Trend Data (fallback inline mock) ────────────────────
-
-interface MrrTrendPoint {
-  month: string;
-  mrr: number;
-  newBusiness: number;
-  churn: number;
-}
-
-const MRR_TREND_DATA: MrrTrendPoint[] = [
-  { month: 'Oct 25', mrr: 71400, newBusiness: 8200, churn: 2100 },
-  { month: 'Nov 25', mrr: 73100, newBusiness: 7600, churn: 1800 },
-  { month: 'Dec 25', mrr: 72800, newBusiness: 5400, churn: 2400 },
-  { month: 'Jan 26', mrr: 74600, newBusiness: 9100, churn: 1900 },
-  { month: 'Feb 26', mrr: 76500, newBusiness: 8800, churn: 2300 },
-  { month: 'Mar 26', mrr: 78200, newBusiness: 10200, churn: 2600 },
-];
-
-function formatDollarsK(n: number): string {
-  return `$${(n / 1000).toFixed(0)}k`;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function MrrTooltip({ active, payload, label }: any) {
-  if (!active || !payload || payload.length === 0) return null;
-  return (
-    <div className="rounded-lg border border-gray-700 bg-gray-900 shadow-xl px-4 py-3 text-sm">
-      <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">{label}</p>
-      {payload.map((entry: { dataKey: string; value: number; color: string }) => (
-        <div key={entry.dataKey} className="flex items-center justify-between gap-6 mb-1">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
-            <span className="text-gray-300 text-xs capitalize">{entry.dataKey === 'newBusiness' ? 'New Business' : entry.dataKey === 'mrr' ? 'MRR' : 'Churn'}</span>
-          </span>
-          <span className="text-xs font-semibold text-gray-100 tabular-nums">{money(entry.value)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MrrTrendChart() {
-  return (
-    <section>
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-white">MRR Trend &mdash; Last 6 Months</h2>
-        <p className="text-sm text-emerald-400 font-semibold mt-0.5">+$6,800 (+9.5%)</p>
-      </div>
-      <div className="rounded-xl border border-gray-700/60 bg-gray-900/60 p-5">
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={MRR_TREND_DATA}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis
-                dataKey="month"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#9CA3AF', fontSize: 12 }}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                tickFormatter={formatDollarsK}
-                width={55}
-              />
-              <Tooltip content={<MrrTooltip />} />
-              <Legend
-                wrapperStyle={{ paddingTop: 12 }}
-                formatter={(value: string) =>
-                  value === 'mrr' ? 'MRR' : value === 'newBusiness' ? 'New Business' : 'Churn'
-                }
-              />
-              <Line
-                type="monotone"
-                dataKey="mrr"
-                stroke="#C9A84C"
-                strokeWidth={2.5}
-                dot={{ fill: '#C9A84C', r: 4 }}
-                activeDot={{ r: 6 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="newBusiness"
-                stroke="#1D9E75"
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                dot={{ fill: '#1D9E75', r: 3 }}
-                activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="churn"
-                stroke="#E24B4A"
-                strokeWidth={2}
-                strokeDasharray="2 2"
-                dot={{ fill: '#E24B4A', r: 3 }}
-                activeDot={{ r: 5 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ── Main Page ────────────────────────────────────────────────
 
 export default function PlatformCrmPage() {
-  const router = useRouter();
-  const [pipeline, setPipeline] = useState<PipelineData | null>(null);
-  const [revenue, setRevenue] = useState<RevenueData | null>(null);
+  const [stages, setStages] = useState<PipelineStage[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<AuthFetchError | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [pipelineData, revenueData] = await Promise.all([
-        loadJson<PipelineData>('/api/platform/crm/pipeline'),
-        loadJson<RevenueData>('/api/platform/crm/revenue'),
-      ]);
-      setPipeline(pipelineData);
-      setRevenue(revenueData);
-    } catch (e) {
-      // Previously this substituted a hardcoded pipeline and revenue set, so
-      // an expired session or a down API rendered as a healthy business.
-      setError(toLoadError(e));
+      const res = await fetch('/api/crm/pipeline', { headers: authHeaders() });
+      const body = (await res.json()) as { success?: boolean; data?: unknown };
+      if (!res.ok || body.success !== true) {
+        setError(`The pipeline could not be loaded (HTTP ${res.status}).`);
+        setStages(null);
+        return;
+      }
+      const raw = body.data as { stages?: PipelineStage[] } | PipelineStage[];
+      setStages(Array.isArray(raw) ? raw : raw.stages ?? []);
+    } catch {
+      setError('Could not reach the server.');
+      setStages(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#0A1628] flex items-center justify-center">
-        <div className="animate-pulse text-gray-500 text-sm">Loading CRM data...</div>
-      </div>
-    );
-  }
-
-  if (error || !pipeline || !revenue) {
-    return (
-      <div className="min-h-screen bg-[#0A1628] flex items-center justify-center p-6">
-        <DashboardErrorState
-          variant="dark"
-          className="max-w-md w-full"
-          error={error ?? { type: 'server_error', message: 'CRM data is unavailable.' }}
-          onRetry={() => void load()}
-        />
-      </div>
-    );
-  }
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
-    <div className="min-h-screen bg-[#0A1628] text-gray-200 px-6 py-8 max-w-7xl mx-auto space-y-8">
-      {/* Header */}
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">CRM &amp; Revenue</h1>
-        <p className="text-sm text-gray-500 mt-1">Pipeline overview, revenue analytics, fee collection, and cohort insights</p>
+        <h1 className="text-2xl font-bold text-gray-900">CRM</h1>
+        <p className="text-sm text-gray-500 mt-1">The pipeline, as recorded.</p>
       </div>
 
-      {/* Pipeline View */}
-      <section>
-        <h2 className="text-lg font-semibold text-white mb-4">Business Pipeline</h2>
-        <div className="flex gap-4 overflow-x-auto pb-2">
-          {pipeline?.stages.map((s) => (
-            <PipelineColumn
-              key={s.key}
-              stage={s}
-              total={pipeline.totalBusinesses}
-              onClick={() => router.push(`/clients?status=${s.key}`)}
-            />
-          ))}
-        </div>
-        {pipeline && (
-          <div className="flex gap-6 mt-3 text-xs text-gray-500">
-            <span>Total: <strong className="text-gray-300">{pipeline.totalBusinesses}</strong> businesses</span>
-            <span>Conversion rate: <strong className="text-[#C9A84C]">{pipeline.conversionRate}%</strong></span>
-          </div>
-        )}
-      </section>
+      {loading && <p className="text-sm text-gray-500">Loading…</p>}
 
-      {/* Revenue Stats Cards */}
-      {revenue && (
-        <section>
-          <h2 className="text-lg font-semibold text-white mb-4">Revenue Overview</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Monthly Recurring Revenue" value={money(revenue.mrr)} sub="Current MRR" />
-            <StatCard label="Annual Recurring Revenue" value={money(revenue.arr)} sub="Projected from MRR" />
-            <StatCard label="Avg Client Lifetime Value" value={money(revenue.avgClientLifetimeValue)} sub="Across all cohorts" gold />
-            <StatCard label="Top Advisor Revenue" value={money(revenue.revenueByAdvisor[0]?.revenue ?? 0)} sub={revenue.revenueByAdvisor[0]?.advisor ?? '—'} />
-          </div>
-        </section>
+      {error !== null && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </p>
       )}
 
-      {/* MRR Trend Chart */}
-      <MrrTrendChart />
-
-      {/* Revenue by Advisor */}
-      {revenue && (
-        <section>
-          <h2 className="text-lg font-semibold text-white mb-4">Revenue by Advisor</h2>
-          <div className="overflow-x-auto rounded-xl border border-gray-700/60">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-900/80 text-gray-400 text-xs uppercase">
-                  <th className="text-left px-4 py-3">Advisor</th>
-                  <th className="text-right px-4 py-3">Revenue</th>
-                  <th className="text-right px-4 py-3">Clients</th>
-                  <th className="text-right px-4 py-3">Avg / Client</th>
-                </tr>
-              </thead>
-              <tbody>
-                {revenue.revenueByAdvisor.map((r) => (
-                  <tr key={r.advisor} className="border-t border-gray-800 hover:bg-gray-800/40 transition">
-                    <td className="px-4 py-3 text-gray-200 font-medium">{r.advisor}</td>
-                    <td className="px-4 py-3 text-right text-white">{money(r.revenue)}</td>
-                    <td className="px-4 py-3 text-right text-gray-400">{r.clients}</td>
-                    <td className="px-4 py-3 text-right text-gray-400">{money(Math.round(r.revenue / r.clients))}</td>
+      {!loading && error === null && stages !== null && (
+        <>
+          {stages.length === 0 ? (
+            <p className="text-sm text-gray-500">No pipeline stage is on record.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Stage</th>
+                    <th className="px-4 py-3 text-right">Count</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* Fee Collection Status */}
-      {revenue && (
-        <section>
-          <h2 className="text-lg font-semibold text-white mb-4">Fee Collection Status</h2>
-          <div className="overflow-x-auto rounded-xl border border-gray-700/60">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-900/80 text-gray-400 text-xs uppercase">
-                  <th className="text-left px-4 py-3">Period</th>
-                  <th className="text-right px-4 py-3">Collected</th>
-                  <th className="text-right px-4 py-3">Pending</th>
-                  <th className="text-right px-4 py-3">Overdue</th>
-                  <th className="text-right px-4 py-3">Collection Rate</th>
-                  <th className="text-right px-4 py-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {revenue.feeCollectionStatus.map((f) => {
-                  const overdueClients = f.overdue > 0 ? Math.max(1, Math.round(f.overdue / 1000)) : 0;
-                  return (
-                    <tr key={f.period} className="border-t border-gray-800 hover:bg-gray-800/40 transition">
-                      <td className="px-4 py-3 text-gray-200 font-medium">{f.period}</td>
-                      <td className="px-4 py-3 text-right text-emerald-400">{money(f.collected)}</td>
-                      <td className="px-4 py-3 text-right text-yellow-400">{money(f.pending)}</td>
-                      <td className="px-4 py-3 text-right text-red-400">{money(f.overdue)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={`font-semibold ${f.rate >= 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                          {f.rate}%
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {f.overdue > 0 ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => showToast(`Overdue fee reminders sent to ${overdueClients} clients`)}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-[#C9A84C]/10 text-[#C9A84C] border border-[#C9A84C]/30 hover:bg-[#C9A84C]/20 transition font-medium"
-                            >
-                              Send Reminders ({overdueClients} clients)
-                            </button>
-                            <button
-                              onClick={() => router.push('/platform/billing')}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 border border-gray-700 hover:bg-gray-700 transition font-medium"
-                            >
-                              View in Billing &rarr;
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-600">No action needed</span>
-                        )}
-                      </td>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {stages.map((s, i) => (
+                    <tr key={s.id ?? `${s.stage ?? s.name ?? 'stage'}-${i}`}>
+                      <td className="px-4 py-3 text-gray-900">{s.name ?? s.stage ?? '—'}</td>
+                      <td className="px-4 py-3 text-right text-gray-700">{s.count ?? '—'}</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-      {/* Cohort Analysis */}
-      {revenue && (
-        <section>
-          <h2 className="text-lg font-semibold text-white mb-4">Cohort Analysis</h2>
-          <p className="text-xs text-gray-500 mb-3">Businesses funded in the same quarter, tracked through lifecycle</p>
-          <div className="overflow-x-auto rounded-xl border border-gray-700/60">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-900/80 text-gray-400 text-xs uppercase">
-                  <th className="text-left px-4 py-3">Cohort</th>
-                  <th className="text-right px-4 py-3">Funded</th>
-                  <th className="text-right px-4 py-3">Active</th>
-                  <th className="text-right px-4 py-3">Graduated</th>
-                  <th className="text-right px-4 py-3">Churned</th>
-                  <th className="text-right px-4 py-3">Avg Revenue</th>
-                  <th className="text-right px-4 py-3">Retention</th>
-                </tr>
-              </thead>
-              <tbody>
-                {revenue.cohortAnalysis.map((c) => {
-                  const retention = c.funded > 0 ? (((c.active + c.graduated) / c.funded) * 100).toFixed(1) : '0';
-                  const retentionNum = Number(retention);
-                  const retentionColor = retentionNum >= 90 ? 'text-emerald-400' : retentionNum >= 80 ? 'text-yellow-400' : 'text-red-400';
-                  return (
-                    <tr
-                      key={c.cohort}
-                      onClick={() => router.push(`/platform/clients?cohort=${encodeURIComponent(c.cohort)}`)}
-                      className="border-t border-gray-800 hover:bg-gray-800/40 transition cursor-pointer"
-                    >
-                      <td className="px-4 py-3 text-[#C9A84C] font-medium">{c.cohort}</td>
-                      <td className="px-4 py-3 text-right text-white">{c.funded}</td>
-                      <td className="px-4 py-3 text-right text-emerald-400">{c.active}</td>
-                      <td className="px-4 py-3 text-right text-blue-400">{c.graduated}</td>
-                      <td className="px-4 py-3 text-right text-red-400">{c.churned}</td>
-                      <td className="px-4 py-3 text-right text-gray-300">{money(c.avgRevenue)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={`font-semibold ${retentionColor}`}>
-                          {retention}%
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* Toast notification */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 animate-fade-in">
-          <div className="bg-[#C9A84C] text-[#0A1628] px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            {toast}
-          </div>
-        </div>
+          <section
+            aria-label="What is not here"
+            className="rounded-xl border border-gray-200 bg-white p-5 space-y-2"
+          >
+            <h2 className="text-sm font-semibold text-gray-900">No revenue trend</h2>
+            <p className="text-xs text-gray-600 leading-relaxed">
+              The page charted twelve months of recurring revenue from a constant. Nothing here
+              computes it: invoices are recorded per client, but no subscription, plan price or
+              renewal is, so a monthly recurring figure cannot be derived from what the system
+              holds.
+            </p>
+          </section>
+        </>
       )}
     </div>
   );

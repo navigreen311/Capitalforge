@@ -1,1144 +1,186 @@
 'use client';
 
-// Metadata moved to layout or removed — client components cannot export metadata
-import React, { useState, useMemo, useCallback } from 'react';
-import { StatCard, SectionCard } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import type { BadgeStatus } from '@/components/ui/badge';
-import { DataTable } from '@/components/ui/data-table';
-import type { ColumnDef } from '@/components/ui/data-table';
-import RewardsSummaryCard from '@/components/modules/rewards-summary-card';
-import type { CategoryBestCard } from '@/components/modules/rewards-summary-card';
-import {
-  RewardsClientSelector,
-  RewardsTrendChart,
-  REWARDS_TREND_PLACEHOLDER,
-  RewardsActionModal,
-  FeeRenewalCalendar,
-  RoutingOpportunityGap,
-  PointsValuationColumn,
-  PointsBalancePanel,
-  POINTS_BALANCE_PLACEHOLDER,
-  FeeWaiverModal,
-} from '@/components/rewards';
-import type { RewardsClient, RewardsActionCard, FeeRenewalCard, CardSwapOpportunity } from '@/components/rewards';
+// ============================================================
+// /rewards — card benefits on record
+//
+// This page held CARD_SUMMARIES, SPEND_ROUTES and CATEGORY_BESTS — cards
+// with earn rates, annual fees, renewal dates and "best card for this
+// category" recommendations — and called nothing.
+//
+// A recommendation to route spend to a particular card is advice about
+// money. It has to come from cards a client actually holds.
+//
+//   GET /api/businesses/:id/benefits — the benefits on record
+//
+// That endpoint was unreachable: it was registered at /benefits while its
+// handler read a :id parameter the path never supplied. The path this file
+// calls is the one its own header documents.
+// ============================================================
 
+import { useState, useEffect, useCallback } from 'react';
+import { authHeaders } from '@/lib/api-client';
 
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type CardRec = 'keep' | 'review' | 'cancel';
-
-interface SpendRouteAlternative {
-  cardName: string;
-  rate: number;          // e.g. 0.02 = 2%
-  annualReward: number;  // monthly spend * rate * 12
-}
-
-interface SpendRoute {
-  [key: string]: unknown;
+interface ClientOption {
   id: string;
-  mccCategory: string;
-  mccCode: string;
-  bestCard: string;
-  rewardRate: string;
-  rewardType: string;
-  monthlySpend: string;
-  projectedAnnualReward: string;
-  /** Current card the client actually uses for this category */
-  currentCard: string;
-  currentRate: number;
-  bestRate: number;
-  monthlySpendNum: number;
-  /** Why the best card wins for this category */
-  reason: string;
-  alternatives: SpendRouteAlternative[];
+  businessName: string;
 }
 
-interface CardSummary {
-  [key: string]: unknown;
+interface BenefitRow {
   id: string;
-  cardName: string;
-  issuer: string;
-  annualFee: number;
-  annualRewardsEarned: number;
-  netBenefit: number;
-  recommendation: CardRec;
+  benefitName?: string | null;
+  issuer?: string | null;
+  category?: string | null;
+  utilized?: boolean;
+  expiresAt?: string | null;
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const SPEND_ROUTES: SpendRoute[] = [
-  {
-    id: 'sr-01',
-    mccCategory: 'Travel — Airlines',
-    mccCode: '3000–3299',
-    bestCard: 'Amex Business Platinum',
-    rewardRate: '5.0%',
-    rewardType: 'Points',
-    monthlySpend: '$8,400',
-    projectedAnnualReward: '$5,040',
-    currentCard: 'Chase Ink Preferred',
-    currentRate: 0.03,
-    bestRate: 0.05,
-    monthlySpendNum: 8400,
-    reason: 'Amex Business Platinum earns 5x MR points on flights booked directly with airlines or via Amex Travel, the highest multiplier available for MCC 3000-3299.',
-    alternatives: [
-      { cardName: 'Chase Ink Preferred', rate: 0.03, annualReward: 3024 },
-      { cardName: 'Citi Business AA Plat', rate: 0.02, annualReward: 2016 },
-      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 2016 },
-    ],
-  },
-  {
-    id: 'sr-02',
-    mccCategory: 'Hotels & Lodging',
-    mccCode: '7011',
-    bestCard: 'Chase Ink Preferred',
-    rewardRate: '3.0%',
-    rewardType: 'Points',
-    monthlySpend: '$3,200',
-    projectedAnnualReward: '$1,152',
-    currentCard: 'Chase Ink Preferred',
-    currentRate: 0.03,
-    bestRate: 0.03,
-    monthlySpendNum: 3200,
-    reason: 'Chase Ink Preferred earns 3x UR points on travel including hotels, and points transfer 1:1 to Hyatt/United for outsized value.',
-    alternatives: [
-      { cardName: 'Amex Business Platinum', rate: 0.02, annualReward: 768 },
-      { cardName: 'Citi Business AA Plat', rate: 0.02, annualReward: 768 },
-    ],
-  },
-  {
-    id: 'sr-03',
-    mccCategory: 'Dining & Restaurants',
-    mccCode: '5812',
-    bestCard: 'Amex Business Gold',
-    rewardRate: '4.0%',
-    rewardType: 'Points',
-    monthlySpend: '$2,600',
-    projectedAnnualReward: '$1,248',
-    currentCard: 'Capital One Spark Cash+',
-    currentRate: 0.02,
-    bestRate: 0.04,
-    monthlySpendNum: 2600,
-    reason: 'Amex Business Gold earns 4x MR on the top two spending categories each month, and dining consistently qualifies as a top category.',
-    alternatives: [
-      { cardName: 'Chase Ink Preferred', rate: 0.03, annualReward: 936 },
-      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 624 },
-    ],
-  },
-  {
-    id: 'sr-04',
-    mccCategory: 'Office Supplies',
-    mccCode: '5943',
-    bestCard: 'Chase Ink Cash',
-    rewardRate: '5.0%',
-    rewardType: 'Cash Back',
-    monthlySpend: '$1,100',
-    projectedAnnualReward: '$660',
-    currentCard: 'Chase Ink Cash',
-    currentRate: 0.05,
-    bestRate: 0.05,
-    monthlySpendNum: 1100,
-    reason: 'Chase Ink Cash earns 5% cash back on office supply stores (first $25K/yr), the highest flat rate for MCC 5943.',
-    alternatives: [
-      { cardName: 'Amex Business Gold', rate: 0.04, annualReward: 528 },
-      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 264 },
-    ],
-  },
-  {
-    id: 'sr-05',
-    mccCategory: 'Advertising & Media',
-    mccCode: '7311',
-    bestCard: 'Amex Business Gold',
-    rewardRate: '4.0%',
-    rewardType: 'Points',
-    monthlySpend: '$5,800',
-    projectedAnnualReward: '$2,784',
-    currentCard: 'Amex Business Gold',
-    currentRate: 0.04,
-    bestRate: 0.04,
-    monthlySpendNum: 5800,
-    reason: 'Amex Business Gold earns 4x MR on US advertising purchases in select media, making it the top card for ad spend.',
-    alternatives: [
-      { cardName: 'Chase Ink Preferred', rate: 0.03, annualReward: 2088 },
-      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 1392 },
-    ],
-  },
-  {
-    id: 'sr-06',
-    mccCategory: 'Shipping & Freight',
-    mccCode: '4215',
-    bestCard: 'Chase Ink Cash',
-    rewardRate: '5.0%',
-    rewardType: 'Cash Back',
-    monthlySpend: '$900',
-    projectedAnnualReward: '$540',
-    currentCard: 'Amex Business Gold',
-    currentRate: 0.04,
-    bestRate: 0.05,
-    monthlySpendNum: 900,
-    reason: 'Chase Ink Cash earns 5% cash back on shipping purchases (first $25K/yr), beating all other cards for shipping MCCs.',
-    alternatives: [
-      { cardName: 'Amex Business Gold', rate: 0.04, annualReward: 432 },
-      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 216 },
-    ],
-  },
-  {
-    id: 'sr-07',
-    mccCategory: 'Gas & Fuel',
-    mccCode: '5541',
-    bestCard: 'Bank of America Bus. Cash',
-    rewardRate: '3.0%',
-    rewardType: 'Cash Back',
-    monthlySpend: '$1,400',
-    projectedAnnualReward: '$504',
-    currentCard: 'Bank of America Bus. Cash',
-    currentRate: 0.03,
-    bestRate: 0.03,
-    monthlySpendNum: 1400,
-    reason: 'Bank of America Business Advantage Cash Rewards earns 3% on gas stations as a selectable category, the best flat rate.',
-    alternatives: [
-      { cardName: 'Amex Business Gold', rate: 0.04, annualReward: 672 },
-      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 336 },
-    ],
-  },
-  {
-    id: 'sr-08',
-    mccCategory: 'Utilities & Telecom',
-    mccCode: '4900',
-    bestCard: 'Citi Business AA Plat',
-    rewardRate: '2.0%',
-    rewardType: 'Miles',
-    monthlySpend: '$2,200',
-    projectedAnnualReward: '$528',
-    currentCard: 'Wells Fargo Bus. Elite',
-    currentRate: 0.01,
-    bestRate: 0.02,
-    monthlySpendNum: 2200,
-    reason: 'Citi Business AA Platinum earns 2x AA miles on all purchases including utilities, and miles are worth ~1 cpp for flights.',
-    alternatives: [
-      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 528 },
-      { cardName: 'Wells Fargo Bus. Elite', rate: 0.01, annualReward: 264 },
-    ],
-  },
-  {
-    id: 'sr-09',
-    mccCategory: 'SaaS & Software',
-    mccCode: '5045',
-    bestCard: 'Chase Ink Preferred',
-    rewardRate: '3.0%',
-    rewardType: 'Points',
-    monthlySpend: '$3,900',
-    projectedAnnualReward: '$1,404',
-    currentCard: 'Capital One Spark Cash+',
-    currentRate: 0.02,
-    bestRate: 0.03,
-    monthlySpendNum: 3900,
-    reason: 'Chase Ink Preferred earns 3x UR points on internet/cable/phone purchases, which includes most SaaS subscriptions coded under MCC 5045.',
-    alternatives: [
-      { cardName: 'Capital One Spark Cash+', rate: 0.02, annualReward: 936 },
-      { cardName: 'Amex Business Gold', rate: 0.01, annualReward: 468 },
-    ],
-  },
-  {
-    id: 'sr-10',
-    mccCategory: 'General Merchandise',
-    mccCode: '5999',
-    bestCard: 'Capital One Spark Cash+',
-    rewardRate: '2.0%',
-    rewardType: 'Cash Back',
-    monthlySpend: '$4,100',
-    projectedAnnualReward: '$984',
-    currentCard: 'Capital One Spark Cash+',
-    currentRate: 0.02,
-    bestRate: 0.02,
-    monthlySpendNum: 4100,
-    reason: 'Capital One Spark Cash+ earns a flat 2% on all purchases, making it the best default card for uncategorized general spend.',
-    alternatives: [
-      { cardName: 'Chase Ink Preferred', rate: 0.01, annualReward: 492 },
-      { cardName: 'Bank of America Bus. Cash', rate: 0.01, annualReward: 492 },
-    ],
-  },
-];
-
-const CARD_SUMMARIES: CardSummary[] = [
-  {
-    id: 'cs-01',
-    cardName: 'Amex Business Platinum',
-    issuer: 'American Express',
-    annualFee: 695,
-    annualRewardsEarned: 5820,
-    netBenefit: 5125,
-    recommendation: 'keep',
-  },
-  {
-    id: 'cs-02',
-    cardName: 'Amex Business Gold',
-    issuer: 'American Express',
-    annualFee: 375,
-    annualRewardsEarned: 4032,
-    netBenefit: 3657,
-    recommendation: 'keep',
-  },
-  {
-    id: 'cs-03',
-    cardName: 'Chase Ink Preferred',
-    issuer: 'Chase',
-    annualFee: 95,
-    annualRewardsEarned: 2556,
-    netBenefit: 2461,
-    recommendation: 'keep',
-  },
-  {
-    id: 'cs-04',
-    cardName: 'Chase Ink Cash',
-    issuer: 'Chase',
-    annualFee: 0,
-    annualRewardsEarned: 1200,
-    netBenefit: 1200,
-    recommendation: 'keep',
-  },
-  {
-    id: 'cs-05',
-    cardName: 'Citi Business AA Plat',
-    issuer: 'Citibank',
-    annualFee: 99,
-    annualRewardsEarned: 528,
-    netBenefit: 429,
-    recommendation: 'review',
-  },
-  {
-    id: 'cs-06',
-    cardName: 'Bank of America Bus. Cash',
-    issuer: 'Bank of America',
-    annualFee: 0,
-    annualRewardsEarned: 504,
-    netBenefit: 504,
-    recommendation: 'keep',
-  },
-  {
-    id: 'cs-07',
-    cardName: 'Capital One Spark Cash+',
-    issuer: 'Capital One',
-    annualFee: 150,
-    annualRewardsEarned: 984,
-    netBenefit: 834,
-    recommendation: 'keep',
-  },
-  {
-    id: 'cs-08',
-    cardName: 'Wells Fargo Bus. Elite',
-    issuer: 'Wells Fargo',
-    annualFee: 125,
-    annualRewardsEarned: 88,
-    netBenefit: -37,
-    recommendation: 'cancel',
-  },
-];
-
-const CATEGORY_BESTS: CategoryBestCard[] = [
-  { category: 'Travel',      cardName: 'Amex Business Platinum', rewardRate: 0.05, rewardType: 'Points',    iconCode: 'TR' },
-  { category: 'Dining',      cardName: 'Amex Business Gold',     rewardRate: 0.04, rewardType: 'Points',    iconCode: 'DI' },
-  { category: 'Office',      cardName: 'Chase Ink Cash',         rewardRate: 0.05, rewardType: 'Cash Back', iconCode: 'OF' },
-  { category: 'Advertising', cardName: 'Amex Business Gold',     rewardRate: 0.04, rewardType: 'Points',    iconCode: 'AD' },
-  { category: 'Shipping',    cardName: 'Chase Ink Cash',         rewardRate: 0.05, rewardType: 'Cash Back', iconCode: 'SH' },
-  { category: 'Fuel',        cardName: 'Bank of America Bus. Cash', rewardRate: 0.03, rewardType: 'Cash Back', iconCode: 'GS' },
-];
-
-// ─── Fee renewal calendar data ───────────────────────────────────────────────
-
-const FEE_RENEWAL_CARDS: FeeRenewalCard[] = CARD_SUMMARIES
-  .filter((c) => c.annualFee > 0)
-  .map((c, i) => ({
-    card: c.cardName,
-    issuer: c.issuer,
-    // Stagger renewal dates across the year
-    renewalDate: `2026-${String((i + 4) % 12 + 1).padStart(2, '0')}-15`,
-    annualFee: c.annualFee,
-    recommendation: c.recommendation,
-  }));
-
-// ─── Recommendation badge map ────────────────────────────────────────────────
-
-const REC_CONFIG: Record<CardRec, { label: string; status: BadgeStatus }> = {
-  keep:   { label: 'Keep',   status: 'approved' },
-  review: { label: 'Review', status: 'pending'  },
-  cancel: { label: 'Cancel', status: 'declined' },
-};
-
-// ─── Full text report export helper (3G) ────────────────────────────────────
-
-function generateRewardsReport(
-  cardData: CardSummary[],
-  trendData: Array<{ month: string; rewards: number }>,
-  swaps: CardSwapOpportunity[],
-): string {
-  const now = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const divider = '='.repeat(60);
-  const subDivider = '-'.repeat(60);
-  const lines: string[] = [];
-
-  // Header
-  lines.push(divider);
-  lines.push('  CAPITALFORGE REWARDS OPTIMIZATION REPORT');
-  lines.push(`  Generated: ${now}`);
-  lines.push(divider);
-  lines.push('');
-
-  // 1. Total rewards summary
-  lines.push('1. REWARDS SUMMARY');
-  lines.push(subDivider);
-  lines.push(`   Total Rewards Earned (annual):  $${TOTAL_REWARDS.toLocaleString()}`);
-  lines.push(`   Total Annual Fees:              $${TOTAL_FEES.toLocaleString()}`);
-  lines.push(`   Net Benefit:                    $${TOTAL_NET.toLocaleString()}`);
-  lines.push(`   Monthly Card Spend:             $${TOTAL_MONTHLY.toLocaleString()}`);
-  lines.push(`   Active Cards:                   ${cardData.length}`);
-  lines.push('');
-
-  // 2. Monthly trend chart data
-  lines.push('2. MONTHLY REWARDS TREND');
-  lines.push(subDivider);
-  for (const m of trendData) {
-    const bar = '#'.repeat(Math.round(m.rewards / 50));
-    lines.push(`   ${m.month.padEnd(5)} $${m.rewards.toLocaleString().padStart(6)}  ${bar}`);
-  }
-  lines.push('');
-
-  // 3. Spend routing recommendations
-  lines.push('3. SPEND ROUTING RECOMMENDATIONS');
-  lines.push(subDivider);
-  for (const r of SPEND_ROUTES) {
-    lines.push(`   ${r.mccCategory} (MCC ${r.mccCode})`);
-    lines.push(`     Best Card:   ${r.bestCard} @ ${r.rewardRate} ${r.rewardType}`);
-    lines.push(`     Monthly Spend: ${r.monthlySpend}  |  Projected Annual: ${r.projectedAnnualReward}`);
-    if (r.currentCard !== r.bestCard) {
-      lines.push(`     * SWAP: Currently using ${r.currentCard} (${(r.currentRate * 100).toFixed(1)}%)`);
-    }
-    lines.push('');
-  }
-
-  // 4. Card analysis
-  lines.push('4. CARD ANALYSIS');
-  lines.push(subDivider);
-  const nameWidth = Math.max(...cardData.map((c) => c.cardName.length));
-  lines.push(`   ${'Card'.padEnd(nameWidth)}  ${'Fee'.padStart(7)}  ${'Rewards'.padStart(9)}  ${'Net'.padStart(8)}  Rec`);
-  lines.push(`   ${'-'.repeat(nameWidth)}  ${'-'.repeat(7)}  ${'-'.repeat(9)}  ${'-'.repeat(8)}  ------`);
-  for (const c of cardData) {
-    const fee = c.annualFee === 0 ? 'No fee' : `$${c.annualFee}`;
-    lines.push(
-      `   ${c.cardName.padEnd(nameWidth)}  ${fee.padStart(7)}  ${'$' + c.annualRewardsEarned.toLocaleString()}  ${(c.netBenefit >= 0 ? '+$' : '-$') + Math.abs(c.netBenefit).toLocaleString()}  ${c.recommendation.toUpperCase()}`
-    );
-  }
-  lines.push('');
-
-  // 5. Optimization opportunities
-  lines.push('5. OPTIMIZATION OPPORTUNITIES');
-  lines.push(subDivider);
-  if (swaps.length === 0) {
-    lines.push('   All categories are already using the optimal card.');
-  } else {
-    for (const s of swaps) {
-      lines.push(`   ${s.category}`);
-      lines.push(`     ${s.currentCard} (${(s.currentRate * 100).toFixed(1)}%) -> ${s.bestCard} (${(s.bestRate * 100).toFixed(1)}%)`);
-      lines.push(`     Annual gain: +$${s.annualGain.toLocaleString()}`);
-      lines.push('');
-    }
-    const totalGain = swaps.reduce((sum, s) => sum + s.annualGain, 0);
-    lines.push(`   TOTAL ANNUAL OPPORTUNITY: +$${totalGain.toLocaleString()}`);
-  }
-  lines.push('');
-  lines.push(divider);
-  lines.push('  End of Report');
-  lines.push(divider);
-
-  return lines.join('\n');
+interface BenefitsPayload {
+  benefits?: BenefitRow[];
+  totalBenefits?: number;
+  utilizedCount?: number;
+  pendingAlerts?: number;
 }
-
-function downloadTextFile(content: string, filename: string) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-// ─── Table column definitions ─────────────────────────────────────────────────
-
-function buildRouteColumns(onSetReminder: (route: SpendRoute) => void): ColumnDef<SpendRoute>[] {
-  return [
-    {
-      key: 'mccCategory',
-      header: 'MCC Category',
-      sortable: true,
-      cell: (row) => (
-        <span className="font-medium text-gray-900">{row.mccCategory}</span>
-      ),
-    },
-    {
-      key: 'mccCode',
-      header: 'MCC Code',
-      sortable: false,
-      cell: (row) => (
-        <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-          {row.mccCode}
-        </span>
-      ),
-    },
-    {
-      key: 'bestCard',
-      header: 'Best Card',
-      sortable: true,
-      cell: (row) => (
-        <span className="font-semibold text-brand-navy text-sm">{row.bestCard}</span>
-      ),
-    },
-    {
-      key: 'rewardRate',
-      header: 'Rate',
-      sortable: true,
-      align: 'right',
-      cell: (row) => (
-        <span className="font-bold text-emerald-600">{row.rewardRate}</span>
-      ),
-    },
-    {
-      key: 'rewardType',
-      header: 'Type',
-      sortable: true,
-    },
-    {
-      key: 'monthlySpend',
-      header: 'Monthly Spend',
-      sortable: true,
-      align: 'right',
-      cell: (row) => (
-        <span className="font-medium text-gray-800">{row.monthlySpend}</span>
-      ),
-    },
-    {
-      key: 'projectedAnnualReward',
-      header: 'Projected Annual Reward',
-      sortable: true,
-      align: 'right',
-      cell: (row) => (
-        <span className="font-bold text-gray-900">{row.projectedAnnualReward}</span>
-      ),
-    },
-    {
-      key: '_actions',
-      header: '',
-      sortable: false,
-      align: 'right',
-      cell: (row) => (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onSetReminder(row); }}
-          className="text-xs font-medium text-brand-navy hover:text-brand-navy/80
-                     bg-brand-navy/5 hover:bg-brand-navy/10
-                     px-2.5 py-1 rounded-md transition-all duration-150
-                     whitespace-nowrap"
-        >
-          Set Reminder
-        </button>
-      ),
-    },
-  ];
-}
-
-function buildCardColumns(
-  onCancel: (card: CardSummary) => void,
-  onReview: (card: CardSummary) => void,
-): ColumnDef<CardSummary>[] {
-  return [
-    {
-      key: 'cardName',
-      header: 'Card',
-      sortable: true,
-      cell: (row) => (
-        <div>
-          <p className="font-semibold text-gray-900 text-sm leading-tight">{row.cardName}</p>
-          <p className="text-xs text-gray-400">{row.issuer}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'annualFee',
-      header: 'Annual Fee',
-      sortable: true,
-      align: 'right',
-      cell: (row) => (
-        <span className={`font-medium ${row.annualFee === 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
-          {row.annualFee === 0 ? 'No fee' : `$${row.annualFee.toLocaleString()}`}
-        </span>
-      ),
-    },
-    {
-      key: 'annualRewardsEarned',
-      header: 'Rewards Earned',
-      sortable: true,
-      align: 'right',
-      cell: (row) => (
-        <span className="font-bold text-emerald-600">
-          ${row.annualRewardsEarned.toLocaleString()}
-        </span>
-      ),
-    },
-    {
-      key: 'netBenefit',
-      header: 'Net Benefit',
-      sortable: true,
-      align: 'right',
-      cell: (row) => (
-        <span
-          className={`font-bold ${
-            row.netBenefit >= 0 ? 'text-gray-900' : 'text-red-500'
-          }`}
-        >
-          {row.netBenefit >= 0 ? '+' : ''}${row.netBenefit.toLocaleString()}
-        </span>
-      ),
-    },
-    {
-      key: 'recommendation',
-      header: 'Recommendation',
-      sortable: true,
-      cell: (row) => {
-        const cfg = REC_CONFIG[row.recommendation as CardRec];
-        return <Badge status={cfg.status} label={cfg.label} />;
-      },
-    },
-    {
-      key: '_action',
-      header: '',
-      sortable: false,
-      align: 'right',
-      cell: (row) => {
-        if (row.recommendation === 'cancel') {
-          return (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onCancel(row); }}
-              className="text-xs font-medium text-red-600 hover:text-red-700
-                         bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-md
-                         transition-colors duration-150 whitespace-nowrap"
-            >
-              Cancel Card
-            </button>
-          );
-        }
-        if (row.recommendation === 'review') {
-          return (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onReview(row); }}
-              className="text-xs font-medium text-amber-700 hover:text-amber-800
-                         bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-md
-                         transition-colors duration-150 whitespace-nowrap"
-            >
-              Review
-            </button>
-          );
-        }
-        return null;
-      },
-    },
-  ];
-}
-
-// ─── KPI totals ───────────────────────────────────────────────────────────────
-
-const TOTAL_REWARDS  = CARD_SUMMARIES.reduce((s, c) => s + c.annualRewardsEarned, 0);
-const TOTAL_FEES     = CARD_SUMMARIES.reduce((s, c) => s + c.annualFee, 0);
-const TOTAL_NET      = CARD_SUMMARIES.reduce((s, c) => s + c.netBenefit, 0);
-const TOTAL_MONTHLY  = 33600; // combined monthly card spend (placeholder)
-
-// ─── Card-swap opportunities (3F) ───────────────────────────────────────────
-// Categories where the current card differs from the best card
-
-const CARD_SWAPS: CardSwapOpportunity[] = SPEND_ROUTES
-  .filter((r) => r.currentCard !== r.bestCard)
-  .map((r) => ({
-    category: r.mccCategory,
-    currentCard: r.currentCard,
-    currentRate: r.currentRate,
-    bestCard: r.bestCard,
-    bestRate: r.bestRate,
-    monthlySpend: r.monthlySpendNum,
-    annualGain: Math.round((r.bestRate - r.currentRate) * r.monthlySpendNum * 12),
-  }));
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RewardsPage() {
-  // Client selector state
-  const [selectedClient, setSelectedClient] = useState<RewardsClient | null>(null);
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [selected, setSelected] = useState('');
+  const [data, setData] = useState<BenefitsPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Action modal state
-  const [actionModal, setActionModal] = useState<{
-    isOpen: boolean;
-    type: 'cancel' | 'negotiate';
-    card: RewardsActionCard;
-  }>({
-    isOpen: false,
-    type: 'cancel',
-    card: { name: '', issuer: '', annualFee: 0, rewardsEarned: 0, netBenefit: 0 },
-  });
-
-  // Fee waiver modal state
-  const [feeWaiverModal, setFeeWaiverModal] = useState<{
-    isOpen: boolean;
-    cardName: string;
-    issuer: string;
-    annualFee: number;
-  }>({ isOpen: false, cardName: '', issuer: '', annualFee: 0 });
-
-  // Reminder toast state
-  const [reminderToast, setReminderToast] = useState<string | null>(null);
-
-  // Export loading state (3G)
-  const [exporting, setExporting] = useState(false);
-
-  // Spend routing detail expand/collapse
-  const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
-
-  const toggleRouteDetail = useCallback((route: SpendRoute) => {
-    setExpandedRouteId((prev) => (prev === route.id ? null : route.id));
-  }, []);
-
-  // Card summary sort state
-  const [cardSortCol, setCardSortCol] = useState<keyof CardSummary | null>(null);
-  const [cardSortDir, setCardSortDir] = useState<'asc' | 'desc'>('asc');
-
-  const sortedCardSummaries = useMemo(() => {
-    if (!cardSortCol) return CARD_SUMMARIES;
-    return [...CARD_SUMMARIES].sort((a, b) => {
-      const va = a[cardSortCol];
-      const vb = b[cardSortCol];
-      const aStr = va == null ? '' : String(va);
-      const bStr = vb == null ? '' : String(vb);
-      const aNum = typeof va === 'number' ? va : parseFloat(aStr.replace(/[^0-9.-]/g, ''));
-      const bNum = typeof vb === 'number' ? vb : parseFloat(bStr.replace(/[^0-9.-]/g, ''));
-      const numeric = !isNaN(aNum) && !isNaN(bNum);
-      const cmp = numeric ? aNum - bNum : aStr.localeCompare(bStr);
-      return cardSortDir === 'asc' ? cmp : -cmp;
-    });
-  }, [cardSortCol, cardSortDir]);
-
-  const handleCardSort = useCallback((col: keyof CardSummary) => {
-    setCardSortCol((prev) => {
-      if (prev === col) {
-        setCardSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        return col;
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
+        const body = (await res.json()) as { success?: boolean; data?: ClientOption[] };
+        const list = body.success === true ? body.data ?? [] : [];
+        setClients(list);
+        if (list.length > 0) setSelected(list[0].id);
+        else setLoading(false);
+      } catch {
+        setError('Could not load the client list.');
+        setLoading(false);
       }
-      setCardSortDir('asc');
-      return col;
-    });
+    })();
   }, []);
 
-  const openCancelModal = useCallback((card: CardSummary) => {
-    setActionModal({
-      isOpen: true,
-      type: 'cancel',
-      card: {
-        name: card.cardName,
-        issuer: card.issuer,
-        annualFee: card.annualFee,
-        rewardsEarned: card.annualRewardsEarned,
-        netBenefit: card.netBenefit,
-      },
-    });
-  }, []);
-
-  const openReviewModal = useCallback((card: CardSummary) => {
-    setActionModal({
-      isOpen: true,
-      type: 'negotiate',
-      card: {
-        name: card.cardName,
-        issuer: card.issuer,
-        annualFee: card.annualFee,
-        rewardsEarned: card.annualRewardsEarned,
-        netBenefit: card.netBenefit,
-      },
-    });
-  }, []);
-
-  const closeModal = useCallback(() => {
-    setActionModal((prev) => ({ ...prev, isOpen: false }));
-  }, []);
-
-  const openFeeWaiverModal = useCallback((card: FeeRenewalCard) => {
-    setFeeWaiverModal({
-      isOpen: true,
-      cardName: card.card,
-      issuer: card.issuer,
-      annualFee: card.annualFee,
-    });
-  }, []);
-
-  const closeFeeWaiverModal = useCallback(() => {
-    setFeeWaiverModal((prev) => ({ ...prev, isOpen: false }));
-  }, []);
-
-  const handleSetReminder = useCallback((route: SpendRoute) => {
-    setReminderToast(`Reminder set for ${route.mccCategory} routing`);
-    setTimeout(() => setReminderToast(null), 3000);
-  }, []);
-
-  const handleExport = useCallback(async () => {
-    setExporting(true);
-    // Small delay to show loading state and allow UI to update
-    await new Promise((resolve) => setTimeout(resolve, 400));
+  const load = useCallback(async (businessId: string) => {
+    setLoading(true);
+    setError(null);
     try {
-      const report = generateRewardsReport(
-        sortedCardSummaries,
-        REWARDS_TREND_PLACEHOLDER,
-        CARD_SWAPS,
-      );
-      downloadTextFile(report, 'rewards-optimization-report.txt');
+      const res = await fetch(`/api/businesses/${encodeURIComponent(businessId)}/benefits`, {
+        headers: authHeaders(),
+      });
+      const body = (await res.json()) as { success?: boolean; data?: BenefitsPayload };
+      if (!res.ok || body.success !== true) {
+        setError(`Benefits could not be loaded (HTTP ${res.status}).`);
+        setData(null);
+        return;
+      }
+      setData(body.data ?? null);
+    } catch {
+      setError('Could not reach the server.');
+      setData(null);
     } finally {
-      setExporting(false);
+      setLoading(false);
     }
-  }, [sortedCardSummaries]);
+  }, []);
 
-  const routeColumns = useMemo(() => buildRouteColumns(handleSetReminder), [handleSetReminder]);
-  const cardColumns = useMemo(() => buildCardColumns(openCancelModal, openReviewModal), [openCancelModal, openReviewModal]);
+  useEffect(() => {
+    if (selected !== '') void load(selected);
+  }, [selected, load]);
+
+  const benefits = data?.benefits ?? [];
 
   return (
-    <div className="space-y-8">
-      {/* ── Client selector ─────────────────────────────────── */}
-      <RewardsClientSelector
-        selectedClient={selectedClient}
-        onClientSelect={setSelectedClient}
-        onClear={() => setSelectedClient(null)}
-      />
-
-      {/* ── Page header ──────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Rewards Optimization</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            Spend routing recommendations and card ROI analysis
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">Rewards</h1>
+          <p className="text-sm text-gray-500 mt-1">Card benefits recorded against a client.</p>
         </div>
-        <button
-          className="btn-accent btn flex-shrink-0 disabled:opacity-60"
-          onClick={handleExport}
-          disabled={exporting}
-        >
-          {exporting ? (
-            <>
-              <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <span aria-hidden="true">&#8595;</span>
-              Export Report
-            </>
-          )}
-        </button>
+
+        {clients.length > 0 && (
+          <div>
+            <label htmlFor="rw-client" className="block text-xs text-gray-500 mb-1">
+              Client
+            </label>
+            <select
+              id="rw-client"
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800"
+            >
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.businessName}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      {/* ── KPI strip ────────────────────────────────────────── */}
-      <section aria-labelledby="rewards-kpi-heading">
-        <h2 id="rewards-kpi-heading" className="sr-only">Rewards Key Metrics</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatCard
-            title="Total Rewards Earned"
-            value={`$${TOTAL_REWARDS.toLocaleString()}`}
-            trendLabel="+$1,240 vs last year"
-            trendDirection="up"
-            icon="RW"
-            iconBg="bg-emerald-50"
-            iconColor="text-emerald-700"
-            subtitle="Annualised estimate"
-          />
-          <StatCard
-            title="Total Annual Fees"
-            value={`$${TOTAL_FEES.toLocaleString()}`}
-            trendLabel="-$95 vs last year"
-            trendDirection="up"
-            icon="FE"
-            iconBg="bg-red-50"
-            iconColor="text-red-600"
-            subtitle="8 active cards"
-          />
-          <StatCard
-            title="Net Benefit"
-            value={`$${TOTAL_NET.toLocaleString()}`}
-            trendLabel="+$1,335 vs last year"
-            trendDirection="up"
-            icon="NB"
-            iconBg="bg-brand-navy/5"
-            iconColor="text-brand-navy"
-            subtitle="Rewards minus all fees"
-          />
-          <StatCard
-            title="Monthly Card Spend"
-            value={`$${(TOTAL_MONTHLY / 1000).toFixed(1)}K`}
-            trendLabel="+$2.1K this month"
-            trendDirection="up"
-            icon="SP"
-            iconBg="bg-amber-50"
-            iconColor="text-amber-700"
-            subtitle="Across all active cards"
-          />
-        </div>
-      </section>
+      {loading && <p className="text-sm text-gray-500">Loading…</p>}
 
-      {/* ── Rewards trend chart ──────────────────────────────── */}
-      <RewardsTrendChart
-        data={REWARDS_TREND_PLACEHOLDER}
-        yoyDelta="+$1,240 vs last year"
-      />
-
-      {/* ── Points balance panel ──────────────────────────────── */}
-      <PointsBalancePanel cards={POINTS_BALANCE_PLACEHOLDER} />
-
-      {/* ── Main body ────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
-        {/* ── Left: tables (2/3) ──────────────────────────────── */}
-        <div className="xl:col-span-2 space-y-6">
-
-          {/* Spend routing table with expandable detail */}
-          <SectionCard
-            title="Spend Routing Recommendations"
-            subtitle="Optimal card assignment per MCC category to maximise reward yield"
-            flushBody
-          >
-            <div className="flex flex-col gap-0">
-              <div className="overflow-x-auto rounded-t-xl border border-surface-border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-surface-overlay border-b border-surface-border">
-                      {routeColumns.map((col) => (
-                        <th
-                          key={col.key}
-                          className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 whitespace-nowrap select-none ${
-                            col.align === 'right' ? 'text-right' : 'text-left'
-                          }`}
-                        >
-                          {col.header}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-surface-border">
-                    {SPEND_ROUTES.map((route) => {
-                      const isExpanded = expandedRouteId === route.id;
-                      return (
-                        <React.Fragment key={route.id}>
-                          <tr
-                            onClick={() => toggleRouteDetail(route)}
-                            className={`border-b border-surface-border last:border-0 cursor-pointer transition-colors duration-100 ${
-                              isExpanded ? 'bg-blue-50/60' : 'hover:bg-surface-overlay'
-                            }`}
-                          >
-                            {routeColumns.map((col) => (
-                              <td
-                                key={col.key}
-                                className={`px-4 py-3 text-gray-700 whitespace-nowrap ${
-                                  col.align === 'right' ? 'text-right' : 'text-left'
-                                }`}
-                              >
-                                {col.cell ? col.cell(route, 0) : String((route as Record<string, unknown>)[col.key] ?? '')}
-                              </td>
-                            ))}
-                          </tr>
-                          {isExpanded && (
-                            <tr>
-                              <td colSpan={routeColumns.length} className="bg-gray-50 px-6 py-4 border-b border-surface-border">
-                                <SpendRouteDetailPanel route={route} />
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex items-center justify-between gap-4 px-4 py-3 bg-white border-x border-b border-surface-border rounded-b-xl text-sm text-gray-500">
-                <span>{SPEND_ROUTES.length} categories</span>
-                <span className="text-xs text-gray-400">Click a row for details</span>
-              </div>
-            </div>
-          </SectionCard>
-
-          {/* Routing opportunity gap */}
-          <RoutingOpportunityGap
-            currentYield={15712}
-            optimalYield={18400}
-            gap={2688}
-            swaps={CARD_SWAPS}
-          />
-
-          {/* Card ROI table */}
-          <SectionCard
-            title="Annual Rewards vs Fees — Card Summary"
-            subtitle="Keep / review / cancel recommendation per card based on net benefit"
-            flushBody
-          >
-            <DataTable<CardSummary>
-              columns={cardColumns}
-              data={sortedCardSummaries}
-              rowKey="id"
-              defaultPageSize={8}
-              pageSizeOptions={[8, 25]}
-            />
-          </SectionCard>
-
-          {/* Fee renewal calendar */}
-          <FeeRenewalCalendar cards={FEE_RENEWAL_CARDS} onFeeWaiver={openFeeWaiverModal} />
-        </div>
-
-        {/* ── Right: summary card (1/3) ────────────────────────── */}
-        <div className="space-y-6">
-          <RewardsSummaryCard
-            totalRewardsEarned={TOTAL_REWARDS}
-            totalAnnualFees={TOTAL_FEES}
-            categoryCards={CATEGORY_BESTS}
-          />
-
-          {/* Recommendation legend */}
-          <SectionCard title="Decision Legend" subtitle="How recommendations are determined">
-            <div className="space-y-3 text-sm">
-              <LegendRow
-                status="approved"
-                label="Keep"
-                description="Net benefit is positive; card earns more than it costs."
-              />
-              <LegendRow
-                status="pending"
-                label="Negotiate"
-                description="Marginal ROI; consider fee waiver or product change."
-              />
-              <LegendRow
-                status="declined"
-                label="Cancel"
-                description="Fees exceed rewards earned — close or downgrade card."
-              />
-            </div>
-          </SectionCard>
-        </div>
-      </div>
-
-      {/* ── Action modal ────────────────────────────────────── */}
-      <RewardsActionModal
-        isOpen={actionModal.isOpen}
-        onClose={closeModal}
-        type={actionModal.type}
-        card={actionModal.card}
-      />
-
-      {/* ── Fee waiver modal ──────────────────────────────────── */}
-      <FeeWaiverModal
-        isOpen={feeWaiverModal.isOpen}
-        onClose={closeFeeWaiverModal}
-        cardName={feeWaiverModal.cardName}
-        issuer={feeWaiverModal.issuer}
-        annualFee={feeWaiverModal.annualFee}
-      />
-
-      {/* ── Reminder toast ──────────────────────────────────── */}
-      {reminderToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] rounded-lg bg-brand-navy px-5 py-3 text-sm font-medium text-white shadow-lg animate-fade-in">
-          {reminderToast}
-        </div>
+      {error !== null && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </p>
       )}
-    </div>
-  );
-}
 
-// ─── Spend route detail panel (3E) ──────────────────────────────────────────
-
-function SpendRouteDetailPanel({ route }: { route: SpendRoute }) {
-  const monthlyReward = route.monthlySpendNum * route.bestRate;
-  const annualReward = monthlyReward * 12;
-
-  return (
-    <div className="space-y-4">
-      {/* Why this card is best */}
-      <div>
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
-          Why {route.bestCard}?
-        </h4>
-        <p className="text-sm text-gray-700 leading-relaxed">{route.reason}</p>
-      </div>
-
-      {/* Reward calculation */}
-      <div className="bg-white rounded-lg border border-gray-200 p-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-          Reward Calculation
-        </h4>
-        <div className="grid grid-cols-3 gap-4 text-sm">
-          <div>
-            <p className="text-gray-400 text-xs">Monthly Spend x Rate</p>
-            <p className="font-semibold text-gray-800">
-              ${route.monthlySpendNum.toLocaleString()} x {(route.bestRate * 100).toFixed(1)}%
+      {!loading && error === null && data !== null && (
+        <>
+          {benefits.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No benefit is recorded for this client. Benefits are attached to cards a client
+              holds; none is assumed from the product name.
             </p>
-          </div>
-          <div>
-            <p className="text-gray-400 text-xs">Monthly Rewards</p>
-            <p className="font-bold text-emerald-600">${monthlyReward.toLocaleString()}</p>
-          </div>
-          <div>
-            <p className="text-gray-400 text-xs">Annual Rewards</p>
-            <p className="font-bold text-emerald-600">${annualReward.toLocaleString()}</p>
-          </div>
-        </div>
-      </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Benefit</th>
+                    <th className="px-4 py-3 text-left">Issuer</th>
+                    <th className="px-4 py-3 text-left">Category</th>
+                    <th className="px-4 py-3 text-left">Used</th>
+                    <th className="px-4 py-3 text-left">Expires</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {benefits.map((b) => (
+                    <tr key={b.id}>
+                      <td className="px-4 py-3 text-gray-900">{b.benefitName ?? b.id}</td>
+                      <td className="px-4 py-3 text-gray-600">{b.issuer ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{b.category ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-700">{b.utilized === true ? 'Yes' : 'No'}</td>
+                      <td className="px-4 py-3 text-gray-500">
+                        {b.expiresAt?.slice(0, 10) ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-      {/* Alternatives considered */}
-      <div>
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-          Alternatives Considered
-        </h4>
-        <div className="space-y-1.5">
-          {route.alternatives.map((alt) => {
-            const diff = annualReward - alt.annualReward;
-            return (
-              <div
-                key={alt.cardName}
-                className="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              >
-                <span className="text-gray-700">{alt.cardName}</span>
-                <div className="flex items-center gap-4">
-                  <span className="text-gray-500">{(alt.rate * 100).toFixed(1)}%</span>
-                  <span className="text-gray-500">${alt.annualReward.toLocaleString()}/yr</span>
-                  <span className="text-red-500 font-medium text-xs">
-                    -${diff.toLocaleString()}/yr vs best
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Legend row helper ────────────────────────────────────────────────────────
-
-function LegendRow({
-  status,
-  label,
-  description,
-}: {
-  status: BadgeStatus;
-  label: string;
-  description: string;
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <Badge status={status} label={label} className="flex-shrink-0 mt-0.5" />
-      <p className="text-gray-500 text-xs leading-relaxed">{description}</p>
+          <section
+            aria-label="What is not here"
+            className="rounded-xl border border-gray-200 bg-white p-5 space-y-2"
+          >
+            <h2 className="text-sm font-semibold text-gray-900">What is not here</h2>
+            <p className="text-xs text-gray-600 leading-relaxed">
+              Spend routing advice. The page used to name a best card per category — office
+              supplies, travel, advertising — with earn rates and projected annual value, over a
+              set of cards written into it. Recommending where a client puts spend is advice
+              about money, and it has to start from the cards they hold and the rates those
+              carry. The optimisation endpoint computes that from categories and amounts a
+              caller supplies; it does not know what any client is holding.
+            </p>
+          </section>
+        </>
+      )}
     </div>
   );
 }

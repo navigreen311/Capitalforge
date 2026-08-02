@@ -146,7 +146,10 @@ export const rewardsRouter = Router({ mergeParams: true });
 // Query: ?categories=office_supplies,gas&amounts=25000,10000
 
 rewardsRouter.get(
-  '/rewards/optimization',
+  // Was '/rewards/optimization'. The handler reads req.params['id'], which
+  // that path never supplies, so businessId was always undefined — and the
+  // path this file documents answered 404.
+  '/businesses/:id/rewards/optimization',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
     const businessId = req.params['id'];
@@ -196,7 +199,7 @@ rewardsRouter.get(
 // Query: ?categories=office_supplies,gas&amounts=25000,10000
 
 rewardsRouter.get(
-  '/rewards/annual-summary',
+  '/businesses/:id/rewards/annual-summary',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
     const businessId = req.params['id'];
@@ -248,7 +251,7 @@ rewardsRouter.get(
 // Optional query: ?cardId=<slug>
 
 rewardsRouter.get(
-  '/benefits',
+  '/businesses/:id/benefits',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
     const businessId = req.params['id'];

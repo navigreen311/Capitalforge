@@ -210,6 +210,11 @@ e2e export audit rows      : ${e2eExportAudits.length}`);
 
   // ── Rows the browser suite writes for real ──────────────
   //
+  // The form-label sweep clicks "+ New Client" on /clients, which now opens
+  // a real form against POST /api/clients. It does not submit, but a stray
+  // client from a manual run is caught by the seeded-business sweep above.
+
+  //
   // The billing spec generates an invoice and pays it each run, to prove
   // both survive a round trip. The seed creates no invoices.
   const e2eInvoices = await prisma.invoice.findMany({ select: { id: true } });
