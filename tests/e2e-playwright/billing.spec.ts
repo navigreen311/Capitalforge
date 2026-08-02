@@ -1,0 +1,130 @@
+// ============================================================
+// /billing — invoices are records, and survive
+//
+// The page listed invoices as literals: CF-2026-0041 to Apex Ventures LLC
+// for $18,500 issued, CF-2026-0040 to NovaTech Solutions for $9,750 marked
+// overdue, CF-2026-0039 to Horizon Retail for $42,000 — beside commissions
+// owed to named partners and a usage meter reading 87,400 of 100,000 API
+// calls. An overdue invoice says a client owes money and has not paid.
+//
+// The API behind it computed real fees but kept the result in a Map held by
+// the process, so an invoice existed until the server restarted and two
+// workers disagreed about it, while an invoices table sat unused.
+// ============================================================
+
+import { test, expect } from './fixtures';
+
+const API = 'http://127.0.0.1:4000/api';
+
+async function token(page: import('@playwright/test').Page): Promise<string | null> {
+  return page.evaluate(() => localStorage.getItem('cf_access_token'));
+}
+
+async function firstBusinessId(t: string | null): Promise<string> {
+  const body = (await fetch(`${API}/compliance/disclosures`, {
+    headers: { Authorization: `Bearer ${t}` },
+  }).then((r) => r.json())) as { data: { businesses: { businessId: string }[] } };
+  expect(body.data.businesses.length).toBeGreaterThan(0);
+  return body.data.businesses[0].businessId;
+}
+
+test.describe('Billing', () => {
+  test('an invoice survives being generated', async ({ signedInPage: page }) => {
+    await page.goto('/billing');
+    const t = await token(page);
+    const businessId = await firstBusinessId(t);
+
+    const created = await fetch(`${API}/businesses/${businessId}/invoices`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
+    });
+    expect(created.status).toBe(201);
+
+    const { data } = (await created.json()) as { data: { id: string; invoiceNumber: string } };
+    expect(data.id).toBeTruthy();
+
+    // The proof the Map could not give: read it back.
+    const listed = await fetch(`${API}/businesses/${businessId}/invoices`, {
+      headers: { Authorization: `Bearer ${t}` },
+    })
+      .then((r) => r.json())
+      .then((b) => (b as { data: { id: string; invoiceNumber: string }[] }).data);
+
+    expect(listed.find((i) => i.id === data.id), 'the invoice must come back').toBeTruthy();
+  });
+
+  test('marking an invoice paid persists, and charges nothing', async ({ signedInPage: page }) => {
+    await page.goto('/billing');
+    const t = await token(page);
+    const businessId = await firstBusinessId(t);
+
+    const created = await fetch(`${API}/businesses/${businessId}/invoices`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
+    }).then((r) => r.json());
+    const invoiceId = (created as { data: { id: string } }).data.id;
+
+    const paid = await fetch(`${API}/invoices/${invoiceId}/pay`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(paid.status).toBe(200);
+
+    const body = (await paid.json()) as { data: { status: string; charged: boolean } };
+    expect(body.data.status).toBe('paid');
+    // Recording a payment is not taking one.
+    expect(body.data.charged).toBe(false);
+
+    const after = await fetch(`${API}/businesses/${businessId}/invoices`, {
+      headers: { Authorization: `Bearer ${t}` },
+    })
+      .then((r) => r.json())
+      .then((b) => (b as { data: { id: string; status: string }[] }).data);
+    expect(after.find((i) => i.id === invoiceId)!.status).toBe('paid');
+  });
+
+  test('an invoice from another tenant is not payable', async ({ signedInPage: page }) => {
+    await page.goto('/billing');
+    const t = await token(page);
+
+    const res = await fetch(`${API}/invoices/not-a-real-invoice/pay`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test('renders none of the invented invoices, commissions or usage', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/billing');
+    await expect(page.getByRole('heading', { name: 'Billing' })).toBeVisible({ timeout: 30000 });
+
+    for (const invented of [
+      'CF-2026-0041',
+      'CF-2026-0040',
+      'NovaTech Solutions',
+      'Marcus Webb',
+      'Renata',
+      // Not the usage figures — the page's own note quotes them, saying what
+      // the meter used to claim.
+      'com_001',
+      'Apex Ventures LOC',
+    ]) {
+      await expect(page.getByText(invented)).toHaveCount(0);
+    }
+  });
+
+  test('says what it does not do', async ({ signedInPage: page }) => {
+    await page.goto('/billing');
+    await expect(page.getByRole('heading', { name: 'What is not here' })).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.getByText('nothing writes to it', { exact: false })).toBeVisible();
+    await expect(page.getByText('It does not charge anything', { exact: false })).toBeVisible();
+  });
+});

@@ -210,6 +210,16 @@ e2e export audit rows      : ${e2eExportAudits.length}`);
 
   // ── Rows the browser suite writes for real ──────────────
   //
+  // The billing spec generates an invoice and pays it each run, to prove
+  // both survive a round trip. The seed creates no invoices.
+  const e2eInvoices = await prisma.invoice.findMany({ select: { id: true } });
+
+  if (e2eInvoices.length > 0) {
+    console.log(`
+e2e invoices               : ${e2eInvoices.length}`);
+  }
+
+  //
   // The in-memory-writes spec opens a hardship case and creates a workflow
   // rule each run, to prove both survive a round trip through the database.
   // The seed creates neither, so everything here came from a test.
@@ -336,6 +346,12 @@ e2e workflow rules         : ${e2eWorkflows.length}`);
   if (e2eExportAudits.length > 0) {
     note('e2eExportAuditRows', (await prisma.auditLog.deleteMany({
       where: { id: { in: e2eExportAudits.map((a) => a.id) } },
+    })).count);
+  }
+
+  if (e2eInvoices.length > 0) {
+    note('e2eInvoices', (await prisma.invoice.deleteMany({
+      where: { id: { in: e2eInvoices.map((i) => i.id) } },
     })).count);
   }
 

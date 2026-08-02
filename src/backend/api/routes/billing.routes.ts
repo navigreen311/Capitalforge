@@ -38,6 +38,8 @@ import type {
 } from '../../services/saas-entitlements.service.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
+import { Prisma } from '@prisma/client';
+import { prisma as sharedPrisma } from '../../config/database.js';
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -111,14 +113,49 @@ billingRouter.post(
         dueDaysFromNow: raw.dueDaysFromNow,
       });
 
+      // The service computes the invoice; the row is written here.
+      //
+      // revenue-ops keeps its results in a Map held by the process, so an
+      // invoice generated through this API used to exist only until the
+      // server restarted, and only for the worker that served the request —
+      // while an invoices table sat unused. The computation is unchanged;
+      // what changes is that the result survives.
+      // The number comes from the table, not from the service's counter.
+      //
+      // nextInvoiceNumber() increments a module-level integer that starts at
+      // zero on boot, which was harmless while invoices lived in a Map and
+      // is a unique-constraint violation now that they are rows: after a
+      // restart it reissues INV-…-000001.
+      const issued = await sharedPrisma.invoice.count({ where: { tenantId } });
+      const prefix = tenantId.slice(0, 4).toUpperCase();
+      const year = new Date().getFullYear().toString().slice(2);
+      const invoiceNumber = `INV-${prefix}${year}-${String(issued + 1).padStart(6, '0')}`;
+
+      const saved = await sharedPrisma.invoice.create({
+        data: {
+          tenantId,
+          businessId,
+          invoiceNumber,
+          type: invoice.type,
+          amount: invoice.amount,
+          feeBreakdown: { lineItems: invoice.lineItems } as unknown as Prisma.InputJsonValue,
+          status: invoice.status,
+          issuedAt: invoice.issuedAt,
+          dueDate: invoice.dueDate,
+        },
+      });
+
       logger.info('Invoice generated via API', {
-        invoiceId: invoice.id,
+        invoiceId: saved.id,
         businessId,
         tenantId,
         amount: invoice.amount,
       });
 
-      const body: ApiResponse<typeof invoice> = { success: true, data: invoice };
+      const body: ApiResponse<typeof invoice & { id: string }> = {
+        success: true,
+        data: { ...invoice, id: saved.id, invoiceNumber },
+      };
       res.status(201).json(body);
     } catch (err) {
       logger.error('Invoice generation failed', {
@@ -152,7 +189,29 @@ billingRouter.get(
       return;
     }
 
-    const invoices = revenueOpsService.getInvoicesForBusiness(tenantId, businessId);
+    // From the invoices table. This read revenue-ops' in-memory Map, which
+    // meant a restart emptied the list and two workers disagreed about it.
+    const rows = await sharedPrisma.invoice.findMany({
+      where: { tenantId, businessId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    const invoices = rows.map((r) => ({
+      id: r.id,
+      tenantId: r.tenantId,
+      businessId: r.businessId,
+      invoiceNumber: r.invoiceNumber,
+      type: r.type,
+      amount: Number(r.amount),
+      feeBreakdown: r.feeBreakdown ?? null,
+      status: r.status,
+      issuedAt: r.issuedAt?.toISOString() ?? null,
+      dueDate: r.dueDate?.toISOString() ?? null,
+      paidAt: r.paidAt?.toISOString() ?? null,
+      stripePaymentId: r.stripePaymentId,
+      createdAt: r.createdAt.toISOString(),
+    }));
 
     const body: ApiResponse<typeof invoices> = {
       success: true,
@@ -223,7 +282,11 @@ billingRouter.post(
       return;
     }
 
-    const existing = revenueOpsService.getInvoice(invoiceId);
+    // Scoped to the tenant in the query: an invoice belonging to another one
+    // is reported the same way an invoice that does not exist is.
+    const existing = await sharedPrisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+    });
 
     if (!existing) {
       const body: ApiResponse = {
@@ -234,37 +297,55 @@ billingRouter.post(
       return;
     }
 
-    if (existing.tenantId !== tenantId) {
+    if (existing.status === 'paid') {
       const body: ApiResponse = {
         success: false,
-        error: { code: 'FORBIDDEN', message: 'Access denied to this invoice.' },
+        error: { code: 'PAYMENT_ERROR', message: 'Invoice is already paid.' },
       };
-      res.status(403).json(body);
+      res.status(422).json(body);
       return;
     }
 
     const { stripePaymentId } = req.body as { stripePaymentId?: string };
 
-    try {
-      const paid = revenueOpsService.payInvoice({ invoiceId, stripePaymentId });
+    // Marks the invoice paid. It does not take a payment: nothing here
+    // charges a card or moves money, and stripePaymentId is a reference the
+    // caller supplies, not one this system obtained.
+    const paid = await sharedPrisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: 'paid',
+        paidAt: new Date(),
+        stripePaymentId: stripePaymentId ?? null,
+      },
+    });
 
-      logger.info('Invoice paid via API', {
-        invoiceId,
-        tenantId,
-        amount: paid.amount,
+    logger.info('Invoice marked paid via API', {
+      invoiceId,
+      tenantId,
+      amount: Number(paid.amount),
+      stripePaymentId: paid.stripePaymentId,
+    });
+
+    const body: ApiResponse<{
+      id: string;
+      status: string;
+      amount: number;
+      paidAt: string | null;
+      stripePaymentId: string | null;
+      charged: boolean;
+    }> = {
+      success: true,
+      data: {
+        id: paid.id,
+        status: paid.status,
+        amount: Number(paid.amount),
+        paidAt: paid.paidAt?.toISOString() ?? null,
         stripePaymentId: paid.stripePaymentId,
-      });
-
-      const body: ApiResponse<typeof paid> = { success: true, data: paid };
-      res.status(200).json(body);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to process payment.';
-      const body: ApiResponse = {
-        success: false,
-        error: { code: 'PAYMENT_ERROR', message },
-      };
-      res.status(422).json(body);
-    }
+        charged: false,
+      },
+    };
+    res.status(200).json(body);
   },
 );
 
