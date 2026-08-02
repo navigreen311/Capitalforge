@@ -109,6 +109,23 @@ export default defineConfig({
    * with status -1 and no timing; that is this, not a broken test.
    */
   globalSetup: './tests/e2e-playwright/global-setup.ts',
+  /**
+   * The default terminal reporter, plus a snapshot of the machine's TCP port
+   * range on any failure.
+   *
+   * One run failed with ERR_NO_BUFFER_SPACE — Windows running out of ephemeral
+   * ports. The suite's own usage was measured and cannot cause it: it peaks at
+   * 1,419 of 16,384. So something else on the machine spiked, and the evidence
+   * for that exists only while it is happening. The reporter records which
+   * processes hold the ports at the moment a test fails, which is the only
+   * thing that would name the cause. See the reporter for the measurements.
+   *
+   * It is a no-op off Windows and on a passing run.
+   */
+  reporter: [
+    [process.env.CI ? 'dot' : 'list'],
+    ['./tests/e2e-playwright/failure-snapshot-reporter.ts'],
+  ],
   use: {
     baseURL: BASE_URL,
     headless: true,
