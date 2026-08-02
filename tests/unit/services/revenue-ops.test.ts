@@ -269,12 +269,17 @@ describe('payInvoice', () => {
 });
 
 describe('issueRefund', () => {
+  // The function used to read the invoice out of a module-level Map and write
+  // the credit note back into it, so a refund left no record and vanished on
+  // restart. It computes now, and the caller writes — the same split the
+  // invoice path uses. These pass the invoice in rather than an id.
+
   it('creates a credit note with negative amount', () => {
     const paid = makePaidInvoice();
     const refundAmount = paid.amount / 2;
 
     const result = issueRefund({
-      originalInvoiceId: paid.id,
+      originalInvoice: paid,
       refundAmount,
       reason: 'Client dispute resolved',
       tenantId: T1,
@@ -287,18 +292,109 @@ describe('issueRefund', () => {
     expect(result.originalInvoice.refundedAmount).toBe(refundAmount);
   });
 
-  it('throws when refund amount exceeds paid amount', () => {
+  it('leaves the invoice number to the caller', () => {
+    // The row is written at the route boundary, which assigns the number from
+    // the table. The service's own counter restarts at zero on boot, which is
+    // a unique-constraint violation now these are rows.
+    const result = issueRefund({
+      originalInvoice: makePaidInvoice(),
+      refundAmount: 10,
+      reason: 'Partial',
+      tenantId: T1,
+      businessId: B1,
+    });
+    expect(result.creditNote.invoiceNumber).toBe('');
+  });
+
+  it('throws when refund amount exceeds the refundable balance', () => {
     const paid = makePaidInvoice();
 
     expect(() =>
       issueRefund({
-        originalInvoiceId: paid.id,
+        originalInvoice: paid,
         refundAmount: paid.amount + 1,
         reason: 'Test',
         tenantId: T1,
         businessId: B1,
       }),
     ).toThrowError(/exceeds refundable/);
+  });
+
+  it('counts refunds already issued against the invoice', () => {
+    // Invoices carry no refundedAmount column, so the caller sums the credit
+    // notes on record and passes the total in. Without this, an invoice could
+    // be refunded repeatedly up to its full value each time.
+    const paid = makePaidInvoice();
+    const half = paid.amount / 2;
+
+    expect(() =>
+      issueRefund({
+        originalInvoice: paid,
+        alreadyRefunded: half,
+        refundAmount: half + 1,
+        reason: 'Second refund',
+        tenantId: T1,
+        businessId: B1,
+      }),
+    ).toThrowError(/exceeds refundable/);
+  });
+
+  it('marks the invoice refunded only once the credit notes reach its total', () => {
+    const paid = makePaidInvoice();
+    const half = paid.amount / 2;
+
+    const partial = issueRefund({
+      originalInvoice: paid,
+      refundAmount: half,
+      reason: 'Partial',
+      tenantId: T1,
+      businessId: B1,
+    });
+    expect(partial.originalInvoice.status).toBe('paid');
+
+    const rest = issueRefund({
+      originalInvoice: paid,
+      alreadyRefunded: half,
+      refundAmount: half,
+      reason: 'Remainder',
+      tenantId: T1,
+      businessId: B1,
+    });
+    expect(rest.originalInvoice.status).toBe('refunded');
+  });
+
+  it('refuses to refund an invoice that was never paid', () => {
+    const unpaid = generateInvoice({
+      tenantId: T1,
+      businessId: B1,
+      dealStructure: 'consulting_only',
+      totalApprovedCredit: 0,
+    });
+
+    expect(() =>
+      issueRefund({
+        originalInvoice: unpaid,
+        refundAmount: 1,
+        reason: 'Test',
+        tenantId: T1,
+        businessId: B1,
+      }),
+    ).toThrowError(/only be issued against paid invoices/);
+  });
+
+  it('refuses a zero or negative refund', () => {
+    const paid = makePaidInvoice();
+    for (const amount of [0, -5]) {
+      expect(() =>
+        issueRefund({
+          originalInvoice: paid,
+          refundAmount: amount,
+          reason: 'Test',
+          tenantId: T1,
+          businessId: B1,
+        }),
+      ).toThrowError(/must be positive/);
+    }
   });
 });
 

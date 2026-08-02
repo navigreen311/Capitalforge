@@ -151,18 +151,22 @@ function nextInvoiceNumber(tenantId: string): string {
 //
 // Invoices no longer depend on them: the billing routes compute an invoice
 // here and write the row themselves, then read, list and pay against the
-// invoices table. What is still memory-only, and therefore not to be relied
-// on, is:
+// invoices table.
 //
-//   issueRefund / credit notes   computed, never written — a refund issued
-//                                through this service leaves no record
-//   commissions                  createCommission, approve, markPaid and
-//                                clawBack all mutate commissionStore, while
-//                                commission_records sits unused
+// Refunds got the same treatment. issueRefund is pure — it takes the invoice
+// and the credit notes already raised against it, validates, and returns what
+// to write; POST /api/invoices/:id/refund writes both rows in one
+// transaction. It used to read from invoiceStore and write back into it, so a
+// refund left no record and vanished on restart.
 //
-// None of those is reachable from an API route today, which is the only
-// reason the gap is not doing harm. Wiring them means the same treatment
-// the invoice path got: compute here, write at the boundary.
+// What is still memory-only, and therefore not to be relied on:
+//
+//   commissions   createCommission, approve, markPaid and clawBack all mutate
+//                 commissionStore, while commission_records sits unused
+//
+// That is not reachable from an API route today, which is the only reason the
+// gap is not doing harm. Wiring it means what the invoice and refund paths
+// got: compute here, write at the boundary.
 
 const invoiceStore = new Map<string, Invoice>();
 const commissionStore = new Map<string, CommissionRecord>();
@@ -424,11 +428,19 @@ export function payInvoice(input: PayInvoiceInput): Invoice {
 // ── Refund Handling ───────────────────────────────────────────────────────────
 
 export interface RefundInput {
-  originalInvoiceId: string;
+  /** The invoice being refunded, read by the caller. */
+  originalInvoice: Invoice;
+  /**
+   * Sum of credit notes already issued against it. Derived by the caller from
+   * the rows on record, because invoices carry no refundedAmount column.
+   */
+  alreadyRefunded?: number;
   refundAmount: number;
   reason: string;
   tenantId: string;
   businessId: string;
+  /** Injectable for tests. */
+  now?: Date;
 }
 
 export interface RefundResult {
@@ -437,16 +449,29 @@ export interface RefundResult {
   refundedAmount: number;
 }
 
+/**
+ * Compute a credit note against an invoice that has been paid.
+ *
+ * This used to read the original out of invoiceStore, build the credit note,
+ * and write both back into that Map — so a refund issued through this service
+ * left no record anywhere, disappeared on restart, and was invisible to every
+ * other worker. Nothing called it, which is the only reason that did no harm.
+ *
+ * It is pure now, on the same split the invoice path already uses: the
+ * service computes and validates, and the caller writes the rows. The
+ * original invoice is passed in rather than looked up, and `alreadyRefunded`
+ * comes from the credit notes on record against it.
+ */
 export function issueRefund(input: RefundInput): RefundResult {
-  const original = invoiceStore.get(input.originalInvoiceId);
-  if (!original) {
-    throw new Error(`Invoice ${input.originalInvoiceId} not found.`);
-  }
+  const original = input.originalInvoice;
+
   if (original.status !== 'paid') {
-    throw new Error(`Refunds can only be issued against paid invoices. Current status: ${original.status}.`);
+    throw new Error(
+      `Refunds can only be issued against paid invoices. Current status: ${original.status}.`,
+    );
   }
 
-  const alreadyRefunded = original.refundedAmount ?? 0;
+  const alreadyRefunded = round2(input.alreadyRefunded ?? 0);
   const maxRefundable = round2(original.amount - alreadyRefunded);
 
   if (input.refundAmount <= 0) {
@@ -458,13 +483,16 @@ export function issueRefund(input: RefundInput): RefundResult {
     );
   }
 
-  const now = new Date();
+  const now = input.now ?? new Date();
+  const refundedAfter = round2(alreadyRefunded + input.refundAmount);
 
   const creditNote: Invoice = {
+    // The caller assigns the real id and number when it writes the row, the
+    // same way generated invoices work. These stand in until then.
     id: randomUUID(),
     tenantId: input.tenantId,
     businessId: input.businessId,
-    invoiceNumber: nextInvoiceNumber(input.tenantId),
+    invoiceNumber: '',
     type: 'credit_note',
     amount: -input.refundAmount,
     lineItems: [
@@ -488,18 +516,17 @@ export function issueRefund(input: RefundInput): RefundResult {
 
   const updatedOriginal: Invoice = {
     ...original,
-    refundedAmount: round2(alreadyRefunded + input.refundAmount),
-    status: round2(alreadyRefunded + input.refundAmount) >= original.amount ? 'refunded' : 'paid',
+    refundedAmount: refundedAfter,
+    // Fully refunded once the credit notes reach the invoice total; partial
+    // refunds leave it paid.
+    status: refundedAfter >= original.amount ? 'refunded' : 'paid',
     updatedAt: now,
   };
 
-  invoiceStore.set(creditNote.id, creditNote);
-  invoiceStore.set(original.id, updatedOriginal);
-
-  logger.info('Refund / credit note issued', {
-    creditNoteId: creditNote.id,
+  logger.info('Refund / credit note computed', {
     originalInvoiceId: original.id,
     refundAmount: input.refundAmount,
+    refundedAfter,
     reason: input.reason,
   });
 

@@ -24,10 +24,13 @@ import type { Request } from '../../types/http.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import {
   revenueOpsService,
+  issueRefund,
 } from '../../services/revenue-ops.service.js';
 import type {
   GenerateInvoiceInput,
   DealStructure,
+  InvoiceType,
+  InvoiceStatus,
 } from '../../services/revenue-ops.service.js';
 import {
   saasEntitlementsService,
@@ -499,6 +502,190 @@ billingRouter.post(
       },
     };
     res.status(200).json(body);
+  },
+);
+
+// ── POST /api/invoices/:id/refund ─────────────────────────────────────────────
+//
+// issueRefund was the last write in revenue-ops that went nowhere. It read the
+// invoice out of a module-level Map, built a credit note, and put both back
+// into that Map — so a refund left no record, disappeared on restart, and was
+// invisible to any other worker. Nothing called it, which is the only reason
+// that did no harm.
+//
+// The service computes and validates; this writes the rows, the same split the
+// generate and pay handlers use.
+//
+// Invoices carry no refundedAmount column, so what has already been refunded
+// is summed from the credit notes on record against this invoice rather than
+// stored twice and allowed to disagree.
+
+billingRouter.post(
+  '/invoices/:id/refund',
+  async (req: Request, res: Response): Promise<void> => {
+    const invoiceId = req.params['id'];
+    const tenantId = req.tenant?.tenantId;
+
+    if (!invoiceId || !tenantId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_PARAMS', message: 'Invoice ID and tenant context are required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    const { refundAmount, reason } = req.body as { refundAmount?: number; reason?: string };
+
+    if (typeof refundAmount !== 'number' || !Number.isFinite(refundAmount)) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_BODY', message: '"refundAmount" must be a number.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+    if (typeof reason !== 'string' || reason.trim() === '') {
+      // A credit note without a reason is a refund nobody can account for.
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_BODY', message: '"reason" is required.' },
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    // Scoped in the query: an invoice on another tenant answers the same way
+    // one that does not exist does.
+    const existing = await sharedPrisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+    });
+
+    if (!existing) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'NOT_FOUND', message: `Invoice ${invoiceId} not found.` },
+      };
+      res.status(404).json(body);
+      return;
+    }
+
+    // Credit notes already raised against this invoice. Their amounts are
+    // negative, so the sum is negated to give the refunded total.
+    const priorNotes = await sharedPrisma.invoice.findMany({
+      where: { tenantId, type: 'credit_note' },
+      select: { amount: true, feeBreakdown: true },
+    });
+
+    const alreadyRefunded = priorNotes.reduce((sum, note) => {
+      const breakdown = note.feeBreakdown as { lineItems?: { metadata?: { originalInvoiceId?: string } }[] } | null;
+      const belongs = breakdown?.lineItems?.some(
+        (li) => li.metadata?.originalInvoiceId === invoiceId,
+      );
+      return belongs ? sum + Math.abs(Number(note.amount)) : sum;
+    }, 0);
+
+    let computed;
+    try {
+      computed = issueRefund({
+        originalInvoice: {
+          id: existing.id,
+          tenantId: existing.tenantId,
+          businessId: existing.businessId,
+          invoiceNumber: existing.invoiceNumber,
+          // The column is a string; the service's unions are narrower. Cast
+          // rather than re-declare them here, where they would drift.
+          type: existing.type as InvoiceType,
+          amount: Number(existing.amount),
+          lineItems: [],
+          status: existing.status as InvoiceStatus,
+          issuedAt: existing.issuedAt,
+          dueDate: existing.dueDate,
+          paidAt: existing.paidAt,
+          stripePaymentId: existing.stripePaymentId,
+          refundedAmount: alreadyRefunded,
+          createdAt: existing.createdAt,
+          updatedAt: existing.updatedAt,
+        },
+        alreadyRefunded,
+        refundAmount,
+        reason,
+        tenantId,
+        businessId: existing.businessId,
+      });
+    } catch (err) {
+      // The service's own validation: unpaid invoice, non-positive amount, or
+      // more than the balance left on it.
+      const body: ApiResponse = {
+        success: false,
+        error: {
+          code: 'REFUND_REJECTED',
+          message: err instanceof Error ? err.message : 'Refund rejected.',
+        },
+      };
+      res.status(422).json(body);
+      return;
+    }
+
+    // The number comes from the table, as it does for generated invoices: the
+    // service's counter restarts at zero on boot and would collide.
+    const issued = await sharedPrisma.invoice.count({ where: { tenantId } });
+    const prefix = tenantId.slice(0, 4).toUpperCase();
+    const year = new Date().getFullYear().toString().slice(2);
+    const creditNoteNumber = `CN-${prefix}${year}-${String(issued + 1).padStart(6, '0')}`;
+
+    // Both writes together: a credit note without the status change on the
+    // invoice would let the same amount be refunded again.
+    const [creditNote, updatedOriginal] = await sharedPrisma.$transaction([
+      sharedPrisma.invoice.create({
+        data: {
+          tenantId,
+          businessId: existing.businessId,
+          invoiceNumber: creditNoteNumber,
+          type: 'credit_note',
+          amount: computed.creditNote.amount,
+          feeBreakdown: { lineItems: computed.creditNote.lineItems } as unknown as Prisma.InputJsonValue,
+          status: 'paid',
+          issuedAt: computed.creditNote.issuedAt,
+          dueDate: computed.creditNote.dueDate,
+          paidAt: computed.creditNote.paidAt,
+        },
+      }),
+      sharedPrisma.invoice.update({
+        where: { id: invoiceId },
+        data: { status: computed.originalInvoice.status },
+      }),
+    ]);
+
+    logger.info('Refund issued via API', {
+      invoiceId,
+      tenantId,
+      creditNoteId: creditNote.id,
+      refundAmount: computed.refundedAmount,
+      refundedTotal: computed.originalInvoice.refundedAmount,
+    });
+
+    const body: ApiResponse<{
+      creditNoteId: string;
+      creditNoteNumber: string;
+      refundAmount: number;
+      refundedTotal: number;
+      invoiceStatus: string;
+      charged: boolean;
+    }> = {
+      success: true,
+      data: {
+        creditNoteId: creditNote.id,
+        creditNoteNumber: creditNote.invoiceNumber,
+        refundAmount: computed.refundedAmount,
+        refundedTotal: computed.originalInvoice.refundedAmount ?? computed.refundedAmount,
+        invoiceStatus: updatedOriginal.status,
+        // Nothing here moves money back to anybody. This records the credit
+        // note; returning the funds is a separate act through the processor.
+        charged: false,
+      },
+    };
+    res.status(201).json(body);
   },
 );
 
