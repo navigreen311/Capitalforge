@@ -92,17 +92,19 @@ interface SbssMilestone {
   title: string;
   target: string;
   description: string;
-  currentValue: number;
+  /** Null: no SBSS score is recorded for any client in this system. */
+  currentValue: number | null;
   targetValue: number;
   unit: string;
-  achieved: boolean;
+  /** Null where nothing has been assessed against the threshold. */
+  achieved: boolean | null;
 }
 
 interface StackingCriteria {
   id: string;
   label: string;
   description: string;
-  status: 'met' | 'in_progress' | 'not_started' | 'blocked';
+  status: 'unknown' | 'in_progress' | 'not_started' | 'blocked';
   requiredForTier: number;
 }
 
@@ -118,10 +120,17 @@ interface MilestoneAlert {
 // Placeholder data
 // ---------------------------------------------------------------------------
 
+// The six steps of establishing business credit. Reference material: what
+// the process is, not where any client has got to.
+//
+// Three of these arrived marked complete with dates in January 2026 — DUNS
+// registered, address established, bank account opened — for whichever
+// client happened to be selected. Nothing records a client's progress
+// through this, so every step starts unmarked and the page says why.
 const DUNS_STEPS: DunsStep[] = [
-  { id: 1, title: 'Register DUNS Number', description: 'Apply at Dun & Bradstreet. DUNS is required for all business credit activity.', completed: true, completedDate: '2026-01-09', estimatedDays: '1–3 days', actionLabel: 'Verify DUNS' },
-  { id: 2, title: 'Establish Business Address & Phone', description: 'Ensure business address is a physical or registered agent address. Get a dedicated business phone line.', completed: true, completedDate: '2026-01-09', estimatedDays: 'Immediate' },
-  { id: 3, title: 'Open Business Bank Account', description: 'Separate personal and business finances. Minimum 3 months of activity strengthens profile.', completed: true, completedDate: '2026-01-10', estimatedDays: '1 day', actionLabel: 'Record account' },
+  { id: 1, title: 'Register DUNS Number', description: 'Apply at Dun & Bradstreet. DUNS is required for all business credit activity.', completed: false, completedDate: null, estimatedDays: '1–3 days', actionLabel: 'Verify DUNS' },
+  { id: 2, title: 'Establish Business Address & Phone', description: 'Ensure business address is a physical or registered agent address. Get a dedicated business phone line.', completed: false, completedDate: null, estimatedDays: 'Immediate' },
+  { id: 3, title: 'Open Business Bank Account', description: 'Separate personal and business finances. Minimum 3 months of activity strengthens profile.', completed: false, completedDate: null, estimatedDays: '1 day', actionLabel: 'Record account' },
   { id: 4, title: 'Apply for Net-30 Vendor Accounts', description: 'Open at least 5 trade lines with Tier 1 vendors that report to Dun & Bradstreet.', completed: false, completedDate: null, estimatedDays: '2–4 weeks', actionLabel: 'View vendors' },
   { id: 5, title: 'Build Paydex Score to 80+', description: 'Pay all Net-30 invoices on time or early. Paydex 80+ is required for Tier 2 access.', completed: false, completedDate: null, estimatedDays: '60–90 days' },
   { id: 6, title: 'Apply for Business Credit Cards', description: 'Once Paydex hits 80 and 5+ trade lines are established, apply for business credit cards.', completed: false, completedDate: null, estimatedDays: '90+ days from start', actionLabel: 'View eligible cards' },
@@ -138,22 +147,29 @@ const NET30_VENDORS: Net30Vendor[] = [
   { id: 'v_008', vendorName: 'Costco Business Credit', category: 'Retail / Wholesale', bureausReported: ['Experian Biz'], tier: 3, netTerms: 30, creditLimit: '$10,000–$50,000', requires: 'Paydex 80+, 5+ trade lines', approvalDifficulty: 'hard', applicationUrl: 'https://costco.com/business' },
 ];
 
+// SBA and lender thresholds. The thresholds are real; the score against
+// them was not — every milestone carried currentValue 148, an SBSS score
+// for a business nobody had scored, with two of the four marked achieved.
+// No SBSS score is recorded anywhere in this system.
 const SBSS_MILESTONES: SbssMilestone[] = [
-  { id: 1, title: 'SBSS Score Established', target: 'Score > 0', description: 'Initial FICO SBSS score generated via 3+ business credit tradelines.', currentValue: 1, targetValue: 1, unit: 'score exists', achieved: true },
-  { id: 2, title: 'SBA Loan Pre-screening Threshold', target: '≥ 140', description: 'Minimum SBSS to pass SBA automated pre-screening (7a/504 loans).', currentValue: 148, targetValue: 140, unit: 'pts', achieved: true },
-  { id: 3, title: 'Preferred Lender Program Eligibility', target: '≥ 160', description: 'Score to qualify for SBA Preferred Lender expedited processing.', currentValue: 148, targetValue: 160, unit: 'pts', achieved: false },
-  { id: 4, title: 'Tier 3 Stacking Unlock', target: '≥ 175', description: 'Internal threshold to unlock Tier 3 credit card stacking strategy.', currentValue: 148, targetValue: 175, unit: 'pts', achieved: false },
+  { id: 1, title: 'SBSS Score Established', target: 'Score > 0', description: 'Initial FICO SBSS score generated via 3+ business credit tradelines.', currentValue: null, targetValue: 1, unit: 'score exists', achieved: null },
+  { id: 2, title: 'SBA Loan Pre-screening Threshold', target: '≥ 140', description: 'Minimum SBSS to pass SBA automated pre-screening (7a/504 loans).', currentValue: null, targetValue: 140, unit: 'pts', achieved: null },
+  { id: 3, title: 'Preferred Lender Program Eligibility', target: '≥ 160', description: 'Score to qualify for SBA Preferred Lender expedited processing.', currentValue: null, targetValue: 160, unit: 'pts', achieved: null },
+  { id: 4, title: 'Tier 3 Stacking Unlock', target: '≥ 175', description: 'Internal threshold to unlock Tier 3 credit card stacking strategy.', currentValue: null, targetValue: 175, unit: 'pts', achieved: null },
 ];
 
+// What a client has to satisfy at each tier. Reference, not assessment:
+// these came with a status each — met, in progress, not started — which is
+// a judgment about a specific client's credit profile, made by nobody.
 const STACKING_CRITERIA: StackingCriteria[] = [
-  { id: 'sc_001', label: 'DUNS Registered & Active', description: 'D-U-N-S Number registered and at least 1 D&B tradeline reporting.', status: 'met', requiredForTier: 1 },
-  { id: 'sc_002', label: '5+ Net-30 Trade Lines', description: 'Minimum 5 open trade lines with positive payment history.', status: 'in_progress', requiredForTier: 1 },
-  { id: 'sc_003', label: 'Paydex Score ≥ 80', description: 'D&B Paydex at or above 80 (on-time payment average).', status: 'in_progress', requiredForTier: 1 },
-  { id: 'sc_004', label: 'SBSS ≥ 140', description: 'FICO SBSS score at or above SBA pre-screen threshold.', status: 'met', requiredForTier: 2 },
-  { id: 'sc_005', label: 'Experian Intelliscore ≥ 60', description: 'Experian Business Intelliscore in good standing.', status: 'in_progress', requiredForTier: 2 },
-  { id: 'sc_006', label: 'Equifax Business Credit ≥ 500', description: 'Equifax Business Risk Score above 500.', status: 'not_started', requiredForTier: 2 },
-  { id: 'sc_007', label: '2+ Years Business Age', description: 'Business entity must show 2+ years on credit reports.', status: 'not_started', requiredForTier: 3 },
-  { id: 'sc_008', label: 'SBSS ≥ 175', description: 'FICO SBSS at Tier 3 stacking unlock threshold.', status: 'not_started', requiredForTier: 3 },
+  { id: 'sc_001', label: 'DUNS Registered & Active', description: 'D-U-N-S Number registered and at least 1 D&B tradeline reporting.', status: 'unknown', requiredForTier: 1 },
+  { id: 'sc_002', label: '5+ Net-30 Trade Lines', description: 'Minimum 5 open trade lines with positive payment history.', status: 'unknown', requiredForTier: 1 },
+  { id: 'sc_003', label: 'Paydex Score ≥ 80', description: 'D&B Paydex at or above 80 (on-time payment average).', status: 'unknown', requiredForTier: 1 },
+  { id: 'sc_004', label: 'SBSS ≥ 140', description: 'FICO SBSS score at or above SBA pre-screen threshold.', status: 'unknown', requiredForTier: 2 },
+  { id: 'sc_005', label: 'Experian Intelliscore ≥ 60', description: 'Experian Business Intelliscore in good standing.', status: 'unknown', requiredForTier: 2 },
+  { id: 'sc_006', label: 'Equifax Business Credit ≥ 500', description: 'Equifax Business Risk Score above 500.', status: 'unknown', requiredForTier: 2 },
+  { id: 'sc_007', label: '2+ Years Business Age', description: 'Business entity must show 2+ years on credit reports.', status: 'unknown', requiredForTier: 3 },
+  { id: 'sc_008', label: 'SBSS ≥ 175', description: 'FICO SBSS at Tier 3 stacking unlock threshold.', status: 'unknown', requiredForTier: 3 },
 ];
 
 // Scores placeholder
@@ -227,7 +243,6 @@ export default function CreditBuilderPage() {
 
   const completedCount = dunsSteps.filter((s) => s.completed).length;
   const overallProgress = Math.round((completedCount / dunsSteps.length) * 100);
-  const metCount = STACKING_CRITERIA.filter((c) => c.status === 'met').length;
   // A missing PAYDEX must not unlock a tier. `null >= 80` is false in JS, but
   // relying on that would be accidental — the absence is checked explicitly.
   const tier1Unlocked =
@@ -278,7 +293,8 @@ export default function CreditBuilderPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Business Credit Builder</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {completedCount}/{dunsSteps.length} DUNS steps complete · {metCount}/{STACKING_CRITERIA.length} stacking criteria met
+            {completedCount}/{dunsSteps.length} DUNS steps marked here · {STACKING_CRITERIA.length} stacking
+            criteria, none assessed
             {selectedClient && <span className="text-yellow-400"> — {selectedClient.legal_name}</span>}
           </p>
         </div>
@@ -505,8 +521,10 @@ export default function CreditBuilderPage() {
           <p className="text-xs text-gray-500 mb-5">FICO Small Business Scoring Service score targets</p>
           <div className="space-y-5">
             {SBSS_MILESTONES.map((m) => {
-              const pct = Math.min(Math.round((m.currentValue / m.targetValue) * 100), 100);
-              const barColor = m.achieved ? 'bg-green-600' : pct >= 70 ? 'bg-yellow-600' : 'bg-blue-700';
+              // No score, so no progress. A bar at 0% would read as a
+              // client scoring zero rather than one never scored.
+              const pct = m.currentValue === null ? 0 : Math.min(Math.round((m.currentValue / m.targetValue) * 100), 100);
+              const barColor = m.achieved === true ? 'bg-green-600' : 'bg-gray-700';
               return (
                 <div key={m.id}>
                   <div className="flex items-start justify-between gap-2 mb-1.5">
@@ -518,7 +536,7 @@ export default function CreditBuilderPage() {
                   </div>
                   <p className="text-xs text-gray-500 mb-2 ml-7">{m.description}</p>
                   <div className="ml-7">
-                    <div className="flex items-center justify-between text-xs text-gray-500 mb-1"><span>{m.currentValue} {m.unit}</span><span>{m.targetValue} {m.unit}</span></div>
+                    <div className="flex items-center justify-between text-xs text-gray-500 mb-1"><span>{m.currentValue === null ? 'Not scored' : `${m.currentValue} ${m.unit}`}</span><span>{m.targetValue} {m.unit}</span></div>
                     <div className="h-2 rounded-full bg-gray-800 overflow-hidden"><div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} /></div>
                   </div>
                 </div>
@@ -536,14 +554,15 @@ export default function CreditBuilderPage() {
           <p className="text-xs text-gray-500 mb-5">Requirements to unlock each credit stacking tier</p>
           {[1, 2, 3].map((tier) => {
             const items = criteriaByTier(tier);
-            const metItems = items.filter((c) => c.status === 'met').length;
-            const allMet = metItems === items.length;
+            // Nothing is assessed against these, so no tier is unlocked and
+            // none is shown as short either.
+            const allMet = false;
             return (
               <div key={tier} className="mb-5 last:mb-0">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-bold px-2 py-0.5 rounded border ${tierBadge(tier)}`}>Tier {tier}</span>
-                    <span className={`text-xs font-semibold ${allMet ? 'text-green-400' : 'text-gray-400'}`}>{allMet ? 'Unlocked' : `${metItems}/${items.length} criteria met`}</span>
+                    <span className="text-xs font-semibold text-gray-400">{`${items.length} criteria — not assessed`}</span>
                   </div>
                   {allMet && <span className="text-xs bg-green-900 text-green-300 border border-green-700 px-2 py-0.5 rounded">UNLOCKED</span>}
                 </div>
@@ -551,10 +570,10 @@ export default function CreditBuilderPage() {
                   {items.map((c) => {
                     const { cls, label } = criteriaStatusBadge(c.status);
                     return (
-                      <div key={c.id} className={`flex items-start gap-3 p-2.5 rounded-lg border ${c.status === 'met' ? 'border-green-900 bg-green-900/10' : 'border-gray-800 bg-gray-900/40'}`}>
-                        <span className={`mt-0.5 text-sm font-bold flex-shrink-0 w-4 text-center ${c.status === 'met' ? 'text-green-400' : c.status === 'in_progress' ? 'text-yellow-400' : 'text-gray-600'}`}>{criteriaIcon(c.status)}</span>
+                      <div key={c.id} className={`flex items-start gap-3 p-2.5 rounded-lg border border-gray-800 bg-gray-900/40`}>
+                        <span className={`mt-0.5 text-sm font-bold flex-shrink-0 w-4 text-center text-gray-600`}>{criteriaIcon(c.status)}</span>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-xs font-semibold ${c.status === 'met' ? 'text-green-300' : 'text-gray-300'}`}>{c.label}</p>
+                          <p className={`text-xs font-semibold text-gray-300`}>{c.label}</p>
                           <p className="text-xs text-gray-600 mt-0.5">{c.description}</p>
                         </div>
                         <span className={`text-xs px-1.5 py-0.5 rounded border flex-shrink-0 ${cls}`}>{label}</span>
