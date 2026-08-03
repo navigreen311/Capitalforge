@@ -28,7 +28,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 /**
  * Routes come from the filesystem for the same reason global-setup warms them
@@ -161,7 +161,7 @@ test.describe('Figures before the data arrives', () => {
         const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
         const body = await fetch(`http://127.0.0.1:4000${resolver!.endpoint}`, {
           headers: { Authorization: `Bearer ${token}` },
-        }).then((r) => r.json());
+        }).then(expectOk);
 
         const id = resolver!.pick(body);
         expect(id, `no id available from ${resolver!.endpoint} to visit ${route}`).toBeTruthy();

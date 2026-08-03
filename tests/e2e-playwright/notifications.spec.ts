@@ -14,7 +14,7 @@
 // caller of every tenant received the same ten.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -95,7 +95,7 @@ test.describe('Notifications', () => {
     const workflows = await fetch(`${API}/offboarding`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string }[] }).data.map((w) => `offboarding:${w.id}`));
     for (const item of offboarding) expect(workflows).toContain(item.id);
   });
@@ -155,7 +155,7 @@ test.describe('Notifications', () => {
     const outstanding = await fetch(`${API}/notifications/count`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { outstanding: number } }).data.outstanding);
 
     const items = await notifications(token);

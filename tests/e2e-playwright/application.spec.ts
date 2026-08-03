@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 // ============================================================
 // Application pipeline E2E — /applications
@@ -98,9 +98,7 @@ test.describe('Pipeline size', () => {
 
     // Creating an application requires at least one assigned advisor. The
     // fixture seeds only the access token, so the user id comes from the API.
-    const tenant = (await fetch(`${API}/tenants/by-slug/demo-advisors`).then((r) =>
-      r.json(),
-    )) as { data?: { id?: string } };
+    const tenant = (await fetch(`${API}/tenants/by-slug/demo-advisors`).then(expectOk)) as { data?: { id?: string } };
     const login = (await fetch(`${API}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -109,13 +107,13 @@ test.describe('Pipeline size', () => {
         password: 'DemoPass123!',
         tenantId: tenant.data?.id,
       }),
-    }).then((r) => r.json())) as { data?: { user?: { id?: string } } };
+    }).then(expectOk)) as { data?: { user?: { id?: string } } };
 
     const advisorId = login.data?.user?.id;
     expect(advisorId, 'no signed-in user id available').toBeTruthy();
 
     const total = async () => {
-      const j = (await fetch(`${API}/applications`, { headers }).then((r) => r.json())) as {
+      const j = (await fetch(`${API}/applications`, { headers }).then(expectOk)) as {
         meta?: { total?: number };
       };
       return j.meta?.total ?? 0;
@@ -179,9 +177,7 @@ test.describe('Board figures', () => {
     const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-    const rows = (await fetch(`${API}/applications?pageSize=100`, { headers }).then((r) =>
-      r.json(),
-    )) as {
+    const rows = (await fetch(`${API}/applications?pageSize=100`, { headers }).then(expectOk)) as {
       data?: { id: string; status: string; requestedLimit: number; approvedLimit?: number }[];
     };
     const apps = rows.data ?? [];
@@ -225,7 +221,7 @@ test.describe('Board figures', () => {
 
     const rows = (await fetch(`${API}/applications?pageSize=100`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data?: { status: string; requestedLimit: number | null; approvedLimit?: number }[];
     };
     const apps = rows.data ?? [];

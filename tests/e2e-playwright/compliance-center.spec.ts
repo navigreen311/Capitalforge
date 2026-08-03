@@ -19,7 +19,7 @@
 // derived from never having looked.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -66,7 +66,7 @@ test.describe('Compliance center', () => {
     await page.goto('/compliance');
     const body = (await fetch(`${API}/compliance/overview`, {
       headers: { Authorization: `Bearer ${await token(page)}` },
-    }).then((r) => r.json())) as { data: { score: number | null; total: number } };
+    }).then(expectOk)) as { data: { score: number | null; total: number } };
 
     if (body.data.total === 0) {
       // The case the fix exists for: no checks, so no score.
@@ -89,7 +89,7 @@ test.describe('Compliance center', () => {
     await page.goto('/compliance');
     const body = (await fetch(`${API}/compliance/score-breakdown`, {
       headers: { Authorization: `Bearer ${await token(page)}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: {
         breakdown: { checkType: string; score: number | null; totalChecks: number }[];
         checksHaveRun: boolean;
@@ -122,7 +122,7 @@ test.describe('Compliance center', () => {
     const body = (await fetch(`${API}/compliance/export-report`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${await token(page)}` },
-    }).then((r) => r.json())) as { data: { reportText: string; checkCount: number } };
+    }).then(expectOk)) as { data: { reportText: string; checkCount: number } };
 
     const report = body.data.reportText;
 
@@ -148,7 +148,7 @@ test.describe('Compliance center', () => {
 
     const before = (await fetch(`${API}/compliance/overview`, {
       headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())) as { data: { total: number } };
+    }).then(expectOk)) as { data: { total: number } };
 
     const run = await fetch(`${API}/compliance/run-all`, {
       method: 'POST',
@@ -160,7 +160,7 @@ test.describe('Compliance center', () => {
 
     const after = (await fetch(`${API}/compliance/overview`, {
       headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())) as { data: { total: number; score: number | null } };
+    }).then(expectOk)) as { data: { total: number; score: number | null } };
 
     // The run used to be a timer in the browser that changed nothing.
     //

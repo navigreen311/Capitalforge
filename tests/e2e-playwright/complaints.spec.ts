@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 // ============================================================
 // Complaints register — /complaints
@@ -34,17 +34,13 @@ interface ApiComplaint {
  * that reads one page and compares would be measuring different sets.
  */
 async function fetchAllComplaints(headers: Record<string, string>): Promise<ApiComplaint[]> {
-  const first = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
-    r.json(),
-  )) as { data?: { complaints?: ApiComplaint[]; total?: number } };
+  const first = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then(expectOk)) as { data?: { complaints?: ApiComplaint[]; total?: number } };
 
   const rows = first.data?.complaints ?? [];
   const total = first.data?.total ?? rows.length;
 
   for (let page = 2; rows.length < total && page <= 20; page++) {
-    const next = (await fetch(`${API}/complaints?pageSize=100&page=${page}`, { headers }).then(
-      (r) => r.json(),
-    )) as { data?: { complaints?: ApiComplaint[] } };
+    const next = (await fetch(`${API}/complaints?pageSize=100&page=${page}`, { headers }).then(expectOk)) as { data?: { complaints?: ApiComplaint[] } };
     const batch = next.data?.complaints ?? [];
     if (batch.length === 0) break;
     rows.push(...batch);
@@ -170,7 +166,7 @@ test.describe('Complaints register', () => {
         severity: 'medium',
         description,
       }),
-    }).then((r) => r.json())) as { data?: { id?: string } };
+    }).then(expectOk)) as { data?: { id?: string } };
 
     const id = created.data?.id;
     expect(id, 'the probe complaint was not created').toBeTruthy();
@@ -257,7 +253,7 @@ test.describe('Attach evidence', () => {
         severity: 'low',
         description: 'E2E evidence attachment probe.',
       }),
-    }).then((r) => r.json())) as { data?: { id?: string } };
+    }).then(expectOk)) as { data?: { id?: string } };
 
     const id = created.data?.id;
     expect(id, 'the probe complaint was not created').toBeTruthy();
@@ -304,7 +300,7 @@ test.describe('Attach evidence', () => {
         severity: 'low',
         description: 'E2E unattributed complaint for the evidence picker.',
       }),
-    }).then((r) => r.json())) as { data?: { id?: string } };
+    }).then(expectOk)) as { data?: { id?: string } };
 
     await page.reload();
     await (await findRow(page, created.data?.id as string)).click();
@@ -337,7 +333,7 @@ test.describe('Resolved (30d)', () => {
         severity: 'low',
         description: 'E2E resolved-window probe.',
       }),
-    }).then((r) => r.json())) as { data?: { id?: string } };
+    }).then(expectOk)) as { data?: { id?: string } };
 
     // The API enforces a workflow: open goes to investigating or closed, and
     // only investigating goes to resolved. A direct jump is a 400.
@@ -374,9 +370,7 @@ test.describe('Pagination', () => {
     const headers = await authHeaders(page);
 
     const countAll = async () => {
-      const first = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
-        r.json(),
-      )) as { data?: { total?: number } };
+      const first = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then(expectOk)) as { data?: { total?: number } };
       return first.data?.total ?? 0;
     };
 
@@ -418,9 +412,7 @@ test.describe('Pagination', () => {
     const total = await countAll();
     expect(total, 'the register should now exceed one server page').toBeGreaterThan(100);
 
-    const listed = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then((r) =>
-      r.json(),
-    )) as { data?: { complaints?: { status: string }[] } };
+    const listed = (await fetch(`${API}/complaints?pageSize=100`, { headers }).then(expectOk)) as { data?: { complaints?: { status: string }[] } };
     // A single page can only ever see 100 of them.
     expect((listed.data?.complaints ?? []).length).toBe(100);
 

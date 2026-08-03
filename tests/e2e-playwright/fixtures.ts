@@ -76,6 +76,46 @@ async function accessToken(): Promise<string> {
   return token;
 }
 
+
+/**
+ * Parse a response, or fail saying what the server actually said.
+ *
+ * Specs read API responses with `.then((r) => r.json())` and then index into
+ * the body. When a request fails, `data` is undefined and the test dies on
+ * `Cannot read properties of undefined`, naming a property rather than a
+ * status — so the failure describes the shape of an error body instead of the
+ * error.
+ *
+ * That cost two nineteen-minute CI cycles: every test past the token's
+ * fifteen-minute expiry was getting a 401, and each run blamed whichever spec
+ * happened to be running when it hit. A status in the message would have
+ * pointed at the cause on the first run.
+ *
+ * Used as `.then(expectOk)` in place of `.then((r) => r.json())`. Tests that
+ * assert a 404 or a 501 deliberately keep checking `res.status` themselves;
+ * this is only for the reads that assume success.
+ */
+export async function expectOk(res: Response): Promise<unknown> {
+  if (res.ok) return res.json();
+
+  // The body usually carries the API's own error code and message. Truncated,
+  // because an HTML error page would otherwise bury the status.
+  let detail = '';
+  try {
+    detail = (await res.text()).slice(0, 300);
+  } catch {
+    detail = '(body unreadable)';
+  }
+
+  throw new Error(
+    `${res.status} ${res.statusText} from ${res.url}
+` +
+      `  ${detail}
+` +
+      '  This request was expected to succeed. Check the status before the body.',
+  );
+}
+
 export const test = base.extend<{ signedInPage: Page }>({
   signedInPage: async ({ page }, use) => {
     const token = await accessToken();

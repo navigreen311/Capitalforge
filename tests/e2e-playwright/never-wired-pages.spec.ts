@@ -7,7 +7,7 @@
 // form options and TCPA disclosure text, and is untouched.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -57,7 +57,7 @@ test.describe('Never-wired pages', () => {
     const businessId = await fetch(`${API}/clients?limit=1`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string }[] }).data[0]?.id);
 
     const res = await fetch(`${API}/businesses/${businessId}/documents`, {

@@ -16,7 +16,7 @@
 // every client, against a schema that records no formation date at all.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -35,7 +35,7 @@ test.describe('Credit builder client picker', () => {
     const clients = (await fetch(`${API}/v1/clients?pageSize=100`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { businessName: string }[] }).data)) as {
       businessName: string;
     }[];
@@ -116,7 +116,7 @@ test.describe('Credit builder figures', () => {
     const clients = (await fetch(`${API}/v1/clients?pageSize=100`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string; businessName: string }[] }).data)) as {
       id: string;
       businessName: string;

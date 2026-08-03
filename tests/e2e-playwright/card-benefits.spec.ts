@@ -12,7 +12,7 @@
 // offering Acme Corp, Sterling Partners and three more that do not exist.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -25,7 +25,7 @@ async function seededClientId(page: import('@playwright/test').Page): Promise<st
   const clients = (
     (await fetch(`${API}/v1/clients?pageSize=100`, {
       headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())) as { data: { id: string; businessName: string }[] }
+    }).then(expectOk)) as { data: { id: string; businessName: string }[] }
   ).data;
   const apex = clients.find((c) => c.businessName.includes('Apex Digital'));
   expect(apex, 'the seeded client with cards is present').toBeTruthy();
@@ -39,7 +39,7 @@ test.describe('Card benefits', () => {
 
     const body = (await fetch(`${API}/card-benefits/${id}`, {
       headers: { Authorization: `Bearer ${await token(page)}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: { cards: { product: string; benefits: { name: string }[] }[] };
     };
 
@@ -92,7 +92,7 @@ test.describe('Card benefits', () => {
 
     const body = (await fetch(`${API}/card-benefits/${id}`, {
       headers: { Authorization: `Bearer ${await token(page)}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: { cards: { benefits: { name: string; value: number | null }[] }[] };
     };
 
@@ -113,7 +113,7 @@ test.describe('Card benefits', () => {
 
     const before = (await fetch(`${API}/card-benefits/${id}`, {
       headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: { cards: { cardId: string; benefits: { benefitId: string; utilized: boolean }[] }[] };
     };
 
@@ -131,7 +131,7 @@ test.describe('Card benefits', () => {
     // the next restart and no further. Re-reading is the test.
     const after = (await fetch(`${API}/card-benefits/${id}`, {
       headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: { cards: { benefits: { benefitId: string; utilized: boolean }[] }[] };
     };
 
@@ -151,7 +151,7 @@ test.describe('Card benefits', () => {
     const body = (await fetch(`${API}/card-benefits/${id}/export`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())) as { data: { report: string } };
+    }).then(expectOk)) as { data: { report: string } };
 
     const report = body.data.report;
     // The numbers that used to be in every report for every client.

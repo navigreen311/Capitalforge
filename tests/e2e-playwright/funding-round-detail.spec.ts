@@ -11,7 +11,7 @@
 // page still holding fixtures was the one it could not reach.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -23,7 +23,7 @@ async function token(page: import('@playwright/test').Page): Promise<string | nu
 async function seededRoundId(page: import('@playwright/test').Page): Promise<string> {
   const body = (await fetch(`${API}/funding-rounds?pageSize=10`, {
     headers: { Authorization: `Bearer ${await token(page)}` },
-  }).then((r) => r.json())) as { data?: { id: string }[] };
+  }).then(expectOk)) as { data?: { id: string }[] };
   const rounds = body.data ?? [];
   expect(rounds.length, 'the seed provides a funding round').toBeGreaterThan(0);
   return rounds[0]!.id;
@@ -36,7 +36,7 @@ test.describe('Funding round detail', () => {
 
     const round = (await fetch(`${API}/funding-rounds/${id}`, {
       headers: { Authorization: `Bearer ${await token(page)}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: { businessName: string; roundNumber: number };
     };
 
@@ -103,7 +103,7 @@ test.describe('Funding round detail', () => {
 
     const round = (await fetch(`${API}/funding-rounds/${id}`, {
       headers: { Authorization: `Bearer ${await token(page)}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: { progress: { applicationCount: number; approvedCount: number } };
     };
 

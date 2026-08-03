@@ -12,7 +12,7 @@
 // workers disagreed about it, while an invoices table sat unused.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -23,7 +23,7 @@ async function token(page: import('@playwright/test').Page): Promise<string | nu
 async function firstBusinessId(t: string | null): Promise<string> {
   const body = (await fetch(`${API}/compliance/disclosures`, {
     headers: { Authorization: `Bearer ${t}` },
-  }).then((r) => r.json())) as { data: { businesses: { businessId: string }[] } };
+  }).then(expectOk)) as { data: { businesses: { businessId: string }[] } };
   expect(body.data.businesses.length).toBeGreaterThan(0);
   return body.data.businesses[0].businessId;
 }
@@ -48,7 +48,7 @@ test.describe('Billing', () => {
     const listed = await fetch(`${API}/businesses/${businessId}/invoices`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string; invoiceNumber: string }[] }).data);
 
     expect(listed.find((i) => i.id === data.id), 'the invoice must come back').toBeTruthy();
@@ -63,7 +63,7 @@ test.describe('Billing', () => {
       method: 'POST',
       headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
-    }).then((r) => r.json());
+    }).then(expectOk);
     const invoiceId = (created as { data: { id: string } }).data.id;
 
     const paid = await fetch(`${API}/invoices/${invoiceId}/pay`, {
@@ -81,7 +81,7 @@ test.describe('Billing', () => {
     const after = await fetch(`${API}/businesses/${businessId}/invoices`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string; status: string }[] }).data);
     expect(after.find((i) => i.id === invoiceId)!.status).toBe('paid');
   });
@@ -140,7 +140,7 @@ test.describe('Commissions', () => {
       method: 'POST',
       headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
-    }).then((r) => r.json())) as { data: { id: string } };
+    }).then(expectOk)) as { data: { id: string } };
 
     const created = await fetch(`${API}/invoices/${invoice.data.id}/commissions`, {
       method: 'POST',
@@ -154,7 +154,7 @@ test.describe('Commissions', () => {
     const listed = await fetch(`${API}/commissions`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { invoiceId: string | null; amount: number }[] }).data);
 
     const found = listed.find((c) => c.invoiceId === invoice.data.id);

@@ -23,7 +23,7 @@
 //                                         and nothing sent
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -41,7 +41,7 @@ test.describe('Compliance sweep', () => {
       (await fetch(`${API}/compliance/run-checks`, {
         method: 'POST',
         headers: { Authorization: a, 'Content-Type': 'application/json' },
-      }).then((r) => r.json())) as {
+      }).then(expectOk)) as {
         data: {
           new_issues: number;
           resolved: number | null;
@@ -85,9 +85,7 @@ test.describe('Dashboard sparklines', () => {
     const a = await auth(page);
 
     const read = async () =>
-      (await fetch(`${API}/v1/dashboard/kpi-summary`, { headers: { Authorization: a } }).then((r) =>
-        r.json(),
-      )) as { data: { sparklines: Record<string, number[] | null> } };
+      (await fetch(`${API}/v1/dashboard/kpi-summary`, { headers: { Authorization: a } }).then(expectOk)) as { data: { sparklines: Record<string, number[] | null> } };
 
     const first = await read();
     const second = await read();
@@ -100,9 +98,7 @@ test.describe('Dashboard sparklines', () => {
     await page.goto('/dashboard');
     const a = await auth(page);
 
-    const body = (await fetch(`${API}/v1/dashboard/kpi-summary`, { headers: { Authorization: a } }).then((r) =>
-      r.json(),
-    )) as { data: { sparklines: Record<string, number[] | null> } };
+    const body = (await fetch(`${API}/v1/dashboard/kpi-summary`, { headers: { Authorization: a } }).then(expectOk)) as { data: { sparklines: Record<string, number[] | null> } };
 
     // "Active" is a current status with nothing on the row recording what it
     // was before, so a past count can only be invented.
@@ -124,16 +120,14 @@ test.describe('Invoice documents and state', () => {
   async function paidInvoice(page: import('@playwright/test').Page) {
     const a = await auth(page);
     const clients = (
-      (await fetch(`${API}/v1/clients?pageSize=1`, { headers: { Authorization: a } }).then((r) =>
-        r.json(),
-      )) as { data: { id: string; businessName: string }[] }
+      (await fetch(`${API}/v1/clients?pageSize=1`, { headers: { Authorization: a } }).then(expectOk)) as { data: { id: string; businessName: string }[] }
     ).data;
 
     const created = (await fetch(`${API}/businesses/${clients[0]!.id}/invoices`, {
       method: 'POST',
       headers: { Authorization: a, 'Content-Type': 'application/json' },
       body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
-    }).then((r) => r.json())) as { data: { id: string } };
+    }).then(expectOk)) as { data: { id: string } };
 
     return { id: created.data.id, a, clientName: clients[0]!.businessName };
   }
@@ -144,7 +138,7 @@ test.describe('Invoice documents and state', () => {
 
     const body = (await fetch(`${API}/billing/invoices/${id}/pdf`, {
       headers: { Authorization: a },
-    }).then((r) => r.json())) as { data: { content: string } };
+    }).then(expectOk)) as { data: { content: string } };
 
     const text = body.data.content;
     // The document it used to print for every id.
@@ -179,9 +173,7 @@ test.describe('Invoice documents and state', () => {
     });
     expect(res.status).toBe(200);
 
-    const reread = (await fetch(`${API}/invoices/${id}`, { headers: { Authorization: a } }).then(
-      (r) => r.json(),
-    )) as { data: { status: string } };
+    const reread = (await fetch(`${API}/invoices/${id}`, { headers: { Authorization: a } }).then(expectOk)) as { data: { status: string } };
 
     // The status used to stay untouched while the endpoint answered "voided".
     expect(reread.data.status).toBe('void');
@@ -226,9 +218,7 @@ test.describe('Invoice documents and state', () => {
     // Reverting the record does not reverse a payment with the processor.
     expect(body.data.refunded).toBe(false);
 
-    const reread = (await fetch(`${API}/invoices/${id}`, { headers: { Authorization: a } }).then(
-      (r) => r.json(),
-    )) as { data: { status: string; paidAt: string | null } };
+    const reread = (await fetch(`${API}/invoices/${id}`, { headers: { Authorization: a } }).then(expectOk)) as { data: { status: string; paidAt: string | null } };
 
     expect(reread.data.status).not.toBe('paid');
     expect(reread.data.paidAt).toBeNull();

@@ -11,7 +11,7 @@
 // here would destroy the seeded login the whole suite signs in with.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -111,13 +111,13 @@ test.describe('Offboarding', () => {
     const gdpr = await fetch(`${API}/offboarding/retention?jurisdiction=gdpr`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { exceptions: { table: string }[] } }).data.exceptions);
 
     const ccpa = await fetch(`${API}/offboarding/retention?jurisdiction=ccpa`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { exceptions: { table: string }[] } }).data.exceptions);
 
     // GDPR adds the consent-records exception; the jurisdictions genuinely
@@ -298,7 +298,7 @@ test.describe('Offboarding', () => {
     const body = await fetch(`${API}/offboarding/${already!.id}/export`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json());
+    }).then(expectOk);
 
     // The exported records only. The excluded list names these fields by
     // design — searching the whole document would match the very note saying
@@ -326,7 +326,7 @@ test.describe('Offboarding', () => {
     const body = (await fetch(`${API}/offboarding/${already!.id}/export`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: {
         sections: Record<string, { records: Record<string, unknown>[] }>;
         sensitiveFields: string[];

@@ -7,7 +7,7 @@
 // with approvers written in and a scanner that ran a regex in the browser.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -127,7 +127,7 @@ test.describe('Communication compliance', () => {
     const business = await fetch(`${API}/applications?pageSize=1`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { businessId: string }[] }).data[0]);
     expect(business).toBeTruthy();
 

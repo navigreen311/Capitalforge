@@ -18,7 +18,7 @@
 //                         report from constants, with a download
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -35,7 +35,7 @@ test.describe('Fixture-only pages', () => {
     const rows = await fetch(`${API}/clients?limit=200`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { businessName: string }[] }).data);
 
     expect(rows.length).toBeGreaterThan(0);
@@ -54,7 +54,7 @@ test.describe('Fixture-only pages', () => {
     const rounds = await fetch(`${API}/funding-rounds`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: unknown[] }).data);
 
     if (rounds.length === 0) {
@@ -120,7 +120,7 @@ test.describe('Fixture-only pages', () => {
     const businessId = await fetch(`${API}/clients?limit=1`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string }[] }).data[0]?.id);
     expect(businessId).toBeTruthy();
 

@@ -15,7 +15,7 @@
 // refuse now instead of pretending.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -57,7 +57,7 @@ test.describe('In-memory writes', () => {
     const listed = await fetch(`${API}/financial/hardship-cases`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string; businessId: string }[] }).data);
 
     const found = listed.find((c) => c.id === data.id);
@@ -134,7 +134,7 @@ test.describe('In-memory writes', () => {
 
     const listed = await fetch(`${API}/platform/workflows`, {
       headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json());
+    }).then(expectOk);
     const body = listed as {
       data: { workflows: { id: string; name: string; status: string }[]; execution: { runs: boolean } };
     };
@@ -153,7 +153,7 @@ test.describe('In-memory writes', () => {
     const after = await fetch(`${API}/platform/workflows`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { workflows: { id: string; status: string }[] } }).data.workflows);
     expect(after.find((w) => w.id === data.id)!.status).toBe('paused');
   });
@@ -167,7 +167,7 @@ test.describe('In-memory writes', () => {
     const workflows = await fetch(`${API}/platform/workflows`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { workflows: { id: string }[] } }).data.workflows);
 
     if (workflows.length === 0) return;

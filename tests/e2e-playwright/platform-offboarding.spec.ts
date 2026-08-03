@@ -17,7 +17,7 @@
 // here would destroy the seeded login the whole suite signs in with.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -86,7 +86,7 @@ test.describe('Platform offboarding', () => {
 
     const body = (await fetch(`${API}/platform/offboarding/${id}/audit-log`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json())) as AuditBody;
+    }).then(expectOk)) as AuditBody;
 
     expect(body.success).toBe(true);
     expect(body.data?.totalEntries).toBe(body.data?.entries.length);
@@ -125,7 +125,7 @@ test.describe('Platform offboarding', () => {
 
     const before = await fetch(`${API}/offboarding/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json());
+    }).then(expectOk);
 
     // It used to answer 200 after moving a counter in memory, which no other
     // process — and no later request to a different worker — could see.
@@ -139,7 +139,7 @@ test.describe('Platform offboarding', () => {
 
     const after = await fetch(`${API}/offboarding/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json());
+    }).then(expectOk);
     expect((after as { data: { status: string } }).data.status).toBe(
       (before as { data: { status: string } }).data.status,
     );

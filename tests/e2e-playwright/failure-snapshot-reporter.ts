@@ -64,6 +64,12 @@ $eph = $tcp | Where-Object {
 /** A hung snapshot must never hold up the run it is reporting on. */
 const SNAPSHOT_TIMEOUT_MS = 30_000;
 
+/**
+ * Outside Playwright's output directory, which is emptied at the start of
+ * every run. Relative to the repo root, and gitignored.
+ */
+const DURABLE_LOG = path.join(process.cwd(), '.playwright-failures.jsonl');
+
 export default class FailureSnapshotReporter implements Reporter {
   private outputDir = 'test-results';
 
@@ -101,19 +107,33 @@ export default class FailureSnapshotReporter implements Reporter {
       snapshot,
     };
 
-    // Printed as well as written: test-results is wiped at the start of every
-    // run, exactly like the traces beside it, so the run log is what survives
-    // somebody re-running the suite before reading this.
     process.stdout.write(`\n[failure-snapshot] ${entry.error}\n[failure-snapshot] ${snapshot}\n`);
 
+    const line = `${JSON.stringify(entry)}\n`;
+
+    // Beside the traces, for the run that produced it.
     try {
       fs.mkdirSync(this.outputDir, { recursive: true });
-      fs.appendFileSync(
-        path.join(this.outputDir, 'failure-snapshots.jsonl'),
-        `${JSON.stringify(entry)}\n`,
-      );
+      fs.appendFileSync(path.join(this.outputDir, 'failure-snapshots.jsonl'), line);
     } catch {
-      // The stdout line above is the copy that matters.
+      // The durable copy below is the one that matters.
+    }
+
+    // And somewhere that outlives the next run.
+    //
+    // Playwright empties its output directory when a run starts, so a snapshot
+    // written there is gone the moment anybody re-runs the suite — which is
+    // exactly what happens when a failure appears once and somebody tries to
+    // reproduce it. Not hypothetical: a one-off failure was captured here and
+    // lost to the next run before it could be read, which is the scenario this
+    // reporter exists for.
+    //
+    // Appended, never truncated, so occurrences accumulate across runs and
+    // days. Gitignored.
+    try {
+      fs.appendFileSync(DURABLE_LOG, line);
+    } catch {
+      // The stdout line above is the last copy.
     }
   }
 }

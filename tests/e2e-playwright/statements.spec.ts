@@ -15,7 +15,7 @@
 // all — including ids that do not exist.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -26,7 +26,7 @@ async function token(page: import('@playwright/test').Page): Promise<string | nu
 async function firstBusinessId(t: string | null): Promise<string> {
   const body = (await fetch(`${API}/compliance/disclosures`, {
     headers: { Authorization: `Bearer ${t}` },
-  }).then((r) => r.json())) as { data: { businesses: { businessId: string }[] } };
+  }).then(expectOk)) as { data: { businesses: { businessId: string }[] } };
   expect(body.data.businesses.length).toBeGreaterThan(0);
   return body.data.businesses[0].businessId;
 }
@@ -135,7 +135,7 @@ test.describe('Statements', () => {
     const total = await fetch(`${API}/businesses/${businessId}/statements/anomalies`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { totalAnomalies: number } }).data.totalAnomalies);
 
     if (total === 0) {

@@ -9,7 +9,7 @@
 // is reconstructed on the client.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -168,7 +168,7 @@ test.describe('Fair lending — Section 1071', () => {
 
     const data = await dashboard(token, YEAR);
     const cov = await fetch(`${API}/fair-lending/coverage?year=${YEAR}`, { headers })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { applicationCount: number } }).data);
 
     // The dashboard windowed on createdAt and the adverse action report on

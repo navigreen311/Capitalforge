@@ -18,7 +18,7 @@
 // rather than a programme that does not exist.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -29,7 +29,7 @@ test.describe('Referral tracking', () => {
 
     const body = (await fetch(`${API}/platform/referrals`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: { referrals: unknown[]; tracking: { available: boolean; why: string } };
     };
 

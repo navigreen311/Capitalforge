@@ -13,7 +13,7 @@
 // produces.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -30,14 +30,14 @@ test.describe('Financial control', () => {
     const cases = await fetch(`${API}/financial/hardship-cases`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string; businessName: string | null }[] }).data);
 
     // Open one so the page has something real to show, then read it back.
     const businesses = await fetch(`${API}/compliance/disclosures`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { businesses: { businessId: string }[] } }).data.businesses);
 
     if (cases.length === 0) {
@@ -62,7 +62,7 @@ test.describe('Financial control', () => {
     const after = await fetch(`${API}/financial/hardship-cases`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { businessName: string | null }[] }).data);
     expect(after.length).toBeGreaterThan(0);
 
@@ -129,7 +129,7 @@ test.describe('Financial control', () => {
     const t = await token(page);
     const body = (await fetch(`${API}/financial/tax-documents`, {
       headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())) as { data: { documents: unknown[]; generated: boolean } };
+    }).then(expectOk)) as { data: { documents: unknown[]; generated: boolean } };
     expect(body.data.documents).toEqual([]);
     expect(body.data.generated).toBe(false);
   });

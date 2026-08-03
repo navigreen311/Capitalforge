@@ -7,7 +7,7 @@
 // closed by asserting seven-year append-only retention.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -161,7 +161,7 @@ test.describe('Decision governance', () => {
     const headers = { Authorization: `Bearer ${token}` };
 
     const metrics = await fetch(`${API}/ai-governance/metrics`, { headers })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { moduleSource: string; totalDecisions: number }[] }).data);
     expect(metrics.length, 'metrics are reported per module').toBeGreaterThan(0);
 
@@ -171,7 +171,7 @@ test.describe('Decision governance', () => {
     });
 
     const versions = await fetch(`${API}/ai-governance/versions`, { headers })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { modelVersion: string }[] }).data);
     expect(versions.length).toBeGreaterThan(0);
 

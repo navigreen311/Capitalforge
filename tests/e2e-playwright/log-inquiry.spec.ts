@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 // ============================================================
 // Logging a regulator inquiry — /complaints
@@ -87,7 +87,7 @@ test.describe('Log regulator inquiry', () => {
 
     const listed = (await fetch(`${API}/regulator/inquiries`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json())) as { data?: { inquiries?: { status: string }[] } };
+    }).then(expectOk)) as { data?: { inquiries?: { status: string }[] } };
 
     const known = (listed.data?.inquiries ?? []).filter((i) => i.status !== 'closed').length;
 

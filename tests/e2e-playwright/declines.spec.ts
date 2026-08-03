@@ -8,7 +8,7 @@
 // eligibility, and a win rate over nothing — are not.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -155,7 +155,7 @@ test.describe('Decline recovery board', () => {
     const client = await fetch(`${API}/v1/clients?pageSize=1`, {
       headers: { Authorization: `Bearer ${tok}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data?: { id: string }[] }).data?.[0]);
     expect(client?.id, 'a client is needed to log a decline against').toBeTruthy();
 

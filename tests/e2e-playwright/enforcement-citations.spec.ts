@@ -20,7 +20,7 @@
 // and are what the rules actually rest on.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -83,7 +83,7 @@ test.describe('Enforcement citations', () => {
     const businesses = await fetch(`${API}/compliance/disclosures`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { businesses: { businessId: string }[] } }).data.businesses);
     expect(businesses.length).toBeGreaterThan(0);
 

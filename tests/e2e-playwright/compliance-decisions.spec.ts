@@ -7,7 +7,7 @@
 // nothing in this system holds it.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -57,7 +57,7 @@ test.describe('Application decision register', () => {
     const all = await fetch(`${API}/applications?pageSize=100`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: Application[] }).data);
 
     const undecided = all.filter((r) => r.status !== 'approved' && r.status !== 'declined');
@@ -123,7 +123,7 @@ test.describe('Application decision register', () => {
     const register = await fetch(`${API}/fair-lending/adverse-action?year=${YEAR}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { applicationId: string }[] }).data);
 
     const onRegister = new Set(register.map((r) => r.applicationId));
@@ -147,7 +147,7 @@ test.describe('Application decision register', () => {
     const register = await fetch(`${API}/fair-lending/adverse-action?year=${YEAR}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { applicationId: string }[] }).data);
     const onRegister = new Set(register.map((r) => r.applicationId));
 
@@ -176,7 +176,7 @@ test.describe('Application decision register', () => {
     const register = await fetch(`${API}/fair-lending/adverse-action?year=${YEAR}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { applicationId: string }[] }).data);
     const onRegister = new Set(register.map((r) => r.applicationId));
 

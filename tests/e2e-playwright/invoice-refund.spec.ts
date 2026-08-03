@@ -12,7 +12,7 @@
 // two, exactly as it did for card benefits.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -28,9 +28,7 @@ async function paidInvoice(
   const auth = `Bearer ${t}`;
 
   const clients = (
-    (await fetch(`${API}/v1/clients?pageSize=1`, { headers: { Authorization: auth } }).then((r) =>
-      r.json(),
-    )) as { data: { id: string }[] }
+    (await fetch(`${API}/v1/clients?pageSize=1`, { headers: { Authorization: auth } }).then(expectOk)) as { data: { id: string }[] }
   ).data;
   expect(clients.length, 'the seed provides a client').toBeGreaterThan(0);
 
@@ -38,7 +36,7 @@ async function paidInvoice(
     method: 'POST',
     headers: { Authorization: auth, 'Content-Type': 'application/json' },
     body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
-  }).then((r) => r.json())) as { data: { id: string; amount: number } };
+  }).then(expectOk)) as { data: { id: string; amount: number } };
 
   const invoiceId = created.data.id;
 
@@ -75,9 +73,9 @@ test.describe('Invoice refunds', () => {
     // and no further. Reading it back is the test.
     const invoices = (await fetch(`${API}/businesses/${(await fetch(`${API}/invoices/${id}`, {
       headers: { Authorization: auth },
-    }).then((r) => r.json()) as { data: { businessId: string } }).data.businessId}/invoices`, {
+    }).then(expectOk) as { data: { businessId: string } }).data.businessId}/invoices`, {
       headers: { Authorization: auth },
-    }).then((r) => r.json())) as { data: { id: string; type: string; amount: number }[] };
+    }).then(expectOk)) as { data: { id: string; type: string; amount: number }[] };
 
     const note = invoices.data.find((i) => i.id === body.data.creditNoteId);
     expect(note, 'the credit note is on record').toBeTruthy();
@@ -93,7 +91,7 @@ test.describe('Invoice refunds', () => {
       method: 'POST',
       headers: { Authorization: auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ refundAmount: amount, reason: 'Full refund' }),
-    }).then((r) => r.json())) as { data: { invoiceStatus: string } };
+    }).then(expectOk)) as { data: { invoiceStatus: string } };
 
     expect(body.data.invoiceStatus).toBe('refunded');
   });
@@ -130,16 +128,14 @@ test.describe('Invoice refunds', () => {
     const auth = `Bearer ${t}`;
 
     const clients = (
-      (await fetch(`${API}/v1/clients?pageSize=1`, { headers: { Authorization: auth } }).then((r) =>
-        r.json(),
-      )) as { data: { id: string }[] }
+      (await fetch(`${API}/v1/clients?pageSize=1`, { headers: { Authorization: auth } }).then(expectOk)) as { data: { id: string }[] }
     ).data;
 
     const created = (await fetch(`${API}/businesses/${clients[0]!.id}/invoices`, {
       method: 'POST',
       headers: { Authorization: auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
-    }).then((r) => r.json())) as { data: { id: string; amount: number } };
+    }).then(expectOk)) as { data: { id: string; amount: number } };
 
     const res = await fetch(`${API}/invoices/${created.data.id}/refund`, {
       method: 'POST',

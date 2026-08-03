@@ -14,7 +14,7 @@
 // on every request, which was the one way a reader might have noticed.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -29,22 +29,20 @@ async function commission(
   const auth = `Bearer ${await token(page)}`;
 
   const clients = (
-    (await fetch(`${API}/v1/clients?pageSize=1`, { headers: { Authorization: auth } }).then((r) =>
-      r.json(),
-    )) as { data: { id: string }[] }
+    (await fetch(`${API}/v1/clients?pageSize=1`, { headers: { Authorization: auth } }).then(expectOk)) as { data: { id: string }[] }
   ).data;
 
   const invoice = (await fetch(`${API}/businesses/${clients[0]!.id}/invoices`, {
     method: 'POST',
     headers: { Authorization: auth, 'Content-Type': 'application/json' },
     body: JSON.stringify({ dealStructure: 'consulting_only', totalApprovedCredit: 0 }),
-  }).then((r) => r.json())) as { data: { id: string } };
+  }).then(expectOk)) as { data: { id: string } };
 
   const created = (await fetch(`${API}/invoices/${invoice.data.id}/commissions`, {
     method: 'POST',
     headers: { Authorization: auth, 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'referral_flat', amount: 500, partnerId: 'partner-test' }),
-  }).then((r) => r.json())) as { data: { id: string } };
+  }).then(expectOk)) as { data: { id: string } };
 
   expect(created.data?.id, 'a commission was created').toBeTruthy();
   return { id: created.data.id, auth };
@@ -73,7 +71,7 @@ test.describe('Commission dispute resolution', () => {
     // resolve endpoint uses.
     const list = (await fetch(`${API}/commissions`, {
       headers: { Authorization: auth },
-    }).then((r) => r.json())) as { data: { id: string; status: string }[] };
+    }).then(expectOk)) as { data: { id: string; status: string }[] };
 
     const found = list.data.find((c) => c.id === id);
     expect(found, 'the commission is still on record').toBeTruthy();
@@ -115,9 +113,7 @@ test.describe('Revenue trend', () => {
     const auth = `Bearer ${await token(page)}`;
 
     const read = async () =>
-      (await fetch(`${API}/billing/revenue-trend`, { headers: { Authorization: auth } }).then((r) =>
-        r.json(),
-      )) as { data: { months: { month: string; revenue: number }[] } };
+      (await fetch(`${API}/billing/revenue-trend`, { headers: { Authorization: auth } }).then(expectOk)) as { data: { months: { month: string; revenue: number }[] } };
 
     const first = await read();
     const second = await read();
@@ -134,7 +130,7 @@ test.describe('Revenue trend', () => {
 
     const body = (await fetch(`${API}/billing/revenue-trend`, {
       headers: { Authorization: auth },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: {
         months: { month: string; revenue: number; collectionRate: number | null }[];
         summary: { totalRevenue: number; growthRate: number | null; avgCollectionRate: number | null };
@@ -162,7 +158,7 @@ test.describe('Revenue trend', () => {
 
     const body = (await fetch(`${API}/billing/revenue-trend`, {
       headers: { Authorization: auth },
-    }).then((r) => r.json())) as {
+    }).then(expectOk)) as {
       data: {
         months: { invoiceCount: number; collectionRate: number | null }[];
         summary: { growthRate: number | null };

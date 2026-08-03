@@ -22,3 +22,7 @@ Thumbs.db
 # Playwright run output — traces and screenshots from local runs.
 test-results/
 playwright-report/
+
+# Failure snapshots from the browser suite. Appended across runs, so it
+# outlives the output directory Playwright empties on each start.
+.playwright-failures.jsonl

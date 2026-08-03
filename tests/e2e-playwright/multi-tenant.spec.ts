@@ -11,7 +11,7 @@
 // returns, and the surfaces with no backing are gone rather than mocked.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -88,7 +88,7 @@ test.describe('Multi-tenant admin', () => {
     const tenants = (
       (await fetch(`${API}/admin/tenants?pageSize=100`, {
         headers: { Authorization: `Bearer ${token}` },
-      }).then((r) => r.json())) as {
+      }).then(expectOk)) as {
         data: { tenants: { currentPlan: { monthlyPrice: string | null } | null }[] };
       }
     ).data.tenants;
@@ -118,7 +118,7 @@ test.describe('Tenant scoping', () => {
     // every tenant on the platform, and any id could be read by url.
     const body = (await fetch(`${API}/admin/tenants?pageSize=100`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json())) as { data: { tenants: { id: string }[]; total: number } };
+    }).then(expectOk)) as { data: { tenants: { id: string }[]; total: number } };
 
     expect(body.data.tenants.length, 'one tenant, their own').toBe(1);
     expect(body.data.total, 'the count is scoped too').toBe(1);

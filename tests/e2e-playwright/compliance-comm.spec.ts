@@ -6,7 +6,7 @@
 // do-not-contact list. Both were literals, and this system can send real SMS.
 // ============================================================
 
-import { test, expect } from './fixtures';
+import { test, expect, expectOk } from './fixtures';
 
 const API = 'http://127.0.0.1:4000/api';
 
@@ -35,7 +35,7 @@ test.describe('Consent and do-not-contact', () => {
     const clients = await fetch(`${API}/v1/clients?pageSize=25`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string; businessName: string }[] }).data);
     expect(clients.length).toBeGreaterThan(0);
 
@@ -69,13 +69,13 @@ test.describe('Consent and do-not-contact', () => {
     const clients = await fetch(`${API}/v1/clients?pageSize=25`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string }[] }).data);
 
     const consent = await fetch(`${API}/businesses/${clients[0].id}/consent`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { channel: string }[] }).data);
 
     // The seeded client has email and document consent, and nothing for
@@ -175,7 +175,7 @@ test.describe('Consent and do-not-contact', () => {
     const clients = await fetch(`${API}/v1/clients?pageSize=25`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then(expectOk)
       .then((b) => (b as { data: { id: string }[] }).data);
 
     let emailActive = 0;
@@ -183,7 +183,7 @@ test.describe('Consent and do-not-contact', () => {
       const consent = await fetch(`${API}/businesses/${client.id}/consent`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-        .then((r) => r.json())
+        .then(expectOk)
         .then((b) => (b as { data: { channel: string; status: string }[] }).data);
       if (consent.some((c) => c.channel === 'email' && c.status === 'active')) emailActive += 1;
     }
