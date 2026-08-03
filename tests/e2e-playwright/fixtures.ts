@@ -23,8 +23,25 @@ const PASSWORD = 'DemoPass123!';
 let cachedToken: string | null = null;
 let cachedUser: Record<string, unknown> | null = null;
 
+/**
+ * How long a cached token is trusted before signing in again.
+ *
+ * The token was cached for the lifetime of the worker. Access tokens expire —
+ * 15 minutes in CI — and the browser suite runs for about nineteen there, so
+ * every test past the fifteen-minute mark authenticated with a dead token,
+ * got a 401, and failed on whatever it did with the empty body. A different
+ * test each run, always around the same point, and never locally because the
+ * suite finishes here in under nine minutes.
+ *
+ * Well inside the shortest expiry the app is configured with anywhere, so the
+ * suite does not depend on a long-lived token to pass.
+ */
+const TOKEN_TTL_MS = 8 * 60 * 1000;
+
+let cachedAt = 0;
+
 async function accessToken(): Promise<string> {
-  if (cachedToken !== null) return cachedToken;
+  if (cachedToken !== null && Date.now() - cachedAt < TOKEN_TTL_MS) return cachedToken;
 
   const tenantRes = await fetch(`${API}/tenants/by-slug/demo-advisors`);
   if (!tenantRes.ok) {
@@ -55,6 +72,7 @@ async function accessToken(): Promise<string> {
   }
 
   cachedToken = token;
+  cachedAt = Date.now();
   return token;
 }
 
