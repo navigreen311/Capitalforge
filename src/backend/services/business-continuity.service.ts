@@ -33,6 +33,9 @@ export interface RtoRpoStatus {
   rpoTargetMinutes:         number;   // Recovery Point Objective
   currentRpoMinutes?:       number;   // time since last backup
   rpoBreached:              boolean;
+  /** False when no backup exists to measure against, so a caller can tell
+   *  "inside the objective" from "nothing to measure". */
+  rpoMeasurable:            boolean;
   rtoLastTestedMinutes?:    number;
   rtoMet:                   boolean;
 }
@@ -43,9 +46,12 @@ export interface CaseExportResult {
   tenantId:      string;
   includedFiles: string[];
   exportedAt:    Date;
-  downloadUrl:   string;  // signed URL; stub returns placeholder
+  /** Null until something writes an export artefact. It used to be a URL
+   *  under api.capitalforge.io with a token prefixed "stub_". */
+  downloadUrl:   string | null;
   expiresAt:     Date;
-  sizeBytes:     number;
+  /** Null until a file exists to measure. */
+  sizeBytes:     number | null;
 }
 
 export interface RecoveryTestLog {
@@ -104,21 +110,15 @@ export async function triggerBackup(
   // STUB — dispatch async backup job to job queue (e.g. BullMQ)
   // In production: await backupQueue.add('backup', { recordId: record.id, backupType, tenantId })
   // Simulate completion for now
-  _simulateBackupCompletion(record.id);
+  // Nothing marks this complete. A backup is completed by whatever performed
+  // it reporting back, and nothing does yet, so it stays as it was created.
 
   return record;
 }
 
-function _simulateBackupCompletion(recordId: string): void {
-  // In production this runs in a background worker, not inline
-  const record = backupStore.get(recordId);
-  if (!record) return;
-  record.status       = 'completed';
-  record.completedAt  = new Date();
-  record.sizeBytes    = BigInt(Math.floor(Math.random() * 500_000_000) + 50_000_000);
-  record.checksum     = `sha256:${uuidv4().replace(/-/g, '')}`;
-  backupStore.set(recordId, record);
-}
+// _simulateBackupCompletion is gone. It marked a record completed and gave it
+// a size from Math.random() and a checksum from a uuid — a checksum being the
+// one field whose whole purpose is to prove the bytes are what they claim.
 
 export function updateBackupStatus(
   id: string,
@@ -195,7 +195,14 @@ export function getRtoRpoStatus(tenantId?: string): RtoRpoStatus {
     rtoTargetMinutes:          RTO_TARGET_MINUTES,
     rpoTargetMinutes:          RPO_TARGET_MINUTES,
     currentRpoMinutes:         currentRpoMins,
-    rpoBreached:               currentRpoMins !== undefined && currentRpoMins > RPO_TARGET_MINUTES,
+    // No backup at all is a breach, not a pass. This read `currentRpoMins
+    // !== undefined && ...`, so with nothing on record it answered false —
+    // the recovery point objective reported as met by a platform that had
+    // never backed anything up. Same shape as a compliance score of 100 from
+    // an empty check table.
+    rpoBreached:               currentRpoMins === undefined || currentRpoMins > RPO_TARGET_MINUTES,
+    // Lets a caller tell "inside the objective" from "nothing to measure".
+    rpoMeasurable:             currentRpoMins !== undefined,
     rtoLastTestedMinutes:      lastTest?.rtoAchievedMinutes,
     rtoMet:                    lastTest ? (lastTest.rtoAchievedMinutes ?? 9999) <= RTO_TARGET_MINUTES : false,
   };
@@ -240,9 +247,14 @@ export async function exportClientCase(
     tenantId,
     includedFiles,
     exportedAt:  now,
-    downloadUrl: `https://api.capitalforge.io/exports/${exportId}?token=stub_${uuidv4()}`,
+    // No download URL and no size. The URL pointed at api.capitalforge.io
+    // with a token literally prefixed "stub_", and the size was a random
+    // number between 100KB and 2.1MB — a figure describing a file that was
+    // never written. Nothing here produces an export artefact yet, so the
+    // caller is told what is included and nothing about a file.
+    downloadUrl: null,
     expiresAt,
-    sizeBytes:   Math.floor(Math.random() * 2_000_000) + 100_000,
+    sizeBytes:   null,
   };
 }
 
@@ -276,27 +288,21 @@ export function getRecoveryTest(id: string): RecoveryTestLog | undefined {
   return recoveryTestStore.get(id);
 }
 
-// ── Seed a few demo backup records ───────────────────────────
-(function seedDemoBackups() {
-  const now = Date.now();
-  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-  for (let i = 6; i >= 0; i--) {
-    const ts = new Date(now - i * 24 * 60 * 60 * 1000);
-    const r: BackupRecord = {
-      id:              uuidv4(),
-      backupType:      i % 7 === 0 ? 'full' : 'incremental',
-      status:          'completed',
-      sizeBytes:       BigInt(Math.floor(Math.random() * 400_000_000) + 50_000_000),
-      storageLocation: `s3://capitalforge-backups/platform/${ts.toISOString().slice(0, 10)}/backup.dump`,
-      retentionDays:   RETENTION_DAYS,
-      expiresAt:       new Date(ts.getTime() + RETENTION_DAYS * 24 * 60 * 60 * 1000),
-      createdAt:       ts,
-      completedAt:     new Date(ts.getTime() + 30 * 60 * 1000),
-      checksum:        `sha256:${uuidv4().replace(/-/g, '')}`,
-    };
-    backupStore.set(r.id, r);
-  }
-})();
+// No demo backups.
+//
+// A module-level IIFE ran on every process start and seeded seven days of
+// "completed" backups — sizes between 50MB and 450MB from Math.random(),
+// storage locations under s3://capitalforge-backups/, sha256 checksums built
+// from a uuid, each finishing thirty minutes after it began.
+//
+// So listBackups always returned a successful week, and getRtoRpoStatus
+// computed the recovery point objective from the most recent of them. Anyone
+// asking when this platform last backed up, or whether it was inside its RPO,
+// was answered from that. Nothing had run. backup_records exists and nothing
+// writes to it.
+//
+// With the seeder gone the list is empty and the RPO is unknown, which is
+// what is actually true.
 
 export const businessContinuityService = {
   triggerBackup,

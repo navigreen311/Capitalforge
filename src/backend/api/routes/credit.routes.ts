@@ -14,7 +14,10 @@ import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import { ZodError } from 'zod';
 import logger from '../../config/logger.js';
-import { CreditIntelligenceService } from '../../services/credit-intelligence.service.js';
+import {
+  CreditIntelligenceService,
+  BureauNotConfiguredError,
+} from '../../services/credit-intelligence.service.js';
 import { CreditPullRequestSchema } from '../../../shared/validators/credit.validators.js';
 import type { ApiResponse, TenantContext } from '../../../shared/types/index.js';
 
@@ -135,6 +138,14 @@ export function createCreditRouter(customPrisma?: PrismaClient): Router {
         sendError(res, 401, 'UNAUTHORIZED', (err as Error).message);
         return;
       }
+      // 503, not 500: the request was fine, the integration is unavailable.
+      // Without this the caller sees a server error and retries, and every
+      // retry is another attempt to write an invented credit profile.
+      if (err instanceof BureauNotConfiguredError) {
+        sendError(res, 503, 'BUREAU_NOT_CONFIGURED', err.message);
+        return;
+      }
+
       if (err instanceof ZodError) {
         sendError(res, 422, 'VALIDATION_ERROR', 'Request validation failed', err.flatten());
         return;

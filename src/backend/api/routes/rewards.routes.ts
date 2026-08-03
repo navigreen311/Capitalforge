@@ -393,45 +393,34 @@ rewardsRouter.get(
 
 // ── GET /api/rewards/:clientId/points-balances ──────────────
 //
-// Returns mock points / cash-back balances across reward programs.
+// Refused. Nothing records a rewards balance.
+//
+// This returned points and cash-back balances per programme, written into the
+// handler and identical for every client. A rewards balance is money the
+// client believes they have — it gets redeemed, and counted against a card's
+// annual fee when deciding whether to keep it — so inventing one is not a
+// display placeholder.
+//
+// No table holds a points balance and no integration reads one from an
+// issuer. Until one does, this says so.
 
 rewardsRouter.get(
   '/:clientId/points-balances',
   async (req: Request, res: Response): Promise<void> => {
-    const clientId = Array.isArray(req.params['clientId']) ? req.params['clientId'][0]! : (req.params['clientId'] ?? '');
+    const clientId = Array.isArray(req.params['clientId'])
+      ? req.params['clientId'][0]!
+      : (req.params['clientId'] ?? '');
 
-    logger.debug('GET rewards points-balances', { clientId });
+    logger.info('[rewards] points-balances refused — nothing records a balance', { clientId });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        clientId,
-        asOf: new Date().toISOString(),
-        balances: [
-          {
-            program: 'American Express Membership Rewards',
-            shortName: 'Amex MR',
-            points: 124500,
-            estimatedValue: 1556.25,
-            valueCentsPerPoint: 1.25,
-          },
-          {
-            program: 'Chase Ultimate Rewards',
-            shortName: 'Chase UR',
-            points: 89200,
-            estimatedValue: 1338.00,
-            valueCentsPerPoint: 1.50,
-          },
-          {
-            program: 'Capital One Cash Rewards',
-            shortName: 'CapOne Cash',
-            points: 0,
-            cashBack: 312.47,
-            estimatedValue: 312.47,
-            valueCentsPerPoint: null,
-          },
-        ],
-        totalEstimatedValue: 3206.72,
+    res.status(501).json({
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Rewards balances are not implemented. Nothing records points or cash back for a ' +
+          'client, and no issuer integration reads them. This used to answer 200 with balances ' +
+          'written into the handler, the same figures for every client.',
       },
     } satisfies ApiResponse);
   },

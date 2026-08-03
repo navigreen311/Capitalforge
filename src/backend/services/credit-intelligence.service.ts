@@ -12,6 +12,10 @@
 import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../config/logger.js';
+import {
+  isBureauConfigured,
+  isSyntheticMode,
+} from '../integrations/credit-bureaus/bureau-client.js';
 import { eventBus } from '../events/event-bus.js';
 import { AGGREGATE_TYPES, RISK_THRESHOLDS } from '../../shared/constants/index.js';
 import type { Bureau, ScoreType, TenantContext } from '../../shared/types/index.js';
@@ -41,6 +45,22 @@ interface BureauPullResult {
 // ── Stubbed Bureau API Adapters ───────────────────────────────
 // In production these would call real bureau APIs (Equifax Connect,
 // TransUnion TruVision, Experian BIS, D&B Direct+).
+//
+// FAILS CLOSED, and this is the one that mattered.
+//
+// These generate their answers — a FICO of 650 + Math.random() * 150, a
+// utilisation, an inquiry count, derogatory marks — and pullCreditProfiles
+// writes the result straight into credit_profiles. So an invented score
+// became a stored credit profile indistinguishable from a real pull, which
+// the credit-builder page then read back as the client's Paydex or SBSS, and
+// which drove the utilisation alerts and ledger events emitted just below.
+//
+// The identical generators in integrations/credit-bureaus/bureau-client.ts
+// were gated first. That file imports nothing and reaches no one; this one is
+// wired to POST /api/businesses/:id/credit/pull. The dead copy was fixed and
+// the live one missed, which is the argument for gating on shared config
+// rather than per-file: isBureauConfigured and isSyntheticMode are imported
+// from there, so there is one answer to "may this system invent a score".
 
 function stubEquifaxPull(businessId: string, profileType: string): BureauPullResult {
   const base = 650 + Math.floor(Math.random() * 150);
@@ -140,6 +160,34 @@ function generateStubTradelines(count: number): Tradeline[] {
   }));
 }
 
+/**
+ * Thrown when a pull is attempted with no way to make one.
+ *
+ * Its own class so the route can answer 503 — the request was fine, the
+ * integration is not available — rather than the generic 500 that a bare
+ * Error would produce.
+ */
+export class BureauNotConfiguredError extends Error {
+  constructor(public readonly bureau: string, message: string) {
+    super(message);
+    this.name = 'BureauNotConfiguredError';
+  }
+}
+
+/** Throws unless this bureau can be reached, or generated data is permitted. */
+function assertPullAllowed(bureau: Bureau): void {
+  if (isBureauConfigured(bureau)) return;
+  if (isSyntheticMode()) return;
+
+  throw new BureauNotConfiguredError(
+    bureau,
+    `No credentials are configured for ${bureau}, so no credit data can be pulled. This ` +
+      'service generates its figures and writes them to credit_profiles, where nothing ' +
+      'downstream can tell them from a real pull. Configure the bureau, or set ' +
+      'BUREAU_MODE=synthetic to allow generated profiles, which are recorded as synthetic.',
+  );
+}
+
 function callBureauApi(
   bureau: Bureau,
   businessId: string,
@@ -235,7 +283,19 @@ export class CreditIntelligenceService {
           }
         }
 
+        // Before anything is generated or written. Inside the per-bureau
+        // loop rather than around it, because each bureau is configured
+        // separately: one being unavailable should not stop the others.
+        assertPullAllowed(bureau);
+
         const result = callBureauApi(bureau, businessId, request.profileType);
+
+        // Whether these figures were pulled or generated, recorded on the row
+        // itself. rawData is the record of what the bureau returned, so it is
+        // where the answer to "did a bureau return anything" belongs — by the
+        // time the credit-builder page reads this score back, the request
+        // that produced it is long gone.
+        const synthetic = !isBureauConfigured(bureau);
 
         const saved = await this.prisma.creditProfile.create({
           data: {
@@ -248,10 +308,18 @@ export class CreditIntelligenceService {
             inquiryCount: result.inquiryCount,
             derogatoryCount: result.derogatoryCount,
             tradelines: result.tradelines as object[],
-            rawData: result.rawData as object,
+            rawData: { ...(result.rawData as object), synthetic },
             pulledAt: result.pulledAt,
           },
         });
+
+        if (synthetic) {
+          logger.warn('Synthetic credit profile stored', {
+            businessId,
+            bureau,
+            profileId: saved.id,
+          });
+        }
 
         const dto = this.mapToDto(saved);
         profiles.push(dto);
@@ -260,6 +328,11 @@ export class CreditIntelligenceService {
 
         logger.info('Credit profile stored', { businessId, bureau, profileId: saved.id });
       } catch (err) {
+        // Not configured is not a bureau failing: continuing would return an
+        // empty list and look like a clean pull that found nothing, which is
+        // the shape of answer this whole change exists to prevent.
+        if (err instanceof BureauNotConfiguredError) throw err;
+
         logger.error('Bureau pull failed', { businessId, bureau, err });
         // Continue to next bureau rather than failing the entire operation
       }

@@ -335,9 +335,16 @@ describe('Backup Tracking', () => {
 // ============================================================
 
 describe('Client Case Export', () => {
-  it('generates a case export with download URL', async () => {
+  it('lists what a case export would include, and offers no file', async () => {
     const result = await exportClientCase(T1, 'biz-abc-123', 'advisor-user');
-    expect(result.downloadUrl).toMatch(/^https:/);
+
+    // This asserted downloadUrl matched /^https:/, which it did — the URL
+    // pointed at api.capitalforge.io with a token prefixed "stub_", and the
+    // size beside it was a random number between 100KB and 2.1MB. Nothing
+    // writes an export artefact, so there is no file to link to or measure.
+    expect(result.downloadUrl).toBeNull();
+    expect(result.sizeBytes).toBeNull();
+
     expect(result.includedFiles.length).toBeGreaterThan(5);
     expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
     expect(result.businessId).toBe('biz-abc-123');

@@ -10,7 +10,7 @@
 //   - Validator schema correctness
 // ============================================================
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterAll } from 'vitest';
 import { CreditIntelligenceService } from '../../../src/backend/services/credit-intelligence.service.js';
 import { CreditOptimizerService } from '../../../src/backend/services/credit-optimizer.js';
 import {
@@ -88,6 +88,25 @@ function buildPrismaMock(overrides: Record<string, unknown> = {}) {
 }
 
 // ── Section 1: Validator Schemas ──────────────────────────────
+
+// These exercise the stub adapters, so they run in synthetic mode.
+//
+// The service used to generate a credit profile and write it whether or not
+// any bureau was configured, which is what these were written against. It
+// fails closed now — BUREAU_MODE=synthetic is the switch that lets generated
+// profiles through, and what these cover (persistence, per-bureau
+// independence, the shape of what is stored) is unaffected by where the
+// figures come from.
+//
+// The gate has its own tests in credit-intelligence-gate.test.ts, which run
+// with the mode unset.
+const SAVED_BUREAU_MODE = process.env['BUREAU_MODE'];
+process.env['BUREAU_MODE'] = 'synthetic';
+
+afterAll(() => {
+  if (SAVED_BUREAU_MODE === undefined) delete process.env['BUREAU_MODE'];
+  else process.env['BUREAU_MODE'] = SAVED_BUREAU_MODE;
+});
 
 describe('CreditPullRequestSchema', () => {
   it('accepts a valid single-bureau pull request', () => {

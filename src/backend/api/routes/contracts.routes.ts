@@ -420,59 +420,38 @@ contractsRouter.post(
 );
 
 /**
- * GET /api/contracts/:id/detail
- * Returns mock contract detail with key terms and risk flags.
+ * Contract detail — refused.
+ *
+ * This returned a complete contract for whatever id was asked for: a vendor
+ * agreement with Acme Financial Services LLC, active, worth $150,000,
+ * auto-renewing on 2026-01-15, with key terms and risk flags beneath it. None
+ * of it was read from anywhere, and it was the same agreement every time.
+ *
+ * A contract detail is a statement about something somebody signed. Nothing
+ * stores the counterparty, the value or the dates, so there is nothing to
+ * serve.
  */
 contractsRouter.get(
   '/contracts/:id/detail',
   tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ ?? 'COMPLIANCE_READ'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const tenantId = req.tenant!.tenantId;
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+    logger.info('[contracts] detail refused — nothing stores contract terms', {
+      contractId: req.params['id'],
+      tenantId: req.tenant?.tenantId,
+    });
 
-      // Mock contract detail — in production this would fetch from DB
-      const responseData = {
-        id,
-        title: `Contract ${id}`,
-        contractType: 'vendor_agreement',
-        counterparty: 'Acme Financial Services LLC',
-        status: 'active',
-        effectiveDate: '2025-01-15',
-        expirationDate: '2026-01-15',
-        autoRenew: true,
-        totalValue: 150000,
-        currency: 'USD',
-        keyTerms: [
-          { clause: 'Payment Terms', summary: 'Net 30 from invoice date', section: '4.1' },
-          { clause: 'Termination', summary: '90-day written notice required', section: '8.2' },
-          { clause: 'Liability Cap', summary: 'Limited to 12 months of fees paid', section: '9.1' },
-          { clause: 'Data Protection', summary: 'SOC 2 Type II compliance required', section: '11.3' },
-          { clause: 'Indemnification', summary: 'Mutual indemnification for IP claims', section: '10.1' },
-        ],
-        riskFlags: [
-          { severity: 'high', flag: 'Auto-renewal clause with no cap on price increases', clause: '3.4' },
-          { severity: 'medium', flag: 'Broad force majeure definition may limit recourse', clause: '12.1' },
-          { severity: 'low', flag: 'Governing law is Delaware — verify jurisdictional preference', clause: '14.2' },
-        ],
-        renewalHistory: [
-          { date: '2024-01-15', action: 'initial_execution', notes: 'Original contract signed' },
-          { date: '2025-01-15', action: 'auto_renewed', notes: 'Auto-renewed for 12 months' },
-        ],
-      };
-
-      logger.info('Contract detail retrieved', { tenantId, contractId: id });
-
-      const response: ApiResponse<typeof responseData> = {
-        success: true,
-        data: responseData,
-      };
-
-      res.json(response);
-    } catch (err) {
-      next(err);
-    }
+    const body: ApiResponse = {
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Contract detail is not implemented. Nothing stores the terms, counterparty or value ' +
+          'of a contract, and this used to answer 200 with a vendor agreement worth $150,000 ' +
+          'for any id at all.',
+      },
+    };
+    res.status(501).json(body);
   },
 );
 

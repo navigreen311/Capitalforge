@@ -237,30 +237,30 @@ fundingRoundActionsRouter.put(
     try {
       const prisma = sharedPrisma;
 
-      let updated: Record<string, unknown> | null = null;
-      try {
-        const existing = await prisma.fundingRound.findFirst({
-          where: { id: roundId },
-        });
+      // No fallback.
+      //
+      // The update was wrapped in a bare catch that answered 200 with an
+      // object built right here — { id, tenantId, status, updatedAt } —
+      // whenever it threw. The comment said "if the table/column doesn't
+      // exist", but the catch was unconditional: a database that was down, a
+      // constraint that rejected the value, a permission error, every one of
+      // them reported the status change as done while the round kept the
+      // status it had.
+      //
+      // A write that fails now fails, and the handler below answers.
+      const existing = await prisma.fundingRound.findFirst({
+        where: { id: roundId },
+      });
 
-        if (!existing) {
-          sendError(res, 404, 'NOT_FOUND', `Funding round ${roundId} not found.`);
-          return;
-        }
-
-        updated = await prisma.fundingRound.update({
-          where: { id: roundId },
-          data: { status: parsed.data.status },
-        });
-      } catch {
-        // If the table/column doesn't exist, return mock success
-        updated = {
-          id: roundId,
-          tenantId,
-          status: parsed.data.status,
-          updatedAt: new Date().toISOString(),
-        };
+      if (!existing) {
+        sendError(res, 404, 'NOT_FOUND', `Funding round ${roundId} not found.`);
+        return;
       }
+
+      const updated = await prisma.fundingRound.update({
+        where: { id: roundId },
+        data: { status: parsed.data.status },
+      });
 
       logger.info('[FundingRoundActionsRoutes] Round status updated', {
         roundId,

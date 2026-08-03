@@ -36,7 +36,9 @@ interface VoiceForgeData {
   today_calls: { completed: number; scheduled: number; missed: number };
   campaigns: Campaign[];
   compliance_flags: ComplianceFlag[];
-  qa_scores: { average: number; distribution: number[] };
+  // Null when no call has been scored — not zero, which is a call that
+  // failed its review rather than one nobody reviewed.
+  qa_scores: { average: number | null; distribution: number[]; scored_calls?: number };
   last_updated: string;
 }
 
@@ -245,7 +247,9 @@ export function VoiceForgeActivity() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h4 className="text-sm font-semibold text-gray-700">QA Scores</h4>
-          <span className="text-sm font-bold text-gray-900">Avg: {qa_scores.average}</span>
+          <span className="text-sm font-bold text-gray-900">
+            {qa_scores.average === null ? 'No calls scored' : `Avg: ${qa_scores.average}`}
+          </span>
         </div>
         <div className="flex items-end gap-1.5" style={{ height: '48px' }}>
           {qa_scores.distribution.map((score, i) => (

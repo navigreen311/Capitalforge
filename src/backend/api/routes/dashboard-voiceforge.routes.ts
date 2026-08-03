@@ -61,6 +61,20 @@ interface VoiceForgeActivityData {
 export const dashboardVoiceforgeRouter = Router();
 
 // GET / — VoiceForge activity for the current tenant
+// GET / — VoiceForge activity for the current tenant
+//
+// From voice_calls, call_qa_scores and call_compliance_scans.
+//
+// This returned invented activity on the operator's dashboard: connected
+// true, twelve calls completed today, five scheduled, two missed, a "Q2
+// Renewal Outreach" campaign with 45 contacted, QA scores and compliance
+// flags. All of it written into the handler, the same numbers for every
+// tenant, under a comment saying VoiceForge "may not have dedicated DB
+// tables" — while three tables held exactly this.
+//
+// connected was the worst of it. A dashboard that says an outbound-calling
+// integration is live, when nothing has checked, is the claim somebody acts
+// on before wondering why no calls are going out.
 dashboardVoiceforgeRouter.get('/', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenant?.tenantId;
@@ -73,84 +87,99 @@ dashboardVoiceforgeRouter.get('/', async (req: Request, res: Response) => {
       return;
     }
 
-    // Keep PrismaClient warm for tenant-scoped queries if needed later
-    const _db = sharedPrisma;
+    const db = sharedPrisma;
 
-    // VoiceForge may not have dedicated DB tables for all activity
-    // data — return realistic mock data scoped to the tenant session.
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
-    const data: VoiceForgeActivityData = {
-      connected: true,
+    const [todayCalls, qaScores, openFlags] = await Promise.all([
+      db.voiceCall.findMany({
+        where: { tenantId, createdAt: { gte: startOfDay } },
+        select: { status: true },
+      }),
+      db.callQaScore.findMany({
+        where: { tenantId },
+        select: { overallScore: true, complianceScore: true },
+        orderBy: { scoredAt: 'desc' },
+        take: 100,
+      }),
+      db.callComplianceScan.findMany({
+        where: { tenantId, complianceStatus: { in: ['review', 'fail'] } },
+        select: {
+          id: true,
+          callId: true,
+          riskLevel: true,
+          complianceStatus: true,
+          violationCount: true,
+          criticalViolationCount: true,
+          scannedAt: true,
+        },
+        orderBy: { scannedAt: 'desc' },
+        take: 10,
+      }),
+    ]);
 
-      today_calls: {
-        completed: 12,
-        scheduled: 5,
-        missed: 2,
-      },
+    const completed = todayCalls.filter((c) => c.status === 'completed').length;
+    const missed = todayCalls.filter(
+      (c) => c.status === 'no_answer' || c.status === 'busy' || c.status === 'failed',
+    ).length;
+    const scheduled = todayCalls.filter(
+      (c) => c.status === 'queued' || c.status === 'ringing',
+    ).length;
 
-      campaigns: [
-        {
-          id: 'camp_q2_renewal',
-          name: 'Q2 Renewal Outreach',
-          contacted: 45,
-          total: 60,
-          completion_pct: 75,
-          paused: false,
-        },
-        {
-          id: 'camp_new_product',
-          name: 'New Product Launch',
-          contacted: 28,
-          total: 50,
-          completion_pct: 56,
-          paused: false,
-        },
-        {
-          id: 'camp_win_back',
-          name: 'Win-Back Campaign',
-          contacted: 10,
-          total: 35,
-          completion_pct: 29,
-          paused: true,
-        },
-      ],
+    const avg = (values: number[]): number | null =>
+      values.length === 0 ? null : Math.round(values.reduce((a, b) => a + b, 0) / values.length);
 
-      compliance_flags: [
-        {
-          advisor_name: 'Sarah Mitchell',
-          call_time: '9:42 AM',
-          flag_type: 'disclosure_missing',
-          call_id: 'call_vf_8a3c1',
-        },
-        {
-          advisor_name: 'James Park',
-          call_time: '11:15 AM',
-          flag_type: 'consent_not_recorded',
-          call_id: 'call_vf_7b2d4',
-        },
-        {
-          advisor_name: 'Maria Lopez',
-          call_time: '2:08 PM',
-          flag_type: 'script_deviation',
-          call_id: 'call_vf_9e5f2',
-        },
-      ],
+    const data = {
+      // Whether calls can be placed is a question about credentials, not about
+      // whether any rows exist. Unset means not connected, which is the honest
+      // default — it used to be hardcoded true.
+      connected:
+        typeof process.env['TWILIO_ACCOUNT_SID'] === 'string' &&
+        process.env['TWILIO_ACCOUNT_SID'].trim() !== '',
+
+      today_calls: { completed, scheduled, missed },
+
+      // No table holds a campaign, so none are listed rather than one being
+      // invented. The page shows an empty list, which is the truth.
+      campaigns: [],
+      campaigns_available: false,
+
+      // Scans that came back review or fail. A scan that passed is not a
+      // flag, and listing it as one would inflate the count on the dashboard.
+      compliance_flags: openFlags.map((scan) => ({
+        id: scan.id,
+        callId: scan.callId,
+        riskLevel: scan.riskLevel,
+        status: scan.complianceStatus,
+        violations: scan.violationCount,
+        criticalViolations: scan.criticalViolationCount,
+        detectedAt: scan.scannedAt.toISOString(),
+      })),
 
       qa_scores: {
-        average: 82,
-        distribution: [65, 72, 78, 82, 88, 91, 85],
+        // Null rather than 0 where nothing has been scored: a QA score of zero
+        // is a call that failed its review, not one nobody reviewed.
+        average: avg(qaScores.map((q) => q.overallScore)),
+        // Five buckets across 0-100, from the scores on record. It used to be
+        // a fixed array, so the chart had the same shape for every tenant.
+        distribution: [0, 20, 40, 60, 80].map(
+          (floor) =>
+            qaScores.filter((q) => q.overallScore >= floor && q.overallScore < floor + 20).length,
+        ),
+        scored_calls: qaScores.length,
       },
 
       last_updated: new Date().toISOString(),
     };
 
-    const body: ApiResponse<VoiceForgeActivityData> = { success: true, data };
-    res.json(body);
+    const body: ApiResponse<typeof data> = { success: true, data };
+    res.status(200).json(body);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[dashboard-voiceforge] failed to read activity', err);
     const body: ApiResponse = {
       success: false,
-      error: { code: 'VOICEFORGE_FETCH_FAILED', message },
+      error: { code: 'VOICEFORGE_READ_FAILED', message: 'Could not read VoiceForge activity.' },
     };
     res.status(500).json(body);
   }
