@@ -18,6 +18,7 @@ import { SpendGovernanceService } from '../../services/spend-governance.service.
 import { BusinessPurposeEvidenceService } from '../../services/business-purpose-evidence.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
 
 export const spendGovernanceRouter = Router({ mergeParams: true });
 
@@ -422,10 +423,7 @@ spendGovernanceRouter.get(
   },
 );
 
-// ── In-memory stores for mock violation ack & business purpose ──
 
-const acknowledgedViolations: Record<string, { acknowledgedAt: string; acknowledgedBy: string }> = {};
-const businessPurposeUpdates: Record<string, { businessPurpose: string; updatedAt: string }> = {};
 
 // ── POST /api/spend-governance/violations/:id/acknowledge ────
 //
@@ -435,41 +433,126 @@ const businessPurposeUpdates: Record<string, { businessPurpose: string; updatedA
 spendGovernanceRouter.post(
   '/violations/:id/acknowledge',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const violationId = req.params.id;
+    // The :id is a transaction id. A network-rule violation is not a stored
+    // row — getNetworkRuleViolations maps over spend_transactions and returns
+    // { transactionId, isCompliant, violations } computed at read time — so
+    // acknowledging one is an act against the transaction it was derived from.
+    //
+    // This wrote { acknowledgedAt, acknowledgedBy } into a module-level object
+    // and answered 200. The acknowledgement, and the name of whoever gave it,
+    // were gone at the next restart and invisible to every other worker
+    // meanwhile. On a compliance surface that is the record of who looked.
+    //
+    // There is no acknowledged column on spend_transactions, so it goes to
+    // audit_logs — where the other decisions of this kind go.
+    //
+    // Acknowledging does not clear the violation. It is recomputed from the
+    // transaction on the next read, and it will keep appearing until whatever
+    // triggered it is dealt with. Saying otherwise would be the more
+    // comfortable lie.
+    const transactionId = String(req.params['id'] ?? '');
+    const tenantId = req.tenant?.tenantId;
     const { acknowledgedBy } = req.body as Record<string, unknown>;
 
-    const ack = {
-      acknowledgedAt: new Date().toISOString(),
-      acknowledgedBy: typeof acknowledgedBy === 'string' ? acknowledgedBy : 'system',
-    };
+    if (!transactionId || !tenantId) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'MISSING_PARAM',
+          message: 'Violation id and tenant context are required.',
+        },
+      } satisfies ApiResponse);
+      return;
+    }
 
-    acknowledgedViolations[violationId] = ack;
+    if (acknowledgedBy !== undefined && typeof acknowledgedBy !== 'string') {
+      res.status(422).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'acknowledgedBy must be a string.' },
+      } satisfies ApiResponse);
+      return;
+    }
 
-    logger.info('Violation acknowledged', { violationId, ...ack });
+    try {
+      // Scoped in the query: a transaction on another tenant answers the same
+      // way one that does not exist does.
+      const txn = await sharedPrisma.spendTransaction.findFirst({
+        where: { id: transactionId, tenantId },
+        select: { id: true, businessId: true, flagged: true, flagReason: true },
+      });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        violationId,
-        ...ack,
-        status: 'acknowledged',
-      },
-    } satisfies ApiResponse);
+      if (!txn) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: `No violation found for ${transactionId}.` },
+        } satisfies ApiResponse);
+        return;
+      }
+
+      const audit = await sharedPrisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: req.tenant?.userId ?? null,
+          action: 'spend_violation.acknowledged',
+          resource: 'spend_transaction',
+          resourceId: transactionId,
+          metadata: {
+            // Recorded only when supplied. A default of "system" would put a
+            // name against an acknowledgement nobody gave.
+            acknowledgedBy: typeof acknowledgedBy === 'string' ? acknowledgedBy : null,
+            businessId: txn.businessId,
+            flagReason: txn.flagReason,
+          },
+        },
+      });
+
+      logger.info('Spend violation acknowledged', { transactionId, tenantId });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          violationId: transactionId,
+          acknowledgedAt: audit.timestamp.toISOString(),
+          acknowledgedBy: typeof acknowledgedBy === 'string' ? acknowledgedBy : null,
+          // The violation is derived, so acknowledging it does not resolve it.
+          stillReported: true,
+        },
+      } satisfies ApiResponse);
+    } catch (err) {
+      logger.error('Failed to acknowledge spend violation', { transactionId, tenantId, err });
+      res.status(500).json({
+        success: false,
+        error: { code: 'ACK_FAILED', message: 'Could not record the acknowledgement.' },
+      } satisfies ApiResponse);
+    }
   },
 );
-
-// ── PATCH /api/spend-governance/transactions/:id/business-purpose ──
-//
-// Update the business purpose for a transaction.
-// Body: { businessPurpose: string }
 
 spendGovernanceRouter.patch(
   '/transactions/:id/business-purpose',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const transactionId = req.params.id;
+    // spend_transactions.businessPurpose is a real column, and it is what the
+    // network-rule check reads: a large personal-likely transaction is a
+    // violation precisely because it "lacks required business-purpose
+    // documentation". Writing the purpose into a module-level object meant
+    // supplying one changed nothing — the violation was still reported on the
+    // next read, and the explanation was gone at the next restart.
+    const transactionId = String(req.params['id'] ?? '');
+    const tenantId = req.tenant?.tenantId;
     const { businessPurpose } = req.body as Record<string, unknown>;
 
-    if (!businessPurpose || typeof businessPurpose !== 'string') {
+    if (!transactionId || !tenantId) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'MISSING_PARAM',
+          message: 'Transaction id and tenant context are required.',
+        },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    if (!businessPurpose || typeof businessPurpose !== 'string' || businessPurpose.trim() === '') {
       res.status(422).json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'businessPurpose (string) is required.' },
@@ -477,22 +560,43 @@ spendGovernanceRouter.patch(
       return;
     }
 
-    const update = {
-      businessPurpose,
-      updatedAt: new Date().toISOString(),
-    };
+    try {
+      const txn = await sharedPrisma.spendTransaction.findFirst({
+        where: { id: transactionId, tenantId },
+        select: { id: true },
+      });
 
-    businessPurposeUpdates[transactionId] = update;
+      if (!txn) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: `No transaction found with id ${transactionId}.` },
+        } satisfies ApiResponse);
+        return;
+      }
 
-    logger.info('Business purpose updated', { transactionId, businessPurpose });
+      const updated = await sharedPrisma.spendTransaction.update({
+        where: { id: transactionId },
+        data: { businessPurpose: businessPurpose.trim() },
+        select: { id: true, businessPurpose: true },
+      });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        transactionId,
-        ...update,
-      },
-    } satisfies ApiResponse);
+      logger.info('Business purpose recorded', { transactionId, tenantId });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          transactionId: updated.id,
+          businessPurpose: updated.businessPurpose,
+          updatedAt: new Date().toISOString(),
+        },
+      } satisfies ApiResponse);
+    } catch (err) {
+      logger.error('Failed to record business purpose', { transactionId, tenantId, err });
+      res.status(500).json({
+        success: false,
+        error: { code: 'PURPOSE_UPDATE_FAILED', message: 'Could not record the business purpose.' },
+      } satisfies ApiResponse);
+    }
   },
 );
 

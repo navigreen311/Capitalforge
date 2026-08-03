@@ -34,6 +34,7 @@ import { z, type ZodError } from 'zod';
 import { RewardsOptimizationService, MCC_CATEGORIES, type MccCategory, type SpendProfile } from '../../services/rewards-optimization.service.js';
 import { CardBenefitsService } from '../../services/card-benefits.service.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 
 // ── Shared service instances ──────────────────────────────────
@@ -389,7 +390,6 @@ rewardsRouter.get(
 // ============================================================
 
 // In-memory stores for mock data
-const cancelledCards: Record<string, { cancelledAt: string; reason: string }> = {};
 
 // ── GET /api/rewards/:clientId/points-balances ──────────────
 //
@@ -489,26 +489,94 @@ rewardsRouter.post(
 rewardsRouter.post(
   '/cards/:id/cancel',
   async (req: Request, res: Response): Promise<void> => {
+    // This wrote { cancelledAt, reason } into a module-level object and
+    // answered 200 with status "cancelled". The card application kept whatever
+    // status it had, so the card went on being listed as approved everywhere
+    // else, and the cancellation was gone at the next restart.
+    //
+    // A card the client believes is cancelled, and the system still counts as
+    // open credit, is the wrong way round for a page that totals available
+    // credit.
     const cardId = Array.isArray(req.params['id']) ? req.params['id'][0]! : (req.params['id'] ?? '');
+    const tenantId = req.tenant?.tenantId;
     const { reason } = req.body as Record<string, unknown>;
 
-    const cancellation = {
-      cancelledAt: new Date().toISOString(),
-      reason: typeof reason === 'string' ? reason : 'No reason provided',
-    };
+    if (!cardId || !tenantId) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'Card id and tenant context are required.' },
+      } satisfies ApiResponse);
+      return;
+    }
 
-    cancelledCards[cardId] = cancellation;
+    try {
+      // The business gate is the tenant check: a card application belongs to a
+      // business, which carries the tenant.
+      const card = await sharedPrisma.cardApplication.findFirst({
+        where: { id: cardId, business: { tenantId } },
+        select: { id: true, status: true },
+      });
 
-    logger.info('Card cancellation logged', { cardId, reason: cancellation.reason });
+      if (!card) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: `No card found with id ${cardId}.` },
+        } satisfies ApiResponse);
+        return;
+      }
 
-    res.status(200).json({
-      success: true,
-      data: {
-        cardId,
-        ...cancellation,
-        status: 'cancelled',
-      },
-    } satisfies ApiResponse);
+      if (card.status === 'cancelled') {
+        res.status(422).json({
+          success: false,
+          error: { code: 'ALREADY_CANCELLED', message: `Card ${cardId} is already cancelled.` },
+        } satisfies ApiResponse);
+        return;
+      }
+
+      const cancelReason = typeof reason === 'string' && reason.trim() !== '' ? reason.trim() : null;
+
+      // Both writes together. A status change with no record of why, or a
+      // reason with no status change, is half of what this endpoint claims.
+      const [updated, audit] = await sharedPrisma.$transaction([
+        sharedPrisma.cardApplication.update({
+          where: { id: cardId },
+          data: { status: 'cancelled' },
+        }),
+        sharedPrisma.auditLog.create({
+          data: {
+            tenantId,
+            userId: req.tenant?.userId ?? null,
+            action: 'card.cancelled',
+            resource: 'card_application',
+            resourceId: cardId,
+            // No column holds a cancellation reason, and "No reason provided"
+            // was written in where none was given — a sentence nobody said.
+            metadata: { reason: cancelReason, previousStatus: card.status },
+          },
+        }),
+      ]);
+
+      logger.info('Card cancellation recorded', { cardId, tenantId });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          cardId: updated.id,
+          status: updated.status,
+          cancelledAt: audit.timestamp.toISOString(),
+          reason: cancelReason,
+          // Recording the cancellation is not closing the account with the
+          // issuer. Nothing here contacts them.
+          closedWithIssuer: false,
+        },
+      } satisfies ApiResponse);
+    } catch (err) {
+      logger.error('Failed to record card cancellation', { cardId, tenantId, err });
+      res.status(500).json({
+        success: false,
+        error: { code: 'CANCEL_FAILED', message: 'Could not record the cancellation.' },
+      } satisfies ApiResponse);
+    }
   },
 );
 

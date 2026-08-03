@@ -527,6 +527,54 @@ const SEED_PHONES = {
     },
   ];
 
+  // Spend transactions, one of which breaks a network rule.
+  //
+  // The spend-governance endpoints act on these rows: a violation is not
+  // stored, it is computed from a transaction each time it is read, so the
+  // acknowledge and business-purpose endpoints had nothing to be tested
+  // against while the table was empty.
+  //
+  // seed-txn-002 is deliberately in violation — personal-likely, over $200,
+  // and no business purpose recorded — which is exactly the condition
+  // checkNetworkRuleCompliance reports on. Supplying a purpose clears it,
+  // which is the behaviour worth having a fixture for.
+  const spendTransactions = [
+    {
+      id: 'seed-txn-001',
+      businessId: biz1.id,
+      amount: dec('84.20'),
+      merchantName: 'Uline',
+      mcc: '5111',
+      mccCategory: 'office_supplies',
+      isCashLike: false,
+      businessPurpose: 'Shipping supplies for Q1 fulfilment.',
+      flagged: false,
+      transactionDate: d('2026-07-02'),
+    },
+    {
+      id: 'seed-txn-002',
+      businessId: biz1.id,
+      amount: dec('640.00'),
+      merchantName: 'Coastal Furnishings',
+      mcc: '5712',
+      mccCategory: 'personal_likely',
+      isCashLike: false,
+      // Absent on purpose: this is what makes it a violation.
+      businessPurpose: null,
+      flagged: true,
+      flagReason: 'Personal-likely merchant over the documentation threshold.',
+      transactionDate: d('2026-07-11'),
+    },
+  ];
+
+  for (const txn of spendTransactions) {
+    await prisma.spendTransaction.upsert({
+      where: { id: txn.id },
+      update: {},
+      create: { ...txn, tenantId: tenant.id },
+    });
+  }
+
   for (const benefit of cardBenefits) {
     await prisma.cardBenefit.upsert({
       where: { id: benefit.id },

@@ -338,8 +338,6 @@ statementsRouter.post(
 // ============================================================
 
 // In-memory state for anomaly dismissals, investigation steps, and disputes
-const dismissedAnomalies: Record<string, { dismissedAt: string; reason: string }> = {};
-const completedSteps: Record<string, { completedAt: string; notes: string }> = {};
 const disputes: Array<{
   id: string;
   statementId: string;
@@ -471,63 +469,64 @@ statementsRouter.get(
 statementsRouter.post(
   '/anomalies/:id/dismiss',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const anomalyId = String(req.params['id']);
-    const { reason } = req.body as Record<string, unknown>;
+    // Refused, because there is nothing to dismiss against.
+    //
+    // A statement anomaly is not a stored row. The reconciliation service
+    // builds them while reading a statement — StatementAnomaly is
+    // { type, severity, description, amount?, transactionRef? } — and it
+    // carries no id at all. So the :id in this path corresponds to nothing the
+    // system ever issued, and the dismissal was written into a module-level
+    // object under that made-up key, answered 200, and disappeared at the next
+    // restart. The anomaly was recomputed and reported again regardless.
+    //
+    // Persisting it would mean inventing an identity for a derived object and
+    // a table to hold the dismissals — a feature, not a repair. Dismissing a
+    // financial discrepancy is a decision somebody would expect to stick, so
+    // the endpoint says it cannot rather than appearing to.
+    const anomalyId = String(req.params['id'] ?? '');
 
-    if (!reason || typeof reason !== 'string') {
-      res.status(422).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'reason is required and must be a string.' },
-      } satisfies ApiResponse);
-      return;
-    }
+    logger.info('Anomaly dismissal refused — anomalies are derived, not stored', { anomalyId });
 
-    const entry = {
-      dismissedAt: new Date().toISOString(),
-      reason,
-    };
-    dismissedAnomalies[anomalyId] = entry;
-
-    logger.info('Anomaly dismissed', { anomalyId, reason });
-
-    res.status(200).json({
-      success: true,
-      data: {
-        anomalyId,
-        status: 'dismissed',
-        ...entry,
+    res.status(501).json({
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Dismissing an anomaly is not implemented. Anomalies are derived from the statement ' +
+          'each time it is read and carry no identifier, so a dismissal cannot be recorded ' +
+          'against one. This used to answer 200 and keep the dismissal in memory until the ' +
+          'process restarted, while the anomaly went on being reported.',
       },
     } satisfies ApiResponse);
   },
 );
 
-// ── POST /api/statements/anomalies/:id/steps/:step ─────────
-//
-// Complete an investigation step for an anomaly.
-
 statementsRouter.post(
   '/anomalies/:id/steps/:step',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const anomalyId = String(req.params['id']);
-    const step = String(req.params['step']);
-    const { notes } = req.body as Record<string, unknown>;
+    // Refused, for the same reason as the dismissal above: the anomaly this
+    // step belongs to has no identity, so neither does the step. It was keyed
+    // as `${anomalyId}:${step}` in a module-level object.
+    //
+    // An investigation trail that empties on restart is worse than none —
+    // somebody would rely on it to know what had already been checked.
+    const anomalyId = String(req.params['id'] ?? '');
+    const step = String(req.params['step'] ?? '');
 
-    const key = `${anomalyId}:${step}`;
-    const entry = {
-      completedAt: new Date().toISOString(),
-      notes: typeof notes === 'string' ? notes : '',
-    };
-    completedSteps[key] = entry;
+    logger.info('Investigation step refused — anomalies are derived, not stored', {
+      anomalyId,
+      step,
+    });
 
-    logger.info('Investigation step completed', { anomalyId, step });
-
-    res.status(200).json({
-      success: true,
-      data: {
-        anomalyId,
-        step,
-        status: 'completed',
-        ...entry,
+    res.status(501).json({
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Recording an investigation step is not implemented. Anomalies are derived from the ' +
+          'statement on each read and carry no identifier, so nothing can hold the steps taken ' +
+          'against one. This used to answer 200 and keep them in memory until the process ' +
+          'restarted.',
       },
     } satisfies ApiResponse);
   },

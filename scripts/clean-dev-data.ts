@@ -378,6 +378,28 @@ e2e workflow rules         : ${e2eWorkflows.length}`);
     })).count);
   }
 
+  // Seeded spend transactions are reset rather than deleted.
+  //
+  // The spend-governance suite supplies a business purpose for seed-txn-002 to
+  // prove the column is written and the network-rule check reads it. The seed
+  // is create-only by design, so re-seeding never clears it and the second run
+  // finds no transaction missing its documentation — the same self-exhausting
+  // shape the card-benefit test had.
+  //
+  // Scoped to the seed- ids, so a purpose somebody recorded through the UI on
+  // real data is left alone. seed-txn-001 is seeded with a purpose and keeps
+  // it; only the one seeded without is cleared.
+  const seededTxns = await prisma.spendTransaction.findMany({
+    where: { id: 'seed-txn-002', NOT: { businessPurpose: null } },
+    select: { id: true },
+  });
+  if (seededTxns.length > 0) {
+    note('seededSpendPurposeReset', (await prisma.spendTransaction.updateMany({
+      where: { id: { in: seededTxns.map((t) => t.id) } },
+      data: { businessPurpose: null },
+    })).count);
+  }
+
   // Seeded card benefits are reset rather than deleted.
   //
   // The card-benefits suite marks one used and re-reads it to prove the write
