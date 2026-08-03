@@ -332,7 +332,21 @@ function AchAuthorizationCard({ clientId }: { clientId: string }) {
 
   if (isLoading) return <SkeletonCard lines={4} title="ach" />;
 
-  if (error) {
+  // The endpoint answers 404 when the client has no authorization on file,
+  // which is the state every client is in until one is taken — including every
+  // client on the day they are onboarded.
+  //
+  // The empty state below already said so, and was unreachable: the 404 landed
+  // in the error branch above it, so a new client's page showed "Something
+  // went wrong — No ACH authorization on file for this client" with a Retry
+  // button, next to a heading that read ACH Authorization. Retrying could
+  // never succeed, because nothing was wrong.
+  //
+  // AchDebitTab, which renders the same record on the client's ACH tab, has
+  // always handled this correctly. This card is the copy that did not.
+  const notOnFile = error?.type === 'server_error' && error.status === 404;
+
+  if (error && !notOnFile) {
     return (
       <SectionCard title="ACH Authorization">
         <DashboardErrorState error={error} onRetry={refetch} />
@@ -340,10 +354,15 @@ function AchAuthorizationCard({ clientId }: { clientId: string }) {
     );
   }
 
-  if (!achAuth) {
+  if (notOnFile || !achAuth) {
     return (
       <SectionCard title="ACH Authorization">
-        <p className="text-sm text-gray-400 text-center py-4">No ACH authorization on file.</p>
+        <div className="rounded-lg border border-dashed border-surface-border bg-gray-50 p-5 text-center">
+          <p className="text-sm font-medium text-gray-700">None on file</p>
+          <p className="mt-1 text-xs text-gray-500">
+            No ACH authorization has been taken from this client.
+          </p>
+        </div>
       </SectionCard>
     );
   }
