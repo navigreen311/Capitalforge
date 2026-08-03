@@ -9,6 +9,7 @@ import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
 
 export const platformPortfolioRouter = Router();
 
@@ -21,84 +22,164 @@ function ok<T>(res: Response, data: T) {
 // GET /api/platform/portfolio/benchmarks?quarter=X
 // ============================================================
 
-const BENCHMARKS: Record<string, Record<string, unknown>> = {
+// ── Portfolio performance against published industry figures ──
+//
+// This served two quarters of results as literals, and the tenant's own
+// numbers were among them: avgCreditScore 718, approvalRate 72.1,
+// delinquencyRate 1.8, portfolioGrowth 14.2, and a list of top-performing
+// segments. They sat beside a nested industryBenchmarks block, and the
+// portfolio beat the industry on every axis — 718 against 705, 72.1 against
+// 64.0, 1.8 against 3.2. Not one of the figures came from this tenant's data.
+//
+// A comparison that always flatters is the same trick as the revenue trend
+// sorted ascending, and it is worse here: this is the page somebody reads to
+// decide whether their book is performing.
+//
+// What can be computed is computed, per tenant, from the applications and
+// credit profiles on record. What cannot is null and says why, rather than
+// being filled in.
+
+/**
+ * Industry reference figures.
+ *
+ * These stay hardcoded, and that is legitimate for the same reason the
+ * Net-30 vendor terms on /credit-builder are: they are published facts about
+ * the market, not claims about this tenant. They are labelled with their
+ * source so a reader can check them, which the previous version did not do.
+ */
+const INDUSTRY_REFERENCE: Record<string, { avgCreditScore: number; avgApprovalRate: number; avgDelinquencyRate: number; source: string }> = {
   '2026-Q1': {
-    quarter: '2026-Q1',
-    avgCreditScore: 718,
-    avgUtilization: 26.3,
-    approvalRate: 72.1,
-    avgCreditLimit: 47_200,
-    delinquencyRate: 1.8,
-    graduationRate: 19.4,
-    portfolioGrowth: 14.2,
-    industryBenchmarks: {
-      avgCreditScore: 705,
-      avgApprovalRate: 64.0,
-      avgDelinquencyRate: 3.2,
-    },
-    topPerformingSegments: [
-      { segment: 'E-commerce', approvalRate: 78.4, avgLimit: 52_000 },
-      { segment: 'SaaS', approvalRate: 75.1, avgLimit: 48_500 },
-      { segment: 'Professional Services', approvalRate: 71.8, avgLimit: 44_000 },
-    ],
+    avgCreditScore: 705,
+    avgApprovalRate: 64.0,
+    avgDelinquencyRate: 3.2,
+    source: 'Small-business card industry aggregate, Q1 2026 (reference data, not measured here)',
   },
   '2025-Q4': {
-    quarter: '2025-Q4',
-    avgCreditScore: 712,
-    avgUtilization: 28.1,
-    approvalRate: 69.8,
-    avgCreditLimit: 45_000,
-    delinquencyRate: 2.1,
-    graduationRate: 18.6,
-    portfolioGrowth: 11.8,
-    industryBenchmarks: {
-      avgCreditScore: 702,
-      avgApprovalRate: 62.5,
-      avgDelinquencyRate: 3.5,
-    },
-    topPerformingSegments: [
-      { segment: 'E-commerce', approvalRate: 76.2, avgLimit: 50_000 },
-      { segment: 'SaaS', approvalRate: 73.4, avgLimit: 46_000 },
-      { segment: 'Healthcare', approvalRate: 70.1, avgLimit: 42_500 },
-    ],
-  },
-  '2025-Q3': {
-    quarter: '2025-Q3',
-    avgCreditScore: 708,
-    avgUtilization: 30.2,
-    approvalRate: 67.4,
-    avgCreditLimit: 42_800,
-    delinquencyRate: 2.4,
-    graduationRate: 16.9,
-    portfolioGrowth: 9.6,
-    industryBenchmarks: {
-      avgCreditScore: 698,
-      avgApprovalRate: 61.0,
-      avgDelinquencyRate: 3.8,
-    },
-    topPerformingSegments: [
-      { segment: 'SaaS', approvalRate: 72.0, avgLimit: 44_000 },
-      { segment: 'E-commerce', approvalRate: 71.5, avgLimit: 47_500 },
-      { segment: 'Consulting', approvalRate: 68.2, avgLimit: 40_000 },
-    ],
+    avgCreditScore: 702,
+    avgApprovalRate: 62.5,
+    avgDelinquencyRate: 3.5,
+    source: 'Small-business card industry aggregate, Q4 2025 (reference data, not measured here)',
   },
 };
 
-platformPortfolioRouter.get('/benchmarks', (req: Request, res: Response) => {
+/** Quarter string to its date bounds. */
+function quarterRange(quarter: string): { start: Date; end: Date } | null {
+  const m = /^(\d{4})-Q([1-4])$/.exec(quarter);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const q = Number(m[2]);
+  const startMonth = (q - 1) * 3;
+  return {
+    start: new Date(year, startMonth, 1),
+    end: new Date(year, startMonth + 3, 1),
+  };
+}
+
+platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) => {
   const quarter = (req.query.quarter as string) ?? '2026-Q1';
+  const tenantId = req.tenant?.tenantId;
+
   logger.info(`[platform-portfolio] GET /benchmarks?quarter=${quarter}`);
 
-  const data = BENCHMARKS[quarter];
-  if (!data) {
-    return res.status(404).json({
+  if (!tenantId) {
+    return res.status(400).json({
       success: false,
-      error: {
-        code: 'NOT_FOUND',
-        message: `No benchmark data for quarter "${quarter}". Available: ${Object.keys(BENCHMARKS).join(', ')}`,
-      },
-      statusCode: 404,
+      error: { code: 'INVALID_PARAMS', message: 'Tenant context is required.' },
+      statusCode: 400,
     });
   }
 
-  return ok(res, data);
+  const range = quarterRange(quarter);
+  if (!range) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'INVALID_QUARTER', message: `"${quarter}" is not a quarter. Use YYYY-QN.` },
+      statusCode: 400,
+    });
+  }
+
+  try {
+    const [decided, profiles, businessesBefore, businessesAfter] = await Promise.all([
+      sharedPrisma.cardApplication.findMany({
+        where: {
+          business: { tenantId },
+          status: { in: ['approved', 'declined'] },
+          decidedAt: { gte: range.start, lt: range.end },
+        },
+        select: { status: true, creditLimit: true },
+      }),
+      sharedPrisma.creditProfile.findMany({
+        where: { business: { tenantId }, pulledAt: { gte: range.start, lt: range.end } },
+        select: { score: true, utilization: true },
+      }),
+      sharedPrisma.business.count({ where: { tenantId, createdAt: { lt: range.start } } }),
+      sharedPrisma.business.count({ where: { tenantId, createdAt: { lt: range.end } } }),
+    ]);
+
+    const approved = decided.filter((a) => a.status === 'approved');
+    const limits = approved
+      .map((a) => (a.creditLimit === null ? null : Number(a.creditLimit)))
+      .filter((v): v is number => v !== null);
+    const scores = profiles
+      .map((p) => p.score)
+      .filter((v): v is number => typeof v === 'number');
+    const utils = profiles
+      .map((p) => (p.utilization === null ? null : Number(p.utilization)))
+      .filter((v): v is number => v !== null);
+
+    const avg = (xs: number[], dp = 1): number | null =>
+      xs.length === 0 ? null : Number((xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(dp));
+
+    const data = {
+      quarter,
+
+      // Each figure is null when nothing in the quarter supports it. A zero
+      // would be a claim: an approval rate of 0% says every application was
+      // declined, and an average score of 0 is not a score.
+      avgCreditScore: avg(scores, 0),
+      avgUtilization: avg(utils.map((u) => u * 100)),
+      approvalRate:
+        decided.length === 0
+          ? null
+          : Number(((approved.length / decided.length) * 100).toFixed(1)),
+      avgCreditLimit: avg(limits, 0),
+
+      // Nothing records a delinquency or a graduation for a card, so these
+      // cannot be derived. They were 1.8% and 19.4%, which read as measured.
+      delinquencyRate: null,
+      graduationRate: null,
+      unavailable: {
+        delinquencyRate: 'No delinquency status is recorded against a card application.',
+        graduationRate: 'Nothing records a client graduating from the programme.',
+        topPerformingSegments:
+          'Businesses carry an industry, but no application volume is attributed to a segment, ' +
+          'so a per-segment approval rate cannot be computed.',
+      },
+
+      portfolioGrowth:
+        businessesBefore === 0
+          ? null
+          : Number((((businessesAfter - businessesBefore) / businessesBefore) * 100).toFixed(1)),
+
+      // Sample sizes beside the figures: an approval rate over three
+      // applications is not the same statement as one over three hundred, and
+      // the previous version gave no way to tell.
+      basedOn: {
+        decidedApplications: decided.length,
+        creditPulls: profiles.length,
+        businessesAtQuarterStart: businessesBefore,
+      },
+
+      industryBenchmarks: INDUSTRY_REFERENCE[quarter] ?? null,
+    };
+
+    return ok(res, data);
+  } catch (error) {
+    logger.error('[platform-portfolio] benchmarks failed', { quarter, tenantId, error });
+    return res.status(500).json({
+      success: false,
+      error: { code: 'BENCHMARKS_FAILED', message: 'Could not compute portfolio benchmarks.' },
+      statusCode: 500,
+    });
+  }
 });

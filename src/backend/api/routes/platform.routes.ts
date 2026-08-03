@@ -839,39 +839,52 @@ router.patch('/settings/firm', (req: Request, res: Response) => {
 // Integrations — Connect & Test
 // ============================================================
 
-const INTEGRATIONS_STORE: Record<string, { id: string; status: string; connectedAt: string }> = {};
+// Refused, because nothing connects and nothing records that it did.
+//
+// POST /integrations/:id/connect answered 200 with "Integration <id>
+// connected successfully" after writing { id, status: 'connected',
+// connectedAt } into INTEGRATIONS_STORE, a module-level object. No
+// credentials were exchanged, no OAuth flow ran, nothing was contacted — the
+// endpoint took any id at all and reported it connected. The record was gone
+// at the next restart and invisible to every other worker meanwhile, so a
+// second worker would tell the same operator the integration was not
+// connected.
+//
+// There is no integration table anywhere in this schema. The separate
+// integration layer under /api/integrations keeps its connections in a Map
+// too, so nothing in this system persists one.
+//
+// Telling somebody an integration is live is the claim they act on before
+// wondering why no data is flowing.
 
 router.post('/integrations/:id/connect', (req: Request, res: Response) => {
   const integrationId = req.params.id;
-  logger.info(`[platform] POST /integrations/${integrationId}/connect`);
-  INTEGRATIONS_STORE[integrationId] = {
-    id: integrationId,
-    status: 'connected',
-    connectedAt: new Date().toISOString(),
-  };
-  return ok(res, {
-    integrationId,
-    status: 'connected',
-    connectedAt: INTEGRATIONS_STORE[integrationId].connectedAt,
-    message: `Integration ${integrationId} connected successfully.`,
-  });
+  logger.info(`[platform] POST /integrations/${integrationId}/connect — refused, nothing connects`);
+
+  return res.status(501).json({
+    success: false,
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message:
+        `Connecting ${integrationId} is not implemented. No credentials are exchanged and no ` +
+        'provider is contacted, and nothing in this schema records an integration connection. ' +
+        'This used to answer 200 reporting the integration connected, from a value held in ' +
+        'process memory until the next restart.',
+    },
+  } as ApiResponse);
 });
 
 router.post('/integrations/:id/test', (req: Request, res: Response) => {
   const integrationId = req.params.id;
-  logger.info(`[platform] POST /integrations/${integrationId}/test`);
-  const existing = INTEGRATIONS_STORE[integrationId];
-  if (!existing || existing.status !== 'connected') {
-    return res.status(400).json({
-      success: false,
-      error: { code: 'NOT_CONNECTED', message: `Integration ${integrationId} is not connected. Connect first.` },
-      statusCode: 400,
-    });
-  }
+  logger.info(`[platform] POST /integrations/${integrationId}/test — refused, nothing is contacted`);
+
   // This reported healthy: true with a latency between 20ms and 170ms from
   // Math.random(), having contacted nothing. An integration health check that
   // always passes is worse than none: it is the check somebody relies on to
   // tell them a connection has broken.
+  //
+  // It also required the connect endpoint above to have been called first, so
+  // it read a memory flag and called that a connection test.
   return res.status(501).json({
     success: false,
     error: {
