@@ -22,8 +22,14 @@ be made before any of it can be built.
 
 ## 1. Endpoints that refuse
 
-Fourteen endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
+Nineteen endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
 body, so a caller does not have to read the source to find out.
+
+Every row below was verified by calling it against a running server, not by
+reading the handler. That check found one endpoint answering `404` instead —
+`DELETE /api/integrations/:provider/disconnect`, whose catch block used a
+different status from its three siblings, so the refusal read as a wrong URL.
+It answers `501` now.
 
 | Endpoint | What is missing | Cost |
 |---|---|---|
@@ -61,23 +67,40 @@ reason stated, because a zero would be a claim.
 
 ## 3. Tables that exist but are never written
 
-These are the quiet ones. The table is in the schema, endpoints read it, and
-nothing ever puts a row in — so the surface answers `200` with an empty list
-forever, and looks like a feature nobody uses rather than one nobody finished.
+Four tables are in the schema and never receive a row:
 
 | Table | Read by | Effect |
 |---|---|---|
-| `CardProduct` | `optimizer-v2.routes`, `stacking-optimizer.service` | The stacking optimiser has no catalogue of cards to optimise over. |
-| `Issuer`, `IssuerRule` | `issuer-rules.routes`, `issuer-rules-engine` | The issuer rules engine has no rules. |
-| `CreditUnion`, `CreditUnionProduct` | `credit-union.routes`, `issuer-rules.routes`, `optimizer-v2.routes` | Credit-union products never appear in any recommendation. |
 | `BackupRecord` | nothing | Backups are reported from nowhere. Until recently a module-level seeder invented seven days of completed ones on every process start. |
 | `TenantBranding` | nothing | Per-tenant branding is modelled and unused. |
-| `RewardsOptimization`, `SandboxProfile` | nothing | Modelled and unused. |
+| `RewardsOptimization` | nothing | Modelled and unused. |
+| `SandboxProfile` | nothing | Modelled and unused. |
 
-**These are the cheapest wins on this page.** Four of them need seed or import
-data, not code — the queries, routes and pages already exist and work. A
-catalogue of card products and issuer rules would light up the optimiser
-without a line of new logic.
+**None of them is read by anything**, so none is currently causing a surface to
+answer emptily. They are dead weight in the schema rather than gaps in the
+product, and the only one with a live consequence is `BackupRecord`: the
+business-continuity endpoints report on backups, and with nothing writing that
+table there is nothing truthful for them to report.
+
+> **This section was wrong when first written, and the correction matters more
+> than the content.** It claimed nine unwritten tables, four of them read by
+> live endpoints — `CardProduct`, `Issuer`, `IssuerRule`, `CreditUnion`,
+> `CreditUnionProduct` — and called seeding them the cheapest win available.
+>
+> All five are seeded, and always were. `prisma/seeds/card-products.ts` writes
+> 41 card products and `prisma/seeds/issuer-rules.ts` writes 7 issuers, 22
+> issuer rules, and the credit unions with their products. Both are wired into
+> `db:seed`. The database has had all of it the whole time.
+>
+> The error came from searching `src/backend` and `prisma/seed.ts` for writes.
+> The seeders live in `prisma/seeds/`, which that search never looked at, and
+> the result was written down as fact without one query against the database
+> to check it. The discovery came from acting on the recommendation: seeding
+> data that already existed raised a unique-constraint violation on
+> `Issuer.name`.
+>
+> Every other claim on this page has since been checked by calling the running
+> system rather than by reading the source.
 
 ---
 
@@ -115,20 +138,33 @@ does not have to wonder whether something is broken:
 
 ## What I would do first
 
-**The unwritten tables in section 3.** They are the only entries where the code
-is already finished. Seed `CardProduct`, `Issuer` and `IssuerRule` and the
-stacking optimiser starts producing recommendations against a real catalogue —
-no new logic, no schema change, no third-party credential.
+**The two columns in section 2.** `Business.foundedDate` unblocks the Tier 3
+business-age criterion on the credit builder, which currently reports
+"formation date not recorded" to every client. A delinquency status on
+`CardApplication` unblocks the portfolio delinquency rate. Both are single
+fields with obvious owners, and both are currently the only thing standing
+between an existing page and a real number.
 
-**Then the two columns.** `Business.foundedDate` unblocks the Tier 3 business-age
-criterion on the credit builder. A delinquency status on `CardApplication`
-unblocks the portfolio delinquency rate. Both are single fields with obvious
-owners.
+**Then the application status history.** One table — a row per status change on
+a card application — turns the dashboard's `applications` sparkline from null
+into a real series, and makes every other trend on that page derivable rather
+than approximated. It is the highest ratio of surface unlocked to work done on
+this page.
 
 **Then decide about tax.** It is the largest gap and the only one where the
 absence is currently safer than a fast implementation. A wrong 1099 is worse
-than no 1099, which is why those four endpoints refuse rather than approximate.
+than no 1099, which is why those four endpoints refuse rather than
+approximate.
 
 **Leave `/platform/offboarding/:id/advance` refused.** It is the one entry here
 that is not a gap. Advancing a stage by hand is how a workflow comes to claim a
 deletion that never ran.
+
+**Do not plan from section 3.** Those four tables are unused schema, not
+missing features. An earlier version of this document recommended exactly the
+opposite, on data that was never checked against the database.
+
+---
+
+*Verified against a running server on 2026-08-03: all nineteen refusals, the
+null figures in section 2, and the row counts behind section 3.*

@@ -110,6 +110,14 @@ integrationsRouter.delete('/integrations/:provider/disconnect', async (req: Requ
     await (integrationLayerService[provider] as { disconnect: (t: string) => Promise<void> }).disconnect(tenantId);
     ok(res, { provider, status: 'disconnected' });
   } catch (e) {
+    // This catch answered 404 for everything, so the refusal below came back
+    // as "not found" — which reads as a wrong URL rather than an operation
+    // that does not exist. The other three integration routes were mapped to
+    // 501; this one was missed because its catch used a different status.
+    if (e instanceof IntegrationNotImplementedError) {
+      err(res, e.message, 501);
+      return;
+    }
     err(res, (e as Error).message, 404);
   }
 });
