@@ -13,6 +13,7 @@ export { UpcomingPayments } from './UpcomingPayments';
 export { TCPAReminderModal } from './TCPAReminderModal';
 export { DealCommitteeQueue } from './DealCommitteeQueue';
 export { StateDisclosureDeadlines } from './StateDisclosureDeadlines';
+export { ComplianceHealthPanel } from './ComplianceHealthPanel';
 export { PortfolioRiskHeatmap } from './PortfolioRiskHeatmap';
 export { RestackOpportunities } from './RestackOpportunities';
 export { RestackWidget } from './RestackWidget';

@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { SectionCard } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import type { BadgeStatus } from '@/components/ui/badge';
 import {
+  ComplianceHealthPanel,
   StatsBar,
   ConsentAlertBanner,
   AprExpiryPanel,
@@ -27,69 +25,6 @@ import type { RestackStartRoundPayload } from '@/components/dashboard';
 import { SetupChecklist } from '@/components/onboarding/SetupChecklist';
 import { NewApplicationModal } from '@/components/applications';
 import type { NewAppDefaults } from '@/components/applications';
-
-// ─── Compliance score ring (SVG) ─────────────────────────────────────────────
-
-function ComplianceRing({ score }: { score: number }) {
-  const radius = 36;
-  const circumference = 2 * Math.PI * radius;
-  const filled = (score / 100) * circumference;
-  const color = score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444';
-
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <svg width="96" height="96" viewBox="0 0 96 96" aria-label={`Compliance score: ${score}%`}>
-        {/* Track */}
-        <circle
-          cx="48" cy="48" r={radius}
-          fill="none" stroke="#E5E7EB" strokeWidth="8"
-        />
-        {/* Fill */}
-        <circle
-          cx="48" cy="48" r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth="8"
-          strokeDasharray={`${filled} ${circumference - filled}`}
-          strokeDashoffset={circumference * 0.25}
-          strokeLinecap="round"
-        />
-        {/* Score text */}
-        <text
-          x="48" y="48"
-          textAnchor="middle" dominantBaseline="central"
-          className="text-xl font-bold"
-          style={{ fontSize: '20px', fontWeight: 700, fill: '#0F172A' }}
-        >
-          {score}
-        </text>
-      </svg>
-      <p className="text-xs text-gray-500">Compliance Score</p>
-    </div>
-  );
-}
-
-// ─── Compliance row helper ───────────────────────────────────────────────────
-
-function ComplianceRow({
-  label,
-  status,
-  count,
-}: {
-  label: string;
-  status: BadgeStatus;
-  count: number;
-}) {
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-gray-600">{label}</span>
-      <div className="flex items-center gap-2">
-        <span className="font-semibold text-gray-900">{count}</span>
-        <Badge status={status} size="sm" />
-      </div>
-    </div>
-  );
-}
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
@@ -162,25 +97,15 @@ export default function DashboardPage() {
           <AskAIWidget />
 
           {/* Compliance Health panel */}
+          {/* The subtitle said "Aggregate score across active clients". The
+              score is computed from compliance checks, and a client with no
+              check on record contributes nothing to it — so it was describing
+              a coverage this number does not have. */}
           <SectionCard
             title="Compliance Health"
-            subtitle="Aggregate score across active clients"
+            subtitle="From compliance checks on record"
           >
-            <div className="flex flex-col items-center gap-4">
-              <ComplianceRing score={84} />
-              <div className="w-full space-y-2">
-                <ComplianceRow label="State disclosures"   status="approved"   count={42} />
-                <ComplianceRow label="TILA requirements"   status="approved"   count={38} />
-                <ComplianceRow label="Pending reviews"     status="pending"    count={6}  />
-                <ComplianceRow label="Overdue items"       status="declined"   count={2}  />
-              </div>
-              <Link
-                href="/compliance"
-                className="btn-outline btn btn-sm w-full justify-center"
-              >
-                Open Compliance Center
-              </Link>
-            </div>
+            <ComplianceHealthPanel />
             {/* State disclosure deadlines — embedded below compliance overview */}
             <div className="mt-4 border-t border-surface-border pt-4">
               <StateDisclosureDeadlines />

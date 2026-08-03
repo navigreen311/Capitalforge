@@ -26,6 +26,7 @@ interface SubRoute {
 
 const SUB_ROUTES: SubRoute[] = [
   { path: '/kpi-summary',            modulePath: './dashboard-kpi.routes.js',                  exportName: 'dashboardKpiRouter' },
+  { path: '/recent-applications',    modulePath: './dashboard-recent-applications.routes.js',   exportName: 'dashboardRecentApplicationsRouter' },
   { path: '/consent-status',         modulePath: './dashboard-consent.routes.js',              exportName: 'dashboardConsentRouter' },
   { path: '/apr-expiry-alerts',      modulePath: './dashboard-apr-expiry.routes.js',           exportName: 'dashboardAprExpiryRouter' },
   { path: '/action-queue',           modulePath: './dashboard-action-queue.routes.js',         exportName: 'dashboardActionQueueRouter' },

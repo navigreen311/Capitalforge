@@ -18,7 +18,20 @@ import { DashboardErrorState } from './DashboardErrorState';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-type ConsentStatus = 'complete' | 'pending' | 'blocked';
+/**
+ * What consent records exist for the client behind an application.
+ *
+ * This read `complete | pending | blocked` and the endpoint reports
+ * `complete | partial | missing`, so every application without a full set of
+ * consents rendered an empty, unstyled chip — an undefined lookup in both the
+ * style and the label map, which produces no text rather than an error.
+ *
+ * The endpoint's vocabulary is the accurate one and this now follows it.
+ * "Blocked" would say a client had refused, and "pending" would say a request
+ * was outstanding; nothing records either. The only facts available are how
+ * many consent records exist, so the three states are none, some, and all.
+ */
+type ConsentStatus = 'complete' | 'partial' | 'missing';
 
 interface Application {
   id: string;
@@ -27,7 +40,9 @@ interface Application {
   type: string;
   amount: string;
   status: DashboardBadgeStatus;
-  submitted: string;
+  /** Null when the application has not been submitted. */
+  submitted: string | null;
+  created: string;
   round: string;
   roundId: string;
   consent: ConsentStatus;
@@ -43,25 +58,37 @@ interface ApplicationsResponse {
 
 const CONSENT_STYLES: Record<ConsentStatus, string> = {
   complete: 'bg-emerald-100 text-emerald-800 border-emerald-300',
-  pending:  'bg-amber-100 text-amber-800 border-amber-300',
-  blocked:  'bg-red-100 text-red-800 border-red-300',
+  partial:  'bg-amber-100 text-amber-800 border-amber-300',
+  // Grey, not red. Nothing on file is an absence of information, not an
+  // adverse finding, and red would read as a client who said no.
+  missing:  'bg-gray-100 text-gray-700 border-gray-300',
 };
 
 const CONSENT_LABELS: Record<ConsentStatus, string> = {
   complete: 'Complete',
-  pending:  'Pending',
-  blocked:  'Blocked',
+  partial:  'Partial',
+  missing:  'None on file',
 };
 
 function ConsentChip({ status, tooltip }: { status: ConsentStatus; tooltip?: string }) {
+  // An unrecognised value renders as itself rather than as an empty chip.
+  const style = CONSENT_STYLES[status] ?? 'bg-gray-100 text-gray-700 border-gray-300';
+  const label = CONSENT_LABELS[status] ?? status;
+
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${CONSENT_STYLES[status]}`}
+      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${style}`}
       title={tooltip}
     >
-      {CONSENT_LABELS[status]}
+      {label}
     </span>
   );
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 // ── Kebab Actions Menu ─────────────────────────────────────────────────────
@@ -274,9 +301,8 @@ const STATUS_OPTIONS: DashboardBadgeStatus[] = [
   'processing', 'funded', 'draft', 'inactive', 'active', 'expired', 'awaiting_ack',
 ];
 
-const TYPE_OPTIONS = ['Term Loan', 'SBA 7(a)', 'Credit Stack', 'Equipment', 'Line of Credit'];
-
 function FilterBar({
+  typeOptions,
   statusFilter,
   typeFilter,
   dateFrom,
@@ -286,6 +312,7 @@ function FilterBar({
   onDateFromChange,
   onDateToChange,
 }: {
+  typeOptions: string[];
   statusFilter: string;
   typeFilter: string;
   dateFrom: string;
@@ -320,7 +347,7 @@ function FilterBar({
         aria-label="Filter by type"
       >
         <option value="">All Types</option>
-        {TYPE_OPTIONS.map((t) => (
+        {typeOptions.map((t) => (
           <option key={t} value={t}>{t}</option>
         ))}
       </select>
@@ -388,13 +415,30 @@ export function RecentApplicationsEnhanced() {
 
   const applications = data?.applications ?? [];
 
+  // The type filter offered Term Loan, SBA 7(a), Credit Stack, Equipment and
+  // Line of Credit. These are applications for business credit cards, and the
+  // type column holds an issuer and a card product — so every one of those
+  // five options filtered the table down to nothing, on every tenant, always.
+  // The options now come from the rows on screen, which is the only set that
+  // can match one.
+  const typeOptions = useMemo(
+    () => [...new Set(applications.map((a) => a.type))].sort((a, b) => a.localeCompare(b)),
+    [applications],
+  );
+
   // Filtered data
   const filtered = useMemo(() => {
     return applications.filter((app) => {
       if (statusFilter && app.status !== statusFilter) return false;
       if (typeFilter && app.type !== typeFilter) return false;
-      if (dateFrom && app.submitted < dateFrom) return false;
-      if (dateTo && app.submitted > dateTo) return false;
+      // A date range filters on submission, so an unsubmitted application is
+      // outside every range rather than inside all of them — which is what a
+      // string comparison against null used to make it.
+      if (dateFrom || dateTo) {
+        if (app.submitted === null) return false;
+        if (dateFrom && app.submitted < dateFrom) return false;
+        if (dateTo && app.submitted > dateTo) return false;
+      }
       return true;
     });
   }, [applications, statusFilter, typeFilter, dateFrom, dateTo]);
@@ -434,6 +478,7 @@ export function RecentApplicationsEnhanced() {
       {/* Filter bar */}
       {showFilters && (
         <FilterBar
+          typeOptions={typeOptions}
           statusFilter={statusFilter}
           typeFilter={typeFilter}
           dateFrom={dateFrom}
@@ -507,14 +552,19 @@ export function RecentApplicationsEnhanced() {
                       {app.amount}
                     </td>
 
-                    {/* Round */}
+                    {/* Round. An application in no round has no round page,
+                        and linking to /funding-rounds/ was a link to a 404. */}
                     <td className="px-3 py-3 truncate">
-                      <a
-                        href={`/funding-rounds/${app.roundId}`}
-                        className="text-sm text-brand-navy hover:underline"
-                      >
-                        {app.round}
-                      </a>
+                      {app.roundId === '' ? (
+                        <span className="text-sm text-gray-400">{app.round}</span>
+                      ) : (
+                        <a
+                          href={`/funding-rounds/${app.roundId}`}
+                          className="text-sm text-brand-navy hover:underline"
+                        >
+                          {app.round}
+                        </a>
+                      )}
                     </td>
 
                     {/* Consent */}
@@ -527,9 +577,17 @@ export function RecentApplicationsEnhanced() {
                       <DashboardBadge status={app.status} />
                     </td>
 
-                    {/* Submitted */}
+                    {/* Submitted. Printed the raw ISO timestamp, and printed
+                        the creation date for drafts under a header that says
+                        submitted. A draft now says it is one. */}
                     <td className="px-3 py-3 truncate text-gray-500">
-                      {app.submitted}
+                      {app.submitted === null ? (
+                        <span className="text-gray-400" title={`Created ${formatDate(app.created)}`}>
+                          Not submitted
+                        </span>
+                      ) : (
+                        formatDate(app.submitted)
+                      )}
                     </td>
 
                     {/* Actions */}
