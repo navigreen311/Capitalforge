@@ -53,10 +53,47 @@ export interface SyncResult {
 
 // ── In-memory store (replace with DB / cache in production) ──
 
-const connections = new Map<string, IntegrationConnection>();
 const webhookLog  = new Map<string, WebhookEvent>();
 
 // ── Helpers ──────────────────────────────────────────────────
+
+/**
+ * Thrown by every operation that would need to talk to a provider.
+ *
+ * Nothing in this file contacts Plaid, QuickBooks, Xero, DocuSign or Stripe.
+ * Each connect() built an IntegrationConnection with an access token of the
+ * form `plaid_access_stub_<uuid>`, marked it connected, and put it in a Map;
+ * each sync() returned a fixed record count — 150 transactions for Plaid, 48
+ * for QuickBooks, 32 for Xero, 7 for DocuSign, 22 for Stripe — for records it
+ * had never fetched.
+ *
+ * So an operator could connect an integration, be told it worked, be told a
+ * hundred and fifty transactions had synced, and have none of it be true or
+ * survive a restart. There is no integration table in this schema either, so
+ * the Map was the only record there was.
+ *
+ * These refuse now. The provider modules keep their shape and their STUB
+ * comments naming the real SDK call to make, because that scaffolding is the
+ * useful part; what is gone is answering as though the call had been made.
+ */
+export class IntegrationNotImplementedError extends Error {
+  constructor(
+    public readonly provider: IntegrationProvider,
+    public readonly operation: string,
+  ) {
+    super(
+      `${operation} is not implemented for ${provider}. Nothing in this system contacts the ` +
+        'provider, exchanges a token, or fetches records, and no table records an integration ' +
+        `connection. This used to answer as though ${provider} were connected.`,
+    );
+    this.name = 'IntegrationNotImplementedError';
+  }
+}
+
+/** One refusal, so five providers cannot drift apart. */
+function refuse(provider: IntegrationProvider, operation: string): never {
+  throw new IntegrationNotImplementedError(provider, operation);
+}
 
 function connectionKey(tenantId: string, provider: IntegrationProvider) {
   return `${tenantId}:${provider}`;
@@ -72,40 +109,15 @@ export const plaid = {
    * In production: call plaid.itemPublicTokenExchange().
    */
   async connect(tenantId: string, publicToken: string): Promise<IntegrationConnection> {
-    // STUB — replace with: const res = await plaidClient.itemPublicTokenExchange({ public_token: publicToken });
-    const connection: IntegrationConnection = {
-      id:                uuidv4(),
-      tenantId,
-      provider:          'plaid',
-      status:            'connected',
-      accessToken:       `plaid_access_stub_${uuidv4()}`,
-      externalAccountId: `plaid_item_${uuidv4()}`,
-      scopes:            ['transactions', 'identity', 'balance'],
-      connectedAt:       new Date(),
-      metadata:          { publicToken },
-    };
-    connections.set(connectionKey(tenantId, 'plaid'), connection);
-    return connection;
+    refuse('plaid', 'Connecting');
   },
 
   async disconnect(tenantId: string): Promise<void> {
-    const key  = connectionKey(tenantId, 'plaid');
-    const conn = connections.get(key);
-    if (!conn) throw new Error('Plaid integration not found');
-    // STUB — replace with: await plaidClient.itemRemove({ access_token: conn.accessToken })
-    conn.status         = 'disconnected';
-    conn.disconnectedAt = new Date();
-    connections.set(key, conn);
+    refuse('plaid', 'Disconnecting');
   },
 
   async sync(tenantId: string): Promise<SyncResult> {
-    const conn = connections.get(connectionKey(tenantId, 'plaid'));
-    if (!conn || conn.status !== 'connected') {
-      return { provider: 'plaid', recordsSynced: 0, errors: ['Not connected'], syncedAt: new Date() };
-    }
-    // STUB — replace with: await plaidClient.transactionsGet({ access_token, start_date, end_date })
-    conn.lastSyncedAt = new Date();
-    return { provider: 'plaid', recordsSynced: 150, errors: [], syncedAt: new Date() };
+    refuse('plaid', 'Syncing');
   },
 
   async handleWebhook(tenantId: string, payload: Record<string, unknown>): Promise<WebhookEvent> {
@@ -131,41 +143,15 @@ export const plaid = {
 
 export const quickbooks = {
   async connect(tenantId: string, oauthCode: string, realmId: string): Promise<IntegrationConnection> {
-    // STUB — replace with: OAuthClient.createToken(oauthCode)
-    const connection: IntegrationConnection = {
-      id:                uuidv4(),
-      tenantId,
-      provider:          'quickbooks',
-      status:            'connected',
-      accessToken:       `qbo_access_stub_${uuidv4()}`,
-      refreshToken:      `qbo_refresh_stub_${uuidv4()}`,
-      externalAccountId: realmId,
-      scopes:            ['com.intuit.quickbooks.accounting'],
-      connectedAt:       new Date(),
-      metadata:          { oauthCode, realmId },
-    };
-    connections.set(connectionKey(tenantId, 'quickbooks'), connection);
-    return connection;
+    refuse('quickbooks', 'Connecting');
   },
 
   async disconnect(tenantId: string): Promise<void> {
-    const key  = connectionKey(tenantId, 'quickbooks');
-    const conn = connections.get(key);
-    if (!conn) throw new Error('QuickBooks integration not found');
-    // STUB — revoke token via OAuthClient.revoke()
-    conn.status         = 'disconnected';
-    conn.disconnectedAt = new Date();
-    connections.set(key, conn);
+    refuse('quickbooks', 'Disconnecting');
   },
 
   async sync(tenantId: string): Promise<SyncResult> {
-    const conn = connections.get(connectionKey(tenantId, 'quickbooks'));
-    if (!conn || conn.status !== 'connected') {
-      return { provider: 'quickbooks', recordsSynced: 0, errors: ['Not connected'], syncedAt: new Date() };
-    }
-    // STUB — fetch Chart of Accounts, P&L, Balance Sheet from QBO API
-    conn.lastSyncedAt = new Date();
-    return { provider: 'quickbooks', recordsSynced: 48, errors: [], syncedAt: new Date() };
+    refuse('quickbooks', 'Syncing');
   },
 
   async handleWebhook(tenantId: string, payload: Record<string, unknown>): Promise<WebhookEvent> {
@@ -190,40 +176,15 @@ export const quickbooks = {
 
 export const xero = {
   async connect(tenantId: string, oauthCode: string, xeroTenantId: string): Promise<IntegrationConnection> {
-    // STUB — replace with: xeroClient.apiCallback(callbackUrl, {})
-    const connection: IntegrationConnection = {
-      id:                uuidv4(),
-      tenantId,
-      provider:          'xero',
-      status:            'connected',
-      accessToken:       `xero_access_stub_${uuidv4()}`,
-      refreshToken:      `xero_refresh_stub_${uuidv4()}`,
-      externalAccountId: xeroTenantId,
-      scopes:            ['accounting.reports.read', 'accounting.transactions'],
-      connectedAt:       new Date(),
-      metadata:          { oauthCode, xeroTenantId },
-    };
-    connections.set(connectionKey(tenantId, 'xero'), connection);
-    return connection;
+    refuse('xero', 'Connecting');
   },
 
   async disconnect(tenantId: string): Promise<void> {
-    const key  = connectionKey(tenantId, 'xero');
-    const conn = connections.get(key);
-    if (!conn) throw new Error('Xero integration not found');
-    conn.status         = 'disconnected';
-    conn.disconnectedAt = new Date();
-    connections.set(key, conn);
+    refuse('xero', 'Disconnecting');
   },
 
   async sync(tenantId: string): Promise<SyncResult> {
-    const conn = connections.get(connectionKey(tenantId, 'xero'));
-    if (!conn || conn.status !== 'connected') {
-      return { provider: 'xero', recordsSynced: 0, errors: ['Not connected'], syncedAt: new Date() };
-    }
-    // STUB — fetch Profit & Loss, invoices, bank transactions
-    conn.lastSyncedAt = new Date();
-    return { provider: 'xero', recordsSynced: 32, errors: [], syncedAt: new Date() };
+    refuse('xero', 'Syncing');
   },
 
   async handleWebhook(tenantId: string, payload: Record<string, unknown>): Promise<WebhookEvent> {
@@ -248,40 +209,15 @@ export const xero = {
 
 export const docusign = {
   async connect(tenantId: string, oauthCode: string, accountId: string): Promise<IntegrationConnection> {
-    // STUB — replace with: docusignClient.requestJWTUserToken() or auth code exchange
-    const connection: IntegrationConnection = {
-      id:                uuidv4(),
-      tenantId,
-      provider:          'docusign',
-      status:            'connected',
-      accessToken:       `ds_access_stub_${uuidv4()}`,
-      refreshToken:      `ds_refresh_stub_${uuidv4()}`,
-      externalAccountId: accountId,
-      scopes:            ['signature', 'extended'],
-      connectedAt:       new Date(),
-      metadata:          { oauthCode, accountId },
-    };
-    connections.set(connectionKey(tenantId, 'docusign'), connection);
-    return connection;
+    refuse('docusign', 'Connecting');
   },
 
   async disconnect(tenantId: string): Promise<void> {
-    const key  = connectionKey(tenantId, 'docusign');
-    const conn = connections.get(key);
-    if (!conn) throw new Error('DocuSign integration not found');
-    conn.status         = 'disconnected';
-    conn.disconnectedAt = new Date();
-    connections.set(key, conn);
+    refuse('docusign', 'Disconnecting');
   },
 
   async sync(tenantId: string): Promise<SyncResult> {
-    const conn = connections.get(connectionKey(tenantId, 'docusign'));
-    if (!conn || conn.status !== 'connected') {
-      return { provider: 'docusign', recordsSynced: 0, errors: ['Not connected'], syncedAt: new Date() };
-    }
-    // STUB — pull completed envelopes, update document vault refs
-    conn.lastSyncedAt = new Date();
-    return { provider: 'docusign', recordsSynced: 7, errors: [], syncedAt: new Date() };
+    refuse('docusign', 'Syncing');
   },
 
   async handleWebhook(tenantId: string, payload: Record<string, unknown>): Promise<WebhookEvent> {
@@ -306,37 +242,15 @@ export const docusign = {
 
 export const stripe = {
   async connect(tenantId: string, publishableKey: string, secretKey: string): Promise<IntegrationConnection> {
-    // STUB — in production validate keys via Stripe.accounts.retrieve()
-    const connection: IntegrationConnection = {
-      id:                uuidv4(),
-      tenantId,
-      provider:          'stripe',
-      status:            'connected',
-      accessToken:       secretKey, // encrypted at rest
-      connectedAt:       new Date(),
-      metadata:          { publishableKey },
-    };
-    connections.set(connectionKey(tenantId, 'stripe'), connection);
-    return connection;
+    refuse('stripe', 'Connecting');
   },
 
   async disconnect(tenantId: string): Promise<void> {
-    const key  = connectionKey(tenantId, 'stripe');
-    const conn = connections.get(key);
-    if (!conn) throw new Error('Stripe integration not found');
-    conn.status         = 'disconnected';
-    conn.disconnectedAt = new Date();
-    connections.set(key, conn);
+    refuse('stripe', 'Disconnecting');
   },
 
   async sync(tenantId: string): Promise<SyncResult> {
-    const conn = connections.get(connectionKey(tenantId, 'stripe'));
-    if (!conn || conn.status !== 'connected') {
-      return { provider: 'stripe', recordsSynced: 0, errors: ['Not connected'], syncedAt: new Date() };
-    }
-    // STUB — sync invoices, charges, subscriptions
-    conn.lastSyncedAt = new Date();
-    return { provider: 'stripe', recordsSynced: 22, errors: [], syncedAt: new Date() };
+    refuse('stripe', 'Syncing');
   },
 
   async handleWebhook(tenantId: string, payload: Record<string, unknown>, signature: string): Promise<WebhookEvent> {
@@ -362,14 +276,20 @@ export const stripe = {
 // ============================================================
 
 export function getConnection(
-  tenantId: string,
-  provider: IntegrationProvider,
+  _tenantId?: string,
+  _provider?: IntegrationProvider,
 ): IntegrationConnection | undefined {
-  return connections.get(connectionKey(tenantId, provider));
+  // Always undefined. Nothing can connect, so nothing is connected — this
+  // used to read a Map holding whatever the current worker had faked since it
+  // started.
+  return undefined;
 }
 
-export function listConnections(tenantId: string): IntegrationConnection[] {
-  return Array.from(connections.values()).filter((c) => c.tenantId === tenantId);
+export function listConnections(_tenantId?: string): IntegrationConnection[] {
+  // Always empty, for the same reason. GET /api/integrations returned the
+  // connections this worker had faked, so two workers disagreed about what
+  // was connected and a restart disconnected everything.
+  return [];
 }
 
 export function getWebhookEvent(id: string): WebhookEvent | undefined {

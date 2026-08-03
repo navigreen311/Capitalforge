@@ -20,10 +20,7 @@
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import {
-  integrationLayerService,
-  type IntegrationProvider,
-} from '../../services/integration-layer.service.js';
+import { integrationLayerService, type IntegrationProvider, IntegrationNotImplementedError } from '../../services/integration-layer.service.js';
 import {
   apiPortalService,
 } from '../../services/api-portal.service.js';
@@ -92,6 +89,12 @@ integrationsRouter.post('/integrations/:provider/connect', async (req: Request, 
     }
     ok(res, connection, 201);
   } catch (e) {
+    // 501, not 500: the request was fine and nothing broke — the operation is
+    // not implemented, because nothing here contacts the provider.
+    if (e instanceof IntegrationNotImplementedError) {
+      err(res, e.message, 501);
+      return;
+    }
     err(res, (e as Error).message, 500);
   }
 });
@@ -164,6 +167,12 @@ integrationsRouter.post('/integrations/:provider/sync', async (req: Request, res
     const result = await (integrationLayerService[provider] as { sync: (t: string) => Promise<unknown> }).sync(tenantId);
     ok(res, result);
   } catch (e) {
+    // 501, not 500: the request was fine and nothing broke — the operation is
+    // not implemented, because nothing here contacts the provider.
+    if (e instanceof IntegrationNotImplementedError) {
+      err(res, e.message, 501);
+      return;
+    }
     err(res, (e as Error).message, 500);
   }
 });
@@ -295,6 +304,12 @@ integrationsRouter.post('/backups/trigger', async (req: Request, res: Response) 
     const record = await businessContinuityService.triggerBackup(type, tenantId);
     ok(res, record, 202);
   } catch (e) {
+    // 501, not 500: the request was fine and nothing broke — the operation is
+    // not implemented, because nothing here contacts the provider.
+    if (e instanceof IntegrationNotImplementedError) {
+      err(res, e.message, 501);
+      return;
+    }
     err(res, (e as Error).message, 500);
   }
 });
@@ -329,6 +344,12 @@ integrationsRouter.post('/backups/export/:businessId', async (req: Request, res:
     const result = await businessContinuityService.exportClientCase(tenantId, businessId, requestedBy);
     ok(res, result, 201);
   } catch (e) {
+    // 501, not 500: the request was fine and nothing broke — the operation is
+    // not implemented, because nothing here contacts the provider.
+    if (e instanceof IntegrationNotImplementedError) {
+      err(res, e.message, 501);
+      return;
+    }
     err(res, (e as Error).message, 500);
   }
 });

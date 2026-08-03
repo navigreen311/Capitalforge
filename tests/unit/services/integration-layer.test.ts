@@ -19,6 +19,7 @@ import {
   getConnection,
   listDeadLettered,
   markDeadLettered,
+  IntegrationNotImplementedError,
 } from '../../../src/backend/services/integration-layer.service.js';
 
 import {
@@ -59,38 +60,43 @@ const T2 = 'tenant-test-002';
 // ============================================================
 
 describe('Plaid Integration', () => {
-  it('connects and returns a connection record', async () => {
-    const conn = await plaid.connect(T1, 'public-token-abc');
-    expect(conn.provider).toBe('plaid');
-    expect(conn.status).toBe('connected');
-    expect(conn.accessToken).toBeTruthy();
-    expect(conn.tenantId).toBe(T1);
-    expect(conn.connectedAt).toBeInstanceOf(Date);
+  // These asserted the fabrication: that connect returned a connection with a
+  // truthy accessToken, that getConnection found it afterwards, and that sync
+  // reported more than zero records. All three were true — connect built an
+  // access token of the form plaid_access_stub_<uuid>, put it in a Map, and
+  // sync returned a fixed 150 for transactions it had never fetched.
+  //
+  // What they now pin is the refusal, because nothing here contacts Plaid.
+
+  it('refuses to connect, rather than inventing an access token', async () => {
+    await expect(plaid.connect(T1, 'public-token-abc')).rejects.toBeInstanceOf(
+      IntegrationNotImplementedError,
+    );
   });
 
-  it('stores connection and can be retrieved via getConnection', async () => {
-    await plaid.connect(T1, 'public-token-def');
-    const conn = getConnection(T1, 'plaid');
-    expect(conn).toBeDefined();
-    expect(conn?.status).toBe('connected');
+  it('reports no connection afterwards', async () => {
+    await plaid.connect(T1, 'public-token-def').catch(() => undefined);
+    // It used to find the one connect had just faked.
+    expect(getConnection(T1, 'plaid')).toBeUndefined();
   });
 
-  it('syncs and returns sync result', async () => {
-    await plaid.connect(T1, 'public-token-ghi');
-    const result = await plaid.sync(T1);
-    expect(result.provider).toBe('plaid');
-    expect(result.recordsSynced).toBeGreaterThan(0);
-    expect(result.errors).toHaveLength(0);
+  it('refuses to sync, rather than reporting 150 records', async () => {
+    await expect(plaid.sync(T1)).rejects.toBeInstanceOf(IntegrationNotImplementedError);
   });
 
-  it('returns error when syncing without connection', async () => {
-    const result = await plaid.sync('nonexistent-tenant');
-    expect(result.recordsSynced).toBe(0);
-    expect(result.errors.length).toBeGreaterThan(0);
+  it('refuses to disconnect something that was never connected', async () => {
+    await expect(plaid.disconnect(T1)).rejects.toBeInstanceOf(IntegrationNotImplementedError);
   });
 
-  it('processes incoming webhook events', async () => {
-    await plaid.connect(T1, 'public-token-jkl');
+  it('says what is missing', async () => {
+    await expect(plaid.connect(T1, 'public-token-xyz')).rejects.toThrow(
+      /Nothing in this system contacts the provider/,
+    );
+  });
+
+  it('still parses an incoming webhook', async () => {
+    // Webhook handling reads the payload it was given, which is real work and
+    // does not depend on a connection existing.
     const event = await plaid.handleWebhook(T1, {
       webhook_type: 'TRANSACTIONS',
       webhook_code: 'DEFAULT_UPDATE',
@@ -99,15 +105,6 @@ describe('Plaid Integration', () => {
     expect(event.provider).toBe('plaid');
     expect(event.eventType).toBe('TRANSACTIONS');
     expect(event.deadLettered).toBe(false);
-    expect(event.id).toBeTruthy();
-  });
-
-  it('disconnects and updates status', async () => {
-    await plaid.connect(T1, 'public-token-mno');
-    await plaid.disconnect(T1);
-    const conn = getConnection(T1, 'plaid');
-    expect(conn?.status).toBe('disconnected');
-    expect(conn?.disconnectedAt).toBeInstanceOf(Date);
   });
 });
 
@@ -116,22 +113,17 @@ describe('Plaid Integration', () => {
 // ============================================================
 
 describe('QuickBooks Integration', () => {
-  it('connects with oauth code and realmId', async () => {
-    const conn = await quickbooks.connect(T2, 'qbo_oauth_code', 'realm_9876543');
-    expect(conn.provider).toBe('quickbooks');
-    expect(conn.status).toBe('connected');
-    expect(conn.externalAccountId).toBe('realm_9876543');
+  it('refuses to connect', async () => {
+    await expect(
+      quickbooks.connect(T2, 'qbo_oauth_code', 'realm_9876543'),
+    ).rejects.toBeInstanceOf(IntegrationNotImplementedError);
   });
 
-  it('syncs accounting data', async () => {
-    await quickbooks.connect(T2, 'qbo_oauth_code2', 'realm_111222');
-    const result = await quickbooks.sync(T2);
-    expect(result.provider).toBe('quickbooks');
-    expect(result.recordsSynced).toBeGreaterThan(0);
+  it('refuses to sync, rather than reporting 48 records', async () => {
+    await expect(quickbooks.sync(T2)).rejects.toBeInstanceOf(IntegrationNotImplementedError);
   });
 
-  it('processes QuickBooks webhook payload', async () => {
-    await quickbooks.connect(T2, 'qbo_code3', 'realm_333444');
+  it('still parses an incoming webhook', async () => {
     const event = await quickbooks.handleWebhook(T2, {
       eventNotifications: [{ realmId: 'realm_333444', dataChangeEvent: { entities: [] } }],
     });
@@ -387,12 +379,13 @@ describe('Recovery Testing Log', () => {
 // ============================================================
 
 describe('Integration listConnections', () => {
-  it('returns all connections for a tenant', async () => {
-    const tenant = 'tenant-multi-test';
-    await plaid.connect(tenant, 'tok1');
-    await docusign.connect(tenant, 'ds_code', 'acct_999');
-    const conns = listConnections(tenant);
-    expect(conns.length).toBeGreaterThanOrEqual(2);
-    expect(conns.every((c) => c.tenantId === tenant)).toBe(true);
+  it('is empty, because nothing can connect', async () => {
+    await plaid.connect(T1, 'tok').catch(() => undefined);
+    await quickbooks.connect(T1, 'code', 'realm').catch(() => undefined);
+
+    // It used to return whatever this worker had faked since it started, so
+    // two workers disagreed about what was connected and a restart
+    // disconnected everything.
+    expect(listConnections(T1)).toEqual([]);
   });
 });

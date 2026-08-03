@@ -66,6 +66,49 @@ test.describe('Platform integrations', () => {
   });
 });
 
+test.describe('Integration layer', () => {
+  // The layer under /api/integrations kept its connections in a Map, so
+  // connecting Plaid built an access token of the form
+  // plaid_access_stub_<uuid>, called it connected, and a sync reported 150
+  // transactions it had never fetched. Nothing contacted any provider, and no
+  // table records an integration connection.
+
+  test('connecting a provider is refused, not faked', async ({ signedInPage: page }) => {
+    await page.goto('/dashboard');
+
+    const res = await fetch(`${API}/integrations/plaid/connect`, {
+      method: 'POST',
+      headers: { Authorization: await auth(page), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicToken: 'public-token-test' }),
+    });
+
+    // 501 rather than 500: nothing broke, the operation does not exist.
+    expect(res.status).toBe(501);
+    // This router's error helper puts the message directly on `error`, not
+    // nested under `error.message` like the platform routes above.
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/Nothing in this system contacts the provider/);
+  });
+
+  test('the connection list is empty rather than worker-local', async ({ signedInPage: page }) => {
+    await page.goto('/dashboard');
+    const a = await auth(page);
+
+    await fetch(`${API}/integrations/plaid/connect`, {
+      method: 'POST',
+      headers: { Authorization: a, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicToken: 'public-token-test' }),
+    });
+
+    // It used to list whatever this worker had faked since it started.
+    const body = (await fetch(`${API}/integrations`, { headers: { Authorization: a } }).then(
+      expectOk,
+    )) as { data: unknown[] };
+
+    expect(body.data).toEqual([]);
+  });
+});
+
 test.describe('Portfolio benchmarks', () => {
   test('reports this tenant figures, not the invented ones', async ({ signedInPage: page }) => {
     await page.goto('/portfolio');
