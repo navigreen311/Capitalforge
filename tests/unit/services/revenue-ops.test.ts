@@ -56,7 +56,6 @@ import {
   autoGenerateCommissions,
   getInvoice,
   getInvoicesForBusiness,
-  getCommissionsForInvoice,
   FeeCalculationInput,
   GenerateInvoiceInput,
 } from '../../../src/backend/services/revenue-ops.service.js';
@@ -445,7 +444,7 @@ describe('createCommission', () => {
       type: 'referral_flat',
       amount: 250,
     });
-    const approved = approveCommission(rec.id);
+    const approved = approveCommission(rec);
     expect(approved.status).toBe('approved');
   });
 
@@ -456,7 +455,11 @@ describe('createCommission', () => {
       type: 'advisor_split',
       amount: 750,
     });
-    const clawed = clawBackCommission(rec.id);
+    // Only from paid: a clawback reclaims money that went out, and
+    // withdrawing one that was never paid is a cancellation — a different act
+    // with no state here.
+    const paid = markCommissionPaid(approveCommission(rec));
+    const clawed = clawBackCommission(paid);
     expect(clawed.status).toBe('clawed_back');
   });
 });
@@ -638,23 +641,4 @@ describe('store accessors', () => {
     expect(results.every((i) => i.businessId === BIZ_A)).toBe(true);
   });
 
-  it('getCommissionsForInvoice returns only commissions for that invoice', () => {
-    const inv = generateInvoice({
-      tenantId: T1,
-      businessId: B1,
-      dealStructure: 'card_stacking',
-      totalApprovedCredit: 30_000,
-    });
-
-    const records = autoGenerateCommissions({
-      tenantId: T1,
-      invoiceId: inv.id,
-      invoiceAmount: inv.amount,
-      partnerId: 'p-filter-test',
-    });
-
-    const fetched = getCommissionsForInvoice(inv.id);
-    expect(fetched.length).toBeGreaterThanOrEqual(1);
-    expect(fetched.every((r) => r.invoiceId === inv.id)).toBe(true);
-  });
 });

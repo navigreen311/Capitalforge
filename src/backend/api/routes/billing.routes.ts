@@ -25,12 +25,18 @@ import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import {
   revenueOpsService,
   issueRefund,
+  approveCommission,
+  markCommissionPaid,
+  clawBackCommission,
+  CommissionTransitionError,
 } from '../../services/revenue-ops.service.js';
 import type {
   GenerateInvoiceInput,
   DealStructure,
   InvoiceType,
   InvoiceStatus,
+  CommissionType,
+  CommissionStatus,
 } from '../../services/revenue-ops.service.js';
 import {
   saasEntitlementsService,
@@ -328,6 +334,155 @@ billingRouter.get(
     res.status(200).json(body);
   },
 );
+
+// ── POST /api/commissions/:id/{approve,pay,clawback} ─────────
+//
+// The commission lifecycle.
+//
+// approveCommission, markCommissionPaid and clawBackCommission read a record
+// out of commissionStore, mutated it and put it back, so an approval or a
+// payment lived in one worker's memory until the process restarted while
+// commission_records held whatever it had held before. No route called them,
+// which is the only reason that did no harm.
+//
+// They are pure transitions now. These three read the row, ask the service
+// what the next state is, and write it — the split the invoice and refund
+// paths use.
+//
+// markCommissionPaid used to check nothing: it would pay a commission nobody
+// had approved, and pay one already clawed back. The transitions are stated
+// in the service and refused here with a 422.
+
+type CommissionAction = 'approve' | 'pay' | 'clawback';
+
+async function transitionCommission(
+  req: Request,
+  res: Response,
+  action: CommissionAction,
+): Promise<void> {
+  const commissionId = req.params['id'];
+  const tenantId = req.tenant?.tenantId;
+
+  if (!commissionId || !tenantId) {
+    const body: ApiResponse = {
+      success: false,
+      error: { code: 'INVALID_PARAMS', message: 'Commission ID and tenant context are required.' },
+    };
+    res.status(400).json(body);
+    return;
+  }
+
+  // Scoped in the query: a commission on another tenant answers the same way
+  // one that does not exist does.
+  const existing = await sharedPrisma.commissionRecord.findFirst({
+    where: { id: commissionId, tenantId },
+  });
+
+  if (!existing) {
+    const body: ApiResponse = {
+      success: false,
+      error: { code: 'NOT_FOUND', message: `Commission ${commissionId} not found.` },
+    };
+    res.status(404).json(body);
+    return;
+  }
+
+  const record = {
+    id: existing.id,
+    tenantId: existing.tenantId,
+    invoiceId: existing.invoiceId,
+    partnerId: existing.partnerId,
+    advisorId: existing.advisorId,
+    amount: Number(existing.amount),
+    percentage: existing.percentage === null ? null : Number(existing.percentage),
+    type: existing.type as CommissionType,
+    status: existing.status as CommissionStatus,
+    paidAt: existing.paidAt,
+    createdAt: existing.createdAt,
+  };
+
+  let next;
+  try {
+    next =
+      action === 'approve'
+        ? approveCommission(record)
+        : action === 'pay'
+          ? markCommissionPaid(record)
+          : clawBackCommission(record);
+  } catch (err) {
+    if (err instanceof CommissionTransitionError) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'INVALID_TRANSITION', message: err.message },
+      };
+      res.status(422).json(body);
+      return;
+    }
+    throw err;
+  }
+
+  const [updated] = await sharedPrisma.$transaction([
+    sharedPrisma.commissionRecord.update({
+      where: { id: commissionId },
+      data: { status: next.status, paidAt: next.paidAt },
+    }),
+    // The record carries a status and a paid date, and nothing else. Who moved
+    // it and when goes where the other decisions about money go.
+    sharedPrisma.auditLog.create({
+      data: {
+        tenantId,
+        userId: req.tenant?.userId ?? null,
+        action: `commission.${action}`,
+        resource: 'commission_record',
+        resourceId: commissionId,
+        metadata: {
+          from: record.status,
+          to: next.status,
+          amount: record.amount,
+        },
+      },
+    }),
+  ]);
+
+  logger.info('Commission transitioned', {
+    commissionId,
+    tenantId,
+    from: record.status,
+    to: updated.status,
+  });
+
+  const body: ApiResponse<{
+    commissionId: string;
+    status: string;
+    paidAt: string | null;
+    amount: number;
+    disbursed: boolean;
+  }> = {
+    success: true,
+    data: {
+      commissionId: updated.id,
+      status: updated.status,
+      paidAt: updated.paidAt?.toISOString() ?? null,
+      amount: Number(updated.amount),
+      // Marking a commission paid records that it was. Nothing here moves
+      // money to a partner or an advisor.
+      disbursed: false,
+    },
+  };
+  res.status(200).json(body);
+}
+
+billingRouter.post('/commissions/:id/approve', async (req: Request, res: Response) => {
+  await transitionCommission(req, res, 'approve');
+});
+
+billingRouter.post('/commissions/:id/pay', async (req: Request, res: Response) => {
+  await transitionCommission(req, res, 'pay');
+});
+
+billingRouter.post('/commissions/:id/clawback', async (req: Request, res: Response) => {
+  await transitionCommission(req, res, 'clawback');
+});
 
 // ── POST /api/invoices/:id/commissions ────────────────────────────────────────
 //

@@ -167,20 +167,22 @@ function nextInvoiceNumber(tenantId: string): string {
 // POST /api/billing/commissions/:id/resolve updates the record's status and
 // records the reason in audit_logs.
 //
-// What is still memory-only:
+// The commission lifecycle followed, and commissionStore is gone with it.
+// approveCommission, markCommissionPaid and clawBackCommission are pure
+// transitions — they take a record and return what to write — and
+// POST /api/commissions/:id/{approve,pay,clawback} persist the result.
 //
-//   approveCommission, markCommissionPaid, clawBackCommission
-//     — all three mutate commissionStore and nothing else. No route calls
-//       them, which is the only reason the gap does no harm. Wiring one means
-//       what the invoice, refund and resolve paths got: compute here, write at
-//       the boundary.
+// Two readers went too: getCommissionsForTenant and getCommissionsForInvoice
+// scanned that Map, so they returned whatever this worker had created since
+// it started and called it the tenant's commissions. Nothing outside this
+// file's own tests used them. GET /api/commissions reads the table.
 //
-// The Maps themselves stay because the pure functions above still thread
-// results through them for the callers that have not moved; nothing outside
-// this file should read them.
+// invoiceStore below is the last of these. The invoice routes compute here
+// and write the row themselves, so what it holds is vestigial; the helpers
+// that still read it are unused outside this file. Nothing depends on any of
+// it surviving a restart.
 
 const invoiceStore = new Map<string, Invoice>();
-const commissionStore = new Map<string, CommissionRecord>();
 
 // ── Fee Calculation ───────────────────────────────────────────────────────────
 
@@ -595,7 +597,6 @@ export function createCommission(input: CreateCommissionInput): CommissionRecord
     createdAt: new Date(),
   };
 
-  commissionStore.set(record.id, record);
 
   logger.info('Commission record created', {
     commissionId: record.id,
@@ -607,45 +608,91 @@ export function createCommission(input: CreateCommissionInput): CommissionRecord
   return record;
 }
 
-export function approveCommission(commissionId: string): CommissionRecord {
-  const rec = commissionStore.get(commissionId);
-  if (!rec) throw new Error(`Commission ${commissionId} not found.`);
-  if (rec.status !== 'pending') {
-    throw new Error(`Commission ${commissionId} is not in pending state (current: ${rec.status}).`);
+/**
+ * The commission lifecycle, as pure transitions.
+ *
+ * These read a record out of commissionStore, mutated it, and put it back —
+ * so an approval, a payment or a clawback lived in one worker's memory until
+ * the process restarted, while commission_records held whatever it had held
+ * before. No route called them, which is the only reason that did no harm.
+ *
+ * They take the record and return what to write, on the same split the
+ * invoice and refund paths use. The caller reads the row and persists the
+ * result.
+ *
+ * markCommissionPaid used to check nothing at all: it would pay a commission
+ * nobody had approved, and pay one that had already been clawed back. The
+ * transitions are stated now, because "which states can follow this one" is
+ * the whole content of a lifecycle.
+ */
+
+/** Thrown when a transition is not allowed from the record's current state. */
+export class CommissionTransitionError extends Error {
+  constructor(
+    public readonly commissionId: string,
+    public readonly from: CommissionStatus,
+    public readonly to: CommissionStatus,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CommissionTransitionError';
+  }
+}
+
+export function approveCommission(record: CommissionRecord): CommissionRecord {
+  if (record.status !== 'pending') {
+    throw new CommissionTransitionError(
+      record.id,
+      record.status,
+      'approved',
+      `Commission ${record.id} is not pending (current: ${record.status}), so there is nothing to approve.`,
+    );
   }
 
-  const updated: CommissionRecord = { ...rec, status: 'approved' };
-  commissionStore.set(commissionId, updated);
-  return updated;
+  return { ...record, status: 'approved' };
 }
 
-export function markCommissionPaid(commissionId: string, paidAt?: Date): CommissionRecord {
-  const rec = commissionStore.get(commissionId);
-  if (!rec) throw new Error(`Commission ${commissionId} not found.`);
+export function markCommissionPaid(
+  record: CommissionRecord,
+  paidAt: Date = new Date(),
+): CommissionRecord {
+  // Approval first. Paying an unapproved commission is money out of the door
+  // on nobody's authority, and this used to allow it — along with paying one
+  // that had already been clawed back.
+  if (record.status !== 'approved') {
+    throw new CommissionTransitionError(
+      record.id,
+      record.status,
+      'paid',
+      record.status === 'pending'
+        ? `Commission ${record.id} has not been approved, so it cannot be paid.`
+        : `Commission ${record.id} is ${record.status}, so it cannot be paid.`,
+    );
+  }
 
-  const updated: CommissionRecord = {
-    ...rec,
-    status: 'paid',
-    paidAt: paidAt ?? new Date(),
-  };
-  commissionStore.set(commissionId, updated);
-  return updated;
+  return { ...record, status: 'paid', paidAt };
 }
 
-export function clawBackCommission(commissionId: string): CommissionRecord {
-  const rec = commissionStore.get(commissionId);
-  if (!rec) throw new Error(`Commission ${commissionId} not found.`);
-
-  const updated: CommissionRecord = { ...rec, status: 'clawed_back' };
-  commissionStore.set(commissionId, updated);
+export function clawBackCommission(record: CommissionRecord): CommissionRecord {
+  // Only from paid. A clawback reclaims money that went out; withdrawing one
+  // that was never paid is a cancellation, which is a different act and has
+  // no state here. Refusing is better than quietly recording the wrong one.
+  if (record.status !== 'paid') {
+    throw new CommissionTransitionError(
+      record.id,
+      record.status,
+      'clawed_back',
+      `Commission ${record.id} is ${record.status} and was never paid, so there is nothing to claw back.`,
+    );
+  }
 
   logger.warn('Commission clawed back', {
-    commissionId,
-    amount: rec.amount,
-    tenantId: rec.tenantId,
+    commissionId: record.id,
+    amount: record.amount,
+    tenantId: record.tenantId,
   });
 
-  return updated;
+  return { ...record, status: 'clawed_back' };
 }
 
 // ── Auto-commission on invoice ────────────────────────────────────────────────
@@ -711,21 +758,7 @@ export function getInvoicesForBusiness(
   return results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
-export function getCommissionsForTenant(tenantId: string): CommissionRecord[] {
-  const results: CommissionRecord[] = [];
-  for (const rec of commissionStore.values()) {
-    if (rec.tenantId === tenantId) results.push(rec);
-  }
-  return results;
-}
 
-export function getCommissionsForInvoice(invoiceId: string): CommissionRecord[] {
-  const results: CommissionRecord[] = [];
-  for (const rec of commissionStore.values()) {
-    if (rec.invoiceId === invoiceId) results.push(rec);
-  }
-  return results;
-}
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -759,7 +792,5 @@ export const revenueOpsService = {
   autoGenerateCommissions,
   getInvoice,
   getInvoicesForBusiness,
-  getCommissionsForTenant,
-  getCommissionsForInvoice,
   getFeeSchedule: (ds: DealStructure): FeeSchedule => ({ ...FEE_SCHEDULES[ds] }),
 };
