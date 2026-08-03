@@ -148,7 +148,11 @@ test.describe('Communication compliance', () => {
     await expect(field).not.toHaveValue('');
 
     await page.getByRole('button', { name: /Show scores/ }).click();
-    await expect(page.getByText('Calls scored')).toBeVisible({ timeout: 30000 });
+    // exact, because the page's own description ends "...and how calls
+    // scored." and getByText matches case-insensitive substrings. Without it
+    // this resolved to the prose when the stat card was absent — passing while
+    // asserting nothing — and to both when it was present.
+    await expect(page.getByText('Calls scored', { exact: true })).toBeVisible({ timeout: 30000 });
   });
 
   test('does not show a team scorecard, and says why', async ({ signedInPage: page }) => {
@@ -172,7 +176,11 @@ test.describe('Communication compliance', () => {
     await page.getByRole('button', { name: 'Call QA' }).click();
     await page.getByRole('button', { name: /Show scores/ }).click();
 
-    await expect(page.getByText('Calls scored')).toBeVisible({ timeout: 30000 });
+    // exact, because the page's own description ends "...and how calls
+    // scored." and getByText matches case-insensitive substrings. Without it
+    // this resolved to the prose when the stat card was absent — passing while
+    // asserting nothing — and to both when it was present.
+    await expect(page.getByText('Calls scored', { exact: true })).toBeVisible({ timeout: 30000 });
     await expect(
       page.getByText('not a rating of the advisor', { exact: false }),
     ).toBeVisible();

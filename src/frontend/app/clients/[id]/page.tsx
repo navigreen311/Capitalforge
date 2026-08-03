@@ -196,9 +196,33 @@ export default function ClientDetailPage() {
     })();
   }, [id]);
 
+  // Loading is its own return, before anything dereferences the business.
+  //
+  // This page cast `business as BusinessProfile` and then read fields off it
+  // while the fetch was still in flight — the cast told the compiler it could
+  // not be null, so nothing caught it. Rendering threw
+  // "Cannot read properties of null (reading 'fundingReadinessScore')" and the
+  // route 500'd on every cold load. It was invisible locally because the fetch
+  // usually resolved before the first paint; CI, with the API held open by the
+  // pre-load sweep, hit it every time.
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => router.push('/clients')}
+          className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
+        >
+          ← Back to Clients
+        </button>
+        <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
+        <p className="text-sm text-gray-500">Loading client…</p>
+      </div>
+    );
+  }
+
   // No fallback. A client that could not be loaded is reported as such
   // rather than replaced by one.
-  if (!loading && business === null) {
+  if (business === null) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-bold text-gray-900">Client</h1>
@@ -209,7 +233,8 @@ export default function ClientDetailPage() {
     );
   }
 
-  const biz = business as BusinessProfile;
+  // Not a cast: both null paths have returned by here.
+  const biz: BusinessProfile = business;
   const totalFunding = applications
     .filter((a) => a.status === 'approved')
     .reduce((s, a) => s + (a.approvedLimit ?? 0), 0);
@@ -235,10 +260,9 @@ export default function ClientDetailPage() {
         ← Back to Clients
       </button>
 
-      {/* Business header */}
-      {loading ? (
-        <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
-      ) : (
+      {/* Business header. No loading branch here: loading returns above, and a
+          second one would imply this renders in a state it cannot reach. */}
+      {(
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <div className="flex items-center gap-3">
