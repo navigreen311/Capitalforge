@@ -13,6 +13,22 @@
 // STUB NOTE: Each adapter contains comments showing the real API
 // product name, endpoint pattern, and auth mechanism to use in prod.
 //
+// FAILS CLOSED. No adapter here contacts a bureau; every one of them
+// generates its answer. A personal pull returned a FICO score of
+// 640 + Math.random() * 160, a payment status that was "30_days_late" 12% of
+// the time, and a derogatory mark 8% of the time — the inputs to a lending
+// decision, invented per call and different on every retry.
+//
+// Nothing imports this client today, which is the only reason that has done
+// no harm. It is the kind of file somebody wires up later assuming it works,
+// so it now refuses to answer at all unless credentials are configured.
+//
+// For local work, BUREAU_MODE=synthetic re-enables the generators — and every
+// profile they produce is marked `synthetic: true`, so a generated score
+// cannot be mistaken downstream for something a bureau said. The marking is
+// the point: a gate somebody switches off is only safe if what comes through
+// it is labelled.
+//
 // PII Handling:
 //   - SSN is NEVER logged (masked by logger PII filter)
 //   - EIN is treated as non-PII for logging purposes
@@ -22,6 +38,57 @@
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../../config/logger.js';
 import type { Bureau, ScoreType } from '../../../shared/types/index.js';
+
+// ── Configuration gate ────────────────────────────────────────
+//
+// Which bureaus have credentials, and whether the generators are allowed to
+// stand in for them.
+
+/** Env var per bureau. Presence is the whole test — validity is the bureau's. */
+const BUREAU_CREDENTIAL_ENV: Record<string, string> = {
+  experian:   'EXPERIAN_CLIENT_ID',
+  transunion: 'TRANSUNION_CLIENT_ID',
+  equifax:    'EQUIFAX_CLIENT_ID',
+  dnb:        'DNB_API_KEY',
+};
+
+/**
+ * Synthetic mode must be asked for by name.
+ *
+ * Not defaulted from NODE_ENV: "we are not in production" is not consent to
+ * invent somebody's credit history, and a test environment is exactly where a
+ * generated score would be taken for a real one.
+ */
+export function isSyntheticMode(): boolean {
+  return process.env['BUREAU_MODE'] === 'synthetic';
+}
+
+/** Whether a live pull is possible for this bureau. */
+export function isBureauConfigured(bureau: string): boolean {
+  const key = BUREAU_CREDENTIAL_ENV[bureau];
+  if (key === undefined) return false;
+  const value = process.env[key];
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * Throws unless this bureau can be reached, or the generators are explicitly
+ * permitted to answer for it.
+ */
+function assertBureauUsable(bureau: string): void {
+  if (isBureauConfigured(bureau)) return;
+  if (isSyntheticMode()) return;
+
+  const key = BUREAU_CREDENTIAL_ENV[bureau] ?? '(no credential configured for this bureau)';
+  throw new BureauNotConfiguredError(
+    bureau,
+    `No credentials are configured for ${bureau} (${key} is unset), so no credit data can be ` +
+      'pulled. This client generates its figures — a score, a utilisation, a payment history — ' +
+      'and returning them as a bureau response would put invented data into a lending decision. ' +
+      'Set the credentials, or set BUREAU_MODE=synthetic to allow generated profiles, which are ' +
+      'marked synthetic on the record.',
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -66,6 +133,14 @@ export interface CreditProfile {
   /** Encrypted/redacted raw bureau response stored for audit */
   rawResponseRef:  string;
   pulledAt:        string;
+  /**
+   * True when the figures were generated rather than pulled.
+   *
+   * On the record itself, not just in a log line: a score that reaches
+   * credit_profiles has to carry where it came from, because by the time
+   * anything reads it the request that produced it is long gone.
+   */
+  synthetic:       boolean;
 }
 
 /** Result of a personal credit pull */
@@ -182,6 +257,9 @@ async function experianPullPersonal(
     tradelines:      buildStubTradelines(5),
     rawResponseRef:  `experian-raw-${uuidv4()}`,
     pulledAt:        new Date().toISOString(),
+    // Generated, not pulled. Set here rather than by the caller so an
+    // adapter cannot omit it.
+    synthetic:       true,
   };
 }
 
@@ -202,6 +280,9 @@ async function experianPullBusiness(ein: string): Promise<CreditProfile> {
     tradelines:      buildStubTradelines(6),
     rawResponseRef:  `experian-biz-raw-${uuidv4()}`,
     pulledAt:        new Date().toISOString(),
+    // Generated, not pulled. Set here rather than by the caller so an
+    // adapter cannot omit it.
+    synthetic:       true,
   };
 }
 
@@ -233,6 +314,9 @@ async function transunionPullPersonal(
     tradelines:      buildStubTradelines(4),
     rawResponseRef:  `tu-raw-${uuidv4()}`,
     pulledAt:        new Date().toISOString(),
+    // Generated, not pulled. Set here rather than by the caller so an
+    // adapter cannot omit it.
+    synthetic:       true,
   };
 }
 
@@ -250,6 +334,9 @@ async function transunionPullBusiness(ein: string): Promise<CreditProfile> {
     tradelines:      buildStubTradelines(3),
     rawResponseRef:  `tu-biz-raw-${uuidv4()}`,
     pulledAt:        new Date().toISOString(),
+    // Generated, not pulled. Set here rather than by the caller so an
+    // adapter cannot omit it.
+    synthetic:       true,
   };
 }
 
@@ -285,6 +372,9 @@ async function equifaxPullPersonal(
     tradelines:      buildStubTradelines(3),
     rawResponseRef:  `efx-raw-${uuidv4()}`,
     pulledAt:        new Date().toISOString(),
+    // Generated, not pulled. Set here rather than by the caller so an
+    // adapter cannot omit it.
+    synthetic:       true,
   };
 }
 
@@ -302,6 +392,9 @@ async function equifaxPullBusiness(ein: string): Promise<CreditProfile> {
     tradelines:      buildStubTradelines(4),
     rawResponseRef:  `efx-biz-raw-${uuidv4()}`,
     pulledAt:        new Date().toISOString(),
+    // Generated, not pulled. Set here rather than by the caller so an
+    // adapter cannot omit it.
+    synthetic:       true,
   };
 }
 
@@ -342,6 +435,9 @@ async function dnbPullBusiness(ein: string): Promise<CreditProfile & { dunsNumbe
     tradelines:      buildStubTradelines(6),
     rawResponseRef:  `dnb-raw-${uuidv4()}`,
     pulledAt:        new Date().toISOString(),
+    // Generated, not pulled. Set here rather than by the caller so an
+    // adapter cannot omit it.
+    synthetic:       true,
     dunsNumber,
   };
 }
@@ -369,6 +465,10 @@ export class BureauClient {
     ssn:     string,
     consent: ConsentAttestation,
   ): Promise<PersonalCreditResult> {
+    // Before the consent check and the rate limiter: neither matters if this
+    // client cannot reach the bureau, and failing here keeps a generated score
+    // from ever being produced by accident.
+    assertBureauUsable(bureau);
     this._validateConsent(consent);
     checkRateLimit(bureau);
 
@@ -432,6 +532,7 @@ export class BureauClient {
     bureau: Bureau,
     ein:    string,
   ): Promise<BusinessCreditResult> {
+    assertBureauUsable(bureau);
     this._validateEin(ein);
     checkRateLimit(bureau);
 
@@ -525,6 +626,18 @@ export class BureauClient {
 }
 
 // ── Domain Errors ──────────────────────────────────────────────
+
+/**
+ * No credentials, and synthetic mode not requested.
+ *
+ * 503 rather than 500: the request was fine, the integration is not available.
+ */
+export class BureauNotConfiguredError extends Error {
+  constructor(public readonly bureau: string, message: string) {
+    super(message);
+    this.name = 'BureauNotConfiguredError';
+  }
+}
 
 export class BureauRateLimitError extends Error {
   public readonly code = 'BUREAU_RATE_LIMIT_EXCEEDED';

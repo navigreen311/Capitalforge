@@ -15,9 +15,22 @@
 //   Section 11: BureauWebhookHandler — account opened/closed
 //   Section 12: BureauWebhookHandler — idempotency
 //   Section 13: BureauWebhookHandler — payload normalisation across bureaus
+//
+// These exercise the generators, so they run in synthetic mode.
+//
+// The client used to answer whether or not credentials were configured, which
+// is what these were written against. It fails closed now — no credentials,
+// no invented FICO score — and BUREAU_MODE=synthetic is the switch that lets
+// the generated profiles through for local work and for tests like these.
+// What they cover is the normalisation, consent and rate-limiting logic
+// around the adapters, which is worth keeping and is unaffected by where the
+// figures come from.
+//
+// The gate itself is covered in bureau-client.test.ts, which runs with the
+// mode unset.
 // ============================================================
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import {
   BureauClient,
   BureauConsentError,
@@ -54,6 +67,14 @@ function makeEventBusMock() {
 }
 
 // ── Section 1: pullCredit — personal bureaus ──────────────────
+
+const SAVED_BUREAU_MODE = process.env['BUREAU_MODE'];
+process.env['BUREAU_MODE'] = 'synthetic';
+
+afterAll(() => {
+  if (SAVED_BUREAU_MODE === undefined) delete process.env['BUREAU_MODE'];
+  else process.env['BUREAU_MODE'] = SAVED_BUREAU_MODE;
+});
 
 describe('BureauClient.pullCredit — personal bureaus', () => {
   let client: BureauClient;
