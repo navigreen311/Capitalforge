@@ -20,24 +20,44 @@ import { loadJson } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+/**
+ * A badge count, or null when it could not be read.
+ *
+ * These were plain numbers, and an unreadable count became 0 — which the
+ * sidebar renders as no badge at all, i.e. "nothing waiting". A queue of
+ * eleven things and a queue nobody could reach looked identical, and the one
+ * that needs attention was the one that showed nothing.
+ *
+ * Null is not a number the caller can quietly add to something else, which is
+ * the point: every consumer has to decide what it shows when it does not know.
+ */
+export type BadgeCount = number | null;
+
 interface NavBadgeCounts {
-  dashboardBadge: number;
-  applicationsBadge: number;
-  fundingRoundsBadge: number;
-  complianceBadge: number;
-  complaintsBadge: number;
+  dashboardBadge: BadgeCount;
+  applicationsBadge: BadgeCount;
+  fundingRoundsBadge: BadgeCount;
+  complianceBadge: BadgeCount;
+  complaintsBadge: BadgeCount;
 }
 
 interface NavBadgeContextValue extends NavBadgeCounts {
   refresh: () => void;
 }
 
+/**
+ * Before anything has been fetched, nothing is known — not zero.
+ *
+ * The provider renders these while the first request is in flight and
+ * whenever there is no session, so a zero here would flash "all clear" on
+ * every page load before the real counts arrived.
+ */
 const DEFAULT_COUNTS: NavBadgeCounts = {
-  dashboardBadge: 0,
-  applicationsBadge: 0,
-  fundingRoundsBadge: 0,
-  complianceBadge: 0,
-  complaintsBadge: 0,
+  dashboardBadge: null,
+  applicationsBadge: null,
+  fundingRoundsBadge: null,
+  complianceBadge: null,
+  complaintsBadge: null,
 };
 
 // ── Context ─────────────────────────────────────────────────────────────────
@@ -51,19 +71,18 @@ const NavBadgeContext = createContext<NavBadgeContextValue>({
 
 const REFRESH_INTERVAL_MS = 60_000;
 
-// Logged, not fixed: an unreadable count becomes 0, and a badge showing no
-// number reads as "nothing waiting" rather than "not known". Distinguishing
-// them needs an unknown state the badge can render, which is a redesign.
-async function fetchCount(url: string): Promise<number> {
+/** The count at this endpoint, or null when it could not be read. */
+async function fetchCount(url: string): Promise<BadgeCount> {
   try {
     const data = await loadJson<unknown>(url);
     // Support both { data: { total_count } } and { data: [...] } shapes
     const record = data as { total_count?: unknown } | null;
     if (typeof record?.total_count === 'number') return record.total_count;
     if (Array.isArray(data)) return data.length;
-    return 0;
+    // A 200 whose body has neither shape is not a count of zero.
+    return null;
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -86,12 +105,14 @@ export function NavBadgeProvider({ children }: { children: ReactNode }) {
         '/api/v1/dashboard/nav-counts',
       );
       if (data) {
+        // ?? null, not ?? 0: a key the consolidated endpoint omits is one it
+        // has not told us about, which is not the same as a count of none.
         setCounts({
-          dashboardBadge: data['action_queue'] ?? 0,
-          applicationsBadge: data['applications'] ?? 0,
-          fundingRoundsBadge: data['funding_rounds'] ?? 0,
-          complianceBadge: data['compliance'] ?? 0,
-          complaintsBadge: data['complaints'] ?? 0,
+          dashboardBadge: data['action_queue'] ?? null,
+          applicationsBadge: data['applications'] ?? null,
+          fundingRoundsBadge: data['funding_rounds'] ?? null,
+          complianceBadge: data['compliance'] ?? null,
+          complaintsBadge: data['complaints'] ?? null,
         });
         return;
       }
@@ -111,8 +132,10 @@ export function NavBadgeProvider({ children }: { children: ReactNode }) {
       dashboardBadge,
       applicationsBadge,
       fundingRoundsBadge,
-      complianceBadge: 0,
-      complaintsBadge: 0,
+      // The fallback path has no endpoint for these two, so they stay unknown
+      // rather than reporting a zero nothing measured.
+      complianceBadge: null,
+      complaintsBadge: null,
     });
   }, [shouldFetch]);
 

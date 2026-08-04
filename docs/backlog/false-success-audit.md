@@ -201,3 +201,53 @@ to: **real**, **claims a write that does not happen**, **navigates before
 confirming**, or **reachable from a catch**. Fix in a second pass, once the
 scale is known — some will be one-line moves of a toast into the success branch,
 and others need the endpoint built.
+
+## "Not known" is not "none"
+
+Two surfaces defaulted an unreadable value to the reassuring one, and both are
+now fixed. Recorded together because they are one rule, not two fixes.
+
+| | Read failure became | Which renders as |
+|---|---|---|
+| `NavBadgeProvider` | `0` | no badge — "nothing waiting" |
+| Settings 2FA status | `false` | "2FA is off. Enable it?" |
+
+In both, the failure was invisible **and pointed the wrong way**. A queue nobody
+could reach looked empty. An account whose protection could not be confirmed
+looked unprotected.
+
+### The rule
+
+**A value that stands for a fact about the world needs a third state.** Two
+states can only encode a fact and its negation; there is nowhere to put "we did
+not find out", so it gets folded into whichever branch is the default — and the
+default is nearly always the calm one, because that is what reads well when
+things are working.
+
+Three specifics worth keeping:
+
+1. **The initial value is a claim too.** `DEFAULT_COUNTS` renders before the
+   first request returns and whenever there is no session. Zeroes there flashed
+   "all clear" on every page load, not merely on failure.
+
+2. **Unknown must not borrow the alert styling.** The unknown badge is a muted
+   grey `?`, never the red/amber/teal of a real count. An alert colour asserts
+   that something needs attention, and the entire point is that we do not know
+   whether anything does. It carries `title` and `aria-label` so the meaning
+   does not depend on seeing the colour at all.
+
+3. **Unknown must not offer the actions that presume knowledge.** The 2FA panel
+   shows neither *Enable* nor *Disable* while the status is unreadable — both
+   state a fact about the account it does not have. The only honest control is
+   *Check again*.
+
+`!twoFactorEnabled` was the specific trap: true for both `false` and `null`, so
+the "not enabled" panel and its Enable button would have covered the unknown
+case silently. Every branch is now an explicit `=== true` / `=== false` /
+`=== null`, and a test asserts the truthiness check does not come back.
+
+### Still open elsewhere
+
+`lib/claude-document-service.ts` — `generateDocument` returns a mock template on
+API failure, distinguished from real output only by `model: 'template-fallback'`.
+Same family, needs a product decision rather than a fix.

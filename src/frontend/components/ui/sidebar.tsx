@@ -31,7 +31,15 @@ interface NavItem {
   label: string;
   href: string;
   icon: string;
-  badge?: string | number;
+  /**
+   * A count, a label, or null meaning the count could not be read.
+   *
+   * Null is rendered, deliberately — as a muted mark rather than as nothing.
+   * A nav item with no badge says "nothing waiting here", and that is a claim
+   * this component is not entitled to make on behalf of an endpoint that did
+   * not answer.
+   */
+  badge?: string | number | null;
   badgeColor?: string;
 }
 
@@ -147,7 +155,29 @@ function NavLink({ item, active, expanded }: NavLinkProps) {
         <span className="flex-1 truncate">{item.label}</span>
       )}
 
-      {expanded && item.badge !== undefined && item.badge !== 0 && (
+      {/*
+        Three states, three renderings:
+          a count above zero  → the badge in its alert colour
+          exactly zero        → nothing, which is what "nothing waiting" means
+          null                → a muted "?", never the alert colour
+
+        The unknown badge is deliberately not styled like the real one. An
+        alert colour asserts something needs attention; the whole point here is
+        that we do not know whether anything does.
+      */}
+      {expanded && item.badge === null && (
+        <span
+          title="This count could not be loaded, so it is not known whether anything is waiting."
+          aria-label="Count unavailable"
+          className="ml-auto flex-shrink-0 min-w-[1.25rem] h-5 px-1.5
+                     rounded-full text-[10px] font-bold flex items-center justify-center
+                     bg-white/10 text-white/40 border border-white/15"
+        >
+          ?
+        </span>
+      )}
+
+      {expanded && typeof item.badge !== 'undefined' && item.badge !== null && item.badge !== 0 && (
         <span
           className={`ml-auto flex-shrink-0 min-w-[1.25rem] h-5 px-1.5
                      rounded-full text-[10px] font-bold flex items-center justify-center
