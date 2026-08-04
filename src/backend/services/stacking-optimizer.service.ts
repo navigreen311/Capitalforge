@@ -614,6 +614,7 @@ import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
 import {
   CREDIT_UNION_MEMBERSHIP,
+  type MembershipCost,
   isCreditUnionIssuer,
   isCreditUnionIssuerName,
   parseIssuer,
@@ -797,7 +798,30 @@ export interface ExcludedCardInfo {
   cardProductId: string;
   issuer: string;
   name: string;
-  reason: string;
+  /**
+   * Why this card is not eligible for this client.
+   *
+   * A fact about the client and the card, true regardless of what the advisor
+   * asked the optimizer to consider. Null when nothing disqualifies it — a
+   * card can be out of scope and perfectly eligible.
+   */
+  reason: string | null;
+  /**
+   * Why this card is not in the plan, when the answer is scope rather than
+   * eligibility.
+   *
+   * Kept apart from `reason` because they answer different questions and the
+   * scope answer used to erase the eligibility one. With credit unions off,
+   * every CU was pushed out with "Credit unions are not included in this
+   * plan" and `continue`d before membership was ever assessed — so BECU's
+   * "Client is in TX, requires Washington residency" and Navy Federal's "no
+   * military affiliation recorded" disappeared. Those facts are true whether
+   * or not credit unions are switched on, and an advisor turning the toggle
+   * should not discover them for the first time.
+   *
+   * Null when the card was in scope and simply did not qualify.
+   */
+  outOfScope: string | null;
 }
 
 export interface AprExpirySummary {
@@ -999,8 +1023,15 @@ export interface MembershipAssessment {
    * is available at all.
    */
   gate?: 'open_enrollment' | 'qualification_required';
-  /** Approximate cost of joining, where enrollment is open. */
-  joinCost?: number;
+  /**
+   * What joining costs, carried whole rather than as a number.
+   *
+   * A bare number could not say "we cannot source this", and the plan would
+   * then have to choose between showing a figure nobody stands behind and
+   * showing nothing at all. The discriminated union lets the surface render
+   * "cost not confirmed" without inventing a digit.
+   */
+  joinCost?: MembershipCost;
 }
 
 /** What the advisor told us about the client's credit union standing. */
@@ -1675,6 +1706,8 @@ export async function runStackingOptimizer(
         issuer: card.issuerId,
         name: card.name,
         reason: `Issuer "${card.issuerId}" excluded by request.`,
+        // In scope, and did not qualify.
+        outOfScope: null,
       });
       continue;
     }
@@ -1690,6 +1723,8 @@ export async function runStackingOptimizer(
         issuer: card.issuerId,
         name: card.name,
         reason: 'The client already holds this card.',
+        // In scope, and did not qualify.
+        outOfScope: null,
       });
       continue;
     }
@@ -1700,22 +1735,29 @@ export async function runStackingOptimizer(
     // point it is an identity whose kind and id the type system knows.
     const issuerIdentity = parseIssuer(card.issuerId);
     if (issuerIdentity?.kind === 'credit_union') {
-      if (!includeCreditUnions) {
-        excludedCards.push({
-          cardProductId: card.id,
-          issuer: card.issuerId,
-          name: card.name,
-          reason: 'Credit unions are not included in this plan.',
-        });
-        continue;
-      }
+      // Membership is assessed whether or not credit unions are in scope.
+      //
+      // It used to be skipped entirely when the toggle was off, so a card that
+      // the client could never join was reported only as "not included in this
+      // plan" — and turning the toggle on was the only way to discover that
+      // BECU needs Washington residency or that Navy Federal needs a military
+      // affiliation. Those are facts about the client; they do not depend on a
+      // switch, and an advisor should not have to hunt for them.
       const membership = assessMembership(issuerIdentity.id, creditUnionEligibility);
-      if (membership.status === 'ineligible') {
+      const ineligible = membership.status === 'ineligible' ? membership.detail : null;
+      const outOfScope = includeCreditUnions
+        ? null
+        : 'Credit unions are not included in this plan.';
+
+      if (ineligible !== null || outOfScope !== null) {
         excludedCards.push({
           cardProductId: card.id,
           issuer: card.issuerId,
           name: card.name,
-          reason: membership.detail,
+          // Both are carried. A card can be out of scope *and* ineligible, and
+          // the scope answer no longer overwrites the eligibility one.
+          reason: ineligible,
+          outOfScope,
         });
         continue;
       }
@@ -1729,6 +1771,8 @@ export async function runStackingOptimizer(
         issuer: card.issuerId,
         name: card.name,
         reason: `FICO score ${ctx.ficoScore} is below minimum requirement ${card.scoreMinimum}.`,
+        // In scope, and did not qualify.
+        outOfScope: null,
       });
       continue;
     }
@@ -1741,6 +1785,8 @@ export async function runStackingOptimizer(
         issuer: card.issuerId,
         name: card.name,
         reason: `Annual revenue $${ctx.annualRevenue.toLocaleString()} is significantly below minimum $${revMin.toLocaleString()}.`,
+        // In scope, and did not qualify.
+        outOfScope: null,
       });
       continue;
     }
@@ -1752,6 +1798,8 @@ export async function runStackingOptimizer(
         issuer: card.issuerId,
         name: card.name,
         reason: `Business age ${ctx.businessAgeMonths} months is below minimum ${card.businessAgeMinimum} months.`,
+        // In scope, and did not qualify.
+        outOfScope: null,
       });
       continue;
     }

@@ -12,7 +12,6 @@ export interface CreditUnionIssuer {
   tier: 'A' | 'B';
   membershipRequired: boolean;
   membershipEligibility: string[];
-  membershipCost: number;
   businessCard: {
     name: string;
     limitRange: string;
@@ -42,7 +41,6 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
       'Military family members',
       'DoD civilian employees',
     ],
-    membershipCost: 0,
     businessCard: {
       name: 'Navy Federal Business Visa',
       limitRange: '$10,000–$50,000',
@@ -74,11 +72,10 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
     tier: 'A',
     membershipRequired: true,
     membershipEligibility: [
-      'Anyone — open to all via $17 membership fee',
+      'Anyone — open to all via membership required fee',
       'Military and government employees (priority)',
-      'Voices for Americas Troops donation ($17)',
+      "Voices for America's Troops donation",
     ],
-    membershipCost: 17,
     businessCard: {
       name: 'PenFed Business Cash Rewards',
       limitRange: '$5,000–$35,000',
@@ -89,7 +86,7 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
     },
     velocityRules: [
       'Max 1 new PenFed card per 6 months',
-      'Requires savings account with $5 minimum balance',
+      'Requires a savings account with a minimum balance',
     ],
     reconLine: '1-800-247-5626',
     approvalIntelligence:
@@ -110,11 +107,10 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
     tier: 'A',
     membershipRequired: true,
     membershipEligibility: [
-      'Anyone — join via Foster Care to Success ($10 donation)',
+      'Anyone — join via a Foster Care to Success donation',
       'Employees of qualifying companies',
       'Residents of qualifying communities in Chicagoland area',
     ],
-    membershipCost: 10,
     businessCard: {
       name: 'Alliant Business Visa Signature',
       limitRange: '$5,000–$40,000',
@@ -147,10 +143,9 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
     membershipRequired: true,
     membershipEligibility: [
       'Employees of qualifying tech companies (Intel, HP, Microsoft, Nike, etc.)',
-      'Computer History Museum members ($15)',
-      'Financial Fitness Association members ($15)',
+      'Computer History Museum members',
+      'Financial Fitness Association members',
     ],
-    membershipCost: 15,
     businessCard: {
       name: 'First Tech Business Rewards',
       limitRange: '$5,000–$30,000',
@@ -186,7 +181,6 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
       'Boeing employees and retirees',
       'Family members of existing BECU members',
     ],
-    membershipCost: 0,
     businessCard: {
       name: 'BECU Business Visa',
       limitRange: '$5,000–$25,000',
@@ -218,11 +212,10 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
     tier: 'B',
     membershipRequired: true,
     membershipEligibility: [
-      'Residents of lower Michigan',
+      'Open to anyone via an ALS of Michigan donation',
       'Employees of qualifying organizations in Michigan',
       'Members of qualifying associations',
     ],
-    membershipCost: 5,
     businessCard: {
       name: 'LMCU Business Visa',
       limitRange: '$5,000–$25,000',
@@ -255,7 +248,6 @@ export interface EligibilityResult {
   cu: CreditUnionIssuer;
   eligible: boolean;
   reason: string;
-  cost: number;
 }
 
 export function checkCUEligibility(
@@ -277,7 +269,6 @@ export function checkCUEligibility(
           reason: eligible
             ? `Eligible via ${militaryStatus} military status — no membership fee`
             : 'Requires military affiliation (active, retired, veteran, or family member)',
-          cost: 0,
         };
       }
 
@@ -287,9 +278,8 @@ export function checkCUEligibility(
           cu,
           eligible: true,
           reason: isMilitary
-            ? `Eligible via military affiliation — priority processing, $17 membership`
-            : 'Open membership via $17 Voices for Americas Troops donation',
-          cost: 17,
+            ? `Eligible via military affiliation — priority processing, membership required`
+            : "Open membership via a Voices for America's Troops donation",
         };
       }
 
@@ -298,8 +288,7 @@ export function checkCUEligibility(
         return {
           cu,
           eligible: true,
-          reason: 'Open membership via $10 Foster Care to Success donation',
-          cost: 10,
+          reason: 'Open membership via a Foster Care to Success donation',
         };
       }
 
@@ -314,9 +303,8 @@ export function checkCUEligibility(
           reason: eligible
             ? employerMatch
               ? `Eligible via employer (${employer}) — direct membership`
-              : 'Eligible via tech industry affiliation — join via Computer History Museum ($15)'
-            : 'Requires tech industry employment or $15 Computer History Museum / Financial Fitness Association membership',
-          cost: eligible ? 15 : 15,
+              : 'Eligible via tech industry affiliation — join via the Computer History Museum'
+            : 'Requires tech industry employment, or Computer History Museum / Financial Fitness Association membership',
         };
       }
 
@@ -328,19 +316,18 @@ export function checkCUEligibility(
           reason: eligible
             ? 'Eligible via Washington state residency — no membership fee'
             : 'Restricted to Washington state residents, Boeing employees, or BECU family members',
-          cost: 0,
         };
       }
 
       case 'lake-michigan': {
-        const eligible = state === 'MI';
         return {
           cu,
-          eligible,
-          reason: eligible
-            ? 'Eligible via Michigan residency — $5 membership deposit'
-            : 'Restricted to lower Michigan residents, qualifying employees, or association members',
-          cost: 5,
+          eligible: true,
+          // Open nationally via the ALS of Michigan donation — residency is
+          // not required. This branch used to read "Restricted to lower
+          // Michigan residents", contradicting CREDIT_UNION_MEMBERSHIP on the
+          // same screen. Eligibility no longer turns on state at all.
+          reason: 'Open membership via an ALS of Michigan donation — residency not required',
         };
       }
 
@@ -349,7 +336,6 @@ export function checkCUEligibility(
           cu,
           eligible: false,
           reason: 'Unknown credit union',
-          cost: 0,
         };
     }
   });

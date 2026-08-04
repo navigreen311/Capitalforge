@@ -217,9 +217,34 @@ const BANK_ISSUER_ALIASES: Record<BankIssuerId, readonly string[]> = {
 // recommendation to a client: for some of these, joining is a $5 donation, and
 // for others it requires having served in the military or living in one state.
 //
-// Each path below is taken from the product's own `notes` field, which states
-// the membership requirement. Where the requirement is a fact about the client
-// we do not hold, the answer is "unknown" — never "eligible".
+// Each path below states what joining actually requires, and each cost says
+// where it came from. Where the requirement is a fact about the client we do
+// not hold, the answer is "unknown" — never "eligible"; where the cost is a
+// figure we cannot source, it is "unconfirmed" — never a number.
+
+/**
+ * What joining costs, and whether we can stand behind the number.
+ *
+ * A bare `number` was not enough, and the reason is worth keeping. Four tables
+ * in this codebase carried a join cost for the same six credit unions and no
+ * two agreed — Alliant was $5 in one and $10 in three, PenFed $5 and $17,
+ * First Tech $50 and $15. An advisor read one number off the screen and the
+ * client met a different one at the credit union.
+ *
+ * Picking a winner would not have fixed it: no single table was right about
+ * every issuer. So a cost now carries where it came from, and a cost nobody
+ * can source is not rendered as a number at all. A figure with a caveat beside
+ * it still reads as a figure — the eye takes the digits and skips the note,
+ * which is the same reason an assumed FICO is surfaced as `assumed_default`
+ * rather than as 680 with an asterisk.
+ */
+export type MembershipCost =
+  /** This path has no join fee at all. Not a cost of zero — no cost. */
+  | { kind: 'none' }
+  /** A cost we can point at a source for. */
+  | { kind: 'confirmed'; amount: number; source: string }
+  /** A cost we cannot currently source. Never rendered as a number. */
+  | { kind: 'unconfirmed'; note: string };
 
 export type MembershipPathKind =
   /** Anyone may join, usually for a small donation or deposit. */
@@ -237,42 +262,86 @@ export interface MembershipPath {
   description: string;
   /** For `state`: the two-letter code that qualifies. */
   state?: string;
-  /** Approximate cost of joining, in dollars. */
-  cost?: number;
+  /** What joining costs, with its provenance. */
+  cost: MembershipCost;
 }
 
-export const CREDIT_UNION_MEMBERSHIP: Record<string, MembershipPath> = {
+/**
+ * The one place a credit union membership requirement is described.
+ *
+ * Keyed by `CreditUnionIssuerId` rather than `string`, so adding a credit
+ * union to the registry without describing how to join it is a compile error
+ * rather than a card that appears in a plan with no membership path.
+ */
+export const CREDIT_UNION_MEMBERSHIP: Record<CreditUnionIssuerId, MembershipPath> = {
   alliant: {
     kind: 'open',
-    description: 'Open to anyone via a $5 Foster Care to Success donation.',
-    cost: 5,
+    description: 'Open to anyone via a Foster Care to Success donation.',
+    cost: { kind: 'confirmed', amount: 5, source: 'Alliant Credit Union — Foster Care to Success donation' },
   },
   lake_michigan_cu: {
     kind: 'open',
-    description: 'Open to anyone via a $5 ALS of Michigan donation.',
-    cost: 5,
+    // Not "lower Michigan residents". LMCU is open nationally through this
+    // donation; the residency wording was a stale restriction carried in the
+    // frontend copy and contradicted this entry on the same screen.
+    description: 'Open to anyone via an ALS of Michigan donation. Residency is not required.',
+    cost: { kind: 'confirmed', amount: 5, source: 'Lake Michigan Credit Union — ALS of Michigan donation' },
   },
   penfed: {
     kind: 'open',
-    description: 'Open to anyone via a $5 National Military Family Association savings account.',
-    cost: 5,
+    description: "Open to anyone via a Voices for America's Troops donation.",
+    cost: {
+      kind: 'confirmed',
+      amount: 5,
+      source: "PenFed Credit Union — Voices for America's Troops donation",
+    },
   },
   becu: {
     kind: 'state',
     description: 'Requires Washington state residency or employment.',
     state: 'WA',
+    cost: { kind: 'none' },
   },
   first_tech: {
     kind: 'industry',
     description:
-      'Requires employment with a partner technology company, or Computer History Museum membership (about $50).',
-    cost: 50,
+      'Requires employment with a partner technology company, or membership of the Computer History Museum.',
+    // Deliberately unconfirmed. The four tables disagreed at $15 and $50 — a
+    // threefold spread on a number an advisor quotes to a client — and neither
+    // figure could be sourced. Joining through a partner employer carries no
+    // association fee; the museum route has a price nobody here can cite.
+    cost: {
+      kind: 'unconfirmed',
+      note: 'No fee when qualifying through a partner employer. The Computer History Museum route has a fee we cannot currently source.',
+    },
   },
   navy_federal: {
     kind: 'military',
     description: 'Requires military, veteran, or Department of Defense affiliation.',
+    cost: { kind: 'none' },
   },
 };
+
+/**
+ * How a membership cost should be written on screen.
+ *
+ * The unconfirmed case deliberately returns no digits.
+ */
+export function formatMembershipCost(cost: MembershipCost): string {
+  switch (cost.kind) {
+    case 'none':
+      return 'No membership fee';
+    case 'confirmed':
+      return `$${cost.amount}`;
+    case 'unconfirmed':
+      return 'Membership required — cost not confirmed';
+  }
+}
+
+/** The cost as a number, or null when there is nothing citable to show. */
+export function membershipCostAmount(cost: MembershipCost): number | null {
+  return cost.kind === 'confirmed' ? cost.amount : cost.kind === 'none' ? 0 : null;
+}
 
 /**
  * The name to show a person, for an issuer we hold as a slug.
