@@ -190,6 +190,12 @@ test.describe('Decision governance', () => {
     if (unscored.length > 0) {
       await expect(page.getByText('not reported').first()).toBeVisible({ timeout: 30000 });
     }
-    await expect(page.getByText('0%')).toHaveCount(0);
+    // `exact: true` is load-bearing. Without it this is a substring match, and
+    // "0%" is a substring of 10%, 20%, 30% ... 100% — so the assertion would
+    // fire on any confidence rate ending in a zero. It passes today only
+    // because no such rate happens to be on the page, which is luck rather
+    // than a check. The claim being made is that no score renders as the exact
+    // text "0%", which is what a missing score used to default to.
+    await expect(page.getByText('0%', { exact: true })).toHaveCount(0);
   });
 });
