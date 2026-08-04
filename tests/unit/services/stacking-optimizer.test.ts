@@ -17,6 +17,7 @@ import {
   type ExistingCard,
 } from '../../../src/backend/services/issuer-rules.service.js';
 import { getActiveCards, getCardsByIssuer } from '../../../src/backend/services/card-products.js';
+import { parseIssuer } from '../../../src/shared/constants/issuers.js';
 
 // ============================================================
 // Test fixtures
@@ -49,26 +50,40 @@ function makeInput(overrides?: Partial<OptimizerInput>): OptimizerInput {
   };
 }
 
+/**
+ * Resolve an issuer slug for these fixtures.
+ *
+ * `ExistingCard.issuer` became an `IssuerIdentity` so credit union cards could
+ * be represented at all. The tests still name issuers by slug, which is the
+ * readable thing to do — they go through the same parse boundary production
+ * code does, rather than hand-building the identity object.
+ */
+function issuerOf(slug: string): ExistingCard['issuer'] {
+  const parsed = parseIssuer(slug);
+  if (!parsed) throw new Error(`Test fixture names an unknown issuer: ${slug}`);
+  return parsed;
+}
+
 /** Build an ExistingCard opened N days ago. */
 function cardOpenedDaysAgo(
   id: string,
-  issuer: ExistingCard['issuer'],
+  issuer: string,
   daysAgo: number,
 ): ExistingCard {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
-  return { id, issuer, openedAt: d.toISOString(), isOpen: true };
+  return { id, issuer: issuerOf(issuer), openedAt: d.toISOString(), isOpen: true };
 }
 
 /** Build an ExistingCard opened N months ago. */
 function cardOpenedMonthsAgo(
   id: string,
-  issuer: ExistingCard['issuer'],
+  issuer: string,
   monthsAgo: number,
 ): ExistingCard {
   const d = new Date();
   d.setMonth(d.getMonth() - monthsAgo);
-  return { id, issuer, openedAt: d.toISOString(), isOpen: true };
+  return { id, issuer: issuerOf(issuer), openedAt: d.toISOString(), isOpen: true };
 }
 
 /** Build an application date N days ago. */

@@ -72,7 +72,7 @@ export function isCreditUnionIssuer(value: string): boolean {
 // have not, penalising them for following the advice.
 
 /** Display names each credit union appears under, alongside its slug. */
-const CREDIT_UNION_ALIASES: Record<string, readonly string[]> = {
+const CREDIT_UNION_ALIASES: Record<CreditUnionIssuerId, readonly string[]> = {
   navy_federal: ['Navy Federal Credit Union', 'Navy Federal', 'NFCU'],
   penfed: ['PenFed Credit Union', 'PenFed', 'Pentagon Federal Credit Union'],
   alliant: ['Alliant Credit Union', 'Alliant'],
@@ -105,7 +105,8 @@ export function isCreditUnionIssuerName(value: string | null | undefined): boole
   if ((CREDIT_UNION_ISSUER_IDS as readonly string[]).some((id) => normaliseIssuerText(id) === normalised)) {
     return true;
   }
-  for (const aliases of Object.values(CREDIT_UNION_ALIASES)) {
+  for (const id of CREDIT_UNION_ISSUER_IDS) {
+    const aliases = CREDIT_UNION_ALIASES[id];
     if (aliases.some((alias) => normaliseIssuerText(alias) === normalised)) return true;
   }
   return normalised.includes('creditunion') || normalised.endsWith('fcu');
@@ -125,14 +126,17 @@ export function isCreditUnionIssuerName(value: string | null | undefined): boole
 // This is the one place text becomes identity. Past it, an issuer is a typed
 // value with a known kind; before it, it is a string nobody has checked.
 
+export type BankIssuerId = (typeof BANK_ISSUER_IDS)[number];
+export type CreditUnionIssuerId = (typeof CREDIT_UNION_ISSUER_IDS)[number];
+
 export interface BankIssuerIdentity {
   kind: 'bank';
-  id: string;
+  id: BankIssuerId;
 }
 
 export interface CreditUnionIssuerIdentity {
   kind: 'credit_union';
-  id: string;
+  id: CreditUnionIssuerId;
 }
 
 /**
@@ -162,33 +166,38 @@ export function parseIssuer(raw: string | null | undefined): IssuerIdentity | nu
   for (const id of CREDIT_UNION_ISSUER_IDS) {
     if (normaliseIssuerText(id) === normalised) return { kind: 'credit_union', id };
   }
-  for (const [id, aliases] of Object.entries(CREDIT_UNION_ALIASES)) {
-    if (aliases.some((alias) => normaliseIssuerText(alias) === normalised)) {
+  for (const id of CREDIT_UNION_ISSUER_IDS) {
+    if (CREDIT_UNION_ALIASES[id].some((alias) => normaliseIssuerText(alias) === normalised)) {
       return { kind: 'credit_union', id };
     }
   }
   for (const id of BANK_ISSUER_IDS) {
     if (normaliseIssuerText(id) === normalised) return { kind: 'bank', id };
   }
-  for (const [id, aliases] of Object.entries(BANK_ISSUER_ALIASES)) {
-    if (aliases.some((alias) => normaliseIssuerText(alias) === normalised)) {
+  for (const id of BANK_ISSUER_IDS) {
+    if (BANK_ISSUER_ALIASES[id].some((alias) => normaliseIssuerText(alias) === normalised)) {
       return { kind: 'bank', id };
     }
   }
 
-  // Self-identifying credit unions resolve even when unlisted, for the same
-  // reason `isCreditUnionIssuerName` accepts them: treating an unknown credit
-  // union as a bank counts its applications against 5/24, which is the silent
-  // and worse direction of error.
-  if (normalised.includes('creditunion') || normalised.endsWith('fcu')) {
-    return { kind: 'credit_union', id: normalised };
-  }
-
+  // An unlisted credit union deliberately does NOT resolve here.
+  //
+  // `IssuerIdentity.id` is a literal union, so there is no honest value to
+  // return for an issuer we have no configuration for — and returning one
+  // would imply a cooldown, a membership path and velocity rules that do not
+  // exist. Null makes the caller decide.
+  //
+  // The fail-safe still holds where it matters: `isCreditUnionIssuerName`
+  // accepts self-identifying credit unions, and the 5/24 count uses that
+  // rather than this. Under-counting 5/24 costs a declined application, which
+  // the advisor sees; counting a credit union card against it tells a client
+  // they are out of Chase eligibility when they are not, so they never apply
+  // and nobody finds out. The second is worse and silent.
   return null;
 }
 
 /** Display names each bank appears under. `CardApplication.issuer` holds these. */
-const BANK_ISSUER_ALIASES: Record<string, readonly string[]> = {
+const BANK_ISSUER_ALIASES: Record<BankIssuerId, readonly string[]> = {
   chase: ['Chase', 'JPMorgan Chase', 'Chase Bank'],
   amex: ['American Express', 'Amex', 'AmEx'],
   capital_one: ['Capital One'],
@@ -264,3 +273,25 @@ export const CREDIT_UNION_MEMBERSHIP: Record<string, MembershipPath> = {
     description: 'Requires military, veteran, or Department of Defense affiliation.',
   },
 };
+
+/**
+ * The name to show a person, for an issuer we hold as a slug.
+ *
+ * Drawn from the same alias lists `parseIssuer` reads, first entry per issuer,
+ * so the two directions cannot drift. Where a slug has no alias the slug is
+ * de-slugified rather than shown raw — `sandbox.service.ts` did this inline
+ * with `replace('_', ' ').toUpperCase()`, which handles one underscore and
+ * shouts.
+ */
+export function issuerDisplayName(id: string): string {
+  const parsed = parseIssuer(id);
+  const key = parsed?.id ?? id;
+  const alias =
+    (CREDIT_UNION_ALIASES as Record<string, readonly string[] | undefined>)[key]?.[0]
+    ?? (BANK_ISSUER_ALIASES as Record<string, readonly string[] | undefined>)[key]?.[0];
+  if (alias) return alias;
+  return key
+    .split('_')
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(' ');
+}

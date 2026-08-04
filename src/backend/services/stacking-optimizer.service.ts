@@ -616,6 +616,7 @@ import {
   CREDIT_UNION_MEMBERSHIP,
   isCreditUnionIssuer,
   parseIssuer,
+  type CreditUnionIssuerId,
 } from '../../shared/constants/issuers.js';
 
 const prisma = sharedPrisma;
@@ -932,7 +933,7 @@ export interface CreditUnionEligibility {
  * favour, for the same reason an assumed FICO is labelled rather than trusted.
  */
 export function assessMembership(
-  issuerId: string,
+  issuerId: CreditUnionIssuerId,
   eligibility?: CreditUnionEligibility,
 ): MembershipAssessment {
   const path = CREDIT_UNION_MEMBERSHIP[issuerId];
@@ -947,10 +948,12 @@ export function assessMembership(
   // list spells these with hyphens and without the `_cu` suffix, so
   // `lake-michigan` normalised to `lake_michigan` and matched no issuer — a
   // client who was already a member was told to join.
-  const memberships = (eligibility?.existingMemberships ?? [])
-    .map((m) => parseIssuer(m)?.id)
-    .filter((id): id is string => typeof id === 'string');
-  if (memberships.includes(issuerId)) {
+  const memberships = new Set(
+    (eligibility?.existingMemberships ?? [])
+      .map((m) => parseIssuer(m)?.id)
+      .filter((id): id is NonNullable<typeof id> => id !== undefined),
+  );
+  if (memberships.has(issuerId)) {
     return { status: 'member', detail: 'Client is already a member.' };
   }
 
@@ -1514,7 +1517,10 @@ export async function runStackingOptimizer(
 
     // Credit unions: only when asked for, and never as though membership
     // were a given.
-    if (isCreditUnionIssuer(issuerLower)) {
+    // Parsed, not compared. `card.issuerId` is a database string; past this
+    // point it is an identity whose kind and id the type system knows.
+    const issuerIdentity = parseIssuer(card.issuerId);
+    if (issuerIdentity?.kind === 'credit_union') {
       if (!includeCreditUnions) {
         excludedCards.push({
           cardProductId: card.id,
@@ -1524,7 +1530,7 @@ export async function runStackingOptimizer(
         });
         continue;
       }
-      const membership = assessMembership(issuerLower, creditUnionEligibility);
+      const membership = assessMembership(issuerIdentity.id, creditUnionEligibility);
       if (membership.status === 'ineligible') {
         excludedCards.push({
           cardProductId: card.id,
