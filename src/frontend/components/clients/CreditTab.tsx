@@ -518,14 +518,12 @@ export default function CreditTab({ clientId, clientName }: CreditTabProps) {
   const handlePullReport = useCallback(async () => {
     setIsPulling(true);
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      if (!token) {
-        setToast({ message: 'Authentication required. Please sign in again.', type: 'error' });
-        setIsPulling(false);
-        setShowConfirm(false);
-        return;
-      }
-
+      // No pre-flight token check. apiClient spends the refresh token on a
+      // 401 and retries, so testing for an access token here refused the pull
+      // in exactly the case the refresh exists to handle — a fifteen-minute
+      // token that has aged out while the seven-day one is still good. The
+      // failure it reported, "please sign in again", was the one thing the
+      // user did not need to do.
       await apiClient.post(`/v1/clients/${clientId}/credit/pull`);
 
       setToast({ message: 'Credit report pull initiated successfully.', type: 'success' });

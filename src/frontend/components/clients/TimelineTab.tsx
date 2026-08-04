@@ -20,6 +20,8 @@ import {
 } from '@/lib/timeline-view';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard } from '../ui/card';
+import { publishEvent } from '@/components/dashboard/DashboardEventBus';
+import { toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -245,35 +247,39 @@ export function TimelineTab({ clientId }: TimelineTabProps) {
       setIsModalOpen(false);
 
       try {
-        const token =
-          typeof window !== 'undefined'
-            ? localStorage.getItem('cf_access_token')
-            : null;
-
-        await fetch('/api/v1/events', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            event_type: 'client.advisor_note_added',
-            payload: { client_id: clientId, note_text: noteText },
-          }),
+        // NOTE: 'client.advisor_note_added' is not in the server's
+        // SUPPORTED_EVENT_TYPES, so this call is refused with 400 and the note
+        // is not recorded anywhere. This event POST is the only persistence
+        // the note has. Whether the type should be added server-side is a
+        // decision left open -- see the sweep log.
+        //
+        // What is fixed here is the report: the success toast used to fire
+        // unconditionally after an unchecked fetch, telling the advisor the
+        // note was saved while the server was rejecting it.
+        await publishEvent('client.advisor_note_added', {
+          client_id: clientId,
+          note_text: noteText,
         });
 
-        // Success toast (simple alert fallback — would use a toast library in prod)
         if (typeof window !== 'undefined') {
-          // Dispatch a custom event that a toast system could pick up
           window.dispatchEvent(
             new CustomEvent('cf:toast', {
               detail: { message: 'Note added to timeline', type: 'success' },
             }),
           );
         }
-      } catch {
-        // Silently handle — optimistic event stays visible
-        console.error('[TimelineTab] Failed to save note');
+      } catch (e) {
+        console.error('[TimelineTab] Failed to save note', e);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('cf:toast', {
+              detail: {
+                message: `The note was not saved. ${toLoadError(e).message}`,
+                type: 'error',
+              },
+            }),
+          );
+        }
       } finally {
         setIsSaving(false);
       }

@@ -21,6 +21,7 @@ import {
 } from '@/lib/acknowledgments-view';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard } from '../ui/card';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -128,18 +129,9 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
       setSuccessMessage(null);
       setErrorMessage(null);
       try {
-        const token =
-          typeof window !== 'undefined'
-            ? localStorage.getItem('cf_access_token')
-            : null;
-
-        const res = await fetch('/api/docusign/send', {
+        const data = await loadJson<{ isMock?: boolean } | null>('/api/docusign/send', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
+          body: {
             signerEmail:     'client@example.com', // In production, fetched from client record
             signerName:      'Client Signer',      // In production, fetched from client record
             documentBase64:  btoa(ack.name),        // Stub — real impl sends actual doc bytes
@@ -148,23 +140,17 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
             envelopeMessage: `Please review and sign the ${ack.name} acknowledgment.`,
             businessId:      clientId,
             docType:         ack.type,
-          }),
+          },
         });
 
-        const result = await res.json();
-
-        if (result.success) {
-          const msg = result.data?.isMock
+        setSuccessMessage(
+          data?.isMock
             ? `[DEMO] DocuSign signature request sent for ${ack.name}`
-            : `DocuSign signature request sent for ${ack.name}`;
-          setSuccessMessage(msg);
-          setTimeout(() => setSuccessMessage(null), 4000);
-        } else {
-          setErrorMessage(result.error?.message ?? 'Failed to send for signature');
-          setTimeout(() => setErrorMessage(null), 4000);
-        }
-      } catch {
-        setErrorMessage('Failed to send for signature. Please try again.');
+            : `DocuSign signature request sent for ${ack.name}`,
+        );
+        setTimeout(() => setSuccessMessage(null), 4000);
+      } catch (e) {
+        setErrorMessage(`Failed to send for signature. ${toLoadError(e).message}`);
         setTimeout(() => setErrorMessage(null), 4000);
       } finally {
         setSendingDocuSign(null);
@@ -180,25 +166,19 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
       setRequestingType(type);
       setSuccessMessage(null);
       try {
-        const token =
-          typeof window !== 'undefined'
-            ? localStorage.getItem('cf_access_token')
-            : null;
-
-        await fetch(`/api/v1/clients/${clientId}/acknowledgments/request`, {
+        // The success message used to fire after an unchecked fetch, so a
+        // refused request still told the advisor it had been sent.
+        await loadJson(`/api/v1/clients/${clientId}/acknowledgments/request`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ type }),
+          body: { type },
         });
 
         setSuccessMessage(`Signature request sent for ${name}.`);
         // Auto-dismiss after 4 seconds
         setTimeout(() => setSuccessMessage(null), 4000);
-      } catch {
-        // Silently handle — in production this would show an error toast
+      } catch (e) {
+        setErrorMessage(`The signature request for ${name} was not sent. ${toLoadError(e).message}`);
+        setTimeout(() => setErrorMessage(null), 6000);
       } finally {
         setRequestingType(null);
       }
@@ -213,28 +193,37 @@ export function AcknowledgmentsTab({ clientId }: AcknowledgmentsTabProps) {
     setSuccessMessage(null);
     try {
       const unsigned = acknowledgments.filter((a) => a.status !== 'signed');
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('cf_access_token')
-          : null;
 
+      // Counted rather than assumed. This used to report the size of the list
+      // it set out to send, not the number that were accepted, so a run where
+      // every request was refused still claimed them all sent. One failure no
+      // longer abandons the rest either.
+      let sent = 0;
+      const failures: string[] = [];
       for (const ack of unsigned) {
-        await fetch(`/api/v1/clients/${clientId}/acknowledgments/request`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ type: ack.type }),
-        });
+        try {
+          await loadJson(`/api/v1/clients/${clientId}/acknowledgments/request`, {
+            method: 'POST',
+            body: { type: ack.type },
+          });
+          sent += 1;
+        } catch {
+          failures.push(ack.type);
+        }
       }
 
-      setSuccessMessage(
-        `Signature requests sent for ${unsigned.length} acknowledgment${unsigned.length > 1 ? 's' : ''}.`,
-      );
-      setTimeout(() => setSuccessMessage(null), 4000);
-    } catch {
-      // Silently handle
+      if (sent > 0) {
+        setSuccessMessage(
+          `Signature requests sent for ${sent} acknowledgment${sent > 1 ? 's' : ''}.`,
+        );
+        setTimeout(() => setSuccessMessage(null), 4000);
+      }
+      if (failures.length > 0) {
+        setErrorMessage(
+          `${failures.length} request${failures.length > 1 ? 's were' : ' was'} not sent: ${failures.join(', ')}.`,
+        );
+        setTimeout(() => setErrorMessage(null), 6000);
+      }
     } finally {
       setRequestingAll(false);
     }

@@ -8,7 +8,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson } from '@/lib/load-json';
 import { useParams, useRouter } from 'next/navigation';
 import { clientsApi, applicationsApi } from '../../../lib/api-client';
 import { EditProfileModal } from '../../../components/clients/EditProfileModal';
@@ -176,16 +176,17 @@ export default function ClientDetailPage() {
         const [bizRes, appsRes, suitRes] = await Promise.allSettled([
           clientsApi.get(id),
           applicationsApi.list({ businessId: id }),
-          fetch(`/api/businesses/${encodeURIComponent(id)}/suitability/latest`, {
-            headers: authHeaders(),
-          }).then((r) => (r.ok ? r.json() : null)),
+          loadJson<SuitabilityResult | null>(
+            `/api/businesses/${encodeURIComponent(id)}/suitability/latest`,
+          ),
         ]);
 
         // Only a recorded check. No result means no check has been run, which
-        // is not the same as a client being unsuitable.
-        if (suitRes.status === 'fulfilled' && suitRes.value !== null) {
-          const body = suitRes.value as { success?: boolean; data?: SuitabilityResult | null };
-          setSuitability(body.success === true ? body.data ?? null : null);
+        // is not the same as a client being unsuitable — and a rejected
+        // request is neither, so it leaves suitability untouched rather than
+        // asserting that nothing was recorded.
+        if (suitRes.status === 'fulfilled') {
+          setSuitability(suitRes.value ?? null);
         }
 
         if (bizRes.status === 'fulfilled' && bizRes.value.success && bizRes.value.data) {

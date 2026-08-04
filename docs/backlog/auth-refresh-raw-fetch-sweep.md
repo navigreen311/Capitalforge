@@ -375,3 +375,56 @@ first one; it applies here.
 - **`UpcomingPayments`** writes a failed send to the console and shows nothing.
   The button stops, so a send that never happened is indistinguishable from one
   not attempted. Needs an error state the component does not have.
+
+## Batch 6 — client tabs, wizard shell, client detail (done)
+
+Seven files. Four carried a false success, and one carried a guard that
+defeated the refresh it stood in front of.
+
+### A third inline caller of the event bus, and the worst of them
+
+`components/clients/TimelineTab.tsx` posts an advisor note to
+`/api/v1/events`. Unlike the batch 5 pair it uses the **correct** wire format —
+`event_type`, snake_case — but `client.advisor_note_added` is not in the
+server's `SUPPORTED_EVENT_TYPES`, so it is refused with 400 all the same.
+
+It then dispatched a `cf:toast` reading **"Note added to timeline"**,
+unconditionally, after an unchecked `await fetch`. This event POST is the only
+persistence the note has, so the advisor was told a note was saved that was
+never written anywhere.
+
+Now routed through `publishEvent`, which throws, with the toast moved into the
+success path and a failure toast added.
+
+**Open decision, not taken here:** whether `client.advisor_note_added` should
+be added to the server's supported set. The type is refused today, so the
+feature does not work either way — but adding it writes advisor notes into
+`LedgerEvent` with an aggregate id derived from `randomUUID()`, since the
+payload carries `client_id` rather than `aggregateId` or `id`. That is a
+product decision about what the ledger holds, and it needs an owner.
+
+### Other false successes fixed on the lines being converted
+
+- **`AcknowledgmentsTab.handleRequestSignature`** — "Signature request sent for
+  X." after an unchecked fetch, with an empty catch.
+- **`AcknowledgmentsTab.handleRequestAllPending`** — reported the size of the
+  list it set out to send, not the number accepted, so a run where every
+  request was refused still claimed them all sent. Now counted, and one
+  failure no longer abandons the rest.
+- **`ApplicationWizardShell`** — the error path re-read the body by hand;
+  `loadJson` carries the server's wording through instead.
+
+### A pre-flight guard that defeated the refresh
+
+`CreditTab.handlePullReport` already called `apiClient.post`, which refreshes
+and retries. In front of it sat a check for an access token in `localStorage`
+that bailed out with *"Authentication required. Please sign in again."*
+
+That refused the pull in exactly the case the refresh exists to handle: a
+fifteen-minute access token that has aged out while the seven-day refresh token
+is still good. The one action it told the user to take was the one thing they
+did not need to do. Guard removed.
+
+**Worth searching for elsewhere.** A token read is not always a request — it
+can be a gate in front of one, and a gate is invisible to a sweep looking for
+calls. The remaining batches should treat `if (!token)` as its own finding.
