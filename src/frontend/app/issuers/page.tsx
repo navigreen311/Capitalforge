@@ -8,7 +8,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface Row { [key: string]: unknown; id?: string }
 
@@ -27,18 +27,12 @@ export default function IssuersPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/issuers', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`Issuers could not be loaded (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      const d = body.data as Record<string, unknown> | unknown[];
+      const data = await loadJson<unknown>('/api/issuers');
+      const d = data as Record<string, unknown> | unknown[];
       const list = Array.isArray(d) ? d : ((d?.['issuers'] as unknown[]) ?? []);
       setRows(list as Row[]);
-    } catch {
-      setError('Could not reach the server.');
+    } catch (e) {
+      setError(`Issuers could not be loaded. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);
@@ -54,27 +48,21 @@ export default function IssuersPage() {
     setSaving(true);
     setFormError(null);
     try {
-      const res = await fetch('/api/crm/issuers/contacts', {
+      await loadJson('/api/crm/issuers/contacts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+        body: {
           issuer,
           ...(contactName.trim() === '' ? {} : { contactName: contactName.trim() }),
           ...(phone.trim() === '' ? {} : { phone: phone.trim() }),
-        }),
+        },
       });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: { message?: string } };
-        setFormError(body.error?.message ?? `The contact was not saved (HTTP ${res.status}).`);
-        return;
-      }
       setShowForm(false);
       setIssuer('');
       setContactName('');
       setPhone('');
       await load();
-    } catch {
-      setFormError('Could not reach the server, so nothing was saved.');
+    } catch (e) {
+      setFormError(`The contact was not saved. ${toLoadError(e).message}`);
     } finally {
       setSaving(false);
     }

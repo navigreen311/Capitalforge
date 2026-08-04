@@ -21,7 +21,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import {
   toInvoiceRows,
   isOverdue,
@@ -58,17 +58,15 @@ export default function BillingPage() {
     setNow(new Date());
     void (async () => {
       try {
-        const res = await fetch('/api/compliance/disclosures', { headers: authHeaders() });
-        const body = (await res.json()) as {
-          success?: boolean;
-          data?: { businesses?: ClientOption[] };
-        };
-        const list = body.success === true ? body.data?.businesses ?? [] : [];
+        const payload = await loadJson<{ businesses?: ClientOption[] } | null>(
+          '/api/compliance/disclosures',
+        );
+        const list = payload?.businesses ?? [];
         setClients(list);
         if (list.length > 0) setSelected(list[0].businessId);
         else setLoading(false);
-      } catch {
-        setError('Could not load the client list.');
+      } catch (e) {
+        setError(`Invoices could not be loaded. ${toLoadError(e).message}`);
         setLoading(false);
       }
     })();
@@ -78,16 +76,8 @@ export default function BillingPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/businesses/${encodeURIComponent(businessId)}/invoices`, {
-        headers: authHeaders(),
-      });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`Invoices could not be loaded (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      setRows(toInvoiceRows(body.data));
+      const data = await loadJson<unknown>(`/api/businesses/${encodeURIComponent(businessId)}/invoices`);
+      setRows(toInvoiceRows(data));
     } catch {
       setError('Could not reach the server.');
       setRows(null);
@@ -106,23 +96,17 @@ export default function BillingPage() {
     setGenerating(true);
     setGenerateError(null);
     try {
-      const res = await fetch(`/api/businesses/${encodeURIComponent(selected)}/invoices`, {
+      await loadJson(`/api/businesses/${encodeURIComponent(selected)}/invoices`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+        body: {
           dealStructure,
           totalApprovedCredit: Number(approvedCredit) || 0,
-        }),
+        },
       });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: { message?: string } };
-        setGenerateError(body.error?.message ?? `The invoice was not created (HTTP ${res.status}).`);
-        return;
-      }
       setShowGenerate(false);
       await load(selected);
-    } catch {
-      setGenerateError('Could not reach the server, so no invoice was created.');
+    } catch (e) {
+      setGenerateError(`The invoice was not created. ${toLoadError(e).message}`);
     } finally {
       setGenerating(false);
     }

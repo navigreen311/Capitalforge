@@ -6,6 +6,7 @@
 
 import { useState, useCallback, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -315,22 +316,10 @@ function BillingTab({
   const handleManageSubscription = async () => {
     setPortalLoading(true);
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch(`${BILLING_API}/stripe/portal`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({}),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to create billing portal session');
-      }
-
-      const json = await res.json();
-      const { url, mock } = json.data;
+      const { url, mock } = await loadJson<{ url: string; mock: boolean }>(
+        `${BILLING_API}/stripe/portal`,
+        { method: 'POST', body: {} },
+      );
 
       if (mock) {
         toast.show('Stripe is not configured. Set STRIPE_SECRET_KEY in your environment to enable billing management.');
@@ -550,16 +539,16 @@ function SettingsPageInner() {
   useEffect(() => {
     (async () => {
       try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-        const res = await fetch('/api/auth/2fa/status', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setTwoFactorEnabled(data.data?.enabled ?? false);
-          setTwoFactorMock(data.data?.mock ?? false);
-        }
-      } catch { /* ignore */ }
+        const data = await loadJson<{ enabled?: boolean; mock?: boolean } | null>(
+          '/api/auth/2fa/status',
+        );
+        setTwoFactorEnabled(data?.enabled ?? false);
+        setTwoFactorMock(data?.mock ?? false);
+      } catch {
+        // Logged, not fixed: an unreadable status leaves the toggle at its
+        // default of "off", so a failure to read whether 2FA is on renders as
+        // 2FA being off. The panel has no third state to show instead.
+      }
     })();
   }, []);
 
@@ -567,27 +556,19 @@ function SettingsPageInner() {
     setTwoFactorSetupPhase('loading');
     setTwoFactorMessage('');
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/auth/2fa/setup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTwoFactorSecret(data.data.secret);
-        setTwoFactorQr(data.data.qrDataUrl ?? null);
-        setTwoFactorMock(data.data.mock ?? false);
-        setTwoFactorMessage(data.data.message ?? '');
-        setTwoFactorSetupPhase('qr');
-      } else {
-        toast.show(data.error?.message ?? 'Failed to set up 2FA');
-        setTwoFactorSetupPhase('idle');
-      }
-    } catch {
-      toast.show('Failed to set up 2FA');
+      const data = await loadJson<{
+        secret: string;
+        qrDataUrl?: string;
+        mock?: boolean;
+        message?: string;
+      }>('/api/auth/2fa/setup', { method: 'POST' });
+      setTwoFactorSecret(data.secret);
+      setTwoFactorQr(data.qrDataUrl ?? null);
+      setTwoFactorMock(data.mock ?? false);
+      setTwoFactorMessage(data.message ?? '');
+      setTwoFactorSetupPhase('qr');
+    } catch (e) {
+      toast.show(`Failed to set up 2FA. ${toLoadError(e).message}`);
       setTwoFactorSetupPhase('idle');
     }
   };
@@ -596,29 +577,21 @@ function SettingsPageInner() {
     if (twoFactorCode.length !== 6) { toast.show('Enter a 6-digit code'); return; }
     setTwoFactorSetupPhase('verifying');
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/auth/2fa/verify', {
+      await loadJson('/api/auth/2fa/verify', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ code: twoFactorCode }),
+        body: { code: twoFactorCode },
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTwoFactorEnabled(true);
-        setTwoFactorSetupPhase('idle');
-        setTwoFactorCode('');
-        setTwoFactorSecret('');
-        setTwoFactorQr(null);
-        toast.show('2FA enabled successfully');
-      } else {
-        toast.show(data.error?.message ?? 'Invalid code');
-        setTwoFactorSetupPhase('qr');
-      }
-    } catch {
-      toast.show('Verification failed');
+      setTwoFactorEnabled(true);
+      setTwoFactorSetupPhase('idle');
+      setTwoFactorCode('');
+      setTwoFactorSecret('');
+      setTwoFactorQr(null);
+      toast.show('2FA enabled successfully');
+    } catch (e) {
+      // Stays on the QR step. 2FA is only reported enabled once the server
+      // has accepted a code — telling someone their account is protected when
+      // it is not is the worst failure this page could produce.
+      toast.show(toLoadError(e).message);
       setTwoFactorSetupPhase('qr');
     }
   };
@@ -626,26 +599,16 @@ function SettingsPageInner() {
   const handle2FADisable = async () => {
     if (!disablePassword) { toast.show('Password is required'); return; }
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/auth/2fa/disable', {
+      await loadJson('/api/auth/2fa/disable', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ password: disablePassword }),
+        body: { password: disablePassword },
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTwoFactorEnabled(false);
-        setDisableModalOpen(false);
-        setDisablePassword('');
-        toast.show('2FA disabled');
-      } else {
-        toast.show(data.error?.message ?? 'Failed to disable 2FA');
-      }
-    } catch {
-      toast.show('Failed to disable 2FA');
+      setTwoFactorEnabled(false);
+      setDisableModalOpen(false);
+      setDisablePassword('');
+      toast.show('2FA disabled');
+    } catch (e) {
+      toast.show(`Failed to disable 2FA. ${toLoadError(e).message}`);
     }
   };
 

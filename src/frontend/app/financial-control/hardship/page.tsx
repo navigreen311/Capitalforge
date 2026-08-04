@@ -24,7 +24,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import {
   toHardshipRows,
   summarise,
@@ -53,16 +53,10 @@ export default function HardshipPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/financial/hardship-cases', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`Hardship cases could not be loaded (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      setRows(toHardshipRows(body.data));
-    } catch {
-      setError('Could not reach the server, so no cases are shown.');
+      const data = await loadJson<unknown>('/api/financial/hardship-cases');
+      setRows(toHardshipRows(data));
+    } catch (e) {
+      setError(`Hardship cases could not be loaded, so none are shown. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);

@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useState } from 'react';
+import { loadJson } from '@/lib/load-json';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,24 +114,11 @@ const COMPARISON_FEATURES: { feature: string; starter: string | boolean; pro: st
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
 
 async function createCheckoutSession(planSlug: string): Promise<{ url: string; mock: boolean }> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-
-  const res = await fetch(`${API_BASE}/stripe/checkout`, {
+  const data = await loadJson<{ url: string; mock: boolean }>(`${API_BASE}/stripe/checkout`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ planSlug }),
+    body: { planSlug },
   });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message ?? 'Failed to create checkout session');
-  }
-
-  const json = await res.json();
-  return { url: json.data.url, mock: json.data.mock };
+  return { url: data.url, mock: data.mock };
 }
 
 // ---------------------------------------------------------------------------

@@ -508,3 +508,39 @@ a false success. Converted only for the refresh.
 Its failure message — *"Nothing is reconstructed in its place"* — is worth
 keeping as written. It is one of the few places in this codebase that says out
 loud what it is refusing to do.
+
+## Batch 9 — financial control and settings (done)
+
+Eleven files, twenty-three call sites. Six of the eleven shared one exact GET
+shape, so those were transformed with a single script rather than by hand — the
+first batch uniform enough to justify it. It over-reached: the `body.data` →
+`data` rename it needed also hit each file's *second*, unconverted fetch block.
+`tsc` caught all seven of those immediately and each was then done by hand.
+Worth recording as the argument for keeping the compiler in the loop on
+mechanical edits rather than trusting the pattern.
+
+### The most consequential conversion in the sweep
+
+`app/settings` 2FA verify. It reported success on `res.ok && data.success`,
+which was correct — but it is the one surface where getting this wrong tells
+someone their account is protected when it is not. It now stays on the QR step
+unless the server accepts the code, and the comment says why.
+
+### Two `Promise.all` pairs where the second endpoint is a second opinion
+
+`statements` (anomaly check) and `spend-governance` (risk summary) both load a
+register plus a check *on* that register. A failure in the check must not render
+as a clean result — "no anomalies" and "the anomaly check could not be read" are
+opposite claims. Both keep that distinction.
+
+`spend-governance` needed the `{ loaded, value }` wrapper rather than a bare
+null, for the same reason `fair-lending` did in batch 3: its risk summary is
+legitimately `null` when the server has nothing to say, so null cannot also mean
+"did not answer".
+
+### Logged, not fixed
+
+- **`app/settings` 2FA status** — an unreadable status leaves the toggle at its
+  default of *off*, so a failure to read whether 2FA is enabled renders as 2FA
+  being disabled. The panel has no third state to show. This is the same shape
+  as the `NavBadgeProvider` badge and deserves the same fix when either is done.

@@ -14,7 +14,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface ClientOption {
   id: string;
@@ -49,14 +49,12 @@ export default function SpendGovernancePage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
-        const body = (await res.json()) as { success?: boolean; data?: ClientOption[] };
-        const list = body.success === true ? body.data ?? [] : [];
+        const list = (await loadJson<ClientOption[] | null>('/api/clients?limit=200')) ?? [];
         setClients(list);
         if (list.length > 0) setSelected(list[0].id);
         else setLoading(false);
-      } catch {
-        setError('Could not load the client list.');
+      } catch (e) {
+        setError(`Could not load the client list. ${toLoadError(e).message}`);
         setLoading(false);
       }
     })();
@@ -66,33 +64,27 @@ export default function SpendGovernancePage() {
     setLoading(true);
     setError(null);
     try {
-      const [txRes, riskRes] = await Promise.all([
-        fetch(`/api/businesses/${encodeURIComponent(businessId)}/transactions`, {
-          headers: authHeaders(),
-        }),
-        fetch(`/api/businesses/${encodeURIComponent(businessId)}/transactions/risk-summary`, {
-          headers: authHeaders(),
-        }),
+      // A failed risk read is reported, not rendered as "no risk" — so it
+      // resolves to a wrapper rather than null, because null is also what a
+      // summary the server has nothing to say about looks like.
+      const [tx, risk] = await Promise.all([
+        loadJson<TransactionRow[] | null>(
+          `/api/businesses/${encodeURIComponent(businessId)}/transactions`,
+        ),
+        loadJson<Record<string, unknown> | null>(
+          `/api/businesses/${encodeURIComponent(businessId)}/transactions/risk-summary`,
+        )
+          .then((value) => ({ loaded: true as const, value }))
+          .catch(() => ({ loaded: false as const, value: null })),
       ]);
 
-      const body = (await txRes.json()) as { success?: boolean; data?: TransactionRow[] };
-      if (!txRes.ok || body.success !== true) {
-        setError(`Transactions could not be loaded (HTTP ${txRes.status}).`);
-        setRows(null);
-        return;
-      }
-      setRows(Array.isArray(body.data) ? body.data : []);
-
-      // A failed risk read is reported, not rendered as "no risk".
-      if (riskRes.ok) {
-        const rb = (await riskRes.json()) as { success?: boolean; data?: Record<string, unknown> };
-        setSummary(rb.success === true ? rb.data ?? null : null);
-      } else {
-        setSummary(null);
+      setRows(Array.isArray(tx) ? tx : []);
+      setSummary(risk.value);
+      if (!risk.loaded) {
         setError('Transactions loaded, but the risk summary could not be read.');
       }
-    } catch {
-      setError('Could not reach the server.');
+    } catch (e) {
+      setError(`Transactions could not be loaded. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);

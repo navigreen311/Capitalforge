@@ -23,7 +23,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import {
   toStatementRows,
   toAnomalyRows,
@@ -64,17 +64,15 @@ export default function StatementsPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch('/api/compliance/disclosures', { headers: authHeaders() });
-        const body = (await res.json()) as {
-          success?: boolean;
-          data?: { businesses?: { businessId: string; businessName: string }[] };
-        };
-        const list = body.success === true ? body.data?.businesses ?? [] : [];
+        const payload = await loadJson<{
+          businesses?: { businessId: string; businessName: string }[];
+        } | null>('/api/compliance/disclosures');
+        const list = payload?.businesses ?? [];
         setClients(list);
         if (list.length > 0) setSelected(list[0].businessId);
         else setLoading(false);
-      } catch {
-        setError('Could not load the client list.');
+      } catch (e) {
+        setError(`Could not load the client list. ${toLoadError(e).message}`);
         setLoading(false);
       }
     })();
@@ -84,35 +82,24 @@ export default function StatementsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [listRes, anomalyRes] = await Promise.all([
-        fetch(`/api/statements?client_id=${encodeURIComponent(businessId)}`, {
-          headers: authHeaders(),
-        }),
-        fetch(`/api/businesses/${encodeURIComponent(businessId)}/statements/anomalies`, {
-          headers: authHeaders(),
-        }),
+      // The statements decide whether this page renders; the anomaly check is
+      // a second opinion on them. A failure there is reported as such rather
+      // than rendered as "no anomalies", which would read as a clean bill of
+      // health — so it resolves to null instead of throwing.
+      const [statements, anomalies] = await Promise.all([
+        loadJson<unknown>(`/api/statements?client_id=${encodeURIComponent(businessId)}`),
+        loadJson<unknown>(
+          `/api/businesses/${encodeURIComponent(businessId)}/statements/anomalies`,
+        ).then(toAnomalyRows).catch(() => null),
       ]);
 
-      const listBody = (await listRes.json()) as { success?: boolean; data?: unknown };
-      if (!listRes.ok || listBody.success !== true) {
-        setError(`Statements could not be loaded (HTTP ${listRes.status}).`);
-        setStatements(null);
-        setAnomalies([]);
-        return;
-      }
-      setStatements(toStatementRows(listBody.data));
-
-      // A failure here is reported as such rather than as "no anomalies",
-      // which would read as a clean bill of health.
-      if (anomalyRes.ok) {
-        const anomalyBody = (await anomalyRes.json()) as { success?: boolean; data?: unknown };
-        setAnomalies(anomalyBody.success === true ? toAnomalyRows(anomalyBody.data) : []);
-      } else {
-        setAnomalies([]);
+      setStatements(toStatementRows(statements));
+      setAnomalies(anomalies ?? []);
+      if (anomalies === null) {
         setError('Statements loaded, but the anomaly check could not be read.');
       }
-    } catch {
-      setError('Could not reach the server.');
+    } catch (e) {
+      setError(`Statements could not be loaded. ${toLoadError(e).message}`);
       setStatements(null);
       setAnomalies([]);
     } finally {
