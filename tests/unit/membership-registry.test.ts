@@ -12,6 +12,8 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import {
   CREDIT_UNION_ISSUER_IDS,
   CREDIT_UNION_MEMBERSHIP,
@@ -89,5 +91,36 @@ describe('credit union membership registry', () => {
     // apart. LMCU is open nationally through the ALS of Michigan donation.
     expect(CREDIT_UNION_MEMBERSHIP.lake_michigan_cu.kind).toBe('open');
     expect(CREDIT_UNION_MEMBERSHIP.lake_michigan_cu.state).toBeUndefined();
+  });
+});
+
+describe('the seed cannot reintroduce an unsourced fee', () => {
+  it('writes no join-fee literal of its own', () => {
+    // prisma/seeds/issuer-rules.ts used to carry joinFee: 50 for First Tech,
+    // and `update: {}` meant only a fresh database picked it up — so the value
+    // survived every fix that touched running rows and came back on the next
+    // clean install. It now derives every fee from the registry.
+    const seed = readFileSync(
+      join(process.cwd(), 'prisma', 'seeds', 'issuer-rules.ts'),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    const literals = [...seed.matchAll(/joinFee:\s*([^,\n]+)/g)].map((m) => m[1].trim());
+    expect(literals.length).toBeGreaterThan(0);
+    for (const value of literals) {
+      expect(value).toMatch(/^registryJoinFee\(/);
+    }
+  });
+
+  it('leaves no unsourced figure in the membership criteria prose', () => {
+    // The $50 was written twice: as a column value and inside
+    // membershipCriteria, where no reader would think to look for it.
+    const seed = readFileSync(
+      join(process.cwd(), 'prisma', 'seeds', 'issuer-rules.ts'),
+      'utf8',
+    );
+    const criteria = [...seed.matchAll(/membershipCriteria:\s*'([^']*)'/g)].map((m) => m[1]);
+    const withMoney = criteria.filter((c) => /\$\d/.test(c));
+    expect(withMoney).toEqual([]);
   });
 });

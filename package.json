@@ -32,7 +32,9 @@
     "db:studio": "prisma studio",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "setup": "npm install && npm run db:generate && npm run db:migrate"
+    "setup": "npm install && npm run db:generate && npm run db:migrate",
+    "db:cu-fees:check": "tsx scripts/reconcile-credit-union-join-fees.ts",
+    "db:cu-fees:fix": "tsx scripts/reconcile-credit-union-join-fees.ts --apply"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
