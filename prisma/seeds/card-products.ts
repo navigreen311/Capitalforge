@@ -117,7 +117,9 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'moderate',
     bestFor: 'Simple flat-rate rewards with 0% intro APR',
-    notes: 'Subject to Chase 5/24 rule',
+    notes: 'Subject to Chase 5/24 rule. Rewards rate 1.5% confirmed against the '
+      + 'rewardsDetails on this row ("1.5% unlimited cash back on all purchases") '
+      + 'when a duplicate row claimed 2%. Not independently verified against Chase.',
   },
 
   // ── American Express ─────────────────────────────────────
@@ -144,7 +146,10 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'hard',
     bestFor: 'High-volume category spending',
-    notes: 'Charge card — no preset limit. Subject to Amex 2/90 velocity rule.',
+    notes: 'Charge card — no preset limit. Subject to Amex 2/90 velocity rule. '
+      + 'cardType business_charge kept over a duplicate row claiming business_credit: '
+      + 'this is a charge card with no preset spending limit, which is why '
+      + 'creditLimitMax is 0. Not independently verified against Amex.',
   },
   {
     issuerId: 'amex',
@@ -246,7 +251,10 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'hard',
     bestFor: 'Highest flat-rate cash back with no cap',
-    notes: 'Charge card — must pay in full. High credit limits available.',
+    notes: 'Charge card — must pay in full. High credit limits available. '
+      + 'cardType business_charge kept over a duplicate row claiming business_credit '
+      + 'with a $55,000 typical limit. Spark Cash Plus is pay-in-full. '
+      + 'Not independently verified against Capital One.',
   },
   {
     issuerId: 'capital_one',
@@ -271,12 +279,10 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'moderate',
     bestFor: 'Travel rewards with flexible transfer partners',
-    notes: null,
-  },
-
-  // ── Citi ─────────────────────────────────────────────────
-  {
-    issuerId: 'citi',
+    notes: 'rewardsRate 2 is the base earn rate. Kept over a duplicate row '
+      + 'claiming 5, which is the bonus tier for hotels and rental cars booked '
+      + 'through Capital One Travel, not the rate on all spend — rewardsDetails '
+      + 'on this row states both. Not independently verified against Capital One.',
     name: 'Citi Business AAdvantage Platinum Select',
     cardType: 'business_credit',
     annualFee: 99,
@@ -350,12 +356,10 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'easy',
     bestFor: 'Simple no-fee travel rewards card',
-    notes: null,
-  },
-
-  // ── US Bank ──────────────────────────────────────────────
-  {
-    issuerId: 'us_bank',
+    notes: 'rewardsRate 1.5 is the base earn rate. Kept over a duplicate row '
+      + 'claiming 3, which applies only to travel booked through the BofA Travel '
+      + 'Center — rewardsDetails on this row states both. Not independently '
+      + 'verified against Bank of America.',
     name: 'US Bank Business Triple Cash Rewards',
     cardType: 'business_credit',
     annualFee: 0,
