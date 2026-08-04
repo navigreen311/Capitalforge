@@ -39,6 +39,7 @@ import {
   type AuditEntry,
   toAuditEntries,
 } from '@/lib/offboarding-view';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 type Jurisdiction = 'ccpa' | 'gdpr' | 'both' | 'internal';
 
@@ -51,11 +52,6 @@ const DELETION_STYLE: Record<DeletionStatus, { label: string; cls: string }> = {
   // Never styled as done. An unreadable status is not an erasure.
   unknown: { label: 'Status unreadable', cls: 'bg-orange-900 text-orange-300 border-orange-700' },
 };
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 function formatDate(iso: string | null): string {
   if (iso === null) return '—';
@@ -83,11 +79,12 @@ export function OffboardingView() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const headers = authHeaders();
 
     try {
       const [workflowsRes, clients] = await Promise.all([
-        fetch('/api/offboarding', { headers }),
+        loadJson<unknown>('/api/offboarding')
+          .then((value) => ({ loaded: true as const, value }))
+          .catch(() => ({ loaded: false as const, value: null })),
         // Workflows carry a businessId and no name.
         fetchAllPages(
           '/api/v1/clients',
@@ -104,21 +101,23 @@ export function OffboardingView() {
                   'Unnamed business',
               }));
           },
-          { headers },
         ).catch(() => ({ rows: [] as { id: string; name: string }[], total: null, truncated: false })),
       ]);
 
-      if (!workflowsRes.ok) {
-        setLoadError(`Offboarding workflows could not be loaded (HTTP ${workflowsRes.status}).`);
+      // The workflows decide whether this view has anything to show; the
+      // client names are a display lookup that already falls back to an empty
+      // list, so a failed name fetch leaves ids showing rather than blanking
+      // workflows that loaded.
+      if (!workflowsRes.loaded) {
+        setLoadError('Offboarding workflows could not be loaded, so none are shown.');
         setRows([]);
         return;
       }
 
-      const body = (await workflowsRes.json()) as { success?: boolean; data?: unknown };
-      setRows(body.success === true ? toOffboardingRows(body.data) : []);
+      setRows(toOffboardingRows(workflowsRes.value));
       setNames(new Map(clients.rows.map((c) => [c.id, c.name])));
-    } catch {
-      setLoadError('Could not reach the server. No offboarding workflows are shown.');
+    } catch (e) {
+      setLoadError(`Offboarding workflows could not be loaded. ${toLoadError(e).message}`);
       setRows([]);
     } finally {
       setLoading(false);
@@ -128,19 +127,13 @@ export function OffboardingView() {
   const loadRetention = useCallback(async (j: Jurisdiction) => {
     setRetentionError(null);
     try {
-      const res = await fetch(`/api/offboarding/retention?jurisdiction=${j}`, {
-        headers: authHeaders(),
-      });
-      if (!res.ok) {
-        setRetention([]);
-        setRetentionError(`Retention exceptions could not be read (HTTP ${res.status}).`);
-        return;
-      }
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      setRetention(body.success === true ? toRetentionExceptions(body.data) : []);
-    } catch {
+      const data = await loadJson<unknown>(`/api/offboarding/retention?jurisdiction=${j}`);
+      setRetention(toRetentionExceptions(data));
+    } catch (e) {
+      // The list is emptied and the failure named. A retention exception that
+      // could not be read must not look like one that does not exist.
       setRetention([]);
-      setRetentionError('Could not reach the server.');
+      setRetentionError(`Retention exceptions could not be read. ${toLoadError(e).message}`);
     }
   }, []);
 
@@ -157,19 +150,10 @@ export function OffboardingView() {
       if (audit[workflowId] !== undefined) return;
       setAuditLoading(workflowId);
       try {
-        const res = await fetch(
+        const data = await loadJson<unknown>(
           `/api/platform/offboarding/${encodeURIComponent(workflowId)}/audit-log`,
-          { headers: authHeaders() },
         );
-        if (!res.ok) {
-          setAudit((prev) => ({ ...prev, [workflowId]: null }));
-          return;
-        }
-        const body = (await res.json()) as { success?: boolean; data?: unknown };
-        setAudit((prev) => ({
-          ...prev,
-          [workflowId]: body.success === true ? toAuditEntries(body.data) : null,
-        }));
+        setAudit((prev) => ({ ...prev, [workflowId]: toAuditEntries(data) }));
       } catch {
         setAudit((prev) => ({ ...prev, [workflowId]: null }));
       } finally {

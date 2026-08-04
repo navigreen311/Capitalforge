@@ -544,3 +544,70 @@ legitimately `null` when the server has nothing to say, so null cannot also mean
   default of *off*, so a failure to read whether 2FA is enabled renders as 2FA
   being disabled. The panel has no third state to show. This is the same shape
   as the `NavBadgeProvider` badge and deserves the same fix when either is done.
+
+## Batch 10 — the remainder, and the sweep closes (done)
+
+Eight files, including the one deferred since batch 1.
+
+### `app/compliance/training` — the deferral, closed
+
+Set aside in batch 1 as resisting conversion, because it reports *which* of two
+endpoints failed and `loadJson` throws. Batch 3 disproved that on four files;
+this one converts the same way. Recording the sequence because the reasoning
+was wrong in an instructive direction: the objection was to `loadJson`'s
+contract, but the shape of the *call* was what mattered — a catch on each
+promise rather than around the group.
+
+### `AskCapitalForge` — genuinely resistant, converted differently
+
+`/api/chat` streams Server-Sent Events. `loadJson` parses a JSON envelope, so it
+cannot be used here at all: the body has to stay a readable stream.
+
+Converted with the refresh primitive directly — send, and on a 401 spend the
+refresh token and send again, rebuilding headers so the retry carries the new
+token. This is the same shape `fetch-all-pages` and `api-client` use internally,
+and it is the right answer whenever the response is not JSON.
+
+It is also the only file in the codebase that reads the token from
+**`sessionStorage`** as well as `localStorage`. The behaviour-scoped search
+found it; none of the four idiom-scoped searches would have.
+
+### `lib/claude-document-service` — the predicted resistance, worse than predicted
+
+Two defects in a module with no UI to report through:
+
+- **`saveToDocumentVault`** ended in `.catch(() => {})`, commented "graceful
+  failure". `GenerateDocumentModal` wraps the call in
+  `catch { toast.error('Failed to save document') }` — **error handling that
+  was written and could never fire.** Removing the swallow activates it. A
+  document reported saved to the vault and not in it is the exact failure this
+  sweep exists to find.
+- **`generateDocument`** falls back to a mock template on any API failure and
+  returns it as a generated document. Left alone: the module has an explicit
+  mock mode above it and removing the fallback changes what the feature does
+  when unconfigured. **Logged for a decision** — it is the placeholder-data
+  pattern, in a document generator, and `model: 'template-fallback'` is the
+  only thing distinguishing the result from real output.
+
+---
+
+# Sweep complete
+
+Every file that reads `cf_access_token` or calls `authHeaders()` has been
+converted. What remains matching the search:
+
+- `app/clients/page.tsx`, `app/optimizer/page.tsx` — comments only.
+- `components/ai-chat/AskCapitalForge.tsx` — its `getAuthToken()` is the
+  correct way to build a header for a streaming request.
+- The auth boundary itself, and `app/login/**`.
+
+**The count was wrong four times.** 92 → 87 → ~130 → 87-plus-fourteen-files.
+Each correction came from finding a spelling the previous scope could not see:
+the shared `authHeaders`, an inline `Authorization: Bearer`, a locally
+redefined builder, a hand-rolled issuer normaliser, a header passed *into* a
+helper that builds its own, an `if (!token)` gate in front of a client that
+already refreshes, and a `sessionStorage` read.
+
+Scoping the last eight batches on `cf_access_token` — the behaviour — found all
+of them at once and gave a completion check the original scope could not
+express: **the search returns nothing.**

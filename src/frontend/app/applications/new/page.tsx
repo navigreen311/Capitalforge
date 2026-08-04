@@ -3,7 +3,7 @@
 import { useState, useEffect, FormEvent, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SectionCard } from '@/components/ui/card';
-import { loadJson } from '@/lib/load-json';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import { toClientRows, type ClientRow } from '@/lib/client-roster-view';
 
 // ── Issuer / card product options ──────────────────────────────
@@ -86,35 +86,24 @@ function NewApplicationPage() {
     setError(null);
 
     try {
-      const token = localStorage.getItem('cf_access_token');
-      const res = await fetch('/api/v1/applications', {
+      await loadJson('/api/v1/applications', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
+        body: {
           businessId: form.clientId || undefined,
           issuer: form.issuer,
           cardProduct: form.cardProduct,
           requestedLimit: Number(form.requestedLimit),
           businessPurpose: form.businessPurpose,
           status: 'draft',
-        }),
+        },
       });
-
-      if (res.ok) {
-        router.push('/applications');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setError((data as { error?: { message?: string } })?.error?.message ?? 'Failed to create application');
-      }
-    } catch {
+      router.push('/applications');
+    } catch (e) {
       // This used to navigate to the list — "If API doesn't exist yet, just
       // redirect back". A request that never completed took the user to a
       // page of applications theirs was not on, which reads as success. Stay
       // here and say what happened.
-      setError('Could not reach the server, so no application was created.');
+      setError(`No application was created. ${toLoadError(e).message}`);
     } finally {
       setSubmitting(false);
     }

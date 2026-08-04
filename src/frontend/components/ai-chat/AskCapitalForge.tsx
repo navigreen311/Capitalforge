@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { attemptTokenRefresh } from '@/lib/token-refresh';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -97,10 +98,15 @@ export function AskCapitalForge() {
         content: m.content,
       }));
 
-      const token = getAuthToken();
-
-      try {
-        const res = await fetch('/api/chat', {
+      // This endpoint streams (Server-Sent Events), so it cannot go through
+      // loadJson — that parses a JSON envelope and the body here has to stay a
+      // readable stream. The refresh is done directly instead: send, and if the
+      // token has aged out, spend the refresh token and send again. Headers are
+      // rebuilt on the retry so it carries the new token rather than repeating
+      // the 401.
+      const send = (): Promise<Response> => {
+        const token = getAuthToken();
+        return fetch('/api/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -111,6 +117,13 @@ export function AskCapitalForge() {
             conversationHistory,
           }),
         });
+      };
+
+      try {
+        let res = await send();
+        if (res.status === 401 || res.status === 403) {
+          if (await attemptTokenRefresh()) res = await send();
+        }
 
         if (!res.ok) {
           const errorText = await res.text();

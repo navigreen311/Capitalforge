@@ -24,6 +24,7 @@ import {
   type Severity,
 } from '@/lib/notifications-view';
 import { useSessionGate } from '@/hooks/useSessionGate';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 export type { NotificationRow, Severity };
 
@@ -43,11 +44,6 @@ const SEVERITY_BADGE: Record<Severity, string> = {
   MEDIUM:   'text-blue-400',
   INFO:     'text-gray-500',
 };
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 interface NotificationInboxProps {
   open: boolean;
@@ -73,19 +69,14 @@ export function NotificationInbox({ open, onClose, onCountChange }: Notification
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/notifications?limit=50', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`Could not load what needs attention (HTTP ${res.status}).`);
-        setRows(null);
-        onCountChange?.(null);
-        return;
-      }
-      const mapped = sortForDisplay(toNotificationRows(body.data));
+      const data = await loadJson<unknown>('/api/notifications?limit=50');
+      const mapped = sortForDisplay(toNotificationRows(data));
       setRows(mapped);
       onCountChange?.(mapped.length);
-    } catch {
-      setError('Could not reach the server, so nothing is shown here.');
+    } catch (e) {
+      // onCountChange(null), not 0. An unreadable inbox must not report a
+      // badge of nothing outstanding.
+      setError(`Could not load what needs attention. ${toLoadError(e).message}`);
       setRows(null);
       onCountChange?.(null);
     } finally {
@@ -278,10 +269,9 @@ export function useNotificationInbox() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch('/api/notifications/count', { headers: authHeaders() });
-        const body = (await res.json()) as { success?: boolean; data?: unknown };
+        const data = await loadJson<unknown>('/api/notifications/count');
         if (cancelled) return;
-        setCount(res.ok && body.success === true ? toOutstandingCount(body.data) : null);
+        setCount(toOutstandingCount(data));
       } catch {
         if (!cancelled) setCount(null);
       }
