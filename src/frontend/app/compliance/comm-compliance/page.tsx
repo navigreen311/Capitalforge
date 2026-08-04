@@ -37,6 +37,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import {
   toConsentEntries,
   toDncEntries,
@@ -71,11 +72,6 @@ const STATUS_STYLE: Record<ConsentStatus, { label: string; cls: string }> = {
 /** How many clients to read consent for. Each is a separate request. */
 const MAX_CLIENTS = 50;
 
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
-
 function formatDate(iso: string | null): string {
   if (iso === null) return '—';
   const d = new Date(iso);
@@ -98,7 +94,6 @@ export default function ComplianceCommPage() {
     setLoading(true);
     setLoadError(null);
     setDncError(null);
-    const headers = authHeaders();
 
     try {
       const clients = await fetchAllPages(
@@ -117,7 +112,6 @@ export default function ComplianceCommPage() {
                 'Unnamed business',
             }));
         },
-        { headers },
       );
 
       const capped = clients.rows.slice(0, MAX_CLIENTS);
@@ -128,32 +122,29 @@ export default function ComplianceCommPage() {
       const consent = await Promise.all(
         capped.map(async (client): Promise<BusinessConsent> => {
           try {
-            const res = await fetch(
+            const data = await loadJson<unknown>(
               `/api/businesses/${encodeURIComponent(client.id)}/consent`,
-              { headers },
             );
-            if (!res.ok) return { businessId: client.id, businessName: client.name, entries: null };
-            const body = (await res.json()) as { success?: boolean; data?: unknown };
             return {
               businessId: client.id,
               businessName: client.name,
-              entries: body.success === true ? toConsentEntries(body.data) : null,
+              entries: toConsentEntries(data),
             };
           } catch {
+            // Null, not an empty list. This page's whole job is the difference
+            // between "no consent on file" and "consent could not be read".
             return { businessId: client.id, businessName: client.name, entries: null };
           }
         }),
       );
       setRows(consent);
 
-      const dncRes = await fetch('/api/do-not-call', { headers });
-      if (dncRes.ok) {
-        const body = (await dncRes.json()) as { success?: boolean; data?: unknown };
-        setDnc(body.success === true ? toDncEntries(body.data) : []);
-      } else {
+      try {
+        setDnc(toDncEntries(await loadJson<unknown>('/api/do-not-call')));
+      } catch (e) {
         setDnc([]);
         setDncError(
-          `The do-not-contact list could not be read (HTTP ${dncRes.status}). ` +
+          `The do-not-contact list could not be read. ${toLoadError(e).message} ` +
             'Treat no entry here as unknown, not as clearance to contact.',
         );
       }

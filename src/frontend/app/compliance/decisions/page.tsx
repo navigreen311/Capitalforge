@@ -32,6 +32,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
+import { loadJson } from '@/lib/load-json';
 import {
   toDecisionRows,
   toRegisterIndex,
@@ -50,11 +51,6 @@ const FILTERS: { key: FilterMode; label: string }[] = [
   { key: 'declined', label: 'Declined' },
   { key: 'attention', label: 'Needs attention' },
 ];
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 function formatDate(iso: string | null): string {
   if (iso === null) return 'not recorded';
@@ -89,33 +85,33 @@ export default function ComplianceDecisionsPage() {
     setLoading(true);
     setLoadError(null);
     setRegisterUnavailable(false);
-    const headers = authHeaders();
 
     try {
-      const [applications, registerRes] = await Promise.all([
+      // The two are fetched together but fail separately. Applications decide
+      // whether this page has anything to show; the adverse-action register is
+      // a comparison against them. A null register means the comparison could
+      // not be made — distinct from a register with nothing in it, which is a
+      // finding. Resolving it to null rather than throwing keeps a register
+      // outage from blanking decisions that loaded.
+      const [applications, register] = await Promise.all([
         fetchAllPages(
           '/api/applications',
           (json) => {
             const body = json as { success?: boolean; data?: unknown };
             return body.success === true && Array.isArray(body.data) ? body.data : [];
           },
-          { headers },
         ),
-        fetch(`/api/fair-lending/adverse-action?year=${year}`, { headers }),
+        loadJson<unknown>(`/api/fair-lending/adverse-action?year=${year}`)
+          .then(toRegisterIndex)
+          .catch(() => null),
       ]);
 
-      let register = new Map<string, string[]>();
-      if (registerRes.ok) {
-        const body = (await registerRes.json()) as { success?: boolean; data?: unknown };
-        register = body.success === true ? toRegisterIndex(body.data) : new Map();
-      } else {
-        // Without it every decline would look absent from the register, which
-        // is a finding this page raises. Better to say the comparison could
-        // not be made.
-        setRegisterUnavailable(true);
-      }
+      // Without it every decline would look absent from the register, which is
+      // a finding this page raises. Better to say the comparison could not be
+      // made.
+      if (register === null) setRegisterUnavailable(true);
 
-      setRows(toDecisionRows(applications.rows, register));
+      setRows(toDecisionRows(applications.rows, register ?? new Map()));
       setTruncated(applications.truncated);
     } catch {
       setLoadError('Could not reach the server. No decisions are shown.');

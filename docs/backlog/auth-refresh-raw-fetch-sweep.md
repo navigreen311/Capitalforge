@@ -209,3 +209,56 @@ That is the fourth spelling of one behaviour in this codebase: the shared
 builder. **Each was found only after the previous one was fixed.** The lesson is
 already written down above and keeps earning it: scope by behaviour, not idiom —
 here, "what reads `cf_access_token`", which finds all four at once.
+
+## Re-scoped, 2026-08-04 — one pass per file
+
+The original file list was built from `authHeaders()`. Three further spellings
+of the same behaviour turned up afterwards, each only once the previous had been
+fixed. Continuing against that list would mean a second pass over fourteen files
+already touched, and a third over whatever the inline-Bearer pass then revealed.
+
+**The sweep is now scoped by the behaviour: what reads `cf_access_token`.**
+
+```sh
+grep -rln "cf_access_token\|authHeaders()" --include=*.tsx --include=*.ts src/frontend \
+  | grep -v "\.next"
+```
+
+That finds all four spellings at once — the shared import, the inline
+`Authorization: Bearer`, the locally-redefined builder, and any file that reaches
+into `localStorage` directly. A file is done when the search returns nothing for
+it, which is a check the previous scope could not express.
+
+**59 files remain.** Each is converted once: call sites to `loadJson`, any local
+`authHeaders()` deleted, inline headers removed with it.
+
+### Excluded, deliberately
+
+`lib/api-client.ts`, `lib/load-json.ts`, `lib/token-refresh.ts`,
+`lib/auth-routes.ts`, `hooks/useSessionGate.ts` — these *are* the auth boundary
+and are supposed to read the token. `app/login/**` — no session to renew.
+`hooks/useAuthFetch.ts` — the hook already refreshes; its own read is the source.
+
+### Remaining batches
+
+| | Area | Files |
+|---|---|---|
+| 2 (finish) | compliance twins | `compliance/comm-compliance`, `compliance/decisions` |
+| 3 | top-level compliance twins | `comm-compliance`, `decisions`, `declines`, `disclosures`, `regulatory`, `fair-lending` |
+| 4 | compliance remainder | `complaints`, `documents`, `compliance/contracts`, `compliance/disclosures` |
+| 5 | dashboard components | 8 files under `components/dashboard/` |
+| 6 | client tabs + wizard | 5 `components/clients/*Tab`, `ApplicationWizardShell`, `clients/[id]` |
+| 7 | funding rounds | 4 `components/funding-rounds/*`, `funding-rounds`, `funding-rounds/new`, `SaveFundingPlanButton` |
+| 8 | platform | `platform/{crm,data-lineage,referrals,reports,voiceforge,workflows}`, `workflows` |
+| 9 | financial + settings | `billing`, `statements`, `spend-governance`, `rewards`, `issuers`, `pricing`, `partners`, `settings`, `financial-control/{tax,hardship,simulator}` |
+| 10 | remainder | `training`, `notification-inbox`, `offboarding-view`, `AskCapitalForge`, `lib/claude-document-service`, `ai-governance`, `applications/new` |
+
+`app/compliance/training/page.tsx` stays out of the batches — it is the one file
+that resisted, and it needs its per-endpoint failure reporting kept rather than
+flattened.
+
+Two files in batch 5 and batch 10 are not components —
+`components/dashboard/DashboardEventBus.ts` and `lib/claude-document-service.ts`.
+Neither can surface an error to a user directly, so the conversion has to decide
+what a failure means to their callers rather than adding a toast. Expect them to
+resist.
