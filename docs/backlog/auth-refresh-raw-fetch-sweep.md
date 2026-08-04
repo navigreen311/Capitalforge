@@ -611,3 +611,34 @@ already refreshes, and a `sessionStorage` read.
 Scoping the last eight batches on `cf_access_token` — the behaviour — found all
 of them at once and gave a completion check the original scope could not
 express: **the search returns nothing.**
+
+## Follow-up — the two advisor-note event types are now supported
+
+`client.advisor_note_added` and `round.advisor_note_added` added to
+`SUPPORTED_EVENT_TYPES`. Both note surfaces now write.
+
+Two things went with it, because adding the types alone would have produced a
+write that succeeds and cannot be read:
+
+**`aggregateId` in the payload.** The route derives the ledger row's aggregate
+id from `payload.aggregateId ?? payload.id ?? randomUUID()`. Both call sites
+carried `client_id` / `round_id`, neither of which that expression looks at, so
+every note would have been written under a random id — retrievable by nobody,
+for no record. Both now pass `aggregateId` inside the payload.
+
+**A contract test.** `tests/unit/routes/dashboard-events-contract.test.ts` reads
+every `publishEvent()` call in the frontend and checks each against the server's
+exported set, plus that each payload carries an aggregate id. The set is only
+useful if something compares the two sides — four surfaces posted to this
+endpoint for as long as it existed and all four were refused, because nothing
+ever did.
+
+Negative-controlled rather than assumed: removing the event type from the server
+and the `aggregateId` from `TimelineTab` fails three of the four tests, each
+naming the offending file and event type. A green test that would pass either
+way proves nothing.
+
+The note events are distinct from the other six in a way worth recording: the
+other six are records *of* an action taken elsewhere, so losing one costs an
+audit trail entry. For these two the event **is** the note — nothing else stores
+it — so a refusal loses what the advisor typed.

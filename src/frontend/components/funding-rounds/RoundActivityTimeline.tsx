@@ -203,11 +203,12 @@ export function RoundActivityTimeline({ roundId }: RoundActivityTimelineProps) {
     setShowNoteForm(false);
 
     try {
-      // Same defect as TimelineTab: 'round.advisor_note_added' is not in the
-      // server's SUPPORTED_EVENT_TYPES, so this is refused with 400 and the
-      // note is not recorded. This POST is its only persistence. The success
-      // toast used to fire regardless.
+      // aggregateId, not just round_id — see TimelineTab. The server derives
+      // the ledger row's aggregate id from the payload, so without this the
+      // note is written under a random id and cannot be read back for the
+      // round it belongs to.
       await publishEvent('round.advisor_note_added', {
+        aggregateId: roundId,
         round_id: roundId,
         note_text: noteText.trim(),
       });

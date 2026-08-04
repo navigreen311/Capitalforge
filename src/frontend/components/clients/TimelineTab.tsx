@@ -247,16 +247,13 @@ export function TimelineTab({ clientId }: TimelineTabProps) {
       setIsModalOpen(false);
 
       try {
-        // NOTE: 'client.advisor_note_added' is not in the server's
-        // SUPPORTED_EVENT_TYPES, so this call is refused with 400 and the note
-        // is not recorded anywhere. This event POST is the only persistence
-        // the note has. Whether the type should be added server-side is a
-        // decision left open -- see the sweep log.
-        //
-        // What is fixed here is the report: the success toast used to fire
-        // unconditionally after an unchecked fetch, telling the advisor the
-        // note was saved while the server was rejecting it.
+        // aggregateId, not just client_id: the server derives the ledger row's
+        // aggregate id from payload.aggregateId ?? payload.id ?? randomUUID().
+        // Without it the note would be written under a random id and could
+        // never be read back for the client it belongs to — a write that
+        // succeeds and cannot be found.
         await publishEvent('client.advisor_note_added', {
+          aggregateId: clientId,
           client_id: clientId,
           note_text: noteText,
         });
