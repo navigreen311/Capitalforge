@@ -622,6 +622,79 @@ export type PrioritizationMode =
   | 'fastest_approval'
   | 'min_inquiries';
 
+// ── Input provenance ─────────────────────────────────────────
+//
+// A plan used to be computed from whatever the database happened to hold,
+// falling back to constants written into this file: FICO 680, business age 24
+// months, zero inquiries. Nothing said so. An advisor who typed a FICO of 745
+// into the form got a plan built on 680 and no indication the number had been
+// ignored, because the form was never sent.
+//
+// Every input now carries where it came from, and any value that fell back to
+// a constant is named on the plan so the output can say it is an estimate.
+
+export type InputSource =
+  /** Typed into the optimizer form by the advisor for this run. */
+  | 'advisor_entered'
+  /** Read from a credit bureau pull on the client's record. */
+  | 'bureau_pull'
+  /** Read from the client record, but not from a bureau (revenue, formation date). */
+  | 'client_record'
+  /** Nothing supplied it. A constant in this file was used. */
+  | 'assumed_default';
+
+export interface ResolvedInput<T> {
+  value: T;
+  source: InputSource;
+  /** When the source is a bureau pull: when that pull happened. */
+  pulledAt?: string;
+  /** Human-readable field name, for the banner and the "Inputs Used" panel. */
+  label: string;
+}
+
+export interface InputProvenance {
+  ficoScore: ResolvedInput<number>;
+  annualRevenue: ResolvedInput<number>;
+  businessAgeMonths: ResolvedInput<number>;
+  recentInquiries: ResolvedInput<number>;
+  derogatoryMarks: ResolvedInput<number>;
+  existingCardCount: ResolvedInput<number>;
+  /** Labels of every input that fell back to a constant. */
+  assumedDefaults: string[];
+  /** True when the plan rests on at least one assumed value. */
+  hasAssumedDefaults: boolean;
+}
+
+/** A card the client already holds, as reported by the form. */
+export interface SuppliedExistingCard {
+  /** Card product id where the form knows it; otherwise null. */
+  cardProductId?: string | null;
+  issuer?: string | null;
+  name?: string | null;
+  creditLimit?: number | null;
+}
+
+/**
+ * Profile values supplied by the advisor for this run.
+ *
+ * Every field is optional. A field that is absent falls back to the client
+ * record, and then to a constant — and the plan records which of the three
+ * actually supplied it.
+ */
+export interface SuppliedProfile {
+  ficoScore?: number | null;
+  annualRevenue?: number | null;
+  businessAgeMonths?: number | null;
+  inquiries6mo?: number | null;
+  inquiries12mo?: number | null;
+  inquiries24mo?: number | null;
+  derogatoryMarks?: number | null;
+  employees?: number | null;
+  dnbPaydex?: number | null;
+  experianBis?: number | null;
+  ficoSbss?: number | null;
+}
+
 export interface StackingOptimizerInput {
   businessId: string;
   targetAmount?: number;
@@ -629,6 +702,10 @@ export interface StackingOptimizerInput {
   prioritize?: PrioritizationMode;
   excludeIssuers?: string[];
   includeCreditUnions?: boolean;
+  /** Values typed into the optimizer form. Take precedence over the record. */
+  profile?: SuppliedProfile;
+  /** Cards the form says the client already holds. */
+  existingCards?: SuppliedExistingCard[];
 }
 
 export interface CardRecommendation {
@@ -684,6 +761,8 @@ export interface StackingPlan {
   aprExpirySummary: AprExpirySummary[];
   prioritizationMode: PrioritizationMode;
   cardCount: number;
+  /** What each input was, and where it came from. */
+  inputProvenance: InputProvenance;
 }
 
 // ── Scoring helpers ──────────────────────────────────────────
@@ -698,6 +777,55 @@ interface ApplicationContext {
   recentAppDates: Date[];
 }
 
+/**
+ * The constants this file falls back to when nothing supplies a value.
+ *
+ * They were previously written inline as `?? 680`, `?? 24`, `?? 0`, which made
+ * a plan built on assumptions indistinguishable from one built on a credit
+ * pull. Named here so they can be recorded on the plan and shown to the
+ * person reading it.
+ */
+const ASSUMED = {
+  ficoScore: 680,
+  annualRevenue: 0,
+  businessAgeMonths: 24,
+  recentInquiries: 0,
+  derogatoryMarks: 0,
+} as const;
+
+/**
+ * Pick a value by precedence and record which source supplied it.
+ *
+ * advisor_entered → the record → the constant. A supplied value of `0` is a
+ * real answer and must win over the record, so this tests for null/undefined
+ * rather than falsiness.
+ */
+function resolveInput(args: {
+  label: string;
+  supplied: number | null | undefined;
+  recorded: number | null | undefined;
+  recordedSource: Extract<InputSource, 'bureau_pull' | 'client_record'>;
+  pulledAt?: Date | null;
+  fallback: number;
+}): ResolvedInput<number> {
+  const { label, supplied, recorded, recordedSource, pulledAt, fallback } = args;
+
+  if (supplied !== null && supplied !== undefined && Number.isFinite(supplied)) {
+    return { value: supplied, source: 'advisor_entered', label };
+  }
+  if (recorded !== null && recorded !== undefined && Number.isFinite(recorded)) {
+    return {
+      value: recorded,
+      source: recordedSource,
+      label,
+      ...(recordedSource === 'bureau_pull' && pulledAt
+        ? { pulledAt: pulledAt.toISOString() }
+        : {}),
+    };
+  }
+  return { value: fallback, source: 'assumed_default', label };
+}
+
 function buildApplicationContext(
   business: {
     annualRevenue: { toNumber: () => number } | null;
@@ -710,28 +838,77 @@ function buildApplicationContext(
     creditProfiles: Array<{
       score: number | null;
       inquiryCount: number | null;
+      derogatoryCount?: number | null;
       pulledAt: Date;
     }>;
   },
-): ApplicationContext {
+  supplied?: SuppliedProfile,
+): ApplicationContext & { provenance: InputProvenance } {
   // Get best FICO from most recent credit profile
   const sortedProfiles = [...business.creditProfiles].sort(
     (a, b) => b.pulledAt.getTime() - a.pulledAt.getTime(),
   );
   const latestProfile = sortedProfiles[0];
-  const ficoScore = latestProfile?.score ?? 680; // default assumption
 
-  const annualRevenue = business.annualRevenue?.toNumber() ?? 0;
+  // Each of these used to be a bare `?? constant`. The constant is still the
+  // last resort, but it is now recorded rather than silently substituted —
+  // see `resolveInput`.
+  const ficoResolved = resolveInput({
+    label: 'FICO score',
+    supplied: supplied?.ficoScore,
+    recorded: latestProfile?.score ?? null,
+    recordedSource: 'bureau_pull',
+    pulledAt: latestProfile?.pulledAt,
+    fallback: ASSUMED.ficoScore,
+  });
+  const ficoScore = ficoResolved.value;
+
+  const revenueResolved = resolveInput({
+    label: 'Annual revenue',
+    supplied: supplied?.annualRevenue,
+    recorded: business.annualRevenue?.toNumber() ?? null,
+    recordedSource: 'client_record',
+    fallback: ASSUMED.annualRevenue,
+  });
+  const annualRevenue = revenueResolved.value;
 
   // Compute business age in months
   const now = new Date();
-  let businessAgeMonths = 24; // default assumption
+  let recordedAgeMonths: number | null = null;
   if (business.dateOfFormation) {
     const diffMs = now.getTime() - business.dateOfFormation.getTime();
-    businessAgeMonths = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30.44));
+    recordedAgeMonths = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30.44));
   }
+  const ageResolved = resolveInput({
+    label: 'Business age',
+    supplied: supplied?.businessAgeMonths,
+    recorded: recordedAgeMonths,
+    recordedSource: 'client_record',
+    fallback: ASSUMED.businessAgeMonths,
+  });
+  const businessAgeMonths = ageResolved.value;
 
-  const recentInquiries = latestProfile?.inquiryCount ?? 0;
+  // The form collects three windows; the scorer wants recent inquiries, so
+  // the 12-month figure is what it means. 6-month is used when 12 is absent
+  // rather than treating a partial answer as none.
+  const inquiriesResolved = resolveInput({
+    label: 'Inquiry history',
+    supplied: supplied?.inquiries12mo ?? supplied?.inquiries6mo,
+    recorded: latestProfile?.inquiryCount ?? null,
+    recordedSource: 'bureau_pull',
+    pulledAt: latestProfile?.pulledAt,
+    fallback: ASSUMED.recentInquiries,
+  });
+  const recentInquiries = inquiriesResolved.value;
+
+  const derogResolved = resolveInput({
+    label: 'Derogatory marks',
+    supplied: supplied?.derogatoryMarks,
+    recorded: latestProfile?.derogatoryCount ?? null,
+    recordedSource: 'bureau_pull',
+    pulledAt: latestProfile?.pulledAt,
+    fallback: ASSUMED.derogatoryMarks,
+  });
 
   // Existing cards
   const activeApps = business.cardApplications.filter(
@@ -745,6 +922,35 @@ function buildApplicationContext(
     .filter((a) => a.submittedAt && a.submittedAt >= ninetyDaysAgo)
     .map((a) => a.submittedAt!);
 
+  const existingCountResolved: ResolvedInput<number> = {
+    label: 'Existing cards',
+    value: activeApps.length,
+    source: 'client_record',
+  };
+
+  const fields = [
+    ficoResolved,
+    revenueResolved,
+    ageResolved,
+    inquiriesResolved,
+    derogResolved,
+    existingCountResolved,
+  ];
+  const assumedDefaults = fields
+    .filter((f) => f.source === 'assumed_default')
+    .map((f) => f.label);
+
+  const provenance: InputProvenance = {
+    ficoScore: ficoResolved,
+    annualRevenue: revenueResolved,
+    businessAgeMonths: ageResolved,
+    recentInquiries: inquiriesResolved,
+    derogatoryMarks: derogResolved,
+    existingCardCount: existingCountResolved,
+    assumedDefaults,
+    hasAssumedDefaults: assumedDefaults.length > 0,
+  };
+
   return {
     ficoScore,
     annualRevenue,
@@ -753,6 +959,7 @@ function buildApplicationContext(
     existingCardCount: activeApps.length,
     existingIssuers,
     recentAppDates,
+    provenance,
   };
 }
 
@@ -925,8 +1132,8 @@ export async function runStackingOptimizer(
     },
   });
 
-  // 2. Build application context
-  const ctx = buildApplicationContext(business);
+  // 2. Build application context, recording where each input came from
+  const ctx = buildApplicationContext(business, input.profile);
 
   // 3. Load all active card products
   const allCards = await prisma.cardProduct.findMany({
@@ -1077,6 +1284,7 @@ export async function runStackingOptimizer(
     aprExpirySummary,
     prioritizationMode: prioritize,
     cardCount: finalRecs.length,
+    inputProvenance: ctx.provenance,
   };
 }
 

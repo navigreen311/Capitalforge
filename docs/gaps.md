@@ -22,8 +22,13 @@ be made before any of it can be built.
 
 ## 1. Endpoints that refuse
 
-Nineteen endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
+Twenty-one endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
 body, so a caller does not have to read the source to find out.
+
+The last two arrived differently from the rest. They were not refusals that had
+always been honest — they were mocks that answered `200` and `201` and reported
+success for writes that never happened. They are listed here because the gap is
+the same shape; only the reporting was worse.
 
 Every row below was verified by calling it against a running server, not by
 reading the handler. That check found one endpoint answering `404` instead —
@@ -44,6 +49,8 @@ It answers `501` now.
 | `POST /api/platform/reports/schedules` | Nothing stores a schedule and nothing runs one. | **Table + a runner.** |
 | `PATCH /api/platform/offboarding/:id/advance` | Deliberate: stage moves when the export or the deletion actually happens, not because somebody advanced it. | **None — this one should stay refused.** Advancing by hand is how a workflow claims a deletion that never ran. |
 | `POST /api/declines/:id/reminder` | Nothing schedules or delivers a reapply reminder. | **Product.** Same scheduling question as overdue reminders. |
+| `POST /api/optimizer/save-strategy` | No table stores an optimizer strategy. This answered `200` with `{ savedAt, clientId }` and wrote nothing, while the page reported "Strategy saved to *client* profile". | **Table.** A `SavedStrategy` holding the plan as JSON, including the input provenance it was built on. See `docs/backlog/saved-strategy-and-funding-round-persistence.md`. |
+| `POST /api/optimizer/create-round` | Nothing created the round. This answered `201` with an invented id — `round-<client>-<n>-<timestamp>` — reported "Funding Round N created" and navigated to `/funding-rounds`, where it was not. | **Wiring.** `FundingRound` exists; the optimizer never wrote one. Should call the same service the Funding Rounds page uses rather than adding a second creation path. |
 
 ---
 

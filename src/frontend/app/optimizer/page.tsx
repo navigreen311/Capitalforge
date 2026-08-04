@@ -13,8 +13,9 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { SectionCard } from '@/components/ui/card';
 import {
   CardRecommendation,
@@ -91,6 +92,125 @@ interface ApiStackingPlan {
   aprExpirySummary: ApiAprExpiry[];
   prioritizationMode: PrioritizationMode;
   cardCount: number;
+  inputProvenance: ApiInputProvenance;
+}
+
+// ─── Where each input came from ───────────────────────────────────────────────
+
+type ApiInputSource =
+  | 'advisor_entered'
+  | 'bureau_pull'
+  | 'client_record'
+  | 'assumed_default';
+
+interface ApiResolvedInput {
+  value: number;
+  source: ApiInputSource;
+  label: string;
+  pulledAt?: string;
+}
+
+interface ApiInputProvenance {
+  ficoScore: ApiResolvedInput;
+  annualRevenue: ApiResolvedInput;
+  businessAgeMonths: ApiResolvedInput;
+  recentInquiries: ApiResolvedInput;
+  derogatoryMarks: ApiResolvedInput;
+  existingCardCount: ApiResolvedInput;
+  assumedDefaults: string[];
+  hasAssumedDefaults: boolean;
+}
+
+const SOURCE_LABEL: Record<ApiInputSource, string> = {
+  advisor_entered: 'Entered by advisor',
+  bureau_pull: 'Credit pull',
+  client_record: 'Client record',
+  assumed_default: 'Assumed',
+};
+
+const SOURCE_STYLE: Record<ApiInputSource, string> = {
+  advisor_entered: 'bg-blue-50 text-blue-700 border-blue-200',
+  bureau_pull: 'bg-green-50 text-green-700 border-green-200',
+  client_record: 'bg-gray-100 text-gray-600 border-gray-300',
+  assumed_default: 'bg-amber-50 text-amber-800 border-amber-300',
+};
+
+/** Values that read better with units than as bare numbers. */
+function formatProvenanceValue(key: string, value: number): string {
+  if (key === 'annualRevenue') return `$${value.toLocaleString()}`;
+  if (key === 'businessAgeMonths') return `${value} months`;
+  return String(value);
+}
+
+function InputsUsedPanel({ provenance }: { provenance: ApiInputProvenance }) {
+  const rows: Array<[string, ApiResolvedInput]> = [
+    ['ficoScore', provenance.ficoScore],
+    ['annualRevenue', provenance.annualRevenue],
+    ['businessAgeMonths', provenance.businessAgeMonths],
+    ['recentInquiries', provenance.recentInquiries],
+    ['derogatoryMarks', provenance.derogatoryMarks],
+    ['existingCardCount', provenance.existingCardCount],
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/*
+        A plan resting on constants is an estimate, and used to be presented
+        exactly like one built on a credit pull. This says which it is before
+        the recommendations are read, not after they are acted on.
+      */}
+      {provenance.hasAssumedDefaults && (
+        <div
+          role="alert"
+          className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-900"
+        >
+          <p className="font-semibold">
+            Estimate only — built on assumed values for:{' '}
+            {provenance.assumedDefaults.join(', ')}.
+          </p>
+          <p className="mt-1 text-amber-800">
+            Pull credit for an accurate plan.
+          </p>
+        </div>
+      )}
+
+      <SectionCard title="Inputs Used" subtitle="What this plan was built on">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                <th className="pb-2 pr-4 font-semibold">Input</th>
+                <th className="pb-2 pr-4 font-semibold">Value</th>
+                <th className="pb-2 font-semibold">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(([key, row]) => (
+                <tr key={key} className="border-t border-gray-100">
+                  <td className="py-2 pr-4 text-gray-700">{row.label}</td>
+                  <td className="py-2 pr-4 font-semibold text-gray-900">
+                    {formatProvenanceValue(key, row.value)}
+                  </td>
+                  <td className="py-2">
+                    <span
+                      className={`inline-block rounded-full border px-2 py-0.5 text-xs font-semibold ${SOURCE_STYLE[row.source]}`}
+                    >
+                      {SOURCE_LABEL[row.source]}
+                    </span>
+                    {row.pulledAt && (
+                      <span className="ml-2 text-xs text-gray-500">
+                        pulled {row.pulledAt.slice(0, 10)}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+    </div>
+  );
 }
 
 // ─── Credit Union bureau pull mapping & helpers ─────────────────────────────
@@ -483,6 +603,28 @@ const STATE_NAMES: Record<string, string> = {
   VA:'Virginia',WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming',
 };
 
+// ─── Sending form values ──────────────────────────────────────────────────────
+
+/**
+ * A form field as a number, or null when it was left blank.
+ *
+ * Null matters: it is the difference between "the advisor said zero" and "the
+ * advisor said nothing". The first is an answer the optimizer must use; the
+ * second lets it fall back to the client record.
+ */
+function numOrNull(raw: string): number | null {
+  const trimmed = raw?.trim() ?? '';
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The form collects years; the optimizer works in months. */
+function yearsToMonths(raw: string): number | null {
+  const years = numOrNull(raw);
+  return years === null ? null : Math.round(years * 12);
+}
+
 // ─── Form state type ──────────────────────────────────────────────────────────
 
 interface CUFormState {
@@ -507,6 +649,7 @@ interface FormState {
   inquiries6mo: string;
   inquiries12mo: string;
   inquiries24mo: string;
+  derogatoryMarks: string;
   selectedCards: string[];
   cardDetails: Record<string, ExistingCardDetail>;
   businessType: string;
@@ -528,6 +671,7 @@ const INITIAL_FORM: FormState = {
   inquiries6mo: '',
   inquiries12mo: '',
   inquiries24mo: '',
+  derogatoryMarks: '',
   selectedCards: ['Chase Ink Business Preferred', 'Amex Business Gold'],
   cardDetails: {},
   businessType: 'LLC',
@@ -652,36 +796,64 @@ export default function OptimizerPage() {
     // If a business is selected, call the V2 API
     if (form.selectedBusinessId) {
       try {
-        const res = await fetch('/api/optimizer/run', {
+        // Through `loadJson` rather than a bare fetch with `authHeaders()`.
+        // The bare version sent whatever token was in storage and reported
+        // the refusal, so a form filled in over more than fifteen minutes —
+        // the access token's whole life — failed on the click, while the
+        // client dropdown above it kept showing data fetched on mount, back
+        // when the token was still good. Nothing was wrong with the session:
+        // the refresh token was never spent.
+        const data = await loadJson<ApiStackingPlan>('/api/optimizer/run', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify({
+          body: {
             businessId: form.selectedBusinessId,
             targetAmount: form.targetFunding ? Number(form.targetFunding) : 100000,
             maxCards: form.maxCards ? Number(form.maxCards) : 8,
             prioritize: form.prioritizationMode,
             excludeIssuers: form.excludeIssuers,
             includeCreditUnions: false,
-          }),
+            // Everything the advisor typed. None of this used to leave the
+            // browser: the optimizer read the client record, and where that
+            // was empty it used constants — so a FICO entered here was
+            // discarded in favour of an assumed 680.
+            profile: {
+              ficoScore: numOrNull(form.fico),
+              annualRevenue: numOrNull(form.annualRevenue),
+              businessAgeMonths: yearsToMonths(form.yearsInBusiness),
+              inquiries6mo: numOrNull(form.inquiries6mo),
+              inquiries12mo: numOrNull(form.inquiries12mo),
+              inquiries24mo: numOrNull(form.inquiries24mo),
+              derogatoryMarks: numOrNull(form.derogatoryMarks),
+              employees: numOrNull(form.employees),
+              dnbPaydex: numOrNull(form.dnbPaydex),
+              experianBis: numOrNull(form.experianBis),
+              ficoSbss: numOrNull(form.ficoSbss),
+            },
+            existingCards: form.selectedCards.map((name) => ({
+              name,
+              creditLimit: numOrNull(form.cardDetails[name]?.limit ?? ''),
+            })),
+          },
         });
 
-        const json = await res.json();
-
-        if (json.success && json.data) {
-          setStackingPlan(json.data as ApiStackingPlan);
-          setHasResults(true);
-        } else if (res.status === 401 || res.status === 403) {
-          setApiError('Your session has expired. Sign in again to run the optimizer.');
-          setHasResults(false);
-        } else {
-          setApiError(json.error?.message || 'Optimizer failed. Please try again.');
-          // Deliberately no results: this previously set hasResults(true) with
-          // no plan, which rendered the sample card stack as though it were a
-          // recommendation generated for the selected business.
-          setHasResults(false);
-        }
-      } catch {
-        setApiError('Unable to reach the optimizer API.');
+        setStackingPlan(data);
+        setHasResults(true);
+      } catch (e) {
+        const info = toLoadError(e);
+        setApiError(
+          info.type === 'auth_required'
+            // Only now is this true: a refresh was attempted and refused.
+            ? 'Your session has ended. Sign in again to run the optimizer.'
+            : info.type === 'network_error'
+              ? 'Unable to reach the optimizer API.'
+              // Say what the server said. Everything that was not a 401 used
+              // to arrive as "Optimizer failed. Please try again.", which
+              // described no problem and suggested no remedy.
+              : `Optimizer failed. ${info.message}${info.status ? ` (HTTP ${info.status})` : ''}`,
+        );
+        // Deliberately no results: this previously set hasResults(true) with
+        // no plan, which rendered the sample card stack as though it were a
+        // recommendation generated for the selected business.
         setHasResults(false);
       }
     } else {
@@ -691,7 +863,18 @@ export default function OptimizerPage() {
     }
 
     setLoading(false);
-  }, [form.selectedBusinessId, form.targetFunding, form.maxCards, form.prioritizationMode, form.excludeIssuers]);
+    // Depends on the whole form, not a list of five fields.
+    //
+    // This callback used to name `selectedBusinessId`, `targetFunding`,
+    // `maxCards`, `prioritizationMode` and `excludeIssuers` — the only values
+    // it read at the time. It now sends the entire profile, and any field
+    // missing from this array would be read from the closure captured when one
+    // of those five last changed: the advisor selects a client, then types a
+    // FICO, and the run posts the empty FICO from before they typed it.
+    //
+    // `form` is replaced wholesale on every edit, so listing it is both correct
+    // and no more work than listing its parts.
+  }, [form]);
 
   // Derive selected client name for toasts
   const selectedClientName = useMemo(() => {
@@ -716,24 +899,27 @@ export default function OptimizerPage() {
 
     setSavingStrategy(true);
     try {
-      const res = await fetch('/api/optimizer/save-strategy', {
+      await loadJson('/api/optimizer/save-strategy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+        body: {
           clientId: form.selectedBusinessId,
           results: stackingPlan,
-        }),
+        },
       });
-      const json = await res.json();
-      if (json.success) {
-        toast.success(`Strategy saved to ${selectedClientName} profile`);
-      } else {
-        toast.error(json.error?.message || 'Failed to save strategy');
-      }
-    } catch {
+      // Unreachable while the endpoint answers 501. Kept so that wiring real
+      // persistence is a backend change, not a hunt for the success path.
+      toast.success(`Strategy saved to ${selectedClientName} profile`);
+    } catch (e) {
       // Reporting success here was the bug: a network failure told the user
       // the strategy had been saved to a client profile it never reached.
-      toast.error('Could not reach the server; the strategy was not saved.');
+      const info = toLoadError(e);
+      toast.error(
+        info.type === 'auth_required'
+          ? 'Your session has ended; the strategy was not saved. Sign in again.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server; the strategy was not saved.'
+            : `The strategy was not saved. ${info.message}`,
+      );
     } finally {
       setSavingStrategy(false);
     }
@@ -759,27 +945,30 @@ export default function OptimizerPage() {
     const cardsPlanned = stackingPlan.cardCount;
 
     try {
-      const res = await fetch('/api/optimizer/create-round', {
+      await loadJson('/api/optimizer/create-round', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+        body: {
           clientId: form.selectedBusinessId,
           roundNumber,
           targetCredit,
           cardsPlanned,
-        }),
+        },
       });
-      const json = await res.json();
-      if (json.success) {
-        toast.success(`Funding Round ${roundNumber} created for ${selectedClientName}`);
-        setTimeout(() => router.push('/funding-rounds'), 800);
-      } else {
-        toast.error(json.error?.message || 'Failed to create round');
-      }
-    } catch {
+      // Also unreachable at present. The navigation is deliberately gone: it
+      // used to run on failure too, landing the user on a list that did not
+      // contain the round they had just been told was created.
+      toast.success(`Funding Round ${roundNumber} created for ${selectedClientName}`);
+    } catch (e) {
       // This branch used to report the round created and navigate to the
       // funding-rounds list, where it would not be. The request failed.
-      toast.error('Could not reach the server; no funding round was created.');
+      const info = toLoadError(e);
+      toast.error(
+        info.type === 'auth_required'
+          ? 'Your session has ended; no funding round was created. Sign in again.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server; no funding round was created.'
+            : `No funding round was created. ${info.message}`,
+      );
     } finally {
       setCreatingRound(false);
     }
@@ -1018,6 +1207,28 @@ export default function OptimizerPage() {
                       className="cf-input"
                     />
                     <p className="text-[11px] text-gray-400 mt-1">Chase 5/24 uses 24-month count</p>
+                  </FormField>
+                </div>
+
+                {/*
+                  The optimizer prioritises a derogatory count and the form had
+                  no field for one, so every run reported it as assumed. A
+                  banner that fires on every plan is a banner nobody reads.
+                */}
+                <div className="grid grid-cols-3 gap-3 mt-3">
+                  <FormField label="Derogatory Marks">
+                    <input
+                      aria-label="Derogatory marks"
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={form.derogatoryMarks}
+                      onChange={(e) => setForm({ ...form, derogatoryMarks: e.target.value })}
+                      className="cf-input"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Collections, charge-offs, late payments
+                    </p>
                   </FormField>
                 </div>
               </div>
@@ -1478,6 +1689,11 @@ export default function OptimizerPage() {
                   </div>
                 </div>
               </div>
+
+              {/* ── Inputs Used — read this before the recommendations ── */}
+              {stackingPlan.inputProvenance && (
+                <InputsUsedPanel provenance={stackingPlan.inputProvenance} />
+              )}
 
               {/* ── Card Recommendations from API ────────── */}
               <SectionCard
@@ -2014,41 +2230,62 @@ function OptimizerActionButtons({
   onSaveStrategy: () => void;
   onCreateRound: () => void;
 }) {
+  // Neither endpoint writes anything — both answer 501. The buttons said
+  // "Save Strategy to Client Profile" and reported success, so the only way to
+  // learn the strategy had not been saved was to go looking for it. They are
+  // disabled and labelled instead: an action that cannot happen should not be
+  // offered as though it can.
   return (
-    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
-      {/* Save Strategy to Client Profile */}
-      <button
-        type="button"
-        className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled={savingStrategy}
-        onClick={onSaveStrategy}
-      >
-        {savingStrategy ? (
-          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
-        ) : (
-          <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <div className="space-y-2 pt-2">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        {/* Save Strategy to Client Profile — not built */}
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-gray-50 px-5 py-3 text-sm font-semibold text-gray-400 shadow-sm cursor-not-allowed"
+          disabled
+          aria-disabled="true"
+          title="Not built yet — no table stores a saved strategy."
+          onClick={onSaveStrategy}
+        >
+          <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
           </svg>
-        )}
-        Save Strategy to Client Profile &rarr;
-      </button>
+          Save Strategy to Client Profile
+          <span className="ml-1 rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+            Not built
+          </span>
+        </button>
 
-      {/* Create Funding Round from Results */}
-      <button
-        type="button"
-        className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-gold px-5 py-3 text-sm font-bold text-brand-navy shadow-sm transition hover:bg-brand-gold/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled={creatingRound}
-        onClick={onCreateRound}
-      >
-        {creatingRound ? (
-          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-navy/40 border-t-transparent" />
-        ) : (
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        {/* Create Funding Round from Results — not built */}
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-gray-50 px-5 py-3 text-sm font-semibold text-gray-400 shadow-sm cursor-not-allowed"
+          disabled
+          aria-disabled="true"
+          title="Not built yet — this never created a funding round."
+          onClick={onCreateRound}
+        >
+          <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-        )}
-        Create Funding Round from Results &rarr;
-      </button>
+          Create Funding Round from Results
+          <span className="ml-1 rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+            Not built
+          </span>
+        </button>
+      </div>
+      <p className="text-xs text-gray-500">
+        Saving a strategy and creating a funding round from these results are not
+        implemented. Both previously reported success without writing anything.
+        Create a funding round from the{' '}
+        <Link href="/funding-rounds" className="font-semibold text-gray-700 underline">
+          Funding Rounds
+        </Link>{' '}
+        page.
+      </p>
+      {(savingStrategy || creatingRound) && (
+        <p className="text-xs text-gray-400">Working…</p>
+      )}
     </div>
   );
 }
