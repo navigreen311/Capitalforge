@@ -16,7 +16,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface ReviewRow {
   id: string;
@@ -36,25 +36,29 @@ export default function DealCommitteePage() {
     setLoading(true);
     setError(null);
     try {
-      const [reviewsRes, clientsRes] = await Promise.all([
-        fetch('/api/deal-reviews', { headers: authHeaders() }),
-        fetch('/api/clients?limit=200', { headers: authHeaders() }),
-      ]);
+      // The reviews decide whether the page can render; the client names are a
+      // lookup for display. Kept separate so a failed name lookup does not
+      // blank a register that loaded, which is how they behaved before.
+      const reviews = await loadJson<ReviewRow[]>('/api/deal-reviews');
+      setRows(Array.isArray(reviews) ? reviews : []);
 
-      const body = (await reviewsRes.json()) as { success?: boolean; data?: ReviewRow[] };
-      if (!reviewsRes.ok || body.success !== true) {
-        setError(`Deal reviews could not be loaded (HTTP ${reviewsRes.status}).`);
-        setRows(null);
-        return;
+      try {
+        const clients = await loadJson<{ id: string; businessName: string }[]>(
+          '/api/clients?limit=200',
+        );
+        setNames(Object.fromEntries((clients ?? []).map((c) => [c.id, c.businessName])));
+      } catch {
+        // Names are cosmetic here — ids still render.
       }
-      setRows(Array.isArray(body.data) ? body.data : []);
-
-      if (clientsRes.ok) {
-        const cb = (await clientsRes.json()) as { data?: { id: string; businessName: string }[] };
-        setNames(Object.fromEntries((cb.data ?? []).map((c) => [c.id, c.businessName])));
-      }
-    } catch {
-      setError('Could not reach the server.');
+    } catch (e) {
+      const info = toLoadError(e);
+      setError(
+        info.type === 'auth_required'
+          ? 'Your session has ended. Sign in again to see deal reviews.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server.'
+            : `Deal reviews could not be loaded. ${info.message}`,
+      );
       setRows(null);
     } finally {
       setLoading(false);

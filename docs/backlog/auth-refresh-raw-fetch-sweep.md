@@ -178,3 +178,34 @@ mechanical-only rule.
 
 Both belong in `false-success-audit.md` rather than here; recorded at the point
 of discovery so the trail is not lost.
+
+## Batch 2 — a fourth population, found where it was predicted
+
+`app/compliance/regulatory/page.tsx` and `app/compliance/deal-committee/page.tsx`
+converted. Then the import rewrite failed on the first file, because it does not
+import `authHeaders` — **it defines its own.**
+
+**14 files define a local `authHeaders()`**, each a private copy of the same four
+lines reading `cf_access_token` from `localStorage`:
+
+```
+app/comm-compliance/page.tsx            app/disclosures/page.tsx
+app/compliance/comm-compliance/page.tsx app/fair-lending/page.tsx
+app/compliance/decisions/page.tsx       app/regulatory/page.tsx
+app/compliance/regulatory/page.tsx      app/training/page.tsx
+app/compliance/training/page.tsx        components/dashboard/RecentActivity.tsx
+app/decisions/page.tsx                  components/notification-inbox.tsx
+app/declines/page.tsx                   components/offboarding/offboarding-view.tsx
+```
+
+These were counted — a local `authHeaders()` call still matches the call-site
+grep — so the 87 figure holds. What was wrong was the *fix*: "replace the import"
+does not apply to a file that never imported anything. Each needs its local
+definition deleted as well as its call sites converted.
+
+That is the fourth spelling of one behaviour in this codebase: the shared
+`authHeaders`, an inline `Authorization: Bearer`, a hand-rolled
+`toLowerCase().replace()` for issuer slugs, and now a locally-redefined header
+builder. **Each was found only after the previous one was fixed.** The lesson is
+already written down above and keeps earning it: scope by behaviour, not idiom —
+here, "what reads `cf_access_token`", which finds all four at once.
