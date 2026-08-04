@@ -22,6 +22,14 @@ import {
   type CardRecommendationProps,
 } from '@/components/modules/card-recommendation';
 import {
+  CREDIT_UNION_MEMBERSHIP,
+  formatMembershipCost,
+  membershipCostAmount,
+  parseIssuer,
+  issuerDisplayName,
+  type MembershipPath,
+} from '../../../shared/constants/issuers';
+import {
   CREDIT_UNION_ISSUERS,
   checkCUEligibility,
   type EligibilityResult,
@@ -79,7 +87,10 @@ interface ApiExcludedCard {
   cardProductId: string;
   issuer: string;
   name: string;
-  reason: string;
+  /** Why the client does not qualify. Null when nothing disqualifies them. */
+  reason: string | null;
+  /** Why it is not in the plan, when that is scope rather than eligibility. */
+  outOfScope: string | null;
 }
 
 interface ApiAprExpiry {
@@ -336,6 +347,49 @@ const CU_BUREAU_PULLS: Record<string, string> = {
 
 /** Known CU issuer names (case-insensitive match) */
 const CU_ISSUER_NAMES = CREDIT_UNION_ISSUERS.map((cu) => cu.name.toLowerCase());
+
+// ── Membership cost, from the one table that holds it ────────
+//
+// The page used to read a join cost from three places — a `membershipCost`
+// field, a `cost` on each eligibility result, and figures written into the
+// requirement prose — and none of them agreed with the shared registry. Same
+// card, same screen, three numbers. Everything below reads
+// CREDIT_UNION_MEMBERSHIP and nothing else.
+
+/** The frontend list keys CUs as 'navy-federal'; the registry uses slugs. */
+function membershipFor(cuId: string): MembershipPath | null {
+  const parsed = parseIssuer(cuId);
+  return parsed?.kind === 'credit_union' ? CREDIT_UNION_MEMBERSHIP[parsed.id] : null;
+}
+
+function membershipCostLabel(cuId: string): string {
+  const path = membershipFor(cuId);
+  return path ? formatMembershipCost(path.cost) : 'Cost not confirmed';
+}
+
+/**
+ * The total for the selected credit unions.
+ *
+ * An unconfirmed cost cannot be added up, and quietly treating it as zero
+ * would understate what the client is about to pay — the total is the number
+ * an advisor is most likely to read aloud. So unconfirmed entries are excluded
+ * from the sum and named, and the figure is reported as a floor rather than a
+ * total whenever any are.
+ */
+function stackedMembershipTotal(cuIds: string[]): string {
+  let sum = 0;
+  const unconfirmed: string[] = [];
+  for (const id of cuIds) {
+    const path = membershipFor(id);
+    if (!path) { unconfirmed.push(id); continue; }
+    const amount = membershipCostAmount(path.cost);
+    if (amount === null) unconfirmed.push(issuerDisplayName(id));
+    else sum += amount;
+  }
+  if (unconfirmed.length === 0) return `$${sum}`;
+  return `$${sum} plus ${unconfirmed.join(', ')} — cost not confirmed`;
+}
+
 
 function isCreditUnionIssuer(issuerName: string): boolean {
   const lower = issuerName.toLowerCase();
@@ -1733,11 +1787,12 @@ export default function OptimizerPage() {
                                 <span className="text-gray-500">
                                   FICO: <span className="font-semibold text-gray-700">{result.cu.businessCard.minFico}+</span>
                                 </span>
-                                {result.cost > 0 && (
-                                  <span className="text-gray-500">
-                                    Cost: <span className="font-semibold text-gray-700">${result.cost}</span>
+                                <span className="text-gray-500">
+                                  Cost:{' '}
+                                  <span className="font-semibold text-gray-700">
+                                    {membershipCostLabel(result.cu.id)}
                                   </span>
-                                )}
+                                </span>
                               </div>
                               {result.eligible && !isMember && (
                                 <button
@@ -1790,7 +1845,7 @@ export default function OptimizerPage() {
                                   <span className="font-medium">Step 1:</span> Visit {cu.name.toLowerCase().replace(/\s/g, '')}.org and apply for membership
                                 </p>
                                 <p className="text-xs text-gray-600">
-                                  <span className="font-medium">Step 2:</span> Open primary savings account ($5 minimum deposit)
+                                  <span className="font-medium">Step 2:</span> Open the primary savings account and fund the minimum deposit
                                 </p>
                                 <p className="text-xs text-gray-600">
                                   <span className="font-medium">Step 3:</span> Wait 30 days, then apply for {cu.businessCard.name}
@@ -1798,7 +1853,12 @@ export default function OptimizerPage() {
                               </div>
                               <div className="flex items-center gap-4 text-[11px] text-gray-500 mt-1">
                                 <span>Est. time: <span className="font-semibold text-gray-700">30–45 days</span></span>
-                                <span>Cost: <span className="font-semibold text-gray-700">${result.cost + 5}</span> (membership + $5 savings)</span>
+                                <span>
+                                  Cost:{' '}
+                                  <span className="font-semibold text-gray-700">
+                                    {membershipCostLabel(result.cu.id)}
+                                  </span>
+                                </span>
                                 <span>Credit unlocked: <span className="font-semibold text-gray-700">{cu.businessCard.limitRange}</span></span>
                               </div>
                             </div>
@@ -1809,10 +1869,7 @@ export default function OptimizerPage() {
                     <div className="rounded-lg bg-white/60 border border-brand-navy/10 px-3 py-2.5 mt-2">
                       <p className="text-xs text-gray-600">
                         <span className="font-semibold text-brand-navy">Total estimated cost:</span>{' '}
-                        ${cuForm.stackedCUs.reduce((sum, cuId) => {
-                          const r = cuEligibility.find((e) => e.cu.id === cuId);
-                          return sum + (r ? r.cost + 5 : 0);
-                        }, 0)}{' '}
+                        {stackedMembershipTotal(cuForm.stackedCUs)}{' '}
                         — <span className="font-semibold text-brand-navy">Timeline:</span> 30–45 days before first CU card application
                       </p>
                     </div>
@@ -2015,21 +2072,54 @@ export default function OptimizerPage() {
               </SectionCard>
 
               {/* ── Excluded Cards ────────────────────────── */}
-              {stackingPlan.excludedCards.length > 0 && (
+              {/*
+                Two lists, because they answer different questions. "You do not
+                qualify for this" and "this was not considered" are not the same
+                thing to carry to a client, and a card can be both — a credit
+                union that is out of scope today may also need a state residency
+                the client does not have. Both are shown.
+              */}
+              {stackingPlan.excludedCards.some((ec) => ec.reason !== null) && (
                 <SectionCard
-                  title="Excluded Cards"
-                  subtitle="Cards not eligible based on your profile"
+                  title="Not Eligible"
+                  subtitle="Cards this client does not currently qualify for"
                 >
                   <div className="space-y-2">
-                    {stackingPlan.excludedCards.map((ec) => (
-                      <div key={ec.cardProductId} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-semibold text-gray-700">{ec.name}</span>
-                          <span className="text-xs text-gray-400 capitalize">{ec.issuer.replace(/_/g, ' ')}</span>
+                    {stackingPlan.excludedCards
+                      .filter((ec) => ec.reason !== null)
+                      .map((ec) => (
+                        <div key={ec.cardProductId} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm font-semibold text-gray-700">{ec.name}</span>
+                            <span className="text-xs text-gray-400 capitalize">{ec.issuer.replace(/_/g, ' ')}</span>
+                          </div>
+                          <p className="text-xs text-gray-500">{ec.reason}</p>
+                          {ec.outOfScope !== null && (
+                            <p className="text-[11px] text-gray-400 mt-1">{ec.outOfScope}</p>
+                          )}
                         </div>
-                        <p className="text-xs text-gray-500">{ec.reason}</p>
-                      </div>
-                    ))}
+                      ))}
+                  </div>
+                </SectionCard>
+              )}
+
+              {stackingPlan.excludedCards.some((ec) => ec.reason === null && ec.outOfScope !== null) && (
+                <SectionCard
+                  title="Not Considered"
+                  subtitle="Excluded by the settings of this run, not by the client's profile"
+                >
+                  <div className="space-y-2">
+                    {stackingPlan.excludedCards
+                      .filter((ec) => ec.reason === null && ec.outOfScope !== null)
+                      .map((ec) => (
+                        <div key={ec.cardProductId} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm font-semibold text-gray-700">{ec.name}</span>
+                            <span className="text-xs text-gray-400 capitalize">{ec.issuer.replace(/_/g, ' ')}</span>
+                          </div>
+                          <p className="text-xs text-gray-500">{ec.outOfScope}</p>
+                        </div>
+                      ))}
                   </div>
                 </SectionCard>
               )}
@@ -2521,7 +2611,7 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wide">Membership:</span>
                 <span className="text-[10px] font-semibold text-teal-800">
-                  {cuData.membershipCost > 0 ? `$${cuData.membershipCost}` : 'Free'}
+                  {membershipCostLabel(cuData.id)}
                 </span>
               </div>
             )}

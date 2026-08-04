@@ -18,13 +18,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { loadJson, toLoadError, type AuthFetchError } from '@/lib/load-json';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
+import type { MembershipCost } from '../../../../shared/constants/issuers';
 
 // ── Types ────────────────────────────────────────────────────
 
 interface CuMeta {
   membershipRequirement: string;
   membershipType: 'Open' | 'Restricted';
-  joinFee: number;
+  /** Join cost with its provenance. Never a bare number — see the registry. */
+  membershipCost: MembershipCost;
   bureauPull: string;
 }
 
@@ -235,10 +237,14 @@ function CuExpandedDetail({ cuMeta }: { cuMeta: CuMeta }) {
         <div>
           <span className="text-xs text-gray-500 uppercase">Join Fee</span>
           <p className="text-gray-300 mt-0.5">
-            {cuMeta.joinFee === 0 ? (
+            {cuMeta.membershipCost.kind === 'none' ? (
               <span className="text-emerald-400 font-medium">Free</span>
+            ) : cuMeta.membershipCost.kind === 'confirmed' ? (
+              <span className="text-gray-200 font-medium">{money(cuMeta.membershipCost.amount)}</span>
             ) : (
-              <span className="text-gray-200 font-medium">{money(cuMeta.joinFee)}</span>
+              // No digits. A figure with a caveat beside it still reads as a
+              // figure, and this one is quoted to a client.
+              <span className="text-amber-400 font-medium">Cost not confirmed</span>
             )}
           </p>
         </div>

@@ -15,6 +15,46 @@ import type { Request } from '../../types/http.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
+import {
+  CREDIT_UNION_MEMBERSHIP,
+  parseIssuer,
+} from '../../../shared/constants/issuers.js';
+
+/**
+ * The join-fee step, from the registry rather than the column.
+ *
+ * Two problems here, and the column caused both. `credit_unions.joinFee` is
+ * nullable, and the old expression was `joinFee ? paid : 'No join fee
+ * required.'` — so a fee nobody had recorded rendered as a positive statement
+ * that none was owed, which is the one thing a client should not be told
+ * wrongly before turning up at a branch. The column also holds $50 for First
+ * Tech, a figure this codebase could never source and has now stopped
+ * asserting everywhere else.
+ *
+ * The registry wins for any credit union it knows. The column is consulted
+ * only for one it does not, and a missing value says so.
+ */
+function joinFeeStep(slug: string, columnFee: number | null): string {
+  const parsed = parseIssuer(slug);
+  if (parsed?.kind === 'credit_union') {
+    const cost = CREDIT_UNION_MEMBERSHIP[parsed.id].cost;
+    switch (cost.kind) {
+      case 'none':
+        return 'No join fee required.';
+      case 'confirmed':
+        return `Pay the one-time join fee of $${cost.amount.toFixed(2)}.`;
+      case 'unconfirmed':
+        return `Membership is required and carries a fee we cannot confirm — ${cost.note} Check the current amount with the credit union before quoting it.`;
+    }
+  }
+  if (columnFee === null) {
+    return 'Whether a join fee applies is not recorded — check with the credit union.';
+  }
+  return columnFee > 0
+    ? `Pay the one-time join fee of $${columnFee.toFixed(2)}.`
+    : 'No join fee required.';
+}
+
 
 export const creditUnionRouter = Router();
 
@@ -380,9 +420,7 @@ creditUnionRouter.post(
             creditUnion.openMembership
               ? 'This credit union has open membership — anyone can join.'
               : `Review membership criteria: ${creditUnion.membershipCriteria ?? 'Contact the credit union for details.'}`,
-            creditUnion.joinFee
-              ? `Pay the one-time join fee of $${creditUnion.joinFee.toFixed(2)}.`
-              : 'No join fee required.',
+            joinFeeStep(creditUnion.slug, creditUnion.joinFee),
             'Complete the membership application (typically online or in-branch).',
             'Once membership is confirmed, you can apply for business credit products.',
           ],
