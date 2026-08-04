@@ -9,6 +9,10 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import {
+  KNOWN_ISSUER_IDS,
+  isKnownIssuerId,
+} from '../../src/shared/constants/issuers.js';
 
 const prisma = new PrismaClient();
 
@@ -283,6 +287,11 @@ const CARD_SEEDS: CardSeed[] = [
       + 'claiming 5, which is the bonus tier for hotels and rental cars booked '
       + 'through Capital One Travel, not the rate on all spend — rewardsDetails '
       + 'on this row states both. Not independently verified against Capital One.',
+  },
+
+  // ── Citi ─────────────────────────────────────────────────
+  {
+    issuerId: 'citi',
     name: 'Citi Business AAdvantage Platinum Select',
     cardType: 'business_credit',
     annualFee: 99,
@@ -360,6 +369,11 @@ const CARD_SEEDS: CardSeed[] = [
       + 'claiming 3, which applies only to travel booked through the BofA Travel '
       + 'Center — rewardsDetails on this row states both. Not independently '
       + 'verified against Bank of America.',
+  },
+
+  // ── US Bank ──────────────────────────────────────────────
+  {
+    issuerId: 'us_bank',
     name: 'US Bank Business Triple Cash Rewards',
     cardType: 'business_credit',
     annualFee: 0,
@@ -659,11 +673,61 @@ const CARD_SEEDS: CardSeed[] = [
 function assertSeedsAreSane(cards: typeof CARD_SEEDS): void {
   const problems: string[] = [];
 
+  // 0. issuerId must be one the rest of the system recognises.
+  //
+  //    Everything that reasons about an issuer matches this string exactly:
+  //    the optimizer's cooldown table, the Exclude Issuers control, the rules
+  //    engine. A row spelled "us-bank" where the rest says "us_bank" is
+  //    matched by none of them — it can be excluded by nothing, is given no
+  //    cooldown, and is subject to no issuer rule, while still appearing in
+  //    plans. Nothing about the output would look wrong.
+  //
+  //    Every issuerId in the table happens to be correct today. That was true
+  //    by luck, not by check — two seed sources wrote this table and neither
+  //    validated the field, and confirming it required querying the database.
+  //    This turns it into a failed seed.
+  for (const card of cards) {
+    if (!isKnownIssuerId(card.issuerId)) {
+      problems.push(
+        `${card.name}: issuerId "${card.issuerId}" is not a known issuer.\n`
+          + `      Valid issuer ids: ${KNOWN_ISSUER_IDS.join(', ')}.\n`
+          + '      If this issuer is new, add it to src/shared/constants/issuers.ts, '
+          + 'then give it a cooldown in ISSUER_COOLDOWNS and decide whether it '
+          + 'belongs in the Exclude Issuers list.',
+      );
+    }
+  }
+
   for (const card of cards) {
     if (card.rewardsRate !== null && card.rewardsRate > 0 && card.rewardsRate < 1) {
       problems.push(
         `${card.issuerId} / ${card.name}: rewardsRate ${card.rewardsRate} looks like a fraction. `
           + 'This column is a percent — use 2 for 2%, not 0.02.',
+      );
+    }
+  }
+
+  // 3. An active product must declare its eligibility floors.
+  //
+  //    The optimizer reads revenueMinimum and businessAgeMinimum as thresholds
+  //    a client must clear. Zero does not mean "no minimum" — it means the
+  //    field was never filled in — and the optimizer cannot tell those apart,
+  //    so such a card passes every revenue and trading-history check for every
+  //    client while looking like a normal recommendation. Six rows arrived
+  //    that way.
+  //
+  //    The database enforces this too (card_products_active_requires_floors).
+  //    Failing here names the row and says what to do; the constraint would
+  //    surface as a 23514 mid-seed.
+  for (const card of cards) {
+    if (card.revenueMinimum === 0 && card.businessAgeMinimum === 0) {
+      problems.push(
+        `${card.name}: revenueMinimum and businessAgeMinimum are both 0, so this `
+          + 'card would clear every eligibility check for every client.\n'
+          + '      Set real minimums from a cited issuer source. If the product '
+          + 'genuinely has no floor, give one field a documented value rather '
+          + 'than leaving both at zero — both at zero is the signature of '
+          + 'missing data.',
       );
     }
   }
@@ -691,8 +755,20 @@ async function seedCardProducts(): Promise<void> {
 
   for (const card of CARD_SEEDS) {
     await prisma.cardProduct.upsert({
+      // Keyed on (issuerId, name), not on the derived id.
+      //
+      // This matched on `${issuerId}-${slug(name)}`, which is a guess at the
+      // row's identity rather than the row's identity. Two seed sources
+      // spelling the issuer differently produced two ids for one product and
+      // the upsert happily created both. After the duplicates were collapsed
+      // the surviving rows kept the short ids, so an id-keyed upsert would no
+      // longer match them — it would try to create a second row per product
+      // and fail against @@unique([issuerId, name]).
+      //
+      // The natural key is what makes a product unique, and it is now what the
+      // database enforces.
       where: {
-        id: `${card.issuerId}-${card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '')}`,
+        issuerId_name: { issuerId: card.issuerId, name: card.name },
       },
       update: {
         cardType: card.cardType,

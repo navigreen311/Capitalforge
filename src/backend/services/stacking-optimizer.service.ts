@@ -732,6 +732,8 @@ export interface CardRecommendation {
   bestFor: string | null;
   sequencePosition: number;        // 1-indexed order of application
   cooldownDays: number;            // days to wait before this application
+  /** Whether cooldownDays reflects a published issuer rule or a bare default. */
+  cooldownSource: CooldownSource;
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
 }
@@ -1038,33 +1040,67 @@ function getVelocityRisk(
   return 'high';
 }
 
-function getCooldownDays(
+/**
+ * Days to wait before applying, and whether that number is researched.
+ *
+ * The unresearched ones used to be indistinguishable: every issuer without an
+ * entry fell to `?? 30` and was presented exactly like Amex's 90-day 2/90
+ * rule. Thirty days for an issuer nobody has looked up is a guess, and a plan
+ * should say which of its waits are guesses — the same reason the input
+ * provenance panel exists.
+ */
+export type CooldownSource = 'issuer_rule' | 'unresearched_default';
+
+/** Used when no published velocity rule is on file for the issuer. */
+const UNRESEARCHED_COOLDOWN_DAYS = 30;
+
+const ISSUER_COOLDOWNS: Record<string, { days: number; source: CooldownSource }> = {
+  // Researched: each reflects a published issuer rule.
+  chase:           { days: 30,  source: 'issuer_rule' },  // 2/30 alongside 5/24
+  amex:            { days: 90,  source: 'issuer_rule' },  // 2/90 velocity
+  citi:            { days: 8,   source: 'issuer_rule' },  // 1/8 rule
+  capital_one:     { days: 180, source: 'issuer_rule' },  // one card per 6 months
+  bank_of_america: { days: 60,  source: 'issuer_rule' },  // 2/3/4 rule
+
+  // No published velocity rule found for these. The number is the default,
+  // and it is marked so the plan can say so rather than implying research
+  // that has not happened.
+  us_bank:          { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  wells_fargo:      { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  discover:         { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  td_bank:          { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  pnc:              { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+
+  // Credit unions. Listed so they are visibly accounted for rather than
+  // absent — but none of their product notes states a velocity rule, only
+  // membership eligibility and APR ranges, so none of these is researched.
+  alliant:          { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  becu:             { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  first_tech:       { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  lake_michigan_cu: { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  navy_federal:     { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  penfed:           { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+};
+
+function getCooldown(
   issuer: string,
   sequencePosition: number,
   _ctx: ApplicationContext,
-): number {
-  if (sequencePosition === 1) return 0;
+): { days: number; source: CooldownSource } {
+  // The first application waits for nothing, so there is nothing to research.
+  if (sequencePosition === 1) return { days: 0, source: 'issuer_rule' };
 
-  // Issuer-specific cooldowns
-  const issuerCooldowns: Record<string, number> = {
-    chase: 30,
-    amex: 90,     // 2/90 velocity
-    citi: 8,      // 1/8 rule
-    capital_one: 180,
-    bank_of_america: 60,
-    us_bank: 30,
-    wells_fargo: 30,
-    discover: 30,
-    td_bank: 30,
-    pnc: 30,
+  const entry = ISSUER_COOLDOWNS[issuer.toLowerCase()] ?? {
+    days: UNRESEARCHED_COOLDOWN_DAYS,
+    source: 'unresearched_default' as const,
   };
 
-  const baseCooldown = issuerCooldowns[issuer.toLowerCase()] ?? 30;
-
   // Add extra buffer for later positions
-  if (sequencePosition > 4) return baseCooldown + 30;
-  if (sequencePosition > 2) return baseCooldown + 14;
-  return baseCooldown;
+  let days = entry.days;
+  if (sequencePosition > 4) days = entry.days + 30;
+  else if (sequencePosition > 2) days = entry.days + 14;
+
+  return { days, source: entry.source };
 }
 
 function sortByPrioritization(
@@ -1246,6 +1282,7 @@ export async function runStackingOptimizer(
       bestFor: card.bestFor,
       sequencePosition: 0,
       cooldownDays: 0,
+      cooldownSource: 'issuer_rule' as CooldownSource,
       rationale: '',
       velocityRisk: 'low',
     });
@@ -1264,7 +1301,9 @@ export async function runStackingOptimizer(
     const seqPos = i + 1;
 
     rec.sequencePosition = seqPos;
-    rec.cooldownDays = getCooldownDays(rec.issuer, seqPos, ctx);
+    const cooldown = getCooldown(rec.issuer, seqPos, ctx);
+    rec.cooldownDays = cooldown.days;
+    rec.cooldownSource = cooldown.source;
     rec.velocityRisk = getVelocityRisk(ctx, seqPos);
     rec.rationale = buildRationale(rec, ctx);
 

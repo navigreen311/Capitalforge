@@ -62,6 +62,8 @@ interface ApiCardRecommendation {
   bestFor: string | null;
   sequencePosition: number;
   cooldownDays: number;
+  /** 'issuer_rule' when the wait reflects a published rule; otherwise a bare default. */
+  cooldownSource?: 'issuer_rule' | 'unresearched_default';
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
 }
@@ -692,9 +694,15 @@ const PRIORITIZATION_LABELS: Record<PrioritizationMode, string> = {
   min_inquiries: 'Minimize Inquiries',
 };
 
+// Must match CardProduct.issuerId exactly — an entry spelled differently
+// excludes nothing. Kept in step with src/shared/constants/issuers.ts, which
+// the seed validates against.
 const ISSUER_OPTIONS = [
   'chase', 'amex', 'capital_one', 'citi', 'bank_of_america',
   'us_bank', 'wells_fargo', 'discover', 'td_bank', 'pnc',
+  // Credit unions. These carry products in the catalogue and were absent
+  // here, so a CU card could not be excluded at all.
+  'alliant', 'becu', 'first_tech', 'lake_michigan_cu', 'navy_federal', 'penfed',
 ];
 
 const INITIAL_CU_FORM: CUFormState = {
@@ -2150,6 +2158,13 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
         <div className="mt-2 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-1.5">
           <p className="text-xs text-brand-navy font-semibold">
             Wait {rec.cooldownDays} days before this application
+            {rec.cooldownSource === 'unresearched_default' && (
+              /* The wait is the fallback, not a published rule. Presenting it
+                 like Amex's 2/90 would imply research that has not happened. */
+              <span className="ml-1 text-gray-500">
+                (no published velocity rule on file for this issuer — default)
+              </span>
+            )}
           </p>
         </div>
       )}
@@ -2210,6 +2225,7 @@ function ApiSequenceStep({ rec }: { rec: ApiCardRecommendation }) {
         {rec.cooldownDays > 0 && (
           <p className="text-xs font-semibold text-brand-gold-600 mt-1">
             -- Wait {rec.cooldownDays} days
+            {rec.cooldownSource === 'unresearched_default' && ' (default)'}
           </p>
         )}
       </div>
