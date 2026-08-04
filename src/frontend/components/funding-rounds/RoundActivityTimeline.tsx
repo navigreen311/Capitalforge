@@ -10,6 +10,8 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard } from '../ui/card';
+import { publishEvent } from '@/components/dashboard/DashboardEventBus';
+import { toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -201,21 +203,13 @@ export function RoundActivityTimeline({ roundId }: RoundActivityTimelineProps) {
     setShowNoteForm(false);
 
     try {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('cf_access_token')
-          : null;
-
-      await fetch('/api/v1/events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          event_type: 'round.advisor_note_added',
-          payload: { round_id: roundId, note_text: noteText.trim() },
-        }),
+      // Same defect as TimelineTab: 'round.advisor_note_added' is not in the
+      // server's SUPPORTED_EVENT_TYPES, so this is refused with 400 and the
+      // note is not recorded. This POST is its only persistence. The success
+      // toast used to fire regardless.
+      await publishEvent('round.advisor_note_added', {
+        round_id: roundId,
+        note_text: noteText.trim(),
       });
 
       if (typeof window !== 'undefined') {
@@ -225,8 +219,18 @@ export function RoundActivityTimeline({ roundId }: RoundActivityTimelineProps) {
           }),
         );
       }
-    } catch {
-      console.error('[RoundActivityTimeline] Failed to save note');
+    } catch (e) {
+      console.error('[RoundActivityTimeline] Failed to save note', e);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('cf:toast', {
+            detail: {
+              message: `The note was not saved. ${toLoadError(e).message}`,
+              type: 'error',
+            },
+          }),
+        );
+      }
     } finally {
       setIsSaving(false);
     }

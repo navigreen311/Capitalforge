@@ -62,8 +62,14 @@ async function fetchPage(
   url: string,
   extraHeaders: Record<string, string>,
 ): Promise<Response> {
+  // Auth last, so a caller passing its own Authorization header cannot
+  // override the refreshed token on the retry. It used to be spread first,
+  // which meant every caller doing `headers: authHeaders()` — and several did
+  // — silently cancelled the refresh: the new token was fetched and then
+  // replaced with the expired one it had just superseded. `apiClient` has
+  // always built its headers in this order; this now matches it.
   const send = (): Promise<Response> =>
-    fetch(url, { headers: { ...authHeader(), ...extraHeaders } });
+    fetch(url, { headers: { ...extraHeaders, ...authHeader() } });
 
   let response = await send();
   if (response.status === 401 || response.status === 403) {

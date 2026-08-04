@@ -13,6 +13,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { FocusTrap } from '@/components/ui/focus-trap';
 import { useToast } from '@/components/global/ToastProvider';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -236,18 +237,13 @@ export function RoundActionButtons(props: RoundActionButtonsProps) {
   const handleConfirmClose = useCallback(async () => {
     setIsClosing(true);
     try {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('cf_access_token')
-          : null;
-
-      await fetch(`/api/v1/funding-rounds/${roundId}`, {
+      // Awaited and checked. This was a bare fetch whose response was never
+      // read, followed by an unconditional "has been closed" — so a refused
+      // PATCH left the round open, the caller told it was completed, and
+      // onStatusChange firing to move it in the list.
+      await loadJson(`/api/v1/funding-rounds/${roundId}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ status: 'completed' }),
+        body: { status: 'completed' },
       });
 
       toast.success(`Round ${roundNumber} for ${businessName} has been closed`);
@@ -255,7 +251,7 @@ export function RoundActionButtons(props: RoundActionButtonsProps) {
       setShowCloseModal(false);
     } catch (err) {
       console.error('[RoundActionButtons] Failed to close round:', err);
-      toast.error('Failed to close round. Please try again.');
+      toast.error(`Round ${roundNumber} was not closed. ${toLoadError(err).message}`);
     } finally {
       setIsClosing(false);
     }

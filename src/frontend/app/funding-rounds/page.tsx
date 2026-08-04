@@ -12,7 +12,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import { toRoundRows, formatMoney, humanise, type RoundRow } from '@/lib/client-roster-view';
 
 function formatDate(iso: string | null): string {
@@ -31,27 +31,21 @@ export default function FundingRoundsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [roundsRes, clientsRes] = await Promise.all([
-        fetch('/api/funding-rounds', { headers: authHeaders() }),
-        fetch('/api/clients?limit=200', { headers: authHeaders() }),
+      // The rounds decide whether this page renders. The client names are a
+      // display lookup, so a failed name fetch leaves ids showing rather than
+      // blanking a register that loaded.
+      const [rounds, clients] = await Promise.all([
+        loadJson<unknown>('/api/funding-rounds'),
+        loadJson<{ id: string; businessName: string }[] | null>('/api/clients?limit=200')
+          .catch(() => null),
       ]);
 
-      const body = (await roundsRes.json()) as { success?: boolean; data?: unknown };
-      if (!roundsRes.ok || body.success !== true) {
-        setError(`Funding rounds could not be loaded (HTTP ${roundsRes.status}).`);
-        setRows(null);
-        return;
+      setRows(toRoundRows(rounds));
+      if (clients) {
+        setNames(Object.fromEntries(clients.map((c) => [c.id, c.businessName])));
       }
-      setRows(toRoundRows(body.data));
-
-      if (clientsRes.ok) {
-        const cb = (await clientsRes.json()) as {
-          data?: { id: string; businessName: string }[];
-        };
-        setNames(Object.fromEntries((cb.data ?? []).map((c) => [c.id, c.businessName])));
-      }
-    } catch {
-      setError('Could not reach the server, so no rounds are shown.');
+    } catch (e) {
+      setError(`Funding rounds could not be loaded. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);

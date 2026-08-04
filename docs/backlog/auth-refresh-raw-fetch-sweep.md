@@ -428,3 +428,50 @@ did not need to do. Guard removed.
 **Worth searching for elsewhere.** A token read is not always a request — it
 can be a gate in front of one, and a gate is invisible to a sweep looking for
 calls. The remaining batches should treat `if (!token)` as its own finding.
+
+## Batch 7 — funding rounds (done)
+
+Seven files. Both patterns flagged at the end of batch 6 turned up immediately,
+and a fifth spelling appeared.
+
+### The predicted `if (!token)` gate, found on the first look
+
+`RoundStrategyNotes.handleSave` guarded `apiClient.patch` with a check for an
+access token, bailing out with "Authentication required". Identical to
+`CreditTab`. Two for two on the prediction — this shape is worth its own pass.
+
+### A fourth inline event-bus caller
+
+`RoundActivityTimeline` posts `round.advisor_note_added`, correct snake_case
+format, event type not in `SUPPORTED_EVENT_TYPES` — refused with 400, then a
+`cf:toast` reading "Note added to timeline". The same defect as `TimelineTab`,
+in the same words, for the round-level note instead of the client-level one.
+
+Both now go through `publishEvent`. The open decision about whether these two
+event types should be supported server-side covers both.
+
+### A fifth spelling: a hand-built header passed *into* a helper
+
+`SaveFundingPlanButton` and `RoundCompletionWorkflow` read the token and passed
+`headers: { Authorization: ... }` into `apiClient`, which attaches its own.
+
+Harmless, as it happens — `apiClient` sets `Authorization` **after** spreading
+caller headers, so the refreshed token wins. `fetch-all-pages` spread them the
+other way round, which is why the same mistake there silently cancelled the
+refresh (found in batch 2).
+
+**The helpers now agree.** `fetch-all-pages` builds `{ ...extraHeaders,
+...authHeader() }`, matching `apiClient`. Relying on every caller to not pass a
+stale header is the weaker guarantee; the ordering is now the strong one.
+
+### False successes fixed
+
+- **`RoundActionButtons.handleConfirmClose`** — a bare `fetch` whose response
+  was never read, then `toast.success("has been closed")` and `onStatusChange`
+  moving the round in the list. A refused PATCH left the round open and
+  everything on screen saying otherwise.
+- **`app/funding-rounds/new`** — the starkest in the sweep. Unchecked POST,
+  `router.push('/funding-rounds')` on success, and **`router.push('/funding-
+  rounds')` in the catch**. Both paths identical, so a round that was never
+  created looked exactly like one that was: the user landed on a register that
+  simply did not contain it. Now stays on the form and says why.

@@ -59,15 +59,9 @@ export function RoundStrategyNotes({ roundId, initialNotes }: RoundStrategyNotes
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      const token =
-        typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-
-      if (!token) {
-        setToast('Authentication required');
-        setSaving(false);
-        return;
-      }
-
+      // No pre-flight token check: apiClient refreshes on a 401 and retries,
+      // so testing for an access token here refused the save in exactly the
+      // case the refresh handles. See CreditTab for the same guard.
       await apiClient.patch(`/v1/funding-rounds/${roundId}`, { notes: draft });
 
       setNotes(draft);
