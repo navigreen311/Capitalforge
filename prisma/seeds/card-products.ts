@@ -637,8 +637,53 @@ const CARD_SEEDS: CardSeed[] = [
   },
 ];
 
+/**
+ * Refuse a seed list that would reintroduce the two defects this table has
+ * already had.
+ *
+ * 1. `rewardsRate` below 1 is a fraction. The column is a percent — 2 means
+ *    2% — and a fraction rendered as "0.02% cash back" next to "2% cash back"
+ *    for the same card. A genuine sub-1% rate does not exist on any business
+ *    card in this catalogue; if one ever does, this check needs a real unit
+ *    field rather than a threshold.
+ * 2. The same `(issuerId, name)` twice in one list. The primary key is derived
+ *    from the issuer spelling, so two lists spelling it differently wrote the
+ *    same product twice under different ids. The database now rejects that,
+ *    but failing here names the offending row instead of surfacing a
+ *    constraint violation.
+ */
+function assertSeedsAreSane(cards: typeof CARD_SEEDS): void {
+  const problems: string[] = [];
+
+  for (const card of cards) {
+    if (card.rewardsRate !== null && card.rewardsRate > 0 && card.rewardsRate < 1) {
+      problems.push(
+        `${card.issuerId} / ${card.name}: rewardsRate ${card.rewardsRate} looks like a fraction. `
+          + 'This column is a percent — use 2 for 2%, not 0.02.',
+      );
+    }
+  }
+
+  const seen = new Map<string, string>();
+  for (const card of cards) {
+    const key = `${card.issuerId}::${card.name.trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      problems.push(`Duplicate product in the seed list: ${card.issuerId} / ${card.name}`);
+    }
+    seen.set(key, card.name);
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `Card product seed data is invalid:\n  - ${problems.join('\n  - ')}`,
+    );
+  }
+}
+
 async function seedCardProducts(): Promise<void> {
   console.log('Seeding card products...');
+
+  assertSeedsAreSane(CARD_SEEDS);
 
   for (const card of CARD_SEEDS) {
     await prisma.cardProduct.upsert({

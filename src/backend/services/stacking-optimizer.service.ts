@@ -611,6 +611,7 @@ export const stackingOptimizer = new StackingOptimizerService();
 // ============================================================
 
 import { prisma as sharedPrisma } from '../config/database.js';
+import logger from '../config/logger.js';
 
 const prisma = sharedPrisma;
 
@@ -1136,9 +1137,36 @@ export async function runStackingOptimizer(
   const ctx = buildApplicationContext(business, input.profile);
 
   // 3. Load all active card products
-  const allCards = await prisma.cardProduct.findMany({
+  const loadedCards = await prisma.cardProduct.findMany({
     where: { isActive: true },
   });
+
+  // 3b. One row per product, whatever the table holds.
+  //
+  // Twelve products were duplicated under two ids because the seed derived the
+  // primary key from the issuer spelling and two lists spelled it differently.
+  // The optimizer returned one of them at rank 1 and rank 2 of the same plan,
+  // scored differently, and summed both into the total estimated credit —
+  // inflating it by a card that did not exist.
+  //
+  // The data is now clean and `@@unique([issuerId, name])` stops it recurring.
+  // This stays because a plan that recommends the same card twice is wrong in a
+  // way that is hard to notice and expensive to act on: the fix belongs where
+  // the plan is built, not only where the rows are written.
+  const seenProducts = new Set<string>();
+  const allCards = loadedCards.filter((card) => {
+    const identity = `${card.issuerId.trim().toLowerCase()}::${card.name.trim().toLowerCase()}`;
+    if (seenProducts.has(identity)) return false;
+    seenProducts.add(identity);
+    return true;
+  });
+
+  if (allCards.length !== loadedCards.length) {
+    logger.warn('[StackingOptimizer] Duplicate card products in catalogue', {
+      loaded: loadedCards.length,
+      afterDedup: allCards.length,
+    });
+  }
 
   // 4. Score, filter, and rank
   const excludeSet = new Set(excludeIssuers.map((i) => i.toLowerCase()));

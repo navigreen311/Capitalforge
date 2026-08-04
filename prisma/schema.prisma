@@ -118,7 +118,17 @@ model CardProduct {
   revenueMinimum       Decimal  @default(0)     // minimum annual revenue
   businessAgeMinimum   Int      @default(0)     // minimum months in business
   rewardsType          String?  // cash_back | points | miles
-  rewardsRate          Decimal? // primary rewards rate
+  /**
+   * Primary rewards rate, as a PERCENT: 2 means 2% cash back, 1.5 means 1.5x.
+   *
+   * Both conventions were in this table at once — 28 rows as a percent and 12
+   * as a fraction, for the same products — because two seed sources disagreed.
+   * The optimizer and the card list both read this number as a percent, so a
+   * fraction rendered as "0.02% cash back" beside "2% cash back" for one card.
+   * Anything below 1 is a fraction that was never converted; see
+   * scripts/dedupe-card-products.ts and the guard in prisma/seeds/card-products.ts.
+   */
+  rewardsRate          Decimal?
   rewardsDetails       String?  // human-readable rewards description
   welcomeBonus         String?  // welcome bonus description
   welcomeBonusValue    Decimal? // estimated dollar value of welcome bonus
@@ -130,6 +140,15 @@ model CardProduct {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
+  /**
+   * One row per product per issuer.
+   *
+   * The primary key is derived from the issuer spelling, so two seed lists
+   * spelling it differently ("capital_one" / "capital-one") produced two rows
+   * for the same card with two ids and no complaint from the database. The
+   * optimizer then recommended the same product twice in one plan.
+   */
+  @@unique([issuerId, name])
   @@index([issuerId])
   @@index([cardType])
   @@index([isActive])
