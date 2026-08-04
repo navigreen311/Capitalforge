@@ -19,8 +19,23 @@ import { PrismaClient } from '@prisma/client';
 
 /** Context provided for rule evaluation — typically built from a business profile. */
 export interface EligibilityContext {
-  /** Number of new cards opened (any issuer) in the past 24 months */
+  /**
+   * New cards opened at BANK issuers in the past 24 months, for Chase 5/24.
+   *
+   * Credit union cards are excluded, because credit union applications do not
+   * count towards 5/24 — the exemption that makes a credit union the sensible
+   * next step once bank velocity is spent.
+   */
   newCardsLast24Months: number;
+  /**
+   * How many credit union cards were left out of the count above.
+   *
+   * Carried so the exemption can be shown rather than inferred: a count that is
+   * simply smaller is indistinguishable from cards having been missed, and an
+   * advisor reading "3" cannot tell whether the client has three cards or five
+   * with two exempted.
+   */
+  creditUnionCardsExcludedFrom524?: number;
   /** Number of applications to this specific issuer in the past N days */
   issuerAppsInPeriod: number;
   /** Most recent application date to this issuer (ISO string or null) */

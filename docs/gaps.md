@@ -54,7 +54,7 @@ It answers `501` now.
 
 ---
 
-## 1b. A rule that is not merely missing, but inverted
+## 1b. A rule that was inverted — fixed 2026-08-04
 
 Everything else on this page is something the system declines to do. This one
 it does wrongly, which is a different category and is recorded separately so it
@@ -93,8 +93,21 @@ is free text, and the credit union slugs in `issuer-rules-engine.ts`
 (`lake_michigan`) already disagree with the ones in `card_products`
 (`lake_michigan_cu`).
 
-**Do not consolidate the velocity implementations before fixing this.** There
-are three, and this is the only one that is wrong; merging first risks making
+**Fixed.** The count now excludes credit union applications, via
+`isCreditUnionIssuerName` in `src/shared/constants/issuers.ts`, which matches a
+slug, a known display name, or anything self-identifying as a credit union — so
+a credit union added to the catalogue without being added to the alias list is
+treated as one rather than silently counted as a bank.
+
+The exemption is *reported*, not merely subtracted:
+`creditUnionCardsExcludedFrom524` travels with the count. A number that is
+simply smaller is indistinguishable from cards having been missed, and an
+advisor reading "3" could not otherwise tell whether the client has three cards
+or five with two exempted.
+
+Recorded here rather than deleted because the entry is the reason the
+consolidation work has a fixed order: there are three velocity implementations,
+this was the only one that was wrong, and merging before fixing it risked making
 it the survivor.
 
 ## 2. Figures that are absent rather than zero

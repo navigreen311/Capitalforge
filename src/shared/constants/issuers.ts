@@ -57,6 +57,57 @@ export function isCreditUnionIssuer(value: string): boolean {
   return (CREDIT_UNION_ISSUER_IDS as readonly string[]).includes(value);
 }
 
+// ── Recognising a credit union from free text ────────────────
+//
+// `CardApplication.issuer` is a free string holding a display name — "American
+// Express", "Chase" — not a slug. Anything reasoning about an application's
+// issuer therefore has to match text, and the one place that counts
+// applications for Chase 5/24 matched nothing at all: it counted every approved
+// application regardless of issuer, so a credit union application counted
+// against 5/24, which is the inverse of the rule.
+//
+// Credit union applications do not drive 5/24. Getting that wrong does not
+// merely lose an optimisation — it tells a client who took the recommended
+// credit union cards that they have exhausted their Chase eligibility when they
+// have not, penalising them for following the advice.
+
+/** Display names each credit union appears under, alongside its slug. */
+const CREDIT_UNION_ALIASES: Record<string, readonly string[]> = {
+  navy_federal: ['Navy Federal Credit Union', 'Navy Federal', 'NFCU'],
+  penfed: ['PenFed Credit Union', 'PenFed', 'Pentagon Federal Credit Union'],
+  alliant: ['Alliant Credit Union', 'Alliant'],
+  first_tech: ['First Tech Federal Credit Union', 'First Tech', 'First Tech FCU'],
+  becu: ['BECU', 'Boeing Employees Credit Union'],
+  lake_michigan_cu: ['Lake Michigan Credit Union', 'Lake Michigan CU', 'LMCU'],
+};
+
+function normaliseIssuerText(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * True when this issuer string names a credit union, however it is spelled.
+ *
+ * Accepts the slug (`navy_federal`), any known display name ("Navy Federal
+ * Credit Union"), and anything self-identifying as a credit union — the last so
+ * that a credit union added to the catalogue without being added here is
+ * treated as one rather than silently counted as a bank. BECU does not say
+ * "credit union" in its name, which is why the alias list exists at all.
+ */
+export function isCreditUnionIssuerName(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const normalised = normaliseIssuerText(value);
+  if (!normalised) return false;
+
+  if ((CREDIT_UNION_ISSUER_IDS as readonly string[]).some((id) => normaliseIssuerText(id) === normalised)) {
+    return true;
+  }
+  for (const aliases of Object.values(CREDIT_UNION_ALIASES)) {
+    if (aliases.some((alias) => normaliseIssuerText(alias) === normalised)) return true;
+  }
+  return normalised.includes('creditunion') || normalised.endsWith('fcu');
+}
+
 // ── Credit union membership ──────────────────────────────────
 //
 // A credit union card cannot be applied for without joining the credit union.
