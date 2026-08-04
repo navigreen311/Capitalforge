@@ -211,8 +211,15 @@ export function ApplicationWizardShell({ children }: ApplicationWizardShellProps
         );
       }
     } catch {
-      // API may not exist yet — redirect gracefully
-      router.push('/applications');
+      // Was a redirect to the list on failure — the same "API may not exist
+      // yet" assumption the new-application form carried. A submission that
+      // never reached the server should not land the user on a page that
+      // implies it did.
+      setError(
+        status === 'draft'
+          ? 'Could not reach the server, so the draft was not saved.'
+          : 'Could not reach the server, so the application was not submitted.',
+      );
     } finally {
       setSaving(false);
     }
