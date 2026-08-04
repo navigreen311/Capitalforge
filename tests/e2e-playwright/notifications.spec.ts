@@ -162,8 +162,19 @@ test.describe('Notifications', () => {
     expect(outstanding).toBe(items.length);
 
     // It used to be useState(4) — every page opened with four waiting.
-    const label = await page.getByRole('button', { name: /Notifications/ }).getAttribute('aria-label');
+    //
+    // Polled, not read once. The bell's count starts null and is filled in by
+    // a fetch, so its label is a bare "Notifications" until that resolves.
+    // getAttribute() is a single read and does not retry, so this raced the
+    // component's own request and failed whenever the read won — which is
+    // exactly what it did once on master and not again on two later runs.
+    // toHaveAttribute polls, so it waits for the count rather than sampling
+    // whatever was there at that instant.
+    const bell = page.getByRole('button', { name: /Notifications/ });
+    await expect(bell).toHaveAttribute('aria-label', new RegExp(`\\b${outstanding}\\b`));
+
+    // And never the old wording, which counted unread rather than outstanding.
+    const label = await bell.getAttribute('aria-label');
     expect(label).not.toContain('unread');
-    expect(label).toContain(String(outstanding));
   });
 });

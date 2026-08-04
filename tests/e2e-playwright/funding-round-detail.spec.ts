@@ -56,9 +56,11 @@ test.describe('Funding round detail', () => {
 
     // Apex Ventures LLC is not a client, and FR-018 is not a round. Both
     // appeared on this page for every id.
-    await expect(page.getByText('Apex Ventures LLC')).toHaveCount(0);
-    await expect(page.getByText('FR-018')).toHaveCount(0);
-    await expect(page.getByText('Sarah Chen')).toHaveCount(0);
+    // Exact, so a real round numbered FR-0180 or a client whose name merely
+    // contains one of these cannot trip an assertion about invented fixtures.
+    await expect(page.getByText('Apex Ventures LLC', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('FR-018', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Sarah Chen', { exact: true })).toHaveCount(0);
   });
 
   test('shows nothing for a round that does not exist', async ({ signedInPage: page }) => {
