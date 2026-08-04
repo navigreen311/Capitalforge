@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient, ApiRequestError } from '@/lib/api-client';
+import { attemptTokenRefresh } from '@/lib/token-refresh';
 
 export interface AuthFetchError {
   type: 'auth_required' | 'server_error' | 'network_error' | 'not_configured';
@@ -97,31 +98,7 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
 
 // ─── Token refresh helper ────────────────────────────────────────────────────
 
-export async function attemptTokenRefresh(): Promise<boolean> {
-  try {
-    const refreshToken = typeof window !== 'undefined'
-      ? localStorage.getItem('cf_refresh_token')
-      : null;
-
-    if (!refreshToken) return false;
-
-    const response = await fetch('/api/auth/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-
-    if (!response.ok) return false;
-
-    const data = await response.json();
-    if (data.access_token) {
-      localStorage.setItem('cf_access_token', data.access_token);
-    }
-    if (data.refresh_token) {
-      localStorage.setItem('cf_refresh_token', data.refresh_token);
-    }
-    return !!data.access_token;
-  } catch {
-    return false;
-  }
-}
+// Moved to lib/token-refresh so `api-client` can use it too — it could not
+// import this file, which imports `api-client`. Re-exported here because
+// several call sites already import it from this module.
+export { attemptTokenRefresh };

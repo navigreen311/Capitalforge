@@ -9,6 +9,10 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import {
+  KNOWN_ISSUER_IDS,
+  isKnownIssuerId,
+} from '../../src/shared/constants/issuers.js';
 
 const prisma = new PrismaClient();
 
@@ -117,7 +121,9 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'moderate',
     bestFor: 'Simple flat-rate rewards with 0% intro APR',
-    notes: 'Subject to Chase 5/24 rule',
+    notes: 'Subject to Chase 5/24 rule. Rewards rate 1.5% confirmed against the '
+      + 'rewardsDetails on this row ("1.5% unlimited cash back on all purchases") '
+      + 'when a duplicate row claimed 2%. Not independently verified against Chase.',
   },
 
   // ── American Express ─────────────────────────────────────
@@ -144,7 +150,10 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'hard',
     bestFor: 'High-volume category spending',
-    notes: 'Charge card — no preset limit. Subject to Amex 2/90 velocity rule.',
+    notes: 'Charge card — no preset limit. Subject to Amex 2/90 velocity rule. '
+      + 'cardType business_charge kept over a duplicate row claiming business_credit: '
+      + 'this is a charge card with no preset spending limit, which is why '
+      + 'creditLimitMax is 0. Not independently verified against Amex.',
   },
   {
     issuerId: 'amex',
@@ -246,7 +255,10 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'hard',
     bestFor: 'Highest flat-rate cash back with no cap',
-    notes: 'Charge card — must pay in full. High credit limits available.',
+    notes: 'Charge card — must pay in full. High credit limits available. '
+      + 'cardType business_charge kept over a duplicate row claiming business_credit '
+      + 'with a $55,000 typical limit. Spark Cash Plus is pay-in-full. '
+      + 'Not independently verified against Capital One.',
   },
   {
     issuerId: 'capital_one',
@@ -271,7 +283,10 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'moderate',
     bestFor: 'Travel rewards with flexible transfer partners',
-    notes: null,
+    notes: 'rewardsRate 2 is the base earn rate. Kept over a duplicate row '
+      + 'claiming 5, which is the bonus tier for hotels and rental cars booked '
+      + 'through Capital One Travel, not the rate on all spend — rewardsDetails '
+      + 'on this row states both. Not independently verified against Capital One.',
   },
 
   // ── Citi ─────────────────────────────────────────────────
@@ -350,7 +365,10 @@ const CARD_SEEDS: CardSeed[] = [
     personalGuarantee: true,
     approvalDifficulty: 'easy',
     bestFor: 'Simple no-fee travel rewards card',
-    notes: null,
+    notes: 'rewardsRate 1.5 is the base earn rate. Kept over a duplicate row '
+      + 'claiming 3, which applies only to travel booked through the BofA Travel '
+      + 'Center — rewardsDetails on this row states both. Not independently '
+      + 'verified against Bank of America.',
   },
 
   // ── US Bank ──────────────────────────────────────────────
@@ -637,13 +655,120 @@ const CARD_SEEDS: CardSeed[] = [
   },
 ];
 
+/**
+ * Refuse a seed list that would reintroduce the two defects this table has
+ * already had.
+ *
+ * 1. `rewardsRate` below 1 is a fraction. The column is a percent — 2 means
+ *    2% — and a fraction rendered as "0.02% cash back" next to "2% cash back"
+ *    for the same card. A genuine sub-1% rate does not exist on any business
+ *    card in this catalogue; if one ever does, this check needs a real unit
+ *    field rather than a threshold.
+ * 2. The same `(issuerId, name)` twice in one list. The primary key is derived
+ *    from the issuer spelling, so two lists spelling it differently wrote the
+ *    same product twice under different ids. The database now rejects that,
+ *    but failing here names the offending row instead of surfacing a
+ *    constraint violation.
+ */
+function assertSeedsAreSane(cards: typeof CARD_SEEDS): void {
+  const problems: string[] = [];
+
+  // 0. issuerId must be one the rest of the system recognises.
+  //
+  //    Everything that reasons about an issuer matches this string exactly:
+  //    the optimizer's cooldown table, the Exclude Issuers control, the rules
+  //    engine. A row spelled "us-bank" where the rest says "us_bank" is
+  //    matched by none of them — it can be excluded by nothing, is given no
+  //    cooldown, and is subject to no issuer rule, while still appearing in
+  //    plans. Nothing about the output would look wrong.
+  //
+  //    Every issuerId in the table happens to be correct today. That was true
+  //    by luck, not by check — two seed sources wrote this table and neither
+  //    validated the field, and confirming it required querying the database.
+  //    This turns it into a failed seed.
+  for (const card of cards) {
+    if (!isKnownIssuerId(card.issuerId)) {
+      problems.push(
+        `${card.name}: issuerId "${card.issuerId}" is not a known issuer.\n`
+          + `      Valid issuer ids: ${KNOWN_ISSUER_IDS.join(', ')}.\n`
+          + '      If this issuer is new, add it to src/shared/constants/issuers.ts, '
+          + 'then give it a cooldown in ISSUER_COOLDOWNS and decide whether it '
+          + 'belongs in the Exclude Issuers list.',
+      );
+    }
+  }
+
+  for (const card of cards) {
+    if (card.rewardsRate !== null && card.rewardsRate > 0 && card.rewardsRate < 1) {
+      problems.push(
+        `${card.issuerId} / ${card.name}: rewardsRate ${card.rewardsRate} looks like a fraction. `
+          + 'This column is a percent — use 2 for 2%, not 0.02.',
+      );
+    }
+  }
+
+  // 3. An active product must declare its eligibility floors.
+  //
+  //    The optimizer reads revenueMinimum and businessAgeMinimum as thresholds
+  //    a client must clear. Zero does not mean "no minimum" — it means the
+  //    field was never filled in — and the optimizer cannot tell those apart,
+  //    so such a card passes every revenue and trading-history check for every
+  //    client while looking like a normal recommendation. Six rows arrived
+  //    that way.
+  //
+  //    The database enforces this too (card_products_active_requires_floors).
+  //    Failing here names the row and says what to do; the constraint would
+  //    surface as a 23514 mid-seed.
+  for (const card of cards) {
+    if (card.revenueMinimum === 0 && card.businessAgeMinimum === 0) {
+      problems.push(
+        `${card.name}: revenueMinimum and businessAgeMinimum are both 0, so this `
+          + 'card would clear every eligibility check for every client.\n'
+          + '      Set real minimums from a cited issuer source. If the product '
+          + 'genuinely has no floor, give one field a documented value rather '
+          + 'than leaving both at zero — both at zero is the signature of '
+          + 'missing data.',
+      );
+    }
+  }
+
+  const seen = new Map<string, string>();
+  for (const card of cards) {
+    const key = `${card.issuerId}::${card.name.trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      problems.push(`Duplicate product in the seed list: ${card.issuerId} / ${card.name}`);
+    }
+    seen.set(key, card.name);
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `Card product seed data is invalid:\n  - ${problems.join('\n  - ')}`,
+    );
+  }
+}
+
 async function seedCardProducts(): Promise<void> {
   console.log('Seeding card products...');
 
+  assertSeedsAreSane(CARD_SEEDS);
+
   for (const card of CARD_SEEDS) {
     await prisma.cardProduct.upsert({
+      // Keyed on (issuerId, name), not on the derived id.
+      //
+      // This matched on `${issuerId}-${slug(name)}`, which is a guess at the
+      // row's identity rather than the row's identity. Two seed sources
+      // spelling the issuer differently produced two ids for one product and
+      // the upsert happily created both. After the duplicates were collapsed
+      // the surviving rows kept the short ids, so an id-keyed upsert would no
+      // longer match them — it would try to create a second row per product
+      // and fail against @@unique([issuerId, name]).
+      //
+      // The natural key is what makes a product unique, and it is now what the
+      // database enforces.
       where: {
-        id: `${card.issuerId}-${card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '')}`,
+        issuerId_name: { issuerId: card.issuerId, name: card.name },
       },
       update: {
         cardType: card.cardType,

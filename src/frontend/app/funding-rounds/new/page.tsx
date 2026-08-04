@@ -3,6 +3,7 @@
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { SectionCard } from '@/components/ui/card';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 const CLIENTS = [
   { id: 'biz_001', name: 'Apex Ventures LLC' },
@@ -38,23 +39,21 @@ export default function NewFundingRoundPage() {
     }
     setSubmitting(true);
     try {
-      const token = localStorage.getItem('cf_access_token');
-      await fetch('/api/v1/funding-rounds', {
+      await loadJson('/api/v1/funding-rounds', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
+        body: {
           businessId: form.clientId,
           targetCredit: Number(form.targetAmount),
           targetCloseDate: form.targetCloseDate || undefined,
           notes: form.notes || undefined,
-        }),
+        },
       });
       router.push('/funding-rounds');
-    } catch {
-      router.push('/funding-rounds');
+    } catch (e) {
+      // Stays on the form. Both paths used to redirect to the list, so a round
+      // that was never created looked exactly like one that was — the user
+      // landed on a register that simply did not contain it.
+      setError(`The funding round was not created. ${toLoadError(e).message}`);
     } finally {
       setSubmitting(false);
     }

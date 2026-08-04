@@ -24,6 +24,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:check": "tsx scripts/check-seed-idempotent.ts",
     "walk": "tsx scripts/lifecycle-walk.ts",
     "backfill:timezone": "tsx scripts/backfill-business-timezone.ts",
     "clean:dev-data": "tsx scripts/clean-dev-data.ts",

@@ -31,6 +31,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import Link from 'next/link';
 import {
   toRegulatoryAlerts,
@@ -59,11 +60,6 @@ const STATUS_LABEL: Record<AlertStatus, string> = {
   dismissed: 'Dismissed',
 };
 
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
-
 function formatDate(iso: string | null): string {
   if (iso === null) return 'no date recorded';
   const d = new Date(iso);
@@ -87,16 +83,17 @@ export default function ComplianceRegulatoryFeedPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch('/api/regulatory/alerts?limit=500', { headers: authHeaders() });
-      if (!res.ok) {
-        setLoadError(`The regulatory feed could not be loaded (HTTP ${res.status}).`);
-        setAlerts([]);
-        return;
-      }
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      setAlerts(body.success === true ? toRegulatoryAlerts(body.data) : []);
-    } catch {
-      setLoadError('Could not reach the server. No regulatory updates are shown.');
+      const data = await loadJson<unknown>('/api/regulatory/alerts?limit=500');
+      setAlerts(toRegulatoryAlerts(data));
+    } catch (e) {
+      const info = toLoadError(e);
+      setLoadError(
+        info.type === 'auth_required'
+          ? 'Your session has ended. Sign in again to see regulatory updates.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server. No regulatory updates are shown.'
+            : `The regulatory feed could not be loaded. ${info.message}`,
+      );
       setAlerts([]);
     } finally {
       setLoading(false);
@@ -112,18 +109,10 @@ export default function ComplianceRegulatoryFeedPage() {
       if (impact[id] !== undefined) return;
       setImpactLoading(id);
       try {
-        const res = await fetch(`/api/regulatory/impact/${encodeURIComponent(id)}`, {
-          headers: authHeaders(),
-        });
-        if (!res.ok) {
-          setImpact((prev) => ({ ...prev, [id]: null }));
-          return;
-        }
-        const body = (await res.json()) as { success?: boolean; data?: unknown };
-        setImpact((prev) => ({
-          ...prev,
-          [id]: body.success === true ? toImpactAssessment(body.data) : null,
-        }));
+        const data = await loadJson<unknown>(
+          `/api/regulatory/impact/${encodeURIComponent(id)}`,
+        );
+        setImpact((prev) => ({ ...prev, [id]: toImpactAssessment(data) }));
       } catch {
         setImpact((prev) => ({ ...prev, [id]: null }));
       } finally {

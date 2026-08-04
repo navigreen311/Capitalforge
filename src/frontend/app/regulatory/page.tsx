@@ -48,6 +48,7 @@ import {
   type AlertStatus,
   type Urgency,
 } from '@/lib/regulatory-view';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 type TabKey = 'alerts' | 'flows' | 'licensing';
 
@@ -77,11 +78,6 @@ const REVIEW_OPTIONS: { value: 'under_review' | 'resolved' | 'dismissed'; label:
   { value: 'resolved', label: 'Mark resolved' },
   { value: 'dismissed', label: 'Dismiss' },
 ];
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 function formatDate(iso: string | null): string {
   if (iso === null) return '—';
@@ -118,39 +114,31 @@ export default function RegulatoryPage() {
     setLoading(true);
     setLoadError(null);
     setPartial([]);
-    const headers = authHeaders();
     const failed: string[] = [];
 
     try {
-      const [alertsRes, flowsRes, licRes] = await Promise.all([
-        fetch('/api/regulatory/alerts?limit=500', { headers }),
-        fetch('/api/funds-flow/classifications', { headers }),
-        fetch('/api/funds-flow/licensing-status', { headers }),
+      // Three independent sections. Each resolves to null on failure rather
+      // than throwing, so one dead endpoint does not empty the other two.
+      const [alerts, flows, escalations] = await Promise.all([
+        loadJson<unknown>('/api/regulatory/alerts?limit=500')
+          .then(toRegulatoryAlerts)
+          .catch(() => null),
+        loadJson<unknown>('/api/funds-flow/classifications')
+          .then(toFundsFlowRows)
+          .catch(() => null),
+        loadJson<unknown>('/api/funds-flow/licensing-status')
+          .then(toLicensingEscalations)
+          .catch(() => null),
       ]);
 
-      if (alertsRes.ok) {
-        const body = (await alertsRes.json()) as { success?: boolean; data?: unknown };
-        setAlerts(body.success === true ? toRegulatoryAlerts(body.data) : []);
-      } else {
-        setAlerts([]);
-        failed.push('rule changes');
-      }
+      setAlerts(alerts ?? []);
+      if (alerts === null) failed.push('rule changes');
 
-      if (flowsRes.ok) {
-        const body = (await flowsRes.json()) as { success?: boolean; data?: unknown };
-        setFlows(body.success === true ? toFundsFlowRows(body.data) : []);
-      } else {
-        setFlows([]);
-        failed.push('funds flow classifications');
-      }
+      setFlows(flows ?? []);
+      if (flows === null) failed.push('funds flow classifications');
 
-      if (licRes.ok) {
-        const body = (await licRes.json()) as { success?: boolean; data?: unknown };
-        setEscalations(body.success === true ? toLicensingEscalations(body.data) : []);
-      } else {
-        setEscalations([]);
-        failed.push('licensing review');
-      }
+      setEscalations(escalations ?? []);
+      if (escalations === null) failed.push('licensing review');
 
       // Reported per section. A partial load must not leave one panel empty
       // in a way that reads as "nothing to do here".
@@ -174,18 +162,10 @@ export default function RegulatoryPage() {
       if (impact[alertId] !== undefined) return;
       setImpactLoading(alertId);
       try {
-        const res = await fetch(`/api/regulatory/impact/${encodeURIComponent(alertId)}`, {
-          headers: authHeaders(),
-        });
-        if (!res.ok) {
-          setImpact((prev) => ({ ...prev, [alertId]: null }));
-          return;
-        }
-        const body = (await res.json()) as { success?: boolean; data?: unknown };
-        setImpact((prev) => ({
-          ...prev,
-          [alertId]: body.success === true ? toImpactAssessment(body.data) : null,
-        }));
+        const data = await loadJson<unknown>(
+          `/api/regulatory/impact/${encodeURIComponent(alertId)}`,
+        );
+        setImpact((prev) => ({ ...prev, [alertId]: toImpactAssessment(data) }));
       } catch {
         setImpact((prev) => ({ ...prev, [alertId]: null }));
       } finally {
@@ -200,22 +180,14 @@ export default function RegulatoryPage() {
       setBusyId(alertId);
       setActionError(null);
       try {
-        const res = await fetch(`/api/regulatory/alerts/${encodeURIComponent(alertId)}/review`, {
+        await loadJson(`/api/regulatory/alerts/${encodeURIComponent(alertId)}/review`, {
           method: 'POST',
-          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newStatus }),
+          body: { newStatus },
         });
-        const body = (await res.json()) as { success?: boolean; error?: { message?: string } };
-        if (!res.ok || body.success !== true) {
-          setActionError(
-            body.error?.message ?? `The review was not recorded (HTTP ${res.status}).`,
-          );
-          return;
-        }
         showToast('Review recorded.');
         await load();
-      } catch {
-        setActionError('Could not reach the server. The review was not recorded.');
+      } catch (e) {
+        setActionError(`The review was not recorded. ${toLoadError(e).message}`);
       } finally {
         setBusyId(null);
       }

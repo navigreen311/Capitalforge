@@ -19,8 +19,23 @@ import { PrismaClient } from '@prisma/client';
 
 /** Context provided for rule evaluation — typically built from a business profile. */
 export interface EligibilityContext {
-  /** Number of new cards opened (any issuer) in the past 24 months */
+  /**
+   * New cards opened at BANK issuers in the past 24 months, for Chase 5/24.
+   *
+   * Credit union cards are excluded, because credit union applications do not
+   * count towards 5/24 — the exemption that makes a credit union the sensible
+   * next step once bank velocity is spent.
+   */
   newCardsLast24Months: number;
+  /**
+   * How many credit union cards were left out of the count above.
+   *
+   * Carried so the exemption can be shown rather than inferred: a count that is
+   * simply smaller is indistinguishable from cards having been missed, and an
+   * advisor reading "3" cannot tell whether the client has three cards or five
+   * with two exempted.
+   */
+  creditUnionCardsExcludedFrom524?: number;
   /** Number of applications to this specific issuer in the past N days */
   issuerAppsInPeriod: number;
   /** Most recent application date to this issuer (ISO string or null) */
@@ -527,7 +542,9 @@ export type CreditUnionSlug =
   | 'alliant'
   | 'first_tech'
   | 'becu'
-  | 'lake_michigan';
+  // Matches card_products.issuerId, which is the constrained source. This
+  // engine previously said 'lake_michigan' and nothing reconciled the two.
+  | 'lake_michigan_cu';
 
 /** Bureau that a credit union primarily pulls for underwriting. */
 export type CreditBureau = 'TransUnion' | 'Equifax' | 'Experian';
@@ -619,8 +636,8 @@ const CREDIT_UNION_CONFIGS: Record<CreditUnionSlug, CreditUnionConfig> = {
     membershipNote:
       'Membership requires living or working in Washington state.',
   },
-  lake_michigan: {
-    slug: 'lake_michigan',
+  lake_michigan_cu: {
+    slug: 'lake_michigan_cu',
     name: 'Lake Michigan Credit Union',
     bureau: 'Equifax',
     minimumScore: 620,
@@ -629,6 +646,19 @@ const CREDIT_UNION_CONFIGS: Record<CreditUnionSlug, CreditUnionConfig> = {
       'Membership open to anyone — join via ACA International membership ($5).',
   },
 };
+
+/**
+ * The credit union slugs this engine has configuration for.
+ *
+ * Exported so a test can assert they match the issuer registry. They did not:
+ * this engine said `lake_michigan` while the card catalogue said
+ * `lake_michigan_cu`, and because the lookup is a Record, the mismatch
+ * resolved to `undefined` and read as "no special handling" rather than as an
+ * error.
+ */
+export const CREDIT_UNION_SLUGS_IN_RULES_ENGINE: readonly string[] =
+  Object.keys(CREDIT_UNION_CONFIGS);
+
 
 // ============================================================
 // Credit Union — Eligibility Evaluation

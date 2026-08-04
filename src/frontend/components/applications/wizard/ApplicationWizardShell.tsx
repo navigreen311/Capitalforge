@@ -9,6 +9,7 @@
 
 import React, { useState, useCallback, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -191,28 +192,22 @@ export function ApplicationWizardShell({ children }: ApplicationWizardShellProps
     setError(null);
 
     try {
-      const token = localStorage.getItem('cf_access_token');
-      const res = await fetch('/api/v1/applications', {
+      await loadJson('/api/v1/applications', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(buildPayload(status)),
+        body: buildPayload(status),
       });
 
-      if (res.ok) {
-        router.push('/applications');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setError(
-          (data as { error?: { message?: string } })?.error?.message ??
-            `Failed to ${status === 'draft' ? 'save draft' : 'submit application'}`,
-        );
-      }
-    } catch {
-      // API may not exist yet — redirect gracefully
       router.push('/applications');
+    } catch (e) {
+      // Was a redirect to the list on failure — the same "API may not exist
+      // yet" assumption the new-application form carried. A submission that
+      // never reached the server should not land the user on a page that
+      // implies it did.
+      setError(
+        (status === 'draft'
+          ? 'The draft was not saved. '
+          : 'The application was not submitted. ') + toLoadError(e).message,
+      );
     } finally {
       setSaving(false);
     }

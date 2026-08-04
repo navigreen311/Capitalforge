@@ -12,6 +12,7 @@ import React, { useState, useCallback } from 'react';
 import { SectionCard } from '../ui/card';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '../dashboard/DashboardErrorState';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -170,32 +171,9 @@ export function AchDebitTab({ clientId }: AchDebitTabProps) {
   const handleRevoke = useCallback(async () => {
     setIsRevoking(true);
     try {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('cf_access_token')
-          : null;
-
-      const response = await fetch(`/api/v1/clients/${clientId}/ach-authorization/revoke`, {
+      await loadJson(`/api/v1/clients/${clientId}/ach-authorization/revoke`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
       });
-
-      if (!response.ok) {
-        // Revoking an ACH authorization is a consumer-protection action. This
-        // previously reported success unconditionally — including against an
-        // endpoint that does not exist yet — so an advisor could believe a
-        // client's debits had been stopped when nothing had changed.
-        setToastMessage(
-          response.status === 404
-            ? 'Revocation is not available yet — the authorization is unchanged.'
-            : 'Could not revoke the authorization. It is unchanged.',
-        );
-        setTimeout(() => setToastMessage(null), 6000);
-        return;
-      }
 
       setAuthStatus('revoked');
       setShowRevokeModal(false);
@@ -203,8 +181,18 @@ export function AchDebitTab({ clientId }: AchDebitTabProps) {
       refetch();
 
       setTimeout(() => setToastMessage(null), 4000);
-    } catch {
-      setToastMessage('Could not reach the server. The authorization is unchanged.');
+    } catch (e) {
+      // Revoking an ACH authorization is a consumer-protection action. This
+      // previously reported success unconditionally — including against an
+      // endpoint that does not exist yet — so an advisor could believe a
+      // client's debits had been stopped when nothing had changed. Every
+      // failure below says the authorization is unchanged.
+      const info = toLoadError(e);
+      setToastMessage(
+        info.status === 404
+          ? 'Revocation is not available yet — the authorization is unchanged.'
+          : `Could not revoke the authorization. It is unchanged. ${info.message}`,
+      );
       setTimeout(() => setToastMessage(null), 6000);
     } finally {
       setIsRevoking(false);

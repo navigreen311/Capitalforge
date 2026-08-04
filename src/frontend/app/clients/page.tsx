@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import { toClientRows, humanise, type ClientRow } from '@/lib/client-roster-view';
 
 const STATUS_STYLE: Record<string, string> = {
@@ -46,16 +46,22 @@ export default function ClientsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`The client roster could not be loaded (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      setRows(toClientRows(body.data));
-    } catch {
-      setError('Could not reach the server, so no clients are shown.');
+      // Through `loadJson` rather than a bare fetch with `authHeaders()`.
+      // The bare version attached whatever token existed and reported the
+      // status if the server refused it, so an access token that aged out —
+      // fifteen minutes — turned this page into "HTTP 401" with no way
+      // forward, while a refresh token good for another week sat unused.
+      const data = await loadJson<unknown>('/api/clients?limit=200');
+      setRows(toClientRows(data));
+    } catch (e) {
+      const info = toLoadError(e);
+      setError(
+        info.type === 'auth_required'
+          ? 'Your session has ended. Sign in again to see the client roster.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server, so no clients are shown.'
+            : `The client roster could not be loaded. ${info.message}`,
+      );
       setRows(null);
     } finally {
       setLoading(false);
@@ -71,21 +77,22 @@ export default function ClientsPage() {
     setCreating(true);
     setCreateError(null);
     try {
-      const res = await fetch('/api/clients', {
+      await loadJson('/api/clients', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ legalName, entityType }),
+        body: { legalName, entityType },
       });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: { message?: string } };
-        setCreateError(body.error?.message ?? `The client was not created (HTTP ${res.status}).`);
-        return;
-      }
       setShowNew(false);
       setLegalName('');
       await load();
-    } catch {
-      setCreateError('Could not reach the server, so no client was created.');
+    } catch (e) {
+      const info = toLoadError(e);
+      setCreateError(
+        info.type === 'auth_required'
+          ? 'Your session has ended. Sign in again, then create the client.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server, so no client was created.'
+            : `The client was not created. ${info.message}`,
+      );
     } finally {
       setCreating(false);
     }
@@ -165,6 +172,22 @@ export default function ClientsPage() {
           {showNew && (
             <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
               <h2 className="text-sm font-semibold text-gray-900">New client</h2>
+              {/*
+                This form records a name and an entity type and nothing else:
+                no owner, no consent, no suitability check, and no funding
+                readiness score. It sits behind a button labelled the same as
+                the full wizard, so a client onboarded here looks finished and
+                is not — which is how a record with two fields set and no
+                owner gets created without anyone noticing.
+              */}
+              <p className="text-xs text-gray-500">
+                Records a name and entity type only — no owner, consent or suitability
+                check. For full onboarding use the{' '}
+                <Link href="/clients/new" className="font-semibold text-gray-700 underline">
+                  five-step wizard
+                </Link>
+                .
+              </p>
               <div className="flex flex-wrap gap-4">
                 <div>
                   <label htmlFor="new-legal-name" className="block text-xs text-gray-500 mb-1">
@@ -187,7 +210,14 @@ export default function ClientsPage() {
                     onChange={(e) => setEntityType(e.target.value)}
                     className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800"
                   >
-                    {['llc', 's_corp', 'c_corp', 'sole_prop', 'partnership'].map((v) => (
+                    {/*
+                      These must be the values in ENTITY_TYPES
+                      (src/shared/validators/business.validators.ts). This list
+                      offered "sole_prop", which is not one of them — and this
+                      endpoint does not check the enum, so choosing it stored
+                      an entity type nothing else in the system recognises.
+                    */}
+                    {['llc', 'corporation', 's_corp', 'c_corp', 'sole_proprietor', 'partnership'].map((v) => (
                       <option key={v} value={v}>
                         {humanise(v)}
                       </option>

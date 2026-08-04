@@ -234,4 +234,46 @@ module.exports = [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
+
+  // ── Issuer identity must go through the parse boundary ─────
+  //
+  // Issuer identity arrives as free text — CardApplication.issuer holds display
+  // names, CardProduct.issuerId holds slugs, request bodies and query params
+  // hold whatever was typed. Six sites derived identity from that text by hand,
+  // no two agreeing, and each failed silently in its own way: a cooldown that
+  // fell to a default, a closure phone number that went missing, a filter that
+  // matched nothing and read as "this client has no Amex cards".
+  //
+  // parseIssuer in src/shared/constants/issuers.ts is the one place text becomes
+  // identity. This rule stops a seventh site quietly reinventing it.
+  //
+  // WHAT THIS DOES NOT COVER. It matches on a naming convention — a member
+  // expression whose property starts with "issuer" — so a variable called
+  // `bank`, `provider` or `network` routes straight around it, as does a string
+  // that reached a Record lookup already normalised. This is scaffolding for the
+  // migration, not a guarantee. The guarantee is the type: once a value is an
+  // IssuerIdentity, a raw string cannot reach the comparison at all. Treat a
+  // green lint here as "no new hand-rolled normalisers", never as "all issuer
+  // handling is correct".
+  {
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    ignores: [
+      // The boundary itself, and the display-name direction it owns.
+      'src/shared/constants/issuers.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(toLowerCase|toUpperCase|replace|normalize)$/][callee.object.type='MemberExpression'][callee.object.property.name=/^issuer/i]",
+          message:
+            'Do not normalise issuer text by hand — use parseIssuer() from '
+            + 'src/shared/constants/issuers.ts, or issuerDisplayName() for the '
+            + 'reverse direction. Hand-rolled normalisers disagree with each '
+            + 'other and fail silently.',
+        },
+      ],
+    },
+  },
 ];

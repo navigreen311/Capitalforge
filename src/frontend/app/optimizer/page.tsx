@@ -13,8 +13,9 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { SectionCard } from '@/components/ui/card';
 import {
   CardRecommendation,
@@ -61,6 +62,15 @@ interface ApiCardRecommendation {
   bestFor: string | null;
   sequencePosition: number;
   cooldownDays: number;
+  /** 'issuer_rule' when the wait reflects a published rule; otherwise a bare default. */
+  cooldownSource?: 'issuer_rule' | 'unresearched_default';
+  /** Credit union cards only: whether the client can actually apply. */
+  membership?: {
+    status: 'member' | 'eligibility_path' | 'unknown' | 'ineligible';
+    detail: string;
+    gate?: 'open_enrollment' | 'qualification_required';
+    joinCost?: number;
+  };
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
 }
@@ -91,6 +101,226 @@ interface ApiStackingPlan {
   aprExpirySummary: ApiAprExpiry[];
   prioritizationMode: PrioritizationMode;
   cardCount: number;
+  inputProvenance: ApiInputProvenance;
+  capacity?: ApiCapacity;
+  velocitySummary?: ApiVelocitySummary;
+}
+
+interface ApiVelocitySummary {
+  cardsCountingToward524: number;
+  cardsExemptFrom524: number;
+  cardsNotEvaluated: number;
+  chase524HeadroomBefore: number;
+  chase524HeadroomAfter: number;
+  chase524Overage: number;
+  exceedsChase524: boolean;
+  existingBankCardsInWindow: number;
+  existingCreditUnionCardsInWindow: number;
+}
+
+interface ApiCapacity {
+  targetAmount: number;
+  bankEstimatedCredit: number;
+  creditUnionEstimatedCredit: number;
+  shortfallAfterBanks: number;
+  remainingShortfall: number;
+  creditUnionsIncluded: boolean;
+  creditUnionCardLimit: number;
+  bankCardCount: number;
+  creditUnionCardCount: number;
+}
+
+// ─── Where each input came from ───────────────────────────────────────────────
+
+type ApiInputSource =
+  | 'advisor_entered'
+  | 'bureau_pull'
+  | 'client_record'
+  | 'assumed_default';
+
+interface ApiResolvedInput {
+  value: number | null;
+  source: ApiInputSource;
+  label: string;
+  pulledAt?: string;
+  /** Where one source label would misrepresent the value. */
+  detail?: string;
+  /** False when the optimizer collects this value but does not read it. */
+  influencesPlan?: boolean;
+}
+
+interface ApiInputProvenance {
+  ficoScore: ApiResolvedInput;
+  annualRevenue: ApiResolvedInput;
+  businessAgeMonths: ApiResolvedInput;
+  recentInquiries: ApiResolvedInput;
+  derogatoryMarks: ApiResolvedInput;
+  existingCardCount: ApiResolvedInput;
+  collectedNotUsed?: ApiResolvedInput[];
+  assumedDefaults: string[];
+  hasAssumedDefaults: boolean;
+}
+
+const SOURCE_LABEL: Record<ApiInputSource, string> = {
+  advisor_entered: 'Entered by advisor',
+  bureau_pull: 'Credit pull',
+  client_record: 'Client record',
+  assumed_default: 'Assumed',
+};
+
+const SOURCE_STYLE: Record<ApiInputSource, string> = {
+  advisor_entered: 'bg-blue-50 text-blue-700 border-blue-200',
+  bureau_pull: 'bg-green-50 text-green-700 border-green-200',
+  client_record: 'bg-gray-100 text-gray-600 border-gray-300',
+  assumed_default: 'bg-amber-50 text-amber-800 border-amber-300',
+};
+
+/** Values that read better with units than as bare numbers. */
+function formatProvenanceValue(key: string, value: number | null): string {
+  if (value === null) return 'Not entered';
+  if (key === 'annualRevenue') return `$${value.toLocaleString()}`;
+  if (key === 'businessAgeMonths') return `${value} months`;
+  return String(value);
+}
+
+/**
+ * Marks an input the optimizer collects but does not yet read.
+ *
+ * An advisor who types PAYDEX 72 concludes it shaped the plan. It did not — the
+ * scorer reads FICO, revenue, business age, inquiries and existing cards, and
+ * nothing else. Saying so on the field is the same principle as labelling an
+ * assumed default: the alternative is a control that looks like it matters.
+ */
+function NotYetUsed() {
+  return (
+    <span className="ml-2 rounded-full border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500">
+      Not used in scoring yet
+    </span>
+  );
+}
+
+function formatCurrencyShort(value: number): string {
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
+function InputsUsedPanel({ provenance }: { provenance: ApiInputProvenance }) {
+  const rows: Array<[string, ApiResolvedInput]> = [
+    ['ficoScore', provenance.ficoScore],
+    ['annualRevenue', provenance.annualRevenue],
+    ['businessAgeMonths', provenance.businessAgeMonths],
+    ['recentInquiries', provenance.recentInquiries],
+    ['derogatoryMarks', provenance.derogatoryMarks],
+    ['existingCardCount', provenance.existingCardCount],
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/*
+        A plan resting on constants is an estimate, and used to be presented
+        exactly like one built on a credit pull. This says which it is before
+        the recommendations are read, not after they are acted on.
+      */}
+      {provenance.hasAssumedDefaults && (
+        <div
+          role="alert"
+          className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-900"
+        >
+          <p className="font-semibold">
+            Estimate only — built on assumed values for:{' '}
+            {provenance.assumedDefaults.join(', ')}.
+          </p>
+          <p className="mt-1 text-amber-800">
+            Pull credit for an accurate plan.
+          </p>
+        </div>
+      )}
+
+      <SectionCard title="Inputs Used" subtitle="What this plan was built on">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                <th className="pb-2 pr-4 font-semibold">Input</th>
+                <th className="pb-2 pr-4 font-semibold">Value</th>
+                <th className="pb-2 font-semibold">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(([key, row]) => (
+                /*
+                  A value the scorer never reads is greyed and struck. An
+                  advisor scanning this panel to decide whether to trust the
+                  plan should see at a glance which numbers shaped it — before
+                  this, an unused input sat in the same type as a decisive one
+                  and the panel vouched for both.
+                */
+                <tr
+                  key={key}
+                  className={`border-t border-gray-100 ${
+                    row.influencesPlan === false ? 'opacity-60' : ''
+                  }`}
+                >
+                  <td className="py-2 pr-4 text-gray-700">
+                    {row.label}
+                    {row.influencesPlan === false && (
+                      <span className="ml-2 rounded-full border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500">
+                        Not used
+                      </span>
+                    )}
+                  </td>
+                  <td
+                    className={`py-2 pr-4 font-semibold ${
+                      row.influencesPlan === false
+                        ? 'text-gray-400 line-through'
+                        : 'text-gray-900'
+                    }`}
+                  >
+                    {formatProvenanceValue(key, row.value)}
+                  </td>
+                  <td className="py-2">
+                    <span
+                      className={`inline-block rounded-full border px-2 py-0.5 text-xs font-semibold ${SOURCE_STYLE[row.source]}`}
+                    >
+                      {SOURCE_LABEL[row.source]}
+                    </span>
+                    {row.pulledAt && (
+                      <span className="ml-2 text-xs text-gray-500">
+                        pulled {row.pulledAt.slice(0, 10)}
+                      </span>
+                    )}
+                    {/* Two sources, both named — a single label here made a
+                        true number read as a contradiction. */}
+                    {row.detail && (
+                      <span className="ml-2 text-xs text-gray-500">{row.detail}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {(provenance.collectedNotUsed ?? []).map((row) => (
+                <tr key={row.label} className="border-t border-gray-100 opacity-60">
+                  <td className="py-2 pr-4 text-gray-700">
+                    {row.label}
+                    <span className="ml-2 rounded-full border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500">
+                      Not used
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4 font-semibold text-gray-400 line-through">
+                    {formatProvenanceValue(row.label, row.value)}
+                  </td>
+                  <td className="py-2 text-xs text-gray-500">Collected, not read by the scorer</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-xs text-gray-500">
+          Struck-through values are recorded with the plan but do not affect the
+          recommendations. They are shown so a value you entered is never simply
+          missing from this panel.
+        </p>
+      </SectionCard>
+    </div>
+  );
 }
 
 // ─── Credit Union bureau pull mapping & helpers ─────────────────────────────
@@ -101,7 +331,6 @@ const CU_BUREAU_PULLS: Record<string, string> = {
   'first-tech':    'TransUnion',
   'navy-federal':  'Equifax',
   'becu':          'Equifax',
-  'dcu':           'Equifax',
   'lake-michigan': 'Equifax',
 };
 
@@ -116,7 +345,6 @@ function isCreditUnionIssuer(issuerName: string): boolean {
     lower === 'penfed' ||
     lower === 'alliant' ||
     lower === 'navy federal' ||
-    lower === 'dcu' ||
     lower === 'first tech' ||
     lower === 'becu' ||
     lower === 'lake michigan' ||
@@ -483,6 +711,28 @@ const STATE_NAMES: Record<string, string> = {
   VA:'Virginia',WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming',
 };
 
+// ─── Sending form values ──────────────────────────────────────────────────────
+
+/**
+ * A form field as a number, or null when it was left blank.
+ *
+ * Null matters: it is the difference between "the advisor said zero" and "the
+ * advisor said nothing". The first is an answer the optimizer must use; the
+ * second lets it fall back to the client record.
+ */
+function numOrNull(raw: string): number | null {
+  const trimmed = raw?.trim() ?? '';
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The form collects years; the optimizer works in months. */
+function yearsToMonths(raw: string): number | null {
+  const years = numOrNull(raw);
+  return years === null ? null : Math.round(years * 12);
+}
+
 // ─── Form state type ──────────────────────────────────────────────────────────
 
 interface CUFormState {
@@ -492,6 +742,10 @@ interface CUFormState {
   techIndustry: boolean;
   existingMemberships: string[];
   stackedCUs: string[];
+  /** Whether credit union cards are considered in the plan at all. */
+  includeInPlan: boolean;
+  /** Most credit union cards to recommend. Each is a membership and a hard pull. */
+  maxCards: string;
 }
 
 interface ExistingCardDetail {
@@ -507,6 +761,7 @@ interface FormState {
   inquiries6mo: string;
   inquiries12mo: string;
   inquiries24mo: string;
+  derogatoryMarks: string;
   selectedCards: string[];
   cardDetails: Record<string, ExistingCardDetail>;
   businessType: string;
@@ -528,6 +783,7 @@ const INITIAL_FORM: FormState = {
   inquiries6mo: '',
   inquiries12mo: '',
   inquiries24mo: '',
+  derogatoryMarks: '',
   selectedCards: ['Chase Ink Business Preferred', 'Amex Business Gold'],
   cardDetails: {},
   businessType: 'LLC',
@@ -548,12 +804,23 @@ const PRIORITIZATION_LABELS: Record<PrioritizationMode, string> = {
   min_inquiries: 'Minimize Inquiries',
 };
 
+// Must match CardProduct.issuerId exactly — an entry spelled differently
+// excludes nothing. Kept in step with src/shared/constants/issuers.ts, which
+// the seed validates against.
 const ISSUER_OPTIONS = [
   'chase', 'amex', 'capital_one', 'citi', 'bank_of_america',
   'us_bank', 'wells_fargo', 'discover', 'td_bank', 'pnc',
+  // Credit unions. These carry products in the catalogue and were absent
+  // here, so a CU card could not be excluded at all.
+  'alliant', 'becu', 'first_tech', 'lake_michigan_cu', 'navy_federal', 'penfed',
 ];
 
 const INITIAL_CU_FORM: CUFormState = {
+  // Off by default: including credit unions changes what a plan recommends,
+  // and that should be a decision the advisor makes rather than a side effect
+  // of filling in a state.
+  includeInPlan: false,
+  maxCards: '3',
   state: '',
   militaryStatus: 'none',
   employer: '',
@@ -652,36 +919,74 @@ export default function OptimizerPage() {
     // If a business is selected, call the V2 API
     if (form.selectedBusinessId) {
       try {
-        const res = await fetch('/api/optimizer/run', {
+        // Through `loadJson` rather than a bare fetch with `authHeaders()`.
+        // The bare version sent whatever token was in storage and reported
+        // the refusal, so a form filled in over more than fifteen minutes —
+        // the access token's whole life — failed on the click, while the
+        // client dropdown above it kept showing data fetched on mount, back
+        // when the token was still good. Nothing was wrong with the session:
+        // the refresh token was never spent.
+        const data = await loadJson<ApiStackingPlan>('/api/optimizer/run', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify({
+          body: {
             businessId: form.selectedBusinessId,
             targetAmount: form.targetFunding ? Number(form.targetFunding) : 100000,
             maxCards: form.maxCards ? Number(form.maxCards) : 8,
             prioritize: form.prioritizationMode,
             excludeIssuers: form.excludeIssuers,
-            includeCreditUnions: false,
-          }),
+            includeCreditUnions: cuForm.includeInPlan,
+            maxCreditUnionCards: numOrNull(cuForm.maxCards) ?? 3,
+            // Membership standing. Absent fields are reported as unknown by the
+            // optimizer rather than resolved in the card's favour.
+            creditUnionEligibility: {
+              state: cuForm.state || null,
+              militaryStatus: cuForm.militaryStatus,
+              employer: cuForm.employer || null,
+              techIndustry: cuForm.techIndustry,
+              existingMemberships: cuForm.existingMemberships,
+            },
+            // Everything the advisor typed. None of this used to leave the
+            // browser: the optimizer read the client record, and where that
+            // was empty it used constants — so a FICO entered here was
+            // discarded in favour of an assumed 680.
+            profile: {
+              ficoScore: numOrNull(form.fico),
+              annualRevenue: numOrNull(form.annualRevenue),
+              businessAgeMonths: yearsToMonths(form.yearsInBusiness),
+              inquiries6mo: numOrNull(form.inquiries6mo),
+              inquiries12mo: numOrNull(form.inquiries12mo),
+              inquiries24mo: numOrNull(form.inquiries24mo),
+              derogatoryMarks: numOrNull(form.derogatoryMarks),
+              employees: numOrNull(form.employees),
+              dnbPaydex: numOrNull(form.dnbPaydex),
+              experianBis: numOrNull(form.experianBis),
+              ficoSbss: numOrNull(form.ficoSbss),
+            },
+            existingCards: form.selectedCards.map((name) => ({
+              name,
+              creditLimit: numOrNull(form.cardDetails[name]?.limit ?? ''),
+            })),
+          },
         });
 
-        const json = await res.json();
-
-        if (json.success && json.data) {
-          setStackingPlan(json.data as ApiStackingPlan);
-          setHasResults(true);
-        } else if (res.status === 401 || res.status === 403) {
-          setApiError('Your session has expired. Sign in again to run the optimizer.');
-          setHasResults(false);
-        } else {
-          setApiError(json.error?.message || 'Optimizer failed. Please try again.');
-          // Deliberately no results: this previously set hasResults(true) with
-          // no plan, which rendered the sample card stack as though it were a
-          // recommendation generated for the selected business.
-          setHasResults(false);
-        }
-      } catch {
-        setApiError('Unable to reach the optimizer API.');
+        setStackingPlan(data);
+        setHasResults(true);
+      } catch (e) {
+        const info = toLoadError(e);
+        setApiError(
+          info.type === 'auth_required'
+            // Only now is this true: a refresh was attempted and refused.
+            ? 'Your session has ended. Sign in again to run the optimizer.'
+            : info.type === 'network_error'
+              ? 'Unable to reach the optimizer API.'
+              // Say what the server said. Everything that was not a 401 used
+              // to arrive as "Optimizer failed. Please try again.", which
+              // described no problem and suggested no remedy.
+              : `Optimizer failed. ${info.message}${info.status ? ` (HTTP ${info.status})` : ''}`,
+        );
+        // Deliberately no results: this previously set hasResults(true) with
+        // no plan, which rendered the sample card stack as though it were a
+        // recommendation generated for the selected business.
         setHasResults(false);
       }
     } else {
@@ -691,7 +996,18 @@ export default function OptimizerPage() {
     }
 
     setLoading(false);
-  }, [form.selectedBusinessId, form.targetFunding, form.maxCards, form.prioritizationMode, form.excludeIssuers]);
+    // Depends on the whole form, not a list of five fields.
+    //
+    // This callback used to name `selectedBusinessId`, `targetFunding`,
+    // `maxCards`, `prioritizationMode` and `excludeIssuers` — the only values
+    // it read at the time. It now sends the entire profile, and any field
+    // missing from this array would be read from the closure captured when one
+    // of those five last changed: the advisor selects a client, then types a
+    // FICO, and the run posts the empty FICO from before they typed it.
+    //
+    // `form` is replaced wholesale on every edit, so listing it is both correct
+    // and no more work than listing its parts.
+  }, [form, cuForm]);
 
   // Derive selected client name for toasts
   const selectedClientName = useMemo(() => {
@@ -716,24 +1032,27 @@ export default function OptimizerPage() {
 
     setSavingStrategy(true);
     try {
-      const res = await fetch('/api/optimizer/save-strategy', {
+      await loadJson('/api/optimizer/save-strategy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+        body: {
           clientId: form.selectedBusinessId,
           results: stackingPlan,
-        }),
+        },
       });
-      const json = await res.json();
-      if (json.success) {
-        toast.success(`Strategy saved to ${selectedClientName} profile`);
-      } else {
-        toast.error(json.error?.message || 'Failed to save strategy');
-      }
-    } catch {
+      // Unreachable while the endpoint answers 501. Kept so that wiring real
+      // persistence is a backend change, not a hunt for the success path.
+      toast.success(`Strategy saved to ${selectedClientName} profile`);
+    } catch (e) {
       // Reporting success here was the bug: a network failure told the user
       // the strategy had been saved to a client profile it never reached.
-      toast.error('Could not reach the server; the strategy was not saved.');
+      const info = toLoadError(e);
+      toast.error(
+        info.type === 'auth_required'
+          ? 'Your session has ended; the strategy was not saved. Sign in again.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server; the strategy was not saved.'
+            : `The strategy was not saved. ${info.message}`,
+      );
     } finally {
       setSavingStrategy(false);
     }
@@ -759,27 +1078,30 @@ export default function OptimizerPage() {
     const cardsPlanned = stackingPlan.cardCount;
 
     try {
-      const res = await fetch('/api/optimizer/create-round', {
+      await loadJson('/api/optimizer/create-round', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+        body: {
           clientId: form.selectedBusinessId,
           roundNumber,
           targetCredit,
           cardsPlanned,
-        }),
+        },
       });
-      const json = await res.json();
-      if (json.success) {
-        toast.success(`Funding Round ${roundNumber} created for ${selectedClientName}`);
-        setTimeout(() => router.push('/funding-rounds'), 800);
-      } else {
-        toast.error(json.error?.message || 'Failed to create round');
-      }
-    } catch {
+      // Also unreachable at present. The navigation is deliberately gone: it
+      // used to run on failure too, landing the user on a list that did not
+      // contain the round they had just been told was created.
+      toast.success(`Funding Round ${roundNumber} created for ${selectedClientName}`);
+    } catch (e) {
       // This branch used to report the round created and navigate to the
       // funding-rounds list, where it would not be. The request failed.
-      toast.error('Could not reach the server; no funding round was created.');
+      const info = toLoadError(e);
+      toast.error(
+        info.type === 'auth_required'
+          ? 'Your session has ended; no funding round was created. Sign in again.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server; no funding round was created.'
+            : `No funding round was created. ${info.message}`,
+      );
     } finally {
       setCreatingRound(false);
     }
@@ -927,7 +1249,7 @@ export default function OptimizerPage() {
                     className="cf-input"
                   />
                 </FormField>
-                <FormField label="Employees">
+                <FormField label="Employees (not used in scoring yet)">
                   <input aria-label="10"
                     type="number"
                     min={1}
@@ -941,7 +1263,14 @@ export default function OptimizerPage() {
 
               {/* Business Credit Scores */}
               <div className="border-t border-gray-100 pt-4 mt-2">
-                <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Business Credit Scores</p>
+                <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">
+                  Business Credit Scores
+                  <NotYetUsed />
+                </p>
+                <p className="text-[11px] text-gray-500 -mt-2 mb-3">
+                  Recorded and sent with the run, but the scorer does not read them yet.
+                  They do not affect the recommendations below.
+                </p>
                 <div className="space-y-3">
                   <FormField label="D&B PAYDEX Score">
                     <input aria-label="e.g. 80"
@@ -1008,7 +1337,7 @@ export default function OptimizerPage() {
                       className="cf-input"
                     />
                   </FormField>
-                  <FormField label="24 Months">
+                  <FormField label="24 Months (not used in scoring yet)">
                     <input aria-label="0"
                       type="number"
                       min={0}
@@ -1018,6 +1347,29 @@ export default function OptimizerPage() {
                       className="cf-input"
                     />
                     <p className="text-[11px] text-gray-400 mt-1">Chase 5/24 uses 24-month count</p>
+                  </FormField>
+                </div>
+
+                {/*
+                  The optimizer prioritises a derogatory count and the form had
+                  no field for one, so every run reported it as assumed. A
+                  banner that fires on every plan is a banner nobody reads.
+                */}
+                <div className="grid grid-cols-3 gap-3 mt-3">
+                  <FormField label="Derogatory Marks (not used in scoring yet)">
+                    <input
+                      aria-label="Derogatory marks"
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={form.derogatoryMarks}
+                      onChange={(e) => setForm({ ...form, derogatoryMarks: e.target.value })}
+                      className="cf-input"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Collections, charge-offs, late payments. Recorded and reported in
+                      Inputs Used, but the scorer does not read it yet.
+                    </p>
                   </FormField>
                 </div>
               </div>
@@ -1197,6 +1549,48 @@ export default function OptimizerPage() {
 
             {cuPanelOpen && (
               <div className="border-t border-surface-border px-5 py-5 space-y-5">
+
+                {/*
+                  An explicit decision, not an inference. Filling in a state
+                  should not silently change which cards a plan recommends.
+                */}
+                <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-surface-border bg-gray-50 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={cuForm.includeInPlan}
+                    onChange={(e) => setCUForm({ ...cuForm, includeInPlan: e.target.checked })}
+                    className="mt-0.5 rounded border-gray-400"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-gray-800">
+                      Include credit unions in this plan
+                    </span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Credit union cards require joining the credit union first. When
+                      included, each recommendation states whether the client is a
+                      member, how they could join, or that their standing is unknown.
+                    </span>
+                  </span>
+                </label>
+
+                {cuForm.includeInPlan && (
+                  <div className="max-w-xs">
+                    <FormField label="Max credit union cards">
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={cuForm.maxCards}
+                        onChange={(e) => setCUForm({ ...cuForm, maxCards: e.target.value })}
+                        className="cf-input"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Each is a membership and a hard pull, so this is capped
+                        separately from the card count above.
+                      </p>
+                    </FormField>
+                  </div>
+                )}
                 {/* ── Eligibility Form ────────────────── */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField label="State of Residence">
@@ -1297,15 +1691,12 @@ export default function OptimizerPage() {
                       {cuEligibility.map((result) => {
                         const isStacked = cuForm.stackedCUs.includes(result.cu.id);
                         const isMember = cuForm.existingMemberships.includes(result.cu.id);
-                        const isDCU = result.cu.id === 'dcu';
                         return (
                           <div
                             key={result.cu.id}
                             className={`rounded-xl border p-4 transition-all ${
                               result.eligible
-                                ? isDCU
-                                  ? 'bg-emerald-50 border-emerald-300 ring-1 ring-emerald-200'
-                                  : 'bg-white border-gray-200 hover:border-brand-navy/30'
+                                ? 'bg-white border-gray-200 hover:border-brand-navy/30'
                                 : 'bg-gray-50 border-gray-200 opacity-70'
                             }`}
                           >
@@ -1329,11 +1720,6 @@ export default function OptimizerPage() {
                                 <span className={`text-xs font-bold ${result.eligible ? 'text-emerald-600' : 'text-red-500'}`}>
                                   {result.eligible ? '✓ Eligible' : '✕ Not eligible'}
                                 </span>
-                                {isDCU && result.eligible && (
-                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
-                                    RECOMMEND
-                                  </span>
-                                )}
                               </div>
                             </div>
 
@@ -1398,7 +1784,6 @@ export default function OptimizerPage() {
                             <div className="flex-1 space-y-1">
                               <p className="text-sm font-semibold text-gray-900">
                                 Join {cu.name}
-                                {cu.id === 'dcu' && <span className="text-emerald-600 ml-1">(Best APR)</span>}
                               </p>
                               <div className="space-y-0.5">
                                 <p className="text-xs text-gray-600">
@@ -1478,6 +1863,144 @@ export default function OptimizerPage() {
                   </div>
                 </div>
               </div>
+
+              {/* ── Capacity: did the banks cover it, and what closes the gap ── */}
+              {stackingPlan.capacity && (
+                <SectionCard
+                  title="Capacity against target"
+                  subtitle={`Target ${formatCurrencyShort(stackingPlan.capacity.targetAmount)}`}
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Bank cards</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {formatCurrencyShort(stackingPlan.capacity.bankEstimatedCredit)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {stackingPlan.capacity.bankCardCount} card
+                        {stackingPlan.capacity.bankCardCount === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Credit unions</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {stackingPlan.capacity.creditUnionsIncluded
+                          ? formatCurrencyShort(stackingPlan.capacity.creditUnionEstimatedCredit)
+                          : '--'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {stackingPlan.capacity.creditUnionsIncluded
+                          ? `${stackingPlan.capacity.creditUnionCardCount} of max ${stackingPlan.capacity.creditUnionCardLimit}`
+                          : 'Not included in this plan'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Still unmet</p>
+                      <p
+                        className={`text-2xl font-bold ${
+                          stackingPlan.capacity.remainingShortfall > 0
+                            ? 'text-amber-700'
+                            : 'text-green-700'
+                        }`}
+                      >
+                        {formatCurrencyShort(stackingPlan.capacity.remainingShortfall)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {stackingPlan.capacity.remainingShortfall > 0 ? 'Target not reached' : 'Target met'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/*
+                    The shortfall is the thing an advisor is reasoning about, and
+                    a single blended total hid it. Bank capacity is stated first
+                    because credit unions are what extends it, not what replaces it.
+                  */}
+                  <p className="mt-4 text-sm text-gray-600">
+                    {stackingPlan.capacity.shortfallAfterBanks === 0
+                      ? 'Bank cards alone reach the target.'
+                      : stackingPlan.capacity.creditUnionsIncluded
+                        ? `Bank capacity falls ${formatCurrencyShort(stackingPlan.capacity.shortfallAfterBanks)} short of target. `
+                          + (stackingPlan.capacity.creditUnionEstimatedCredit > 0
+                            ? `Credit unions close ${formatCurrencyShort(stackingPlan.capacity.creditUnionEstimatedCredit)} of that.`
+                            : 'No credit union card was eligible to close it.')
+                        : `Bank capacity falls ${formatCurrencyShort(stackingPlan.capacity.shortfallAfterBanks)} short of target. `
+                          + 'Credit unions are not included — turn them on above to extend the stack.'}
+                  </p>
+                </SectionCard>
+              )}
+
+              {/* ── Chase 5/24 ─────────────────────────────── */}
+              {stackingPlan.velocitySummary && (
+                <SectionCard
+                  title="Chase 5/24"
+                  subtitle={`${stackingPlan.velocitySummary.chase524HeadroomBefore} of 5 slots open before this plan`}
+                >
+                  {/*
+                    A plan past the limit says so plainly. The headroom figure
+                    was clamped at zero, so a plan twelve cards over reported
+                    "0" — which reads as "at the limit" rather than "cannot be
+                    executed as sequenced".
+                  */}
+                  {stackingPlan.velocitySummary.exceedsChase524 && (
+                    <div
+                      role="alert"
+                      className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-900"
+                    >
+                      <p className="font-semibold">
+                        This plan cannot be executed as sequenced —{' '}
+                        {stackingPlan.velocitySummary.chase524Overage} card
+                        {stackingPlan.velocitySummary.chase524Overage === 1 ? '' : 's'} past the
+                        Chase 5/24 limit.
+                      </p>
+                      <p className="mt-1 text-amber-800">
+                        Chase will decline once five cards have been opened in 24 months.
+                        Reduce the card count, or sequence the Chase applications first.
+                      </p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Counts toward 5/24</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {stackingPlan.velocitySummary.cardsCountingToward524}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Exempt (credit union)</p>
+                      <p className="text-2xl font-bold text-green-700">
+                        {stackingPlan.velocitySummary.cardsExemptFrom524}
+                      </p>
+                      <p className="text-xs text-gray-500">Do not count against Chase</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Slots left after</p>
+                      <p
+                        className={`text-2xl font-bold ${
+                          stackingPlan.velocitySummary.chase524HeadroomAfter < 0
+                            ? 'text-amber-700'
+                            : 'text-gray-900'
+                        }`}
+                      >
+                        {stackingPlan.velocitySummary.chase524HeadroomAfter}
+                      </p>
+                    </div>
+                  </div>
+                  {stackingPlan.velocitySummary.cardsNotEvaluated > 0 && (
+                    /* An issuer no rule looked at must not read as one that passed. */
+                    <p className="mt-3 text-xs text-gray-600">
+                      {stackingPlan.velocitySummary.cardsNotEvaluated} card
+                      {stackingPlan.velocitySummary.cardsNotEvaluated === 1 ? '' : 's'} could not be
+                      evaluated — the issuer was not recognised, so no 5/24 treatment was decided.
+                    </p>
+                  )}
+                </SectionCard>
+              )}
+
+              {/* ── Inputs Used — read this before the recommendations ── */}
+              {stackingPlan.inputProvenance && (
+                <InputsUsedPanel provenance={stackingPlan.inputProvenance} />
+              )}
 
               {/* ── Card Recommendations from API ────────── */}
               <SectionCard
@@ -1930,10 +2453,54 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
       <p className="text-xs text-gray-500 leading-relaxed">{rec.rationale}</p>
 
       {/* Cooldown */}
+      {/*
+        A credit union card cannot be applied for without joining first. An
+        advisor who carries this to a client must know that before the client
+        does, and must not be told "eligible" when nothing on file says so.
+      */}
+      {rec.membership && (
+        <div
+          className={`mb-2 rounded-lg border px-3 py-2 text-xs ${
+            rec.membership.status === 'member'
+              ? 'border-green-300 bg-green-50 text-green-800'
+              : rec.membership.status === 'eligibility_path'
+                ? rec.membership.gate === 'open_enrollment'
+                  ? 'border-blue-300 bg-blue-50 text-blue-900'
+                  : 'border-amber-300 bg-amber-50 text-amber-900'
+                : 'border-gray-300 bg-gray-50 text-gray-700'
+          }`}
+        >
+          <span className="font-semibold">
+            {rec.membership.status === 'member'
+              ? 'Member'
+              : rec.membership.status !== 'eligibility_path'
+                ? 'Membership status unknown'
+                : rec.membership.gate === 'open_enrollment'
+                  // Open enrollment is a step, not a barrier — an advisor can
+                  // act on it in the meeting. Saying only "membership required"
+                  // read the same as needing to have served in the military.
+                  ? `Open enrollment${
+                      typeof rec.membership.joinCost === 'number'
+                        ? ` — join for $${rec.membership.joinCost}`
+                        : ''
+                    }`
+                  : 'Qualifies — membership required before applying'}
+          </span>{' '}
+          {rec.membership.detail}
+        </div>
+      )}
+
       {rec.cooldownDays > 0 && (
         <div className="mt-2 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-1.5">
           <p className="text-xs text-brand-navy font-semibold">
             Wait {rec.cooldownDays} days before this application
+            {rec.cooldownSource === 'unresearched_default' && (
+              /* The wait is the fallback, not a published rule. Presenting it
+                 like Amex's 2/90 would imply research that has not happened. */
+              <span className="ml-1 text-gray-500">
+                (no published velocity rule on file for this issuer — default)
+              </span>
+            )}
           </p>
         </div>
       )}
@@ -1994,6 +2561,7 @@ function ApiSequenceStep({ rec }: { rec: ApiCardRecommendation }) {
         {rec.cooldownDays > 0 && (
           <p className="text-xs font-semibold text-brand-gold-600 mt-1">
             -- Wait {rec.cooldownDays} days
+            {rec.cooldownSource === 'unresearched_default' && ' (default)'}
           </p>
         )}
       </div>
@@ -2014,41 +2582,62 @@ function OptimizerActionButtons({
   onSaveStrategy: () => void;
   onCreateRound: () => void;
 }) {
+  // Neither endpoint writes anything — both answer 501. The buttons said
+  // "Save Strategy to Client Profile" and reported success, so the only way to
+  // learn the strategy had not been saved was to go looking for it. They are
+  // disabled and labelled instead: an action that cannot happen should not be
+  // offered as though it can.
   return (
-    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
-      {/* Save Strategy to Client Profile */}
-      <button
-        type="button"
-        className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled={savingStrategy}
-        onClick={onSaveStrategy}
-      >
-        {savingStrategy ? (
-          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
-        ) : (
-          <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <div className="space-y-2 pt-2">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        {/* Save Strategy to Client Profile — not built */}
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-gray-50 px-5 py-3 text-sm font-semibold text-gray-400 shadow-sm cursor-not-allowed"
+          disabled
+          aria-disabled="true"
+          title="Not built yet — no table stores a saved strategy."
+          onClick={onSaveStrategy}
+        >
+          <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
           </svg>
-        )}
-        Save Strategy to Client Profile &rarr;
-      </button>
+          Save Strategy to Client Profile
+          <span className="ml-1 rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+            Not built
+          </span>
+        </button>
 
-      {/* Create Funding Round from Results */}
-      <button
-        type="button"
-        className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-gold px-5 py-3 text-sm font-bold text-brand-navy shadow-sm transition hover:bg-brand-gold/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled={creatingRound}
-        onClick={onCreateRound}
-      >
-        {creatingRound ? (
-          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-navy/40 border-t-transparent" />
-        ) : (
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        {/* Create Funding Round from Results — not built */}
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-gray-50 px-5 py-3 text-sm font-semibold text-gray-400 shadow-sm cursor-not-allowed"
+          disabled
+          aria-disabled="true"
+          title="Not built yet — this never created a funding round."
+          onClick={onCreateRound}
+        >
+          <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-        )}
-        Create Funding Round from Results &rarr;
-      </button>
+          Create Funding Round from Results
+          <span className="ml-1 rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+            Not built
+          </span>
+        </button>
+      </div>
+      <p className="text-xs text-gray-500">
+        Saving a strategy and creating a funding round from these results are not
+        implemented. Both previously reported success without writing anything.
+        Create a funding round from the{' '}
+        <Link href="/funding-rounds" className="font-semibold text-gray-700 underline">
+          Funding Rounds
+        </Link>{' '}
+        page.
+      </p>
+      {(savingStrategy || creatingRound) && (
+        <p className="text-xs text-gray-400">Working…</p>
+      )}
     </div>
   );
 }

@@ -13,7 +13,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface PipelineStage {
   id?: string;
@@ -32,17 +32,12 @@ export default function PlatformCrmPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/crm/pipeline', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`The pipeline could not be loaded (HTTP ${res.status}).`);
-        setStages(null);
-        return;
-      }
-      const raw = body.data as { stages?: PipelineStage[] } | PipelineStage[];
+      const raw = await loadJson<{ stages?: PipelineStage[] } | PipelineStage[]>(
+        '/api/crm/pipeline',
+      );
       setStages(Array.isArray(raw) ? raw : raw.stages ?? []);
-    } catch {
-      setError('Could not reach the server.');
+    } catch (e) {
+      setError(`The pipeline could not be loaded. ${toLoadError(e).message}`);
       setStages(null);
     } finally {
       setLoading(false);

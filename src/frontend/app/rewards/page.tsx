@@ -18,7 +18,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface ClientOption {
   id: string;
@@ -51,14 +51,12 @@ export default function RewardsPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
-        const body = (await res.json()) as { success?: boolean; data?: ClientOption[] };
-        const list = body.success === true ? body.data ?? [] : [];
+        const list = (await loadJson<ClientOption[] | null>('/api/clients?limit=200')) ?? [];
         setClients(list);
         if (list.length > 0) setSelected(list[0].id);
         else setLoading(false);
-      } catch {
-        setError('Could not load the client list.');
+      } catch (e) {
+        setError(`Benefits could not be loaded. ${toLoadError(e).message}`);
         setLoading(false);
       }
     })();
@@ -68,16 +66,8 @@ export default function RewardsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/businesses/${encodeURIComponent(businessId)}/benefits`, {
-        headers: authHeaders(),
-      });
-      const body = (await res.json()) as { success?: boolean; data?: BenefitsPayload };
-      if (!res.ok || body.success !== true) {
-        setError(`Benefits could not be loaded (HTTP ${res.status}).`);
-        setData(null);
-        return;
-      }
-      setData(body.data ?? null);
+      const data = await loadJson<BenefitsPayload>(`/api/businesses/${encodeURIComponent(businessId)}/benefits`);
+      setData(data ?? null);
     } catch {
       setError('Could not reach the server.');
       setData(null);

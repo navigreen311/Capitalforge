@@ -611,6 +611,14 @@ export const stackingOptimizer = new StackingOptimizerService();
 // ============================================================
 
 import { prisma as sharedPrisma } from '../config/database.js';
+import logger from '../config/logger.js';
+import {
+  CREDIT_UNION_MEMBERSHIP,
+  isCreditUnionIssuer,
+  isCreditUnionIssuerName,
+  parseIssuer,
+  type CreditUnionIssuerId,
+} from '../../shared/constants/issuers.js';
 
 const prisma = sharedPrisma;
 
@@ -622,6 +630,113 @@ export type PrioritizationMode =
   | 'fastest_approval'
   | 'min_inquiries';
 
+// ── Input provenance ─────────────────────────────────────────
+//
+// A plan used to be computed from whatever the database happened to hold,
+// falling back to constants written into this file: FICO 680, business age 24
+// months, zero inquiries. Nothing said so. An advisor who typed a FICO of 745
+// into the form got a plan built on 680 and no indication the number had been
+// ignored, because the form was never sent.
+//
+// Every input now carries where it came from, and any value that fell back to
+// a constant is named on the plan so the output can say it is an estimate.
+
+export type InputSource =
+  /** Typed into the optimizer form by the advisor for this run. */
+  | 'advisor_entered'
+  /** Read from a credit bureau pull on the client's record. */
+  | 'bureau_pull'
+  /** Read from the client record, but not from a bureau (revenue, formation date). */
+  | 'client_record'
+  /** Nothing supplied it. A constant in this file was used. */
+  | 'assumed_default';
+
+export interface ResolvedInput<T> {
+  value: T;
+  source: InputSource;
+  /** When the source is a bureau pull: when that pull happened. */
+  pulledAt?: string;
+  /** Human-readable field name, for the banner and the "Inputs Used" panel. */
+  label: string;
+  /**
+   * Where a single source label would misrepresent the value.
+   *
+   * Existing cards come from two places at once — the form and the client's
+   * approved applications — and naming only one of them made a true number
+   * look like a contradiction against the exclusion it drove.
+   */
+  detail?: string;
+  /**
+   * Whether this value reached the scorer at all.
+   *
+   * Six inputs are collected, transmitted, accepted by the request schema and
+   * never read: the three business credit scores, employee count, the 24-month
+   * inquiry figure, and derogatory marks. Reporting them beside the five that
+   * do decide the plan made the panel vouch for them — and for derogatory
+   * marks it did so as `advisor_entered`, which states outright that a value
+   * the advisor supplied was used. A provenance panel that vouches for an
+   * unused input is worse than none, because it turns a quiet omission into an
+   * explicit false claim.
+   *
+   * Carried on the record rather than derived at render, so a plan read in six
+   * months still says which of its inputs were decorative — the set will change
+   * as fields are wired, and a plan should report the system that produced it
+   * rather than the system reading it.
+   */
+  influencesPlan: boolean;
+}
+
+export interface InputProvenance {
+  ficoScore: ResolvedInput<number>;
+  annualRevenue: ResolvedInput<number>;
+  businessAgeMonths: ResolvedInput<number>;
+  recentInquiries: ResolvedInput<number>;
+  derogatoryMarks: ResolvedInput<number>;
+  existingCardCount: ResolvedInput<number>;
+  /**
+   * Inputs the form collects that the scorer does not read.
+   *
+   * Present so the panel can show them rather than omit them: an advisor who
+   * typed a PAYDEX of 72 will look for it, and finding nothing is its own kind
+   * of confusion. Every entry here has influencesPlan false.
+   */
+  collectedNotUsed: ResolvedInput<number | null>[];
+  /** Labels of every input that fell back to a constant. */
+  assumedDefaults: string[];
+  /** True when the plan rests on at least one assumed value. */
+  hasAssumedDefaults: boolean;
+}
+
+/** A card the client already holds, as reported by the form. */
+export interface SuppliedExistingCard {
+  /** Card product id where the form knows it; otherwise null. */
+  cardProductId?: string | null;
+  issuer?: string | null;
+  name?: string | null;
+  creditLimit?: number | null;
+}
+
+/**
+ * Profile values supplied by the advisor for this run.
+ *
+ * Every field is optional. A field that is absent falls back to the client
+ * record, and then to a constant — and the plan records which of the three
+ * actually supplied it.
+ */
+export interface SuppliedProfile {
+  ficoScore?: number | null;
+  annualRevenue?: number | null;
+  businessAgeMonths?: number | null;
+  inquiries6mo?: number | null;
+  inquiries12mo?: number | null;
+  inquiries24mo?: number | null;
+  derogatoryMarks?: number | null;
+  employees?: number | null;
+  dnbPaydex?: number | null;
+  experianBis?: number | null;
+  ficoSbss?: number | null;
+}
+
 export interface StackingOptimizerInput {
   businessId: string;
   targetAmount?: number;
@@ -629,6 +744,17 @@ export interface StackingOptimizerInput {
   prioritize?: PrioritizationMode;
   excludeIssuers?: string[];
   includeCreditUnions?: boolean;
+  /** Values typed into the optimizer form. Take precedence over the record. */
+  profile?: SuppliedProfile;
+  /** Cards the form says the client already holds. */
+  existingCards?: SuppliedExistingCard[];
+  /** What the advisor recorded about credit union standing. */
+  creditUnionEligibility?: CreditUnionEligibility;
+  /**
+   * Most credit union cards to recommend. Separate from `maxCards` because
+   * each is a membership and a hard pull, not just another application.
+   */
+  maxCreditUnionCards?: number;
 }
 
 export interface CardRecommendation {
@@ -654,6 +780,15 @@ export interface CardRecommendation {
   bestFor: string | null;
   sequencePosition: number;        // 1-indexed order of application
   cooldownDays: number;            // days to wait before this application
+  /** Whether cooldownDays reflects a published issuer rule or a bare default. */
+  cooldownSource: CooldownSource;
+  /**
+   * For credit union cards: whether the client can actually apply.
+   * Absent for bank cards, which have no membership requirement.
+   */
+  membership?: MembershipAssessment;
+  /** How this card is treated by Chase 5/24. */
+  velocityTreatment: VelocityTreatment;
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
 }
@@ -671,6 +806,71 @@ export interface AprExpirySummary {
   expiryEstimate: string;  // ISO date
 }
 
+/**
+ * How a recommended card is treated by Chase 5/24.
+ *
+ * Reported per card because the exemption fires per card, and because three
+ * situations otherwise look identical on the output: a credit union card
+ * counted (the bug this replaces), a credit union card exempted (correct), and
+ * a card no rule looked at. An exemption that shows up only as a smaller number
+ * is indistinguishable from cards being skipped.
+ */
+export type VelocityTreatment =
+  /** A bank card. Counts towards the five. */
+  | 'counts_toward_5_24'
+  /** A credit union card. Does not count — the reason to reach for one. */
+  | 'exempt_from_5_24'
+  /** The issuer could not be identified, so no treatment was decided. */
+  | 'not_evaluated';
+
+export interface VelocitySummary {
+  /** Cards in this plan that Chase will see. */
+  cardsCountingToward524: number;
+  /** Cards exempted. Zero here with credit unions in the plan means the
+   *  exemption is not firing — the check that distinguishes it from skipping. */
+  cardsExemptFrom524: number;
+  /** Cards no rule evaluated. Must not read as cards that passed. */
+  cardsNotEvaluated: number;
+  /** Slots left under 5/24 before this plan. */
+  chase524HeadroomBefore: number;
+  /**
+   * Slots left after it. Negative when the plan goes past the limit.
+   *
+   * Deliberately signed. This was clamped at zero, so a plan seventeen cards
+   * deep against a limit of five reported "0" — technically true and badly
+   * understated, reading as "at the limit" rather than "twelve past it and not
+   * executable as sequenced".
+   */
+  chase524HeadroomAfter: number;
+  /** Cards past the Chase limit. Zero when the plan fits. */
+  chase524Overage: number;
+  /** True when the plan cannot be executed as sequenced under 5/24. */
+  exceedsChase524: boolean;
+  /** Bank cards opened in the trailing 24 months, from the client's record. */
+  existingBankCardsInWindow: number;
+  /** Credit union cards in that window, excluded from the count above. */
+  existingCreditUnionCardsInWindow: number;
+}
+
+export interface CapacityBreakdown {
+  /** What was asked for. A goal, not a ceiling. */
+  targetAmount: number;
+  /** Typical estimated credit from bank cards. */
+  bankEstimatedCredit: number;
+  /** Typical estimated credit from credit union cards. */
+  creditUnionEstimatedCredit: number;
+  /** Unmet by banks alone. Zero when the banks reached the target. */
+  shortfallAfterBanks: number;
+  /** Still unmet once credit unions are counted. */
+  remainingShortfall: number;
+  /** Whether credit unions were considered at all. */
+  creditUnionsIncluded: boolean;
+  /** The separate cap on credit union cards. */
+  creditUnionCardLimit: number;
+  bankCardCount: number;
+  creditUnionCardCount: number;
+}
+
 export interface StackingPlan {
   businessId: string;
   generatedAt: string;
@@ -684,6 +884,18 @@ export interface StackingPlan {
   aprExpirySummary: AprExpirySummary[];
   prioritizationMode: PrioritizationMode;
   cardCount: number;
+  /** What each input was, and where it came from. */
+  inputProvenance: InputProvenance;
+  /** How the plan sits against Chase 5/24, and which cards are exempt. */
+  velocitySummary: VelocitySummary;
+  /**
+   * How far the plan gets towards the target, and on whose capacity.
+   *
+   * The single `totalEstimatedCredit*` figures blend banks and credit unions,
+   * which hides the question the advisor is actually asking: did the banks
+   * cover it, and if not, what closes the gap.
+   */
+  capacity: CapacityBreakdown;
 }
 
 // ── Scoring helpers ──────────────────────────────────────────
@@ -694,8 +906,292 @@ interface ApplicationContext {
   businessAgeMonths: number;
   recentInquiries: number;
   existingCardCount: number;
-  existingIssuers: Set<string>;
+  /**
+   * Products the client already holds, as normalised identity keys.
+   *
+   * This was `existingIssuers`, a set of issuer names — and nothing in the
+   * filter loop ever read it. A client holding a Chase Ink Preferred was
+   * recommended a Chase Ink Preferred.
+   */
+  heldProductKeys: Set<string>;
+  /** Bank cards approved in the trailing 24 months. Drives Chase 5/24. */
+  bankCardsInWindow: number;
+  /** Credit union cards in that window. Excluded from 5/24 by the exemption. */
+  creditUnionCardsInWindow: number;
   recentAppDates: Date[];
+}
+
+/**
+ * The constants this file falls back to when nothing supplies a value.
+ *
+ * They were previously written inline as `?? 680`, `?? 24`, `?? 0`, which made
+ * a plan built on assumptions indistinguishable from one built on a credit
+ * pull. Named here so they can be recorded on the plan and shown to the
+ * person reading it.
+ */
+/** Chase 5/24: five cards in twenty-four months. */
+const CHASE_524_LIMIT = 5;
+
+const ASSUMED = {
+  ficoScore: 680,
+  annualRevenue: 0,
+  businessAgeMonths: 24,
+  recentInquiries: 0,
+  derogatoryMarks: 0,
+} as const;
+
+/**
+ * Pick a value by precedence and record which source supplied it.
+ *
+ * advisor_entered → the record → the constant. A supplied value of `0` is a
+ * real answer and must win over the record, so this tests for null/undefined
+ * rather than falsiness.
+ */
+function resolveInput(args: {
+  label: string;
+  supplied: number | null | undefined;
+  recorded: number | null | undefined;
+  recordedSource: Extract<InputSource, 'bureau_pull' | 'client_record'>;
+  pulledAt?: Date | null;
+  fallback: number;
+}): ResolvedInput<number> {
+  const { label, supplied, recorded, recordedSource, pulledAt, fallback } = args;
+
+  if (supplied !== null && supplied !== undefined && Number.isFinite(supplied)) {
+    return { value: supplied, source: 'advisor_entered', label, influencesPlan: true };
+  }
+  if (recorded !== null && recorded !== undefined && Number.isFinite(recorded)) {
+    return {
+      value: recorded,
+      source: recordedSource,
+      label,
+      influencesPlan: true,
+      ...(recordedSource === 'bureau_pull' && pulledAt
+        ? { pulledAt: pulledAt.toISOString() }
+        : {}),
+    };
+  }
+  return { value: fallback, source: 'assumed_default', label, influencesPlan: true };
+}
+
+// ── Credit union membership ──────────────────────────────────
+
+export type MembershipStatus =
+  /** The client is already a member. */
+  | 'member'
+  /** Not a member, but a route to joining exists. Joining is a prerequisite. */
+  | 'eligibility_path'
+  /** Nothing on file says whether they qualify. Not the same as eligible. */
+  | 'unknown'
+  /** A requirement exists and the client demonstrably does not meet it. */
+  | 'ineligible';
+
+export interface MembershipAssessment {
+  status: MembershipStatus;
+  /** Shown with the recommendation. Says what joining requires. */
+  detail: string;
+  /**
+   * Whether joining is a formality or a qualification.
+   *
+   * "Requires joining first" covered both a $5 donation and having served in
+   * the military, which are not the same fact to carry to a client. An advisor
+   * can act on the first in the meeting; the second decides whether the card
+   * is available at all.
+   */
+  gate?: 'open_enrollment' | 'qualification_required';
+  /** Approximate cost of joining, where enrollment is open. */
+  joinCost?: number;
+}
+
+/** What the advisor told us about the client's credit union standing. */
+export interface CreditUnionEligibility {
+  /** Two-letter state of residence. */
+  state?: string | null;
+  militaryStatus?: 'active' | 'retired' | 'veteran' | 'family' | 'none' | null;
+  employer?: string | null;
+  techIndustry?: boolean | null;
+  /** Issuer ids of credit unions the client already belongs to. */
+  existingMemberships?: string[] | null;
+}
+
+/**
+ * Decide whether a credit union card can be applied for.
+ *
+ * The rule this enforces: an advisor must never carry a recommendation to a
+ * client and find it requires a membership they cannot get. So a card is only
+ * recommended when the client is a member, or when a specific route to joining
+ * is named alongside it.
+ *
+ * Absent information is reported as unknown rather than resolved in the card's
+ * favour, for the same reason an assumed FICO is labelled rather than trusted.
+ */
+export function assessMembership(
+  issuerId: CreditUnionIssuerId,
+  eligibility?: CreditUnionEligibility,
+): MembershipAssessment {
+  const path = CREDIT_UNION_MEMBERSHIP[issuerId];
+  if (!path) {
+    return {
+      status: 'unknown',
+      detail: 'No membership requirement is recorded for this credit union. Verify before presenting.',
+    };
+  }
+
+  // Through the parse boundary rather than a hand-rolled replace. The frontend
+  // list spells these with hyphens and without the `_cu` suffix, so
+  // `lake-michigan` normalised to `lake_michigan` and matched no issuer — a
+  // client who was already a member was told to join.
+  const memberships = new Set(
+    (eligibility?.existingMemberships ?? [])
+      .map((m) => parseIssuer(m)?.id)
+      .filter((id): id is NonNullable<typeof id> => id !== undefined),
+  );
+  if (memberships.has(issuerId)) {
+    return { status: 'member', detail: 'Client is already a member.' };
+  }
+
+  switch (path.kind) {
+    case 'open':
+      // Anyone can join, so the path is certain — but it is still a step the
+      // client has to take before applying.
+      return {
+        status: 'eligibility_path',
+        gate: 'open_enrollment',
+        joinCost: path.cost,
+        detail: path.description,
+      };
+
+    case 'state': {
+      const state = eligibility?.state?.trim().toUpperCase();
+      if (!state) {
+        return {
+          status: 'unknown',
+          detail: `Membership depends on state of residence, which is not recorded. ${path.description}`,
+        };
+      }
+      if (state !== path.state) {
+        return {
+          status: 'ineligible',
+          detail: `Client is in ${state}. ${path.description}`,
+        };
+      }
+      return {
+        status: 'eligibility_path',
+        gate: 'qualification_required',
+        detail: `Client qualifies on ${state} residency. ${path.description}`,
+      };
+    }
+
+    case 'industry': {
+      if (eligibility?.techIndustry === true) {
+        return {
+          status: 'eligibility_path',
+          gate: 'qualification_required',
+          detail: `Client qualifies on technology-industry employment. ${path.description}`,
+        };
+      }
+      if (eligibility?.techIndustry === false) {
+        // The association route stays open to anyone, so this is not a refusal.
+        return {
+          // The association route is open to anyone, so this is enrollment at
+          // a price rather than a qualification the client must already meet.
+          status: 'eligibility_path',
+          gate: 'open_enrollment',
+          joinCost: path.cost,
+          detail: `Not in the technology industry, so joining goes via the association route. ${path.description}`,
+        };
+      }
+      return {
+        status: 'unknown',
+        detail: `Membership depends on industry or association, neither recorded. ${path.description}`,
+      };
+    }
+
+    case 'military': {
+      const status = eligibility?.militaryStatus;
+      if (!status) {
+        return {
+          status: 'unknown',
+          detail: `Membership depends on military affiliation, which is not recorded. ${path.description}`,
+        };
+      }
+      if (status === 'none') {
+        return {
+          status: 'ineligible',
+          detail: `No military affiliation recorded for this client. ${path.description}`,
+        };
+      }
+      return {
+        status: 'eligibility_path',
+        gate: 'qualification_required',
+        detail: `Client qualifies on ${status} military affiliation. ${path.description}`,
+      };
+    }
+  }
+}
+
+// ── Matching a product the client already holds ──────────────
+//
+// Three sources name the same card three ways. `CardProduct.name` is the full
+// product name ("Chase Ink Business Preferred"). `CardApplication` splits it
+// into `issuer` ("Chase") and `cardProduct` ("Ink Business Preferred"). The
+// optimizer form sends the display name. Comparing any two of those directly
+// misses, so each is reduced to the same normalised key.
+
+function normaliseProductName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/** Every key a stored application could match a catalogue product by. */
+function heldKeysForApplication(issuer: string, cardProduct: string): string[] {
+  const product = normaliseProductName(cardProduct);
+  const withIssuer = normaliseProductName(`${issuer} ${cardProduct}`);
+  return [product, withIssuer].filter(Boolean);
+}
+
+/** Every key a form-supplied card could match a catalogue product by. */
+function heldKeysForSuppliedCard(card: SuppliedExistingCard): string[] {
+  const keys: string[] = [];
+  if (card.cardProductId) keys.push(`id:${card.cardProductId.trim().toLowerCase()}`);
+  if (card.name) {
+    keys.push(normaliseProductName(card.name));
+    if (card.issuer) keys.push(normaliseProductName(`${card.issuer} ${card.name}`));
+  }
+  return keys.filter(Boolean);
+}
+
+/** True when this catalogue product is one the client already holds. */
+function isHeldProduct(
+  card: { id: string; issuerId: string; name: string },
+  held: Set<string>,
+): boolean {
+  if (held.has(`id:${card.id.toLowerCase()}`)) return true;
+  if (held.has(normaliseProductName(card.name))) return true;
+  // The catalogue name usually leads with the issuer; an application's
+  // cardProduct usually does not. Compare with the issuer stripped too.
+  const issuerWords = card.issuerId.split('_').join(' ');
+  const withoutIssuer = card.name.toLowerCase().replace(issuerWords, '');
+  return held.has(normaliseProductName(withoutIssuer));
+}
+
+/**
+ * How many distinct products the client holds across both sources.
+ *
+ * Deduplicated, because the same card can arrive twice — ticked on the form and
+ * present as an approved application — and reporting two would overstate what
+ * the exclusion is acting on.
+ */
+function countDistinctHeldProducts(
+  activeApps: Array<{ issuer: string; cardProduct: string }>,
+  supplied?: SuppliedExistingCard[],
+): number {
+  const seen = new Set<string>();
+  for (const a of activeApps) seen.add(normaliseProductName(a.cardProduct));
+  for (const card of supplied ?? []) {
+    if (card.name) seen.add(normaliseProductName(card.name));
+    else if (card.cardProductId) seen.add(`id:${card.cardProductId.toLowerCase()}`);
+  }
+  return seen.size;
 }
 
 function buildApplicationContext(
@@ -704,40 +1200,107 @@ function buildApplicationContext(
     dateOfFormation: Date | null;
     cardApplications: Array<{
       issuer: string;
+      cardProduct: string;
       status: string;
       submittedAt: Date | null;
     }>;
     creditProfiles: Array<{
       score: number | null;
       inquiryCount: number | null;
+      derogatoryCount?: number | null;
       pulledAt: Date;
     }>;
   },
-): ApplicationContext {
+  supplied?: SuppliedProfile,
+  suppliedExistingCards?: SuppliedExistingCard[],
+): ApplicationContext & { provenance: InputProvenance } {
   // Get best FICO from most recent credit profile
   const sortedProfiles = [...business.creditProfiles].sort(
     (a, b) => b.pulledAt.getTime() - a.pulledAt.getTime(),
   );
   const latestProfile = sortedProfiles[0];
-  const ficoScore = latestProfile?.score ?? 680; // default assumption
 
-  const annualRevenue = business.annualRevenue?.toNumber() ?? 0;
+  // Each of these used to be a bare `?? constant`. The constant is still the
+  // last resort, but it is now recorded rather than silently substituted —
+  // see `resolveInput`.
+  const ficoResolved = resolveInput({
+    label: 'FICO score',
+    supplied: supplied?.ficoScore,
+    recorded: latestProfile?.score ?? null,
+    recordedSource: 'bureau_pull',
+    pulledAt: latestProfile?.pulledAt,
+    fallback: ASSUMED.ficoScore,
+  });
+  const ficoScore = ficoResolved.value;
+
+  const revenueResolved = resolveInput({
+    label: 'Annual revenue',
+    supplied: supplied?.annualRevenue,
+    recorded: business.annualRevenue?.toNumber() ?? null,
+    recordedSource: 'client_record',
+    fallback: ASSUMED.annualRevenue,
+  });
+  const annualRevenue = revenueResolved.value;
 
   // Compute business age in months
   const now = new Date();
-  let businessAgeMonths = 24; // default assumption
+  let recordedAgeMonths: number | null = null;
   if (business.dateOfFormation) {
     const diffMs = now.getTime() - business.dateOfFormation.getTime();
-    businessAgeMonths = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30.44));
+    recordedAgeMonths = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30.44));
   }
+  const ageResolved = resolveInput({
+    label: 'Business age',
+    supplied: supplied?.businessAgeMonths,
+    recorded: recordedAgeMonths,
+    recordedSource: 'client_record',
+    fallback: ASSUMED.businessAgeMonths,
+  });
+  const businessAgeMonths = ageResolved.value;
 
-  const recentInquiries = latestProfile?.inquiryCount ?? 0;
+  // The form collects three windows; the scorer wants recent inquiries, so
+  // the 12-month figure is what it means. 6-month is used when 12 is absent
+  // rather than treating a partial answer as none.
+  const inquiriesResolved = resolveInput({
+    label: 'Inquiry history',
+    supplied: supplied?.inquiries12mo ?? supplied?.inquiries6mo,
+    recorded: latestProfile?.inquiryCount ?? null,
+    recordedSource: 'bureau_pull',
+    pulledAt: latestProfile?.pulledAt,
+    fallback: ASSUMED.recentInquiries,
+  });
+  const recentInquiries = inquiriesResolved.value;
+
+  // Collected, reported, and not read by the scorer. Marked rather than hidden:
+  // the field exists, an advisor fills it in, and the panel should say what
+  // became of it.
+  const derogResolved = resolveInput({
+    label: 'Derogatory marks',
+    supplied: supplied?.derogatoryMarks,
+    recorded: latestProfile?.derogatoryCount ?? null,
+    recordedSource: 'bureau_pull',
+    pulledAt: latestProfile?.pulledAt,
+    fallback: ASSUMED.derogatoryMarks,
+  });
 
   // Existing cards
   const activeApps = business.cardApplications.filter(
     (a) => a.status === 'approved' || a.status === 'active',
   );
-  const existingIssuers = new Set(activeApps.map((a) => a.issuer.toLowerCase()));
+  // Approved or active applications are cards the client holds. Drafts are
+  // not: a draft is an intention, and excluding on it would hide a product the
+  // client has not got.
+  const heldProductKeys = new Set<string>();
+  for (const a of activeApps) {
+    for (const key of heldKeysForApplication(a.issuer, a.cardProduct)) {
+      heldProductKeys.add(key);
+    }
+  }
+  // Cards the advisor ticked on the form. The client holds these whether or
+  // not an application record exists — most predate this system.
+  for (const card of suppliedExistingCards ?? []) {
+    for (const key of heldKeysForSuppliedCard(card)) heldProductKeys.add(key);
+  }
 
   // Recent application dates (past 90 days)
   const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
@@ -745,14 +1308,107 @@ function buildApplicationContext(
     .filter((a) => a.submittedAt && a.submittedAt >= ninetyDaysAgo)
     .map((a) => a.submittedAt!);
 
+  // Chase 5/24 counts cards opened in the trailing 24 months, from every bank.
+  // Credit union applications are exempt — the whole strategic reason to reach
+  // for one once bank velocity is spent. Counting them was the inverse of the
+  // rule; see docs/gaps.md 1b.
+  const twentyFourMonthsAgo = new Date(now.getTime() - 730 * 24 * 60 * 60 * 1000);
+  const approvedInWindow = business.cardApplications.filter(
+    (a) =>
+      (a.status === 'approved' || a.status === 'active') &&
+      a.submittedAt !== null &&
+      a.submittedAt >= twentyFourMonthsAgo,
+  );
+  const creditUnionCardsInWindow = approvedInWindow.filter((a) =>
+    isCreditUnionIssuerName(a.issuer),
+  ).length;
+  const bankCardsInWindow = approvedInWindow.length - creditUnionCardsInWindow;
+
+  // Report the union the exclusion actually used, not one half of it.
+  //
+  // This said "Existing cards: 0 [client_record]" — the count of approved
+  // applications — while the filter loop excluded a card the advisor had ticked
+  // on the form. Both were true and the pair read as a contradiction: the panel
+  // that exists so inputs can be trusted was producing exactly the confusion it
+  // was built to prevent.
+  //
+  // The number is now the distinct products the exclusion will act on, and the
+  // sources are named. `advisor_entered` when the form supplied any, because
+  // that is the input an advisor would look for and not find.
+  const suppliedCount = (suppliedExistingCards ?? []).length;
+  const heldProductCount = countDistinctHeldProducts(activeApps, suppliedExistingCards);
+  const existingCountResolved: ResolvedInput<number> = {
+    influencesPlan: true,
+    label: 'Existing cards',
+    value: heldProductCount,
+    source: suppliedCount > 0 ? 'advisor_entered' : 'client_record',
+    detail:
+      suppliedCount > 0 && activeApps.length > 0
+        ? `${suppliedCount} entered on the form, ${activeApps.length} from approved applications`
+        : suppliedCount > 0
+          ? `${suppliedCount} entered on the form; no approved applications on record`
+          : `${activeApps.length} from approved applications; none entered on the form`,
+  };
+
+  const fields = [
+    ficoResolved,
+    revenueResolved,
+    ageResolved,
+    inquiriesResolved,
+    derogResolved,
+    existingCountResolved,
+  ];
+  // Only inputs that actually decide the plan can make it an estimate.
+  // Derogatory marks falls back to a default like the others, but the scorer
+  // never reads it — listing it in the banner would say the plan rests on an
+  // assumption it does not use, and a banner that overstates is one people
+  // learn to skip.
+  const assumedDefaults = fields
+    .filter((f) => f.source === 'assumed_default' && f.label !== 'Derogatory marks')
+    .map((f) => f.label);
+
+  // The scorer reads ficoScore, annualRevenue, businessAgeMonths,
+  // recentInquiries and the held-product set. Everything else the form sends
+  // is recorded here so the panel can show it as collected-and-unused rather
+  // than omit it, which would leave an advisor looking for a value they typed.
+  const collectedNotUsed: ResolvedInput<number | null>[] = [
+    { label: 'D&B PAYDEX', value: supplied?.dnbPaydex ?? null },
+    { label: 'Experian Intelliscore', value: supplied?.experianBis ?? null },
+    { label: 'FICO SBSS', value: supplied?.ficoSbss ?? null },
+    { label: 'Employees', value: supplied?.employees ?? null },
+    { label: 'Inquiries (24 months)', value: supplied?.inquiries24mo ?? null },
+  ].map((f) => ({
+    ...f,
+    source: (f.value === null ? 'client_record' : 'advisor_entered') as InputSource,
+    influencesPlan: false,
+  }));
+
+  const provenance: InputProvenance = {
+    ficoScore: ficoResolved,
+    annualRevenue: revenueResolved,
+    businessAgeMonths: ageResolved,
+    recentInquiries: inquiriesResolved,
+    // The scorer does not read this one. Reported as advisor_entered before
+    // this flag existed, which stated that a value the advisor supplied had
+    // been used.
+    derogatoryMarks: { ...derogResolved, influencesPlan: false },
+    existingCardCount: existingCountResolved,
+    collectedNotUsed,
+    assumedDefaults,
+    hasAssumedDefaults: assumedDefaults.length > 0,
+  };
+
   return {
     ficoScore,
     annualRevenue,
     businessAgeMonths,
     recentInquiries,
     existingCardCount: activeApps.length,
-    existingIssuers,
+    heldProductKeys,
+    bankCardsInWindow,
+    creditUnionCardsInWindow,
     recentAppDates,
+    provenance,
   };
 }
 
@@ -830,33 +1486,74 @@ function getVelocityRisk(
   return 'high';
 }
 
-function getCooldownDays(
+/**
+ * Days to wait before applying, and whether that number is researched.
+ *
+ * The unresearched ones used to be indistinguishable: every issuer without an
+ * entry fell to `?? 30` and was presented exactly like Amex's 90-day 2/90
+ * rule. Thirty days for an issuer nobody has looked up is a guess, and a plan
+ * should say which of its waits are guesses — the same reason the input
+ * provenance panel exists.
+ */
+export type CooldownSource = 'issuer_rule' | 'unresearched_default';
+
+/** Used when no published velocity rule is on file for the issuer. */
+const UNRESEARCHED_COOLDOWN_DAYS = 30;
+
+const ISSUER_COOLDOWNS: Record<string, { days: number; source: CooldownSource }> = {
+  // Researched: each reflects a published issuer rule.
+  chase:           { days: 30,  source: 'issuer_rule' },  // 2/30 alongside 5/24
+  amex:            { days: 90,  source: 'issuer_rule' },  // 2/90 velocity
+  citi:            { days: 8,   source: 'issuer_rule' },  // 1/8 rule
+  capital_one:     { days: 180, source: 'issuer_rule' },  // one card per 6 months
+  bank_of_america: { days: 60,  source: 'issuer_rule' },  // 2/3/4 rule
+
+  // No published velocity rule found for these. The number is the default,
+  // and it is marked so the plan can say so rather than implying research
+  // that has not happened.
+  us_bank:          { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  wells_fargo:      { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  discover:         { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  td_bank:          { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  pnc:              { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+
+  // Credit unions. Listed so they are visibly accounted for rather than
+  // absent — but none of their product notes states a velocity rule, only
+  // membership eligibility and APR ranges, so none of these is researched.
+  alliant:          { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  becu:             { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  first_tech:       { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  lake_michigan_cu: { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  navy_federal:     { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+  penfed:           { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
+};
+
+/**
+ * Issuers the cooldown table has an entry for. Exported for the registry
+ * completeness test — a missing entry is not an error at runtime, it silently
+ * becomes an unresearched 30-day default.
+ */
+export const ISSUER_COOLDOWN_IDS: readonly string[] = Object.keys(ISSUER_COOLDOWNS);
+
+function getCooldown(
   issuer: string,
   sequencePosition: number,
   _ctx: ApplicationContext,
-): number {
-  if (sequencePosition === 1) return 0;
+): { days: number; source: CooldownSource } {
+  // The first application waits for nothing, so there is nothing to research.
+  if (sequencePosition === 1) return { days: 0, source: 'issuer_rule' };
 
-  // Issuer-specific cooldowns
-  const issuerCooldowns: Record<string, number> = {
-    chase: 30,
-    amex: 90,     // 2/90 velocity
-    citi: 8,      // 1/8 rule
-    capital_one: 180,
-    bank_of_america: 60,
-    us_bank: 30,
-    wells_fargo: 30,
-    discover: 30,
-    td_bank: 30,
-    pnc: 30,
+  const entry = ISSUER_COOLDOWNS[issuer.toLowerCase()] ?? {
+    days: UNRESEARCHED_COOLDOWN_DAYS,
+    source: 'unresearched_default' as const,
   };
 
-  const baseCooldown = issuerCooldowns[issuer.toLowerCase()] ?? 30;
-
   // Add extra buffer for later positions
-  if (sequencePosition > 4) return baseCooldown + 30;
-  if (sequencePosition > 2) return baseCooldown + 14;
-  return baseCooldown;
+  let days = entry.days;
+  if (sequencePosition > 4) days = entry.days + 30;
+  else if (sequencePosition > 2) days = entry.days + 14;
+
+  return { days, source: entry.source };
 }
 
 function sortByPrioritization(
@@ -913,7 +1610,9 @@ export async function runStackingOptimizer(
     maxCards = 8,
     prioritize = 'max_credit',
     excludeIssuers = [],
-    includeCreditUnions: _includeCreditUnions = false,
+    includeCreditUnions = false,
+    creditUnionEligibility,
+    maxCreditUnionCards = 3,
   } = input;
 
   // 1. Load client data
@@ -925,18 +1624,46 @@ export async function runStackingOptimizer(
     },
   });
 
-  // 2. Build application context
-  const ctx = buildApplicationContext(business);
+  // 2. Build application context, recording where each input came from
+  const ctx = buildApplicationContext(business, input.profile, input.existingCards);
 
   // 3. Load all active card products
-  const allCards = await prisma.cardProduct.findMany({
+  const loadedCards = await prisma.cardProduct.findMany({
     where: { isActive: true },
   });
+
+  // 3b. One row per product, whatever the table holds.
+  //
+  // Twelve products were duplicated under two ids because the seed derived the
+  // primary key from the issuer spelling and two lists spelled it differently.
+  // The optimizer returned one of them at rank 1 and rank 2 of the same plan,
+  // scored differently, and summed both into the total estimated credit —
+  // inflating it by a card that did not exist.
+  //
+  // The data is now clean and `@@unique([issuerId, name])` stops it recurring.
+  // This stays because a plan that recommends the same card twice is wrong in a
+  // way that is hard to notice and expensive to act on: the fix belongs where
+  // the plan is built, not only where the rows are written.
+  const seenProducts = new Set<string>();
+  const allCards = loadedCards.filter((card) => {
+    const identity = `${card.issuerId.trim().toLowerCase()}::${card.name.trim().toLowerCase()}`;
+    if (seenProducts.has(identity)) return false;
+    seenProducts.add(identity);
+    return true;
+  });
+
+  if (allCards.length !== loadedCards.length) {
+    logger.warn('[StackingOptimizer] Duplicate card products in catalogue', {
+      loaded: loadedCards.length,
+      afterDedup: allCards.length,
+    });
+  }
 
   // 4. Score, filter, and rank
   const excludeSet = new Set(excludeIssuers.map((i) => i.toLowerCase()));
   const recommendations: CardRecommendation[] = [];
   const excludedCards: ExcludedCardInfo[] = [];
+  const membershipByCardId = new Map<string, MembershipAssessment>();
 
   for (const card of allCards) {
     const issuerLower = card.issuerId.toLowerCase();
@@ -950,6 +1677,49 @@ export async function runStackingOptimizer(
         reason: `Issuer "${card.issuerId}" excluded by request.`,
       });
       continue;
+    }
+
+    // Already held.
+    //
+    // Recommending a product the client is already carrying is the clearest
+    // possible sign the plan was not built from their position. It also
+    // inflates the total estimated credit by a limit they already have.
+    if (isHeldProduct(card, ctx.heldProductKeys)) {
+      excludedCards.push({
+        cardProductId: card.id,
+        issuer: card.issuerId,
+        name: card.name,
+        reason: 'The client already holds this card.',
+      });
+      continue;
+    }
+
+    // Credit unions: only when asked for, and never as though membership
+    // were a given.
+    // Parsed, not compared. `card.issuerId` is a database string; past this
+    // point it is an identity whose kind and id the type system knows.
+    const issuerIdentity = parseIssuer(card.issuerId);
+    if (issuerIdentity?.kind === 'credit_union') {
+      if (!includeCreditUnions) {
+        excludedCards.push({
+          cardProductId: card.id,
+          issuer: card.issuerId,
+          name: card.name,
+          reason: 'Credit unions are not included in this plan.',
+        });
+        continue;
+      }
+      const membership = assessMembership(issuerIdentity.id, creditUnionEligibility);
+      if (membership.status === 'ineligible') {
+        excludedCards.push({
+          cardProductId: card.id,
+          issuer: card.issuerId,
+          name: card.name,
+          reason: membership.detail,
+        });
+        continue;
+      }
+      membershipByCardId.set(card.id, membership);
     }
 
     // Score minimum check
@@ -1011,6 +1781,8 @@ export async function runStackingOptimizer(
       bestFor: card.bestFor,
       sequencePosition: 0,
       cooldownDays: 0,
+      cooldownSource: 'issuer_rule' as CooldownSource,
+      velocityTreatment: 'not_evaluated' as VelocityTreatment,
       rationale: '',
       velocityRisk: 'low',
     });
@@ -1019,26 +1791,90 @@ export async function runStackingOptimizer(
   // 5. Sort by prioritization mode
   const sorted = sortByPrioritization(recommendations, prioritize);
 
-  // 6. Select top N and assign sequencing
-  const topN = sorted.slice(0, maxCards);
-  let cumulativeCredit = 0;
+  // 6. Select cards in two passes, and assign sequencing
+  //
+  // Banks first, to the target. Credit unions afterwards, against whatever the
+  // banks left unmet.
+  //
+  // One pass bounded by a single cap could not do this. Credit union limits are
+  // smaller, so those cards sort last under every prioritisation mode, and the
+  // loop reached the target and stopped before it got to them — at a realistic
+  // target they were unreachable. That inverts why they exist: a client turns
+  // to a credit union *because* bank capacity is exhausted, so the cards that
+  // extend the stack were exactly the ones being cut.
+  //
+  // The two passes are also why the plan reports a bank total and a credit
+  // union total rather than one blended figure. "$125,000" says nothing about
+  // whether the banks fell short, and the shortfall is the thing an advisor is
+  // reasoning about.
+  const bankPool = sorted.filter((r) => !isCreditUnionIssuer(r.issuer.toLowerCase()));
+  const cuPool = sorted.filter((r) => isCreditUnionIssuer(r.issuer.toLowerCase()));
+
   const finalRecs: CardRecommendation[] = [];
+  let bankCredit = 0;
+  let creditUnionCredit = 0;
 
-  for (let i = 0; i < topN.length; i++) {
-    const rec = topN[i];
-    const seqPos = i + 1;
-
+  /** Sequencing, cooldown and rationale are the same whichever pass selected it. */
+  const admit = (rec: CardRecommendation): void => {
+    const seqPos = finalRecs.length + 1;
     rec.sequencePosition = seqPos;
-    rec.cooldownDays = getCooldownDays(rec.issuer, seqPos, ctx);
+    const cooldown = getCooldown(rec.issuer, seqPos, ctx);
+    rec.cooldownDays = cooldown.days;
+    rec.cooldownSource = cooldown.source;
     rec.velocityRisk = getVelocityRisk(ctx, seqPos);
     rec.rationale = buildRationale(rec, ctx);
+    const membership = membershipByCardId.get(rec.cardProductId);
+    if (membership) rec.membership = membership;
+
+    // Chase 5/24 treatment, decided from the parsed identity rather than a
+    // string comparison. `not_evaluated` is kept distinct from "passed": an
+    // issuer we cannot name is one no rule looked at, and that must not read
+    // as a clean result.
+    const identity = parseIssuer(rec.issuer);
+    rec.velocityTreatment =
+      identity === null
+        ? 'not_evaluated'
+        : identity.kind === 'credit_union'
+          ? 'exempt_from_5_24'
+          : 'counts_toward_5_24';
 
     finalRecs.push(rec);
-    cumulativeCredit += rec.estimatedLimitTypical;
+  };
 
-    // Stop if we've exceeded target (with 10% buffer)
-    if (targetAmount > 0 && cumulativeCredit >= targetAmount * 1.1) break;
+  // Pass 1 — banks, to the target. targetAmount is a goal, not a ceiling: the
+  // 10% buffer overshoots rather than stopping short of it.
+  for (const rec of bankPool.slice(0, maxCards)) {
+    admit(rec);
+    bankCredit += rec.estimatedLimitTypical;
+    if (targetAmount > 0 && bankCredit >= targetAmount * 1.1) break;
   }
+
+  const shortfallAfterBanks = Math.max(0, targetAmount - bankCredit);
+
+  // Pass 2 — credit unions, against the shortfall, and separately bounded.
+  //
+  // Each credit union card is a membership and a hard pull. "Extend the stack"
+  // and "join six credit unions" are different recommendations, so the count is
+  // capped independently of maxCards rather than sharing its budget.
+  if (includeCreditUnions) {
+    for (const rec of cuPool.slice(0, maxCreditUnionCards)) {
+      admit(rec);
+      creditUnionCredit += rec.estimatedLimitTypical;
+
+      // Stop once the gap is closed — but only when there was a gap. Credit
+      // unions are considered whenever they are enabled, not only when the
+      // banks fall short: Alliant and PenFed cost $5 to join and can beat a
+      // marginal bank card on terms, and gating them behind a shortfall would
+      // hide the better option from a client who happened to reach target.
+      // Extending the stack is the main case, not the only one.
+      if (shortfallAfterBanks > 0 && creditUnionCredit >= shortfallAfterBanks) break;
+    }
+  }
+
+  const remainingShortfall = Math.max(
+    0,
+    targetAmount - (bankCredit + creditUnionCredit),
+  );
 
   // 7. Compute velocity risk score
   const velocityRiskScore = computeVelocityRiskScore(ctx, finalRecs.length);
@@ -1077,6 +1913,41 @@ export async function runStackingOptimizer(
     aprExpirySummary,
     prioritizationMode: prioritize,
     cardCount: finalRecs.length,
+    inputProvenance: ctx.provenance,
+    velocitySummary: (() => {
+      const counting = finalRecs.filter((r) => r.velocityTreatment === 'counts_toward_5_24').length;
+      const exempt = finalRecs.filter((r) => r.velocityTreatment === 'exempt_from_5_24').length;
+      const notEvaluated = finalRecs.filter((r) => r.velocityTreatment === 'not_evaluated').length;
+      const headroomBefore = Math.max(0, CHASE_524_LIMIT - ctx.bankCardsInWindow);
+      return {
+        cardsCountingToward524: counting,
+        cardsExemptFrom524: exempt,
+        cardsNotEvaluated: notEvaluated,
+        chase524HeadroomBefore: headroomBefore,
+        // Credit union cards are absent from `counting`, so this is unchanged
+        // by adding them. That equality is the positive signal the exemption
+        // fired, and it only means anything read beside cardsExemptFrom524:
+        // headroom is equally unchanged when the cards were silently skipped.
+        // Signed, not clamped: how far past the limit matters more than the
+        // fact of being past it.
+        chase524HeadroomAfter: headroomBefore - counting,
+        chase524Overage: Math.max(0, counting - headroomBefore),
+        exceedsChase524: counting > headroomBefore,
+        existingBankCardsInWindow: ctx.bankCardsInWindow,
+        existingCreditUnionCardsInWindow: ctx.creditUnionCardsInWindow,
+      };
+    })(),
+    capacity: {
+      targetAmount,
+      bankEstimatedCredit: bankCredit,
+      creditUnionEstimatedCredit: creditUnionCredit,
+      shortfallAfterBanks,
+      remainingShortfall,
+      creditUnionsIncluded: includeCreditUnions,
+      creditUnionCardLimit: maxCreditUnionCards,
+      bankCardCount: finalRecs.filter((r) => !isCreditUnionIssuer(r.issuer.toLowerCase())).length,
+      creditUnionCardCount: finalRecs.filter((r) => isCreditUnionIssuer(r.issuer.toLowerCase())).length,
+    },
   };
 }
 

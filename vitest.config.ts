@@ -17,6 +17,9 @@ export default defineConfig({
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
       '@backend': path.resolve(__dirname, 'src/backend'),
+      // Mirrors the "@/*" path in src/frontend/tsconfig.json, so a test can
+      // import a frontend module that imports its own siblings by alias.
+      '@': path.resolve(__dirname, 'src/frontend'),
     },
   },
 });

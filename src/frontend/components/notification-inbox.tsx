@@ -23,6 +23,8 @@ import {
   type NotificationRow,
   type Severity,
 } from '@/lib/notifications-view';
+import { useSessionGate } from '@/hooks/useSessionGate';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 export type { NotificationRow, Severity };
 
@@ -42,11 +44,6 @@ const SEVERITY_BADGE: Record<Severity, string> = {
   MEDIUM:   'text-blue-400',
   INFO:     'text-gray-500',
 };
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 interface NotificationInboxProps {
   open: boolean;
@@ -72,19 +69,14 @@ export function NotificationInbox({ open, onClose, onCountChange }: Notification
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/notifications?limit=50', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`Could not load what needs attention (HTTP ${res.status}).`);
-        setRows(null);
-        onCountChange?.(null);
-        return;
-      }
-      const mapped = sortForDisplay(toNotificationRows(body.data));
+      const data = await loadJson<unknown>('/api/notifications?limit=50');
+      const mapped = sortForDisplay(toNotificationRows(data));
       setRows(mapped);
       onCountChange?.(mapped.length);
-    } catch {
-      setError('Could not reach the server, so nothing is shown here.');
+    } catch (e) {
+      // onCountChange(null), not 0. An unreadable inbox must not report a
+      // badge of nothing outstanding.
+      setError(`Could not load what needs attention. ${toLoadError(e).message}`);
       setRows(null);
       onCountChange?.(null);
     } finally {
@@ -258,19 +250,28 @@ export function NotificationInbox({ open, onClose, onCountChange }: Notification
  *
  * Null means it could not be read, and the badge is hidden: a zero on the
  * bell is the claim that nothing needs attention.
+ *
+ * The bell is part of the header, so this ran on the sign-in page too and
+ * spent a guaranteed 401 asking how many notifications a signed-out visitor
+ * had. Null is the honest answer there, and it needs no request to reach.
  */
 export function useNotificationInbox() {
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState<number | null>(null);
+  const shouldFetch = useSessionGate();
 
   useEffect(() => {
+    if (!shouldFetch) {
+      setCount(null);
+      return;
+    }
+
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch('/api/notifications/count', { headers: authHeaders() });
-        const body = (await res.json()) as { success?: boolean; data?: unknown };
+        const data = await loadJson<unknown>('/api/notifications/count');
         if (cancelled) return;
-        setCount(res.ok && body.success === true ? toOutstandingCount(body.data) : null);
+        setCount(toOutstandingCount(data));
       } catch {
         if (!cancelled) setCount(null);
       }
@@ -278,7 +279,7 @@ export function useNotificationInbox() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shouldFetch]);
 
   const openInbox = useCallback(() => setOpen(true), []);
   const closeInbox = useCallback(() => setOpen(false), []);

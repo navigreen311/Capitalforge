@@ -42,6 +42,7 @@ import {
   type DisclosureTemplateRow,
   type TemplateStatus,
 } from '@/lib/disclosure-view';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 const STATUS_STYLE: Record<TemplateStatus, { label: string; cls: string }> = {
   draft: { label: 'Draft', cls: 'bg-gray-800 text-gray-400 border-gray-700' },
@@ -53,11 +54,6 @@ const STATUS_STYLE: Record<TemplateStatus, { label: string; cls: string }> = {
   rejected: { label: 'Rejected', cls: 'bg-red-900 text-red-300 border-red-700' },
   superseded: { label: 'Superseded', cls: 'bg-gray-800 text-gray-500 border-gray-700' },
 };
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 function formatDate(iso: string | null): string {
   if (iso === null) return '—';
@@ -103,13 +99,16 @@ export default function DisclosuresPage() {
       let truncated = false;
 
       for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
-        const res = await fetch(
-          `/api/disclosures/templates?limit=${PAGE}&offset=${pageIndex * PAGE}`,
-          { headers: authHeaders() },
-        );
-        if (!res.ok) {
+        let batch: DisclosureTemplateRow[];
+        try {
+          batch = toDisclosureTemplates(
+            await loadJson<unknown>(
+              `/api/disclosures/templates?limit=${PAGE}&offset=${pageIndex * PAGE}`,
+            ),
+          );
+        } catch (e) {
           if (pageIndex === 0) {
-            setLoadError(`The disclosure library could not be loaded (HTTP ${res.status}).`);
+            setLoadError(`The disclosure library could not be loaded. ${toLoadError(e).message}`);
             setTemplates([]);
             return;
           }
@@ -118,9 +117,6 @@ export default function DisclosuresPage() {
           truncated = true;
           break;
         }
-
-        const body = (await res.json()) as { success?: boolean; data?: unknown };
-        const batch = body.success === true ? toDisclosureTemplates(body.data) : [];
         collected.push(...batch);
 
         if (batch.length < PAGE) break;
@@ -158,16 +154,15 @@ export default function DisclosuresPage() {
   const loadHistory = useCallback(async (id: string) => {
     setHistoryLoading(true);
     try {
-      const res = await fetch(`/api/disclosures/templates/${encodeURIComponent(id)}/history`, {
-        headers: authHeaders(),
-      });
-      if (!res.ok) {
-        setHistory([]);
-        return;
-      }
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      setHistory(body.success === true ? toDisclosureTemplates(body.data) : []);
+      const data = await loadJson<unknown>(
+        `/api/disclosures/templates/${encodeURIComponent(id)}/history`,
+      );
+      setHistory(toDisclosureTemplates(data));
     } catch {
+      // Logged, not fixed: a failed history read renders as "no prior
+      // versions", which is the same false success this sweep keeps finding.
+      // Separating them needs an error state and a panel to show it in, which
+      // is a redesign rather than a conversion.
       setHistory([]);
     } finally {
       setHistoryLoading(false);
@@ -179,26 +174,17 @@ export default function DisclosuresPage() {
       setBusy(true);
       setActionError(null);
       try {
-        const res = await fetch(
-          `/api/disclosures/templates/${encodeURIComponent(id)}/${action}`,
-          {
-            method: 'POST',
-            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          },
-        );
-        const body = (await res.json()) as { success?: boolean; error?: { message?: string } };
-        if (!res.ok || body.success !== true) {
-          setActionError(
-            body.error?.message ??
-              `The template was not ${action === 'submit' ? 'submitted' : 'approved'} (HTTP ${res.status}).`,
-          );
-          return;
-        }
+        await loadJson(`/api/disclosures/templates/${encodeURIComponent(id)}/${action}`, {
+          method: 'POST',
+          body: {},
+        });
         showToast(action === 'submit' ? 'Submitted for review.' : 'Approval recorded.');
         await load();
-      } catch {
-        setActionError('Could not reach the server. Nothing was changed.');
+      } catch (e) {
+        setActionError(
+          `The template was not ${action === 'submit' ? 'submitted' : 'approved'}. ` +
+            toLoadError(e).message,
+        );
       } finally {
         setBusy(false);
       }
@@ -212,24 +198,13 @@ export default function DisclosuresPage() {
       setActionError(null);
       setRendered(null);
       try {
-        const res = await fetch('/api/disclosures/render', {
-          method: 'POST',
-          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ templateId: template.id, context }),
-        });
-        const body = (await res.json()) as {
-          success?: boolean;
-          data?: unknown;
-          error?: { message?: string };
-        };
-        if (!res.ok || body.success !== true) {
-          setActionError(body.error?.message ?? `Nothing was rendered (HTTP ${res.status}).`);
-          return;
-        }
-        const data = body.data as { rendered?: string; content?: string } | undefined;
+        const data = await loadJson<{ rendered?: string; content?: string } | undefined>(
+          '/api/disclosures/render',
+          { method: 'POST', body: { templateId: template.id, context } },
+        );
         setRendered(data?.rendered ?? data?.content ?? '');
-      } catch {
-        setActionError('Could not reach the server. Nothing was rendered.');
+      } catch (e) {
+        setActionError(`Nothing was rendered. ${toLoadError(e).message}`);
       } finally {
         setBusy(false);
       }

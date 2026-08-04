@@ -132,6 +132,17 @@ apiRouter.use('/', applicationRouter);
 import applicationsWizardRouter from './applications.routes.js';
 apiRouter.use('/', applicationsWizardRouter);
 
+// Same routers under /v1, as `clientsRouter` already is above.
+//
+// Every application call in the frontend addresses /api/v1/applications —
+// the new-application form, the wizard shell, the detail drawer and its
+// e-sign action — while these were mounted only at /api/applications. All of
+// them answered "Route POST /api/v1/applications not found", and the form's
+// catch treated a failed request as a reason to navigate to the list, so
+// creating an application looked like it had worked.
+apiRouter.use('/v1', applicationRouter);
+apiRouter.use('/v1', applicationsWizardRouter);
+
 // -- Inbound SMS webhooks (Twilio HMAC-authenticated, no bearer token) --
 import { smsWebhookRouter } from './sms-webhooks.routes.js';
 apiRouter.use('/voiceforge/webhooks', smsWebhookRouter);
@@ -139,6 +150,7 @@ apiRouter.use('/voiceforge/webhooks', smsWebhookRouter);
 // -- Application Detail (per-application sub-routes) --
 import { applicationDetailRouter } from './application-detail.routes.js';
 apiRouter.use('/applications/:appId', applicationDetailRouter);
+apiRouter.use('/v1/applications/:appId', applicationDetailRouter);
 
 // -- Funding Rounds (list, create, complete, compare, eligibility) --
 import { fundingRoundRouter } from './funding-round.routes.js';

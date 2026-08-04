@@ -37,6 +37,7 @@ import {
   type TrackStanding,
   type CertStatus,
 } from '@/lib/training-view';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 const STATUS_STYLE: Record<CertStatus, { label: string; cls: string }> = {
   passed: { label: 'Passed', cls: 'bg-green-900 text-green-300 border-green-700' },
@@ -45,11 +46,6 @@ const STATUS_STYLE: Record<CertStatus, { label: string; cls: string }> = {
   expired: { label: 'Expired', cls: 'bg-orange-900 text-orange-300 border-orange-700' },
   not_started: { label: 'Not started', cls: 'bg-gray-800 text-gray-500 border-gray-700' },
 };
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 /** The signed-in user, as the login stored it. */
 function currentUserId(): string | null {
@@ -101,32 +97,28 @@ export default function ComplianceTrainingPage() {
     setLoading(true);
     setLoadError(null);
     setPartial([]);
-    const headers = authHeaders();
     const failed: string[] = [];
 
     try {
-      const [tracksRes, certsRes] = await Promise.all([
-        fetch('/api/training/tracks', { headers }),
-        fetch('/api/training/certifications', { headers }),
+      // Per-endpoint reporting, kept intact. This page was set aside in batch 1
+      // of the sweep as resisting conversion, on the grounds that loadJson
+      // throws and would collapse the distinction between which of the two
+      // failed. It does not: putting the catch on each promise rather than
+      // around the group keeps it exactly.
+      const [tracks, certs] = await Promise.all([
+        loadJson<unknown>('/api/training/tracks').then(toTracks).catch(() => null),
+        loadJson<unknown>('/api/training/certifications')
+          .then(toCertifications)
+          .catch(() => null),
       ]);
 
-      if (tracksRes.ok) {
-        const body = (await tracksRes.json()) as { success?: boolean; data?: unknown };
-        setTracks(body.success === true ? toTracks(body.data) : []);
-      } else {
-        setTracks([]);
-        failed.push('the catalogue');
-      }
+      setTracks(tracks ?? []);
+      if (tracks === null) failed.push('the catalogue');
 
-      if (certsRes.ok) {
-        const body = (await certsRes.json()) as { success?: boolean; data?: unknown };
-        setCerts(body.success === true ? toCertifications(body.data) : []);
-      } else {
-        setCerts([]);
-        // Otherwise every track reads as not started, which says you have
-        // done none of it.
-        failed.push('your certifications');
-      }
+      setCerts(certs ?? []);
+      // Otherwise every track reads as not started, which says you have
+      // done none of it.
+      if (certs === null) failed.push('your certifications');
 
       setPartial(failed);
     } catch {
@@ -153,34 +145,21 @@ export default function ComplianceTrainingPage() {
       setBusy(true);
       setActionError(null);
       try {
-        const res = await fetch(
+        const data = await loadJson<{ status?: string; certificateRef?: string | null }>(
           `/api/training/certifications/${encodeURIComponent(certificationId)}/complete`,
-          {
-            method: 'POST',
-            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ score: value }),
-          },
+          { method: 'POST', body: { score: value } },
         );
-        const body = (await res.json()) as {
-          success?: boolean;
-          data?: { status?: string; certificateRef?: string | null };
-          error?: { message?: string };
-        };
-        if (!res.ok || body.success !== true) {
-          setActionError(body.error?.message ?? `Nothing was recorded (HTTP ${res.status}).`);
-          return;
-        }
 
         showToast(
-          body.data?.status === 'passed'
-            ? `Recorded as passed${body.data.certificateRef ? ` — ${body.data.certificateRef}` : ''}.`
+          data?.status === 'passed'
+            ? `Recorded as passed${data.certificateRef ? ` — ${data.certificateRef}` : ''}.`
             : 'Recorded as failed. The score was below the pass mark for this track.',
         );
         setScoring(null);
         setScore('');
         await load();
-      } catch {
-        setActionError('Could not reach the server. Nothing was recorded.');
+      } catch (e) {
+        setActionError(`Nothing was recorded. ${toLoadError(e).message}`);
       } finally {
         setBusy(false);
       }

@@ -236,6 +236,23 @@ jobs:
       - name: Seed the database
         run: npm run db:seed
 
+      # Seeds a second time and asserts nothing changed. A seed that cannot run
+      # twice cannot be run on a database that already has data, which is every
+      # environment except a brand new one — and the failure surfaces as a
+      # constraint violation halfway through, leaving the database part-seeded.
+      #
+      # This runs after the seed above rather than in place of it: the E2E suite
+      # needs the seeded database, and this needs a database that has been
+      # seeded once. Both are served by running it here.
+      #
+      # Note what it does not cover. It runs against a database CI built from
+      # nothing, so it cannot see a defect that only appears once one-off data
+      # scripts have been applied — which is exactly how db:seed was broken on
+      # 2026-08-03. Seeding the database you changed, before commit, is the only
+      # thing that reaches that. See docs/backlog/incident-2026-08-03-broken-seed.md.
+      - name: Check the seed is idempotent
+        run: npm run db:seed:check
+
       # Chromium only: the suite declares no other browser, and installing
       # three costs minutes per run for coverage nothing asks for.
       - name: Install Playwright browser

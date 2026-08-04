@@ -140,42 +140,6 @@ export const CREDIT_UNION_ISSUERS: CreditUnionIssuer[] = [
     },
   },
   {
-    id: 'dcu',
-    name: 'DCU (Digital Federal Credit Union)',
-    type: 'credit_union',
-    tier: 'A',
-    membershipRequired: true,
-    membershipEligibility: [
-      'Anyone — join via Reach Out for Schools ($10 donation)',
-      'Employees of 500+ partner organizations',
-      'Residents of qualifying Massachusetts communities',
-    ],
-    membershipCost: 10,
-    businessCard: {
-      name: 'DCU Business Visa Platinum',
-      limitRange: '$5,000–$50,000',
-      introPeriod: '0% for 12 months',
-      ongoingApr: 13.50,
-      annualFee: 0,
-      minFico: 620,
-    },
-    velocityRules: [
-      'Max 1 new DCU card per 6 months',
-      'Primary savings account required ($5 minimum)',
-    ],
-    reconLine: '1-508-263-6700',
-    approvalIntelligence:
-      'DCU offers the LOWEST APR among credit union business cards at 13.50%. Open membership via charitable donation. Known for generous credit limits for established members.',
-    stackingRole: 'RECOMMENDED — Best-in-class APR makes this the priority CU card for cost-conscious stacking.',
-    approvalRateByFico: {
-      '620-659': 52,
-      '660-699': 70,
-      '700-739': 84,
-      '740-779': 91,
-      '780+': 96,
-    },
-  },
-  {
     id: 'first-tech',
     name: 'First Tech Federal Credit Union',
     type: 'credit_union',
@@ -339,15 +303,6 @@ export function checkCUEligibility(
         };
       }
 
-      case 'dcu': {
-        // Open to anyone via $10 donation
-        return {
-          cu,
-          eligible: true,
-          reason: 'Open membership via $10 Reach Out for Schools donation — LOWEST APR at 13.50%',
-          cost: 10,
-        };
-      }
 
       case 'first-tech': {
         const techCompanies = ['intel', 'hp', 'microsoft', 'nike', 'amazon', 'google', 'apple', 'meta', 'oracle', 'cisco'];

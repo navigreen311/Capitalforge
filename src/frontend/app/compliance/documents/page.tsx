@@ -7,7 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +36,14 @@ interface DocumentRecord {
 // Placeholder data
 // ---------------------------------------------------------------------------
 
+/**
+ * Sample rows, no longer rendered.
+ *
+ * Kept only because BUSINESSES below is derived from them and the upload form
+ * still needs a business list. They must never reach `docs` again: this page
+ * showed them whenever the register failed to load, which is a fabricated
+ * account of what the business holds.
+ */
 const PLACEHOLDER_DOCS: DocumentRecord[] = [
   { id: 'doc_001', businessId: 'biz_001', businessName: 'Apex Ventures LLC',      type: 'bank_statement',            fileName: 'apex_bank_stmt_feb2026.pdf',     fileSizeBytes: 248_000,   uploadedAt: '2026-03-01T10:00:00Z', uploadedBy: 'Sarah Chen',      legalHold: false, aiParsed: true,  pendingSignature: false, tags: ['bank', 'q1-2026'] },
   { id: 'doc_002', businessId: 'biz_001', businessName: 'Apex Ventures LLC',      type: 'consent_record',            fileName: 'apex_tcpa_consent.json',         fileSizeBytes: 4_200,     uploadedAt: '2026-02-15T09:30:00Z', uploadedBy: 'System',          legalHold: true,  aiParsed: false, pendingSignature: false, tags: ['consent', 'tcpa'] },
@@ -122,7 +130,14 @@ const MOCK_AI_FIELDS: Record<string, { key: string; value: string }[]> = {
 // ---------------------------------------------------------------------------
 
 export default function DocumentVaultPage() {
-  const [docs, setDocs] = useState<DocumentRecord[]>(PLACEHOLDER_DOCS);
+  // Empty, not PLACEHOLDER_DOCS.
+  //
+  // The list started as invented documents and fell back to them whenever the
+  // GET failed, so an unreachable server rendered a register of records the
+  // business does not hold — on the surface where knowing what it holds is the
+  // entire point. A compliance page must never synthesise a record.
+  const [docs, setDocs] = useState<DocumentRecord[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('All');
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -147,12 +162,20 @@ export default function DocumentVaultPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/compliance/documents', { headers: authHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.data?.length) setDocs(data.data);
-        }
-      } catch { /* use placeholder */ }
+        const data = await loadJson<DocumentRecord[]>('/api/compliance/documents');
+        setDocs(data ?? []);
+        setLoadError(null);
+      } catch (e) {
+        const info = toLoadError(e);
+        setDocs([]);
+        setLoadError(
+          info.type === 'auth_required'
+            ? 'Your session has ended. Sign in again to see the document register.'
+            : info.type === 'network_error'
+              ? 'Could not reach the server, so no documents are shown.'
+              : `The document register could not be loaded. ${info.message}`,
+        );
+      }
     })();
   }, []);
 
@@ -170,18 +193,36 @@ export default function DocumentVaultPage() {
     return true;
   });
 
-  const toggleHold = useCallback((id: string) => {
-    setDocs((prev) => prev.map((d) => d.id === id ? { ...d, legalHold: !d.legalHold } : d));
+  /**
+   * Set or release a legal hold, and only show it once the server agrees.
+   *
+   * This updated the row and toasted "legal hold enabled" before the request,
+   * then swallowed any failure. A legal hold is the control that preserves
+   * records for litigation and regulatory review: if it silently no-ops, the
+   * records it was meant to preserve are deletable and the screen says they are
+   * protected. That is not the same order of problem as an overstated delete
+   * message, and it is not something to report optimistically.
+   */
+  const toggleHold = useCallback(async (id: string) => {
     const doc = docs.find((d) => d.id === id);
-    if (doc) {
-      const newState = !doc.legalHold;
-      setToast(`${doc.fileName} — legal hold ${newState ? 'enabled' : 'released'}`);
-      // Try API
-      fetch(`/api/compliance/documents/${id}/hold`, {
+    if (!doc) return;
+    const newState = !doc.legalHold;
+
+    try {
+      await loadJson(`/api/compliance/documents/${id}/hold`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ legalHold: newState }),
-      }).catch(() => {});
+        body: { legalHold: newState },
+      });
+      setDocs((prev) => prev.map((d) => (d.id === id ? { ...d, legalHold: newState } : d)));
+      setToast(`${doc.fileName} — legal hold ${newState ? 'enabled' : 'released'}`);
+    } catch (e) {
+      const info = toLoadError(e);
+      // The row keeps its previous state, because that is what the server holds.
+      setToast(
+        info.type === 'auth_required'
+          ? `Legal hold NOT ${newState ? 'applied' : 'released'} — your session has ended. Sign in again and retry.`
+          : `Legal hold NOT ${newState ? 'applied' : 'released'} for ${doc.fileName}. ${info.message}`,
+      );
     }
   }, [docs]);
 
@@ -239,10 +280,9 @@ export default function DocumentVaultPage() {
     setUploadForm({ businessId: '', businessName: '', docType: 'other', fileName: '', description: '', parseWithAI: false, applyLegalHold: false });
     setToast(`"${newDoc.fileName}" uploaded successfully`);
     // Try API
-    fetch('/api/compliance/documents', {
+    void loadJson('/api/compliance/documents', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(newDoc),
+      body: newDoc,
     }).catch(() => {});
   }, [uploadForm]);
 
@@ -258,18 +298,26 @@ export default function DocumentVaultPage() {
     setSelectedDoc(null);
     setDeleteConfirm(false);
     setToast(`"${doc.fileName}" deleted`);
-    fetch(`/api/compliance/documents/${doc.id}`, { method: 'DELETE', headers: authHeaders() }).catch(() => {});
+    void loadJson(`/api/compliance/documents/${doc.id}`, { method: 'DELETE' }).catch(() => {});
   }, []);
-  const toggleSlideoverHold = useCallback((doc: DocumentRecord) => {
+  const toggleSlideoverHold = useCallback(async (doc: DocumentRecord) => {
     const newState = !doc.legalHold;
-    setDocs((prev) => prev.map((d) => d.id === doc.id ? { ...d, legalHold: newState } : d));
-    setSelectedDoc((prev) => prev ? { ...prev, legalHold: newState } : prev);
-    setToast(`${doc.fileName} — legal hold ${newState ? 'enabled' : 'released'}`);
-    fetch(`/api/compliance/documents/${doc.id}/hold`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ legalHold: newState }),
-    }).catch(() => {});
+    try {
+      await loadJson(`/api/compliance/documents/${doc.id}/hold`, {
+        method: 'PATCH',
+        body: { legalHold: newState },
+      });
+      setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, legalHold: newState } : d)));
+      setSelectedDoc((prev) => (prev ? { ...prev, legalHold: newState } : prev));
+      setToast(`${doc.fileName} — legal hold ${newState ? 'enabled' : 'released'}`);
+    } catch (e) {
+      const info = toLoadError(e);
+      setToast(
+        info.type === 'auth_required'
+          ? `Legal hold NOT ${newState ? 'applied' : 'released'} — your session has ended. Sign in again and retry.`
+          : `Legal hold NOT ${newState ? 'applied' : 'released'} for ${doc.fileName}. ${info.message}`,
+      );
+    }
   }, []);
 
   return (
@@ -341,7 +389,15 @@ export default function DocumentVaultPage() {
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No documents match your search.</td></tr>
+                /* A failed load and an empty register look identical in a table
+                   of zero rows. The error says which this is. */
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    {loadError ?? (docs.length === 0
+                      ? 'No documents on record for this tenant.'
+                      : 'No documents match your search.')}
+                  </td>
+                </tr>
               ) : (
                 filtered.map((doc) => (
                   <tr key={doc.id} onClick={() => { setSelectedDoc(doc); setDeleteConfirm(false); }} className="border-b border-gray-800/50 hover:bg-[#0A1628]/50 transition-colors cursor-pointer">

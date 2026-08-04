@@ -58,6 +58,7 @@ import {
   type InquirySeverity,
   type MatterType,
 } from '@/lib/regulator-inquiry-view';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ─── Types & Mock data ────────────────────────────────────────────────────────
 
@@ -250,42 +251,25 @@ function LogComplaintModal({ open, onClose, onSubmit, clients }: LogModalProps) 
     setSaving(true);
     setError(null);
     try {
-      const token =
-        typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/complaints', {
+      const data = await loadJson<unknown>('/api/complaints', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
+        body: {
           category,
           source,
           severity,
           description: description.trim(),
           ...(assignee ? { assignedTo: assignee } : {}),
           ...(businessId ? { businessId } : {}),
-        }),
+        },
       });
 
-      const json = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
-        data?: unknown;
-        error?: { message?: string };
-      };
-
-      if (!res.ok || json.success !== true) {
-        setError(json.error?.message ?? `The complaint was not saved (HTTP ${res.status}).`);
-        return;
-      }
-
-      const saved = toComplaintView(json.data);
+      const saved = toComplaintView(data);
       if (saved) onSubmit(saved);
       setDescription('');
       onClose();
-    } catch {
-      // Nothing reached the server, so nothing is claimed to have been logged.
-      setError('Could not reach the server; the complaint was not saved.');
+    } catch (e) {
+      // Nothing is claimed to have been logged unless the server said so.
+      setError(`The complaint was not saved. ${toLoadError(e).message}`);
     } finally {
       setSaving(false);
     }
@@ -763,14 +747,9 @@ function AttachEvidenceModal({
     setError(null);
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch(`/api/complaints/${complaint.id}/evidence`, {
+      await loadJson(`/api/complaints/${complaint.id}/evidence`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
+        body: {
           evidenceItems: selected.map((id) => {
             const doc = documents.find((d) => d.id === id);
             return {
@@ -780,19 +759,13 @@ function AttachEvidenceModal({
               title: doc?.title ?? id,
             };
           }),
-        }),
+        },
       });
-
-      if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-        setError(json.error?.message ?? `Nothing was attached (HTTP ${res.status}).`);
-        return;
-      }
 
       onAttached();
       onClose();
-    } catch {
-      setError('Could not reach the server; nothing was attached.');
+    } catch (e) {
+      setError(`Nothing was attached. ${toLoadError(e).message}`);
     } finally {
       setSaving(false);
     }
@@ -1126,15 +1099,9 @@ function LogInquiryModal({
     setError(null);
 
     try {
-      const token =
-        typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/regulator/inquiries', {
+      await loadJson('/api/regulator/inquiries', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
+        body: {
           matterType,
           agencyName: agencyName.trim(),
           description: description.trim(),
@@ -1144,24 +1111,14 @@ function LogInquiryModal({
           ...(referenceNumber.trim() ? { referenceNumber: referenceNumber.trim() } : {}),
           ...(responseDueDate ? { responseDueDate } : {}),
           ...(assignedCounsel.trim() ? { assignedCounsel: assignedCounsel.trim() } : {}),
-        }),
+        },
       });
-
-      const json = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
-        error?: { message?: string };
-      };
-
-      if (!res.ok || json.success !== true) {
-        setError(json.error?.message ?? `The inquiry was not saved (HTTP ${res.status}).`);
-        return;
-      }
 
       onCreated();
       onClose();
-    } catch {
-      // Not a success toast: nothing reached the server.
-      setError('Could not reach the server; the inquiry was not saved.');
+    } catch (e) {
+      // Not a success toast: the inquiry is only claimed saved if it was.
+      setError(`The inquiry was not saved. ${toLoadError(e).message}`);
     } finally {
       setSaving(false);
     }
@@ -1331,8 +1288,6 @@ function RegulatoryInquiries({
   const load = useCallback(async () => {
     setState('loading');
     try {
-      const token =
-        typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
       // Every page: this endpoint returns 20 at a time, and the open count
       // below feeds the "Active Reg. Inquiries" figure on the page — so a
       // tenant with more than 20 matters had that figure capped at 20.
@@ -1492,35 +1447,29 @@ export default function ComplaintsPage() {
 
   const load = useCallback(async () => {
     setLoadState('loading');
-    const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-    const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-
     try {
       // The walk that was inline here now lives in lib/fetch-all-pages,
       // because every list endpoint in this app has the same shape of problem.
-      const [listed, analyticsRes] = await Promise.all([
+      const [listed, analytics] = await Promise.all([
         fetchAllPages(
           '/api/complaints',
           (json) => {
             const body = json as { success?: boolean; data?: unknown };
             return body.success === true ? toComplaintViews(body.data) : [];
           },
-          { pageSize: SERVER_PAGE_SIZE, maxPages: MAX_PAGES, headers: auth },
+          { pageSize: SERVER_PAGE_SIZE, maxPages: MAX_PAGES },
         ),
-        fetch('/api/complaints/analytics', { headers: auth }),
+        // Analytics failing on its own leaves the register usable rather than
+        // taking the whole page down with it, so it is caught here rather than
+        // thrown into the handler below.
+        loadJson<unknown>('/api/complaints/analytics')
+          .then(toAnalyticsView)
+          .catch(() => null),
       ]);
 
       setTotalOnServer(listed.total);
       setComplaints(listed.rows);
-
-      // Analytics failing on its own leaves the register usable rather than
-      // taking the whole page down with it.
-      if (analyticsRes.ok) {
-        const aJson = (await analyticsRes.json()) as { success?: boolean; data?: unknown };
-        setAnalytics(aJson.success === true ? toAnalyticsView(aJson.data) : null);
-      } else {
-        setAnalytics(null);
-      }
+      setAnalytics(analytics);
 
       setLoadState('ready');
     } catch {
@@ -1535,7 +1484,6 @@ export default function ComplaintsPage() {
   // Real businesses for the log form, so a complaint attaches to one that
   // exists rather than to a name typed into a list.
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
     // Every page: 25 at a time, so the log form offered the first 25 clients
     // and a complaint could not be filed against any of the others.
     fetchAllPages('/api/v1/clients', (json) => {
@@ -1597,18 +1545,13 @@ export default function ComplaintsPage() {
     setSelectedComplaint(updated);
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch(`/api/complaints/${updated.id}`, {
+      await loadJson(`/api/complaints/${updated.id}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
         // Only what changed. The API validates status transitions, so
         // resending the current status on an unrelated edit — changing a root
         // cause, say — puts a no-op transition through that validator for no
         // reason. It also keeps the audit trail to the fields actually touched.
-        body: JSON.stringify({
+        body: {
           ...(previous && updated.status !== previous.status ? { status: updated.status } : {}),
           ...(previous && updated.severity !== previous.severity
             ? { severity: updated.severity }
@@ -1625,25 +1568,18 @@ export default function ComplaintsPage() {
           ...(previous && updated.escalatedTo !== previous.escalatedTo && updated.escalatedTo
             ? { escalatedTo: updated.escalatedTo }
             : {}),
-        }),
+        },
       });
 
-      if (!res.ok) {
-        if (previous) {
-          setComplaints((prev) => prev.map((c) => (c.id === previous.id ? previous : c)));
-          setSelectedComplaint(previous);
-        }
-        setToastMsg('That change was not saved.');
-        return;
-      }
-
       void load();
-    } catch {
+    } catch (e) {
+      // Rolled back: an optimistic update that the server refused must not be
+      // left on screen looking saved.
       if (previous) {
         setComplaints((prev) => prev.map((c) => (c.id === previous.id ? previous : c)));
         setSelectedComplaint(previous);
       }
-      setToastMsg('Could not reach the server; the change was not saved.');
+      setToastMsg(`That change was not saved. ${toLoadError(e).message}`);
     }
   };
 

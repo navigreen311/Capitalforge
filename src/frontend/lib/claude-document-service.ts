@@ -1,3 +1,5 @@
+import { loadJson } from '@/lib/load-json';
+
 // ============================================================
 // CapitalForge — Claude AI Document Generation Service
 // Central service for all AI-powered document generation.
@@ -123,14 +125,14 @@ export async function generateDocument(
 // ── Document Vault save helper ──────────────────────────────────
 
 export async function saveToDocumentVault(doc: GeneratedDocument, clientId: string): Promise<void> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  await fetch('/api/v1/documents', {
+  // Throws on refusal. This used to end in `.catch(() => {})`, commented
+  // "graceful failure", which meant GenerateDocumentModal's own
+  // `catch { toast.error('Failed to save document') }` could never fire — the
+  // error handling was written, and dead. A document reported saved to the
+  // vault and not in it is the failure this whole sweep is about.
+  await loadJson('/api/v1/documents', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
+    body: {
       client_id: clientId,
       type: doc.type,
       filename: `${doc.type}_${new Date().toISOString().split('T')[0]}.txt`,
@@ -139,6 +141,6 @@ export async function saveToDocumentVault(doc: GeneratedDocument, clientId: stri
       model: doc.model,
       generated_at: doc.generated_at,
       word_count: doc.word_count,
-    }),
-  }).catch(() => {}); // graceful failure
+    },
+  });
 }

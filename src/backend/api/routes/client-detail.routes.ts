@@ -54,6 +54,18 @@ const UPDATABLE_BUSINESS_FIELDS = new Set([
   'status',
   'advisorId',
   'fundingReadinessScore',
+  // The edit-profile form has always sent these. `website` and `employees`
+  // were rejected outright as un-updatable; `naicsCode` was on this list
+  // before it was a column, so it passed the allowlist and then failed at
+  // the database — a 500 where the other two at least said no.
+  'employees',
+  'website',
+  'addressLine1',
+  'addressLine2',
+  'city',
+  'state',
+  'zip',
+  'businessEmail',
 ]);
 import type { ComplianceCheckType } from '../../../shared/types/index.js';
 
@@ -742,6 +754,34 @@ clientDetailRouter.patch('/', async (req: Request, res: Response, _next: NextFun
     }
   }
 
+  // The body reaches Prisma as-is, so a field whose JSON type does not match
+  // its column throws inside the driver and surfaces as a 500. `dateOfFormation`
+  // is a DateTime column and every date input in the app produces "YYYY-MM-DD",
+  // so editing a client's formation date failed every time — as a server error,
+  // which reads like a broken backend rather than a value needing conversion.
+  const data: Record<string, unknown> = { ...updates };
+
+  if (data.dateOfFormation !== undefined && data.dateOfFormation !== null) {
+    if (typeof data.dateOfFormation !== 'string' && !(data.dateOfFormation instanceof Date)) {
+      err(res, 422, 'INVALID_DATE', 'dateOfFormation must be a date string (YYYY-MM-DD).');
+      return;
+    }
+    const parsedDate = new Date(data.dateOfFormation as string);
+    if (Number.isNaN(parsedDate.getTime())) {
+      err(res, 422, 'INVALID_DATE', 'dateOfFormation is not a real date.');
+      return;
+    }
+    data.dateOfFormation = parsedDate;
+  }
+
+  // Empty strings from a cleared form field mean "unset", not "the empty
+  // string" — storing "" would make a blank read as a recorded value.
+  for (const key of ['dba', 'ein', 'website', 'addressLine1', 'addressLine2',
+                     'city', 'state', 'zip', 'businessEmail', 'phoneNumber',
+                     'industry', 'naicsCode', 'mcc'] as const) {
+    if (data[key] === '') data[key] = null;
+  }
+
   try {
     logger.debug('PATCH client profile', { clientId, tenantId, fields });
 
@@ -749,7 +789,7 @@ clientDetailRouter.patch('/', async (req: Request, res: Response, _next: NextFun
     // update any business in any tenant by guessing or reusing an id.
     const result = await prisma.business.updateMany({
       where: { id: clientId, tenantId },
-      data: updates,
+      data,
     });
 
     if (result.count === 0) {

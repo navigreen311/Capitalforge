@@ -44,6 +44,48 @@ const RunOptimizerSchema = z.object({
     .default('max_credit'),
   excludeIssuers: z.array(z.string()).optional().default([]),
   includeCreditUnions: z.boolean().optional().default(false),
+  maxCreditUnionCards: z.number().int().min(0).max(10).optional().default(3),
+
+  // What the advisor typed. The optimizer used to read none of this — the
+  // form was never sent, so a plan was built from the client record and, where
+  // that was empty, from constants in the service. Anything omitted here still
+  // falls back the same way; the difference is that the plan now says so.
+  profile: z
+    .object({
+      ficoScore: z.number().int().min(300).max(850).nullish(),
+      annualRevenue: z.number().nonnegative().nullish(),
+      businessAgeMonths: z.number().int().nonnegative().max(1200).nullish(),
+      inquiries6mo: z.number().int().nonnegative().max(99).nullish(),
+      inquiries12mo: z.number().int().nonnegative().max(99).nullish(),
+      inquiries24mo: z.number().int().nonnegative().max(99).nullish(),
+      derogatoryMarks: z.number().int().nonnegative().max(99).nullish(),
+      employees: z.number().int().nonnegative().nullish(),
+      dnbPaydex: z.number().int().min(0).max(100).nullish(),
+      experianBis: z.number().int().min(0).max(100).nullish(),
+      ficoSbss: z.number().int().min(0).max(300).nullish(),
+    })
+    .optional(),
+
+  creditUnionEligibility: z
+    .object({
+      state: z.string().length(2).nullish(),
+      militaryStatus: z.enum(['active', 'retired', 'veteran', 'family', 'none']).nullish(),
+      employer: z.string().max(200).nullish(),
+      techIndustry: z.boolean().nullish(),
+      existingMemberships: z.array(z.string()).nullish(),
+    })
+    .optional(),
+
+  existingCards: z
+    .array(
+      z.object({
+        cardProductId: z.string().nullish(),
+        issuer: z.string().nullish(),
+        name: z.string().nullish(),
+        creditLimit: z.number().nonnegative().nullish(),
+      }),
+    )
+    .optional(),
 });
 
 // ── POST /api/optimizer/run ──────────────────────────────────
@@ -72,6 +114,10 @@ optimizerV2Router.post(
       prioritize: parsed.data.prioritize as PrioritizationMode,
       excludeIssuers: parsed.data.excludeIssuers,
       includeCreditUnions: parsed.data.includeCreditUnions,
+      profile: parsed.data.profile,
+      existingCards: parsed.data.existingCards,
+      creditUnionEligibility: parsed.data.creditUnionEligibility,
+      maxCreditUnionCards: parsed.data.maxCreditUnionCards,
     };
 
     try {

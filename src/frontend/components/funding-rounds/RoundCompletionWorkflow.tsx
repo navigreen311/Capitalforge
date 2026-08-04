@@ -96,14 +96,12 @@ export function RoundCompletionWorkflow({
   const handleConfirm = useCallback(async () => {
     setIsSubmitting(true);
     try {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('cf_access_token')
-          : null;
-
-      await apiClient.patch(`/v1/funding-rounds/${roundId}`, { status: 'completed' }, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
+      // No hand-built Authorization header. apiClient attaches its own after
+      // any caller-supplied headers and refreshes on a 401, so passing one in
+      // was redundant here — and would have been actively harmful had the
+      // merge order been the other way round, which is exactly how
+      // fetch-all-pages was silently cancelling its own refresh.
+      await apiClient.patch(`/v1/funding-rounds/${roundId}`, { status: 'completed' });
 
       // Success toast via CapitalForge custom event system
       if (typeof window !== 'undefined') {

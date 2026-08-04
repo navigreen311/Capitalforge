@@ -25,6 +25,7 @@
 // ============================================================
 
 import { Router, Response, NextFunction } from 'express';
+import { parseIssuer } from '../../../shared/constants/issuers.js';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import type { ApiResponse } from '../../../shared/types/index.js';
@@ -537,7 +538,17 @@ crmRouter.get(
 
       const allTrends = await getIssuerService().getIssuerApprovalTrends(tenantId);
       const trend = allTrends.find(
-        (t) => t.issuer.toLowerCase() === issuerParam.toLowerCase(),
+        // Both sides through the parse boundary. A raw case-insensitive
+        // compare meant ?issuer=amex matched nothing, because the stored value
+        // is "American Express" — an empty result that reads as "this client
+        // has no Amex cards" rather than as a filter that does not work.
+        (t) => {
+          const stored = parseIssuer(t.issuer);
+          const wanted = parseIssuer(issuerParam);
+          return stored && wanted
+            ? stored.id === wanted.id
+            : t.issuer.toLowerCase() === issuerParam.toLowerCase();
+        },
       );
 
       if (!trend) {

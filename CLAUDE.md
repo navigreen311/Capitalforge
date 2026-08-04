@@ -44,6 +44,16 @@ Every feature or significant change follows this sequence:
 ### 4. Verify
 - Run/build the app and provide concrete local demo steps (commands + URLs).
 - Compile/lint before committing — never hand off broken code.
+- **Any change to the Prisma schema, to a primary key or unique constraint, or
+  to seed data requires a clean `npm run db:seed` before commit.**
+  Verifying against the running app is not sufficient: it reads a database
+  already in the new state and never exercises the create path, the upsert keys
+  or the seed guards. A commit that collapsed duplicate rows, re-keyed the
+  survivors and added a unique constraint broke `db:seed` and shipped green on
+  tsc, vitest, lint and a live re-run of the feature — the seeder still upserted
+  on the old derived key. CI would not have caught it: CI seeds an empty
+  database, where the old key still worked. Only seeding the database you just
+  changed reaches it. See `docs/backlog/incident-2026-08-03-broken-seed.md`.
 
 ### 5. Docs
 - Update `README.md` and add `docs/<feature>.md` (overview, architecture, endpoints, env vars).

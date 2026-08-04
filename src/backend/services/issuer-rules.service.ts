@@ -21,6 +21,7 @@
 // ============================================================
 
 import type { Issuer } from './card-products.js';
+import type { IssuerIdentity } from '../../shared/constants/issuers.js';
 import { ISSUER_RULES as RULE_CONSTANTS } from '../../shared/constants/index.js';
 
 // ============================================================
@@ -30,7 +31,16 @@ import { ISSUER_RULES as RULE_CONSTANTS } from '../../shared/constants/index.js'
 /** A single card that is already open or was opened in the past. */
 export interface ExistingCard {
   id: string;
-  issuer: Issuer;
+  /**
+   * Which institution issued it.
+   *
+   * Was `Issuer` — a union of ten banks — so a credit union card could not be
+   * represented at all. Not merely unhandled: unrepresentable, which is why
+   * the Chase 5/24 exemption had nowhere to live. Widening this is the change
+   * that lets a rule say "credit union applications do not count" instead of
+   * comparing strings in each rule that cares.
+   */
+  issuer: IssuerIdentity;
   /** ISO date string — when the card was opened / approved */
   openedAt: string;
   /** Whether the card is still open */
@@ -212,7 +222,7 @@ function checkAmexVelocity90d(
   const maxInWindow = 2;
 
   const recentAmex = profile.existingCards.filter((card) => {
-    if (card.issuer !== 'amex') return false;
+    if (card.issuer.id !== 'amex') return false;
     const opened = parseDate(card.openedAt);
     return daysBetween(opened, asOf) < windowDays;
   });
@@ -253,7 +263,7 @@ function checkAmexCooldown5d(
 
   // Also check existing Amex card openings within 5 days
   const recentAmexOpenings = profile.existingCards
-    .filter((c) => c.issuer === 'amex')
+    .filter((c) => c.issuer.id === 'amex')
     .map((c) => parseDate(c.openedAt))
     .filter((d) => daysBetween(d, asOf) < cooldownDays);
 

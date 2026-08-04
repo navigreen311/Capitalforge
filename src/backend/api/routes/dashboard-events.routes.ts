@@ -24,13 +24,22 @@ function db(): PrismaClient {
 
 // ── Supported event types ───────────────────────────────────────────────────
 
-const SUPPORTED_EVENT_TYPES = new Set([
+// Exported so a test can check it against what the frontend actually posts.
+// Every event type here was refused at some point by a UI spelling it its own
+// way; the set is only useful if something compares the two sides.
+export const SUPPORTED_EVENT_TYPES = new Set([
   'consent_alert.dismissed',
   'apr_expiry.acknowledged',
   'task.completed',
   'deal_committee.decided',
   'restack.outreach.initiated',
   'payment_reminder.sent',
+  // Advisor notes. Unlike the six above, these are not a record *of* an action
+  // taken elsewhere — the event is the note. Nothing else stores it, so a
+  // refusal here loses what the advisor typed. Both were being posted by the
+  // UI and refused as unsupported, which is why they are here.
+  'client.advisor_note_added',
+  'round.advisor_note_added',
 ]);
 
 // ── Router ──────────────────────────────────────────────────────────────────

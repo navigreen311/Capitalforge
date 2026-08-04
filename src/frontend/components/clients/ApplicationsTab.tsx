@@ -19,6 +19,7 @@ import {
   type ApplicationView,
 } from '@/lib/applications-view';
 import AprCountdown from '@/components/modules/apr-countdown';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -135,26 +136,11 @@ function PreSubmissionModal({
     setSubmitting(true);
     setError(null);
     try {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('cf_access_token')
-          : null;
-
-      const res = await fetch(`/api/v1/applications/${appId}/submit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error(`Submit failed (${res.status})`);
-      }
+      await loadJson(`/api/v1/applications/${appId}/submit`, { method: 'POST' });
 
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Submission failed');
+      setError(`The application was not submitted. ${toLoadError(err).message}`);
     } finally {
       setSubmitting(false);
     }

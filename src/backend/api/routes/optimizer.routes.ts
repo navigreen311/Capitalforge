@@ -20,6 +20,7 @@
 import { Router, type Response, type NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import { z, type ZodError } from 'zod';
+import { parseIssuer } from '../../../shared/constants/issuers.js';
 import {
   StackingOptimizerService,
   type OptimizerInput,
@@ -48,13 +49,37 @@ function cacheKey(tenantId: string, businessId: string): string {
 
 const ExistingCardSchema = z.object({
   id:        z.string().min(1),
-  issuer:    z.enum([
-    'chase', 'amex', 'capital_one', 'citi', 'bank_of_america',
-    'us_bank', 'wells_fargo', 'discover', 'td_bank', 'pnc',
-  ]),
+  // Any issuer, not the ten banks this used to enumerate — a credit union card
+  // was rejected at the door, which is where "the exemption has nowhere to
+  // live" started. Resolved to an identity below rather than trusted as text.
+  issuer:    z.string().min(1),
   openedAt:  z.string().datetime({ message: 'openedAt must be an ISO datetime string' }),
   isOpen:    z.boolean(),
 });
+
+/**
+ * Turn request cards into typed ones, dropping any whose issuer we cannot name.
+ *
+ * Dropping is deliberate. A card with an unrecognised issuer cannot be reasoned
+ * about — no velocity rule, no 5/24 treatment — and counting it as a bank card
+ * would be a guess in the direction that tells a client they are out of
+ * eligibility they still have.
+ */
+function toExistingCards(
+  cards: Array<{ id: string; issuer: string; openedAt: string; isOpen: boolean }>,
+): { cards: ExistingCard[]; unresolvedIssuers: string[] } {
+  const resolved: ExistingCard[] = [];
+  const unresolvedIssuers: string[] = [];
+  for (const card of cards) {
+    const issuer = parseIssuer(card.issuer);
+    if (!issuer) {
+      unresolvedIssuers.push(card.issuer);
+      continue;
+    }
+    resolved.push({ id: card.id, issuer, openedAt: card.openedAt, isOpen: card.isOpen });
+  }
+  return { cards: resolved, unresolvedIssuers };
+}
 
 const PersonalCreditSchema = z.object({
   ficoScore:          z.number().int().min(300).max(850),
@@ -166,7 +191,7 @@ optimizerRouter.post(
         ...businessProfile,
         businessId,
       },
-      existingCards: existingCards as ExistingCard[],
+      existingCards: toExistingCards(existingCards).cards,
       recentApplicationDates,
       excludeCardIds,
     };
@@ -279,7 +304,7 @@ optimizerRouter.post(
         ...businessProfile,
         businessId,
       },
-      existingCards: existingCards as ExistingCard[],
+      existingCards: toExistingCards(existingCards).cards,
       recentApplicationDates,
       excludeCardIds,
     };

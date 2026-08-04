@@ -13,7 +13,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface ClientOption { id: string; businessName: string }
 interface DocRow {
@@ -41,14 +41,14 @@ export default function DocumentsPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
-        const body = (await res.json()) as { success?: boolean; data?: ClientOption[] };
-        const list = body.success === true ? body.data ?? [] : [];
+        const list = (await loadJson<ClientOption[] | null>('/api/clients?limit=200')) ?? [];
         setClients(list);
         if (list.length > 0) setSelected(list[0].id);
         else setLoading(false);
-      } catch {
-        setError('Could not load the client list.');
+      } catch (e) {
+        // Previously a non-success answer produced an empty client list and no
+        // error, so an unreadable roster looked like a tenant with no clients.
+        setError(`Could not load the client list. ${toLoadError(e).message}`);
         setLoading(false);
       }
     })();
@@ -58,18 +58,14 @@ export default function DocumentsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/businesses/${encodeURIComponent(businessId)}/documents`, {
-        headers: authHeaders(),
-      });
-      const body = (await res.json()) as { success?: boolean; data?: { documents?: DocRow[] } };
-      if (!res.ok || body.success !== true) {
-        setError(`Documents could not be loaded (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      setRows(body.data?.documents ?? []);
-    } catch {
-      setError('Could not reach the server.');
+      const data = await loadJson<{ documents?: DocRow[] } | null>(
+        `/api/businesses/${encodeURIComponent(businessId)}/documents`,
+      );
+      setRows(data?.documents ?? []);
+    } catch (e) {
+      // rows stays null rather than becoming an empty list: this business may
+      // well have documents that could not be read.
+      setError(`Documents could not be loaded. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);
@@ -93,27 +89,21 @@ export default function DocumentsPage() {
       for (const b of bytes) binary += String.fromCharCode(b);
       const content = btoa(binary);
 
-      const res = await fetch(`/api/businesses/${encodeURIComponent(selected)}/documents`, {
+      await loadJson(`/api/businesses/${encodeURIComponent(selected)}/documents`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+        body: {
           documentType: docType,
           title: title.trim() === '' ? file.name : title.trim(),
           content,
           mimeType: file.type === '' ? 'application/octet-stream' : file.type,
-        }),
+        },
       });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: { message?: string } };
-        setUploadError(body.error?.message ?? `The document was not stored (HTTP ${res.status}).`);
-        return;
-      }
       setShowUpload(false);
       setFile(null);
       setTitle('');
       await load(selected);
-    } catch {
-      setUploadError('Could not reach the server, so nothing was uploaded.');
+    } catch (e) {
+      setUploadError(`The document was not stored. ${toLoadError(e).message}`);
     } finally {
       setUploading(false);
     }

@@ -18,6 +18,7 @@ import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { IssuerRulesEngine, EligibilityContext } from '../../services/issuer-rules-engine.js';
 import logger from '../../config/logger.js';
+import { isCreditUnionIssuerName, parseIssuer } from '../../../shared/constants/issuers.js';
 
 export const issuerRulesRouter = Router();
 
@@ -248,17 +249,40 @@ async function buildContextFromBusiness(
 
   const latestCredit = business.creditProfiles[0] ?? null;
 
-  // Count cards opened in the past 24 months (any issuer)
-  const newCardsLast24Months = business.cardApplications.filter(
+  // Count cards opened in the past 24 months, for Chase 5/24.
+  //
+  // Across all *bank* issuers — 5/24 counts cards from everywhere, which is why
+  // this deliberately does not filter to Chase. It previously did not filter at
+  // all, so a credit union application counted towards the limit. That is the
+  // inverse of the rule: credit union applications do not drive 5/24, and
+  // counting them tells a client who took the recommended credit union cards
+  // that they have exhausted their Chase eligibility when they have not.
+  // Following the advice would have been penalised by the advice.
+  const cardsInWindow = business.cardApplications.filter(
     (app) =>
       app.status === 'approved' &&
       app.decidedAt &&
       app.decidedAt > twentyFourMonthsAgo,
-  ).length;
+  );
+  const creditUnionCardsInWindow = cardsInWindow.filter((app) =>
+    isCreditUnionIssuerName(app.issuer),
+  );
+  const newCardsLast24Months = cardsInWindow.length - creditUnionCardsInWindow.length;
 
   // Count applications to this specific issuer
   const issuerApps = business.cardApplications.filter(
-    (app) => app.issuer.toLowerCase() === issuerName.toLowerCase(),
+    // Both sides through the boundary. This compared a CardApplication's
+    // display name against the Issuer table's display name, which agree only
+    // when both were typed the same way — "US Bank" against "U.S. Bank" did
+    // not match, and the result was an empty history that reads as a client
+    // who has never applied to this issuer.
+    (app) => {
+      const stored = parseIssuer(app.issuer);
+      const wanted = parseIssuer(issuerName);
+      return stored && wanted
+        ? stored.id === wanted.id
+        : app.issuer.toLowerCase() === issuerName.toLowerCase();
+    },
   );
   const issuerAppsInPeriod = issuerApps.filter(
     (app) => app.submittedAt && app.submittedAt > sixMonthsAgo,
@@ -308,6 +332,9 @@ async function buildContextFromBusiness(
 
   return {
     newCardsLast24Months,
+    // Reported rather than merely subtracted: an exemption that only shows up
+    // as a smaller number is indistinguishable from cards being missed.
+    creditUnionCardsExcludedFrom524: creditUnionCardsInWindow.length,
     issuerAppsInPeriod,
     lastApplicationDate: lastIssuerApp?.submittedAt?.toISOString() ?? null,
     lastDeclineDate: lastDecline?.decidedAt?.toISOString() ?? null,

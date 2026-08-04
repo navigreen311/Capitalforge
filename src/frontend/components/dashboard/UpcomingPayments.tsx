@@ -13,6 +13,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { TCPAReminderModal } from '@/components/dashboard/TCPAReminderModal';
+import { loadJson } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -152,23 +153,21 @@ function ReminderModal({
     if (eligible.length === 0) return;
     setSending(true);
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch('/api/v1/voiceforge/send-reminders', {
+      await loadJson('/api/v1/voiceforge/send-reminders', {
         method: 'POST',
-        headers,
-        body: JSON.stringify({
+        body: {
           client_ids: eligible.map((p) => p.client_id),
           count: eligible.length,
-        }),
+        },
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setSent(true);
       onSent();
     } catch (err) {
+      // Logged, not fixed: a failure is written to the console and nothing
+      // else. The button simply stops, with no error shown, so a send that
+      // never happened is indistinguishable from one not attempted. Surfacing
+      // it needs an error state this component does not have.
       console.error('[UpcomingPayments] send reminders failed:', err);
     } finally {
       setSending(false);

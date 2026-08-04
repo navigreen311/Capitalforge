@@ -13,6 +13,8 @@ import SuitabilityIndicator from '@/components/modules/suitability-indicator';
 import ConsentStatusGrid from '@/components/modules/consent-status-grid';
 import { SectionCard } from '@/components/ui/card';
 import { apiClient } from '@/lib/api-client';
+import { AddOwnerModal } from '@/components/clients/AddOwnerModal';
+import { toOwnerRows, totalOwnership } from '@/lib/owner-view';
 import type { SuitabilityResult, ConsentChannel } from '../../../shared/types';
 import type { ConsentRecord } from '@/components/modules/consent-status-grid';
 
@@ -173,9 +175,15 @@ function IndustrySection({ client }: { client: ProfileTabProps['client'] }) {
 
 /** Owners & Principals section */
 function OwnersSection({ clientId }: { clientId: string }) {
-  const { data: owners, isLoading, error, refetch } = useAuthFetch<Owner[]>(
+  const { data: rawOwners, isLoading, error, refetch } = useAuthFetch<unknown>(
     `/api/v1/clients/${clientId}/owners`,
   );
+  const [addOpen, setAddOpen] = useState(false);
+
+  // The endpoint returns BusinessOwner rows as stored — firstName, lastName,
+  // kycStatus. This card reads name, title, personalGuarantee, kycVerified.
+  // Without this mapping every owner rendered blank.
+  const ownerList = useMemo(() => toOwnerRows(rawOwners), [rawOwners]);
 
   if (isLoading) return <SkeletonCard lines={5} title="owners" />;
 
@@ -187,19 +195,27 @@ function OwnersSection({ clientId }: { clientId: string }) {
     );
   }
 
-  const ownerList = owners ?? [];
-  const MIN_REQUIRED_OWNERS = 1;
+  const recorded = totalOwnership(ownerList);
 
   return (
     <SectionCard
       title="Owners & Principals"
-      subtitle={`${ownerList.length} owner(s) on file`}
+      subtitle={
+        ownerList.length === 0
+          ? '0 owner(s) on file'
+          : `${ownerList.length} owner(s) on file · ${recorded}% recorded`
+      }
       action={
-        ownerList.length < MIN_REQUIRED_OWNERS ? (
-          <button className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-colors">
-            + Add Owner
-          </button>
-        ) : undefined
+        // This button rendered only while there were no owners, so a business
+        // with one owner had no way to record the others — and it carried no
+        // onClick in any case, so it did nothing when it did appear.
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-colors"
+        >
+          + Add Owner
+        </button>
       }
     >
       {ownerList.length === 0 ? (
@@ -239,6 +255,14 @@ function OwnersSection({ clientId }: { clientId: string }) {
           ))}
         </div>
       )}
+
+      <AddOwnerModal
+        isOpen={addOpen}
+        onClose={() => setAddOpen(false)}
+        clientId={clientId}
+        existingOwners={ownerList}
+        onSaved={refetch}
+      />
     </SectionCard>
   );
 }

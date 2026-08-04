@@ -21,7 +21,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface ClientOption {
   id: string;
@@ -75,13 +75,11 @@ export default function SimulatorPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
-        const body = (await res.json()) as { success?: boolean; data?: ClientOption[] };
-        const list = body.success === true ? body.data ?? [] : [];
+        const list = (await loadJson<ClientOption[] | null>('/api/clients?limit=200')) ?? [];
         setClients(list);
         if (list.length > 0) setBusinessId(list[0].id);
-      } catch {
-        setError('Could not load the client list.');
+      } catch (e) {
+        setError(`Could not load the client list. ${toLoadError(e).message}`);
       }
     })();
   }, []);
@@ -90,26 +88,15 @@ export default function SimulatorPage() {
     setRunning(true);
     setError(null);
     try {
-      const res = await fetch('/api/simulator/run', {
+      const data = await loadJson<Record<string, unknown> | null>('/api/simulator/run', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+        body: {
           profile: { ...profile, ...(businessId === '' ? {} : { businessId }) },
-        }),
+        },
       });
-      const body = (await res.json()) as {
-        success?: boolean;
-        data?: Record<string, unknown>;
-        error?: { message?: string };
-      };
-      if (!res.ok || body.success !== true) {
-        setError(body.error?.message ?? `The scenario did not run (HTTP ${res.status}).`);
-        setResult(null);
-        return;
-      }
-      setResult(body.data ?? null);
-    } catch {
-      setError('Could not reach the server, so no scenario was run.');
+      setResult(data ?? null);
+    } catch (e) {
+      setError(`The scenario did not run. ${toLoadError(e).message}`);
       setResult(null);
     } finally {
       setRunning(false);

@@ -6,6 +6,7 @@
 
 import { useState, useCallback, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -315,22 +316,10 @@ function BillingTab({
   const handleManageSubscription = async () => {
     setPortalLoading(true);
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch(`${BILLING_API}/stripe/portal`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({}),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to create billing portal session');
-      }
-
-      const json = await res.json();
-      const { url, mock } = json.data;
+      const { url, mock } = await loadJson<{ url: string; mock: boolean }>(
+        `${BILLING_API}/stripe/portal`,
+        { method: 'POST', body: {} },
+      );
 
       if (mock) {
         toast.show('Stripe is not configured. Set STRIPE_SECRET_KEY in your environment to enable billing management.');
@@ -526,7 +515,19 @@ function SettingsPageInner() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  /**
+   * Whether 2FA is on, or null while that is not known.
+   *
+   * This was a plain boolean defaulting to false, so a status request that
+   * failed rendered the panel exactly as it renders for an account with 2FA
+   * switched off — down to the "Enable Two-Factor Authentication" button. On a
+   * security setting that is the wrong way round: telling someone their
+   * account is unprotected when it may well be protected invites them to
+   * re-run a setup they do not need, and telling them nothing at all is
+   * better than telling them something false about their own security.
+   */
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean | null>(null);
+  const [twoFactorStatusError, setTwoFactorStatusError] = useState<string | null>(null);
   const [twoFactorSetupPhase, setTwoFactorSetupPhase] = useState<'idle' | 'loading' | 'qr' | 'verifying'>('idle');
   const [twoFactorSecret, setTwoFactorSecret] = useState('');
   const [twoFactorQr, setTwoFactorQr] = useState<string | null>(null);
@@ -546,48 +547,44 @@ function SettingsPageInner() {
     toast.show('Password changed successfully');
   };
 
+  const load2FAStatus = useCallback(async () => {
+    setTwoFactorStatusError(null);
+    try {
+      const data = await loadJson<{ enabled?: boolean; mock?: boolean } | null>(
+        '/api/auth/2fa/status',
+      );
+      setTwoFactorEnabled(data?.enabled ?? false);
+      setTwoFactorMock(data?.mock ?? false);
+    } catch (e) {
+      // Left as null. The panel shows that it does not know, and offers a
+      // retry, rather than falling back to "off".
+      setTwoFactorEnabled(null);
+      setTwoFactorStatusError(toLoadError(e).message);
+    }
+  }, []);
+
   // Check 2FA status on mount
   useEffect(() => {
-    (async () => {
-      try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-        const res = await fetch('/api/auth/2fa/status', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setTwoFactorEnabled(data.data?.enabled ?? false);
-          setTwoFactorMock(data.data?.mock ?? false);
-        }
-      } catch { /* ignore */ }
-    })();
-  }, []);
+    void load2FAStatus();
+  }, [load2FAStatus]);
 
   const handle2FASetup = async () => {
     setTwoFactorSetupPhase('loading');
     setTwoFactorMessage('');
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/auth/2fa/setup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTwoFactorSecret(data.data.secret);
-        setTwoFactorQr(data.data.qrDataUrl ?? null);
-        setTwoFactorMock(data.data.mock ?? false);
-        setTwoFactorMessage(data.data.message ?? '');
-        setTwoFactorSetupPhase('qr');
-      } else {
-        toast.show(data.error?.message ?? 'Failed to set up 2FA');
-        setTwoFactorSetupPhase('idle');
-      }
-    } catch {
-      toast.show('Failed to set up 2FA');
+      const data = await loadJson<{
+        secret: string;
+        qrDataUrl?: string;
+        mock?: boolean;
+        message?: string;
+      }>('/api/auth/2fa/setup', { method: 'POST' });
+      setTwoFactorSecret(data.secret);
+      setTwoFactorQr(data.qrDataUrl ?? null);
+      setTwoFactorMock(data.mock ?? false);
+      setTwoFactorMessage(data.message ?? '');
+      setTwoFactorSetupPhase('qr');
+    } catch (e) {
+      toast.show(`Failed to set up 2FA. ${toLoadError(e).message}`);
       setTwoFactorSetupPhase('idle');
     }
   };
@@ -596,29 +593,21 @@ function SettingsPageInner() {
     if (twoFactorCode.length !== 6) { toast.show('Enter a 6-digit code'); return; }
     setTwoFactorSetupPhase('verifying');
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/auth/2fa/verify', {
+      await loadJson('/api/auth/2fa/verify', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ code: twoFactorCode }),
+        body: { code: twoFactorCode },
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTwoFactorEnabled(true);
-        setTwoFactorSetupPhase('idle');
-        setTwoFactorCode('');
-        setTwoFactorSecret('');
-        setTwoFactorQr(null);
-        toast.show('2FA enabled successfully');
-      } else {
-        toast.show(data.error?.message ?? 'Invalid code');
-        setTwoFactorSetupPhase('qr');
-      }
-    } catch {
-      toast.show('Verification failed');
+      setTwoFactorEnabled(true);
+      setTwoFactorSetupPhase('idle');
+      setTwoFactorCode('');
+      setTwoFactorSecret('');
+      setTwoFactorQr(null);
+      toast.show('2FA enabled successfully');
+    } catch (e) {
+      // Stays on the QR step. 2FA is only reported enabled once the server
+      // has accepted a code — telling someone their account is protected when
+      // it is not is the worst failure this page could produce.
+      toast.show(toLoadError(e).message);
       setTwoFactorSetupPhase('qr');
     }
   };
@@ -626,26 +615,16 @@ function SettingsPageInner() {
   const handle2FADisable = async () => {
     if (!disablePassword) { toast.show('Password is required'); return; }
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const res = await fetch('/api/auth/2fa/disable', {
+      await loadJson('/api/auth/2fa/disable', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ password: disablePassword }),
+        body: { password: disablePassword },
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTwoFactorEnabled(false);
-        setDisableModalOpen(false);
-        setDisablePassword('');
-        toast.show('2FA disabled');
-      } else {
-        toast.show(data.error?.message ?? 'Failed to disable 2FA');
-      }
-    } catch {
-      toast.show('Failed to disable 2FA');
+      setTwoFactorEnabled(false);
+      setDisableModalOpen(false);
+      setDisablePassword('');
+      toast.show('2FA disabled');
+    } catch (e) {
+      toast.show(`Failed to disable 2FA. ${toLoadError(e).message}`);
     }
   };
 
@@ -1123,16 +1102,46 @@ function SettingsPageInner() {
                 <h3 className="text-sm font-semibold text-gray-200">Two-Factor Authentication</h3>
                 <p className="text-xs text-gray-500 mt-1">Add an extra layer of security to your account</p>
               </div>
-              {twoFactorEnabled && (
+              {twoFactorEnabled === true && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-900/50 border border-emerald-700/50 text-emerald-400 text-xs font-medium">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   2FA Enabled
                 </span>
               )}
+              {twoFactorEnabled === null && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-900/40 border border-amber-700/50 text-amber-400 text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Status unknown
+                </span>
+              )}
             </div>
 
+            {/*
+              Status could not be read. Deliberately offers neither "Enable"
+              nor "Disable": both state a fact about the account that this
+              panel does not currently have. The only honest action is to ask
+              again.
+            */}
+            {twoFactorEnabled === null && twoFactorSetupPhase === 'idle' && (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-amber-700/50 bg-amber-900/20 p-4 text-xs text-amber-300">
+                  Whether two-factor authentication is enabled on this account could not be
+                  read, so it is not shown either way.
+                  {twoFactorStatusError !== null && (
+                    <span className="block mt-1 text-amber-400/80">{twoFactorStatusError}</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => void load2FAStatus()}
+                  className="px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-300 text-xs font-medium hover:bg-gray-700 transition-colors"
+                >
+                  Check again
+                </button>
+              </div>
+            )}
+
             {/* Status: 2FA is enabled */}
-            {twoFactorEnabled && twoFactorSetupPhase === 'idle' && (
+            {twoFactorEnabled === true && twoFactorSetupPhase === 'idle' && (
               <div className="space-y-3">
                 <div className="rounded-lg border border-emerald-700/50 bg-emerald-900/20 p-4 text-xs text-emerald-400">
                   Two-factor authentication is active. You will be prompted for a verification code on each login.
@@ -1147,7 +1156,7 @@ function SettingsPageInner() {
             )}
 
             {/* Status: 2FA not enabled — show setup button */}
-            {!twoFactorEnabled && twoFactorSetupPhase === 'idle' && (
+            {twoFactorEnabled === false && twoFactorSetupPhase === 'idle' && (
               <div className="space-y-3">
                 <div className="rounded-lg border border-gray-700/50 bg-gray-800/50 p-4 text-xs text-gray-400">
                   Enable 2FA to require a verification code from an authenticator app when signing in.

@@ -213,36 +213,31 @@ export default function PlatformReferralsPage() {
       notes: formNotes.trim() || undefined,
     };
 
-    // Try to persist via API, but always add locally
+    // Persisted, or reported. This used to be commented "try to persist via
+    // API, but always add locally": a refused POST still pushed the referral
+    // into the list, so it appeared saved, and the next reload lost it. A
+    // referral that only exists on this screen is worse than one that was
+    // never entered, because nobody knows to enter it again.
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const _h: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) _h['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('/api/platform/referrals', {
+      const saved = await loadJson<Referral | null>('/api/platform/referrals', {
         method: 'POST',
-        headers: _h,
-        body: JSON.stringify({
+        body: {
           advisorId: newReferral.advisorId,
           advisorName: newReferral.advisorName,
           businessName: newReferral.businessName,
           source: newReferral.source,
           referredDate: newReferral.referredDate,
           notes: newReferral.notes,
-        }),
+        },
       });
-      const json = await res.json();
-      if (json.success && json.data) {
-        setReferrals(prev => [...prev, json.data]);
-      } else {
-        setReferrals(prev => [...prev, newReferral]);
-      }
-    } catch {
-      // Offline / API unavailable — add locally
-      setReferrals(prev => [...prev, newReferral]);
+      setReferrals((prev) => [...prev, saved ?? newReferral]);
+      setShowModal(false);
+      resetForm();
+    } catch (e) {
+      setToast(`The referral was not saved. ${toLoadError(e).message}`);
+      setTimeout(() => setToast(null), 6000);
+      return;
     }
-
-    setShowModal(false);
-    resetForm();
     setToast('Referral logged');
     setTimeout(() => setToast(null), 3000);
   };

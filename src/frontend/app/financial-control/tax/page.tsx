@@ -18,7 +18,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface TaxState {
   documents: unknown[];
@@ -35,16 +35,10 @@ export default function TaxDocumentsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/financial/tax-documents', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: TaxState };
-      if (!res.ok || body.success !== true || body.data === undefined) {
-        setError(`Tax documents could not be loaded (HTTP ${res.status}).`);
-        setState(null);
-        return;
-      }
-      setState(body.data);
-    } catch {
-      setError('Could not reach the server.');
+      const data = await loadJson<TaxState>('/api/financial/tax-documents');
+      setState(data);
+    } catch (e) {
+      setError(`Tax documents could not be loaded. ${toLoadError(e).message}`);
       setState(null);
     } finally {
       setLoading(false);

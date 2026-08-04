@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, FormEvent, Suspense } from 'react';
+import { useState, useEffect, FormEvent, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SectionCard } from '@/components/ui/card';
+import { loadJson, toLoadError } from '@/lib/load-json';
+import { toClientRows, type ClientRow } from '@/lib/client-roster-view';
 
 // ── Issuer / card product options ──────────────────────────────
 
@@ -41,6 +43,26 @@ function NewApplicationPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clients, setClients] = useState<ClientRow[]>([]);
+
+  // The client was a free-text box, and `businessId` came only from a
+  // `client_id` query parameter. Arriving at this page any other way — the
+  // sidebar, a bookmark — left it unset, and the API requires it: the form
+  // could be filled in completely and still be refused for a field it never
+  // offered. Typing a name here never set an id, so the name was decoration.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await loadJson<unknown>('/api/clients?limit=200');
+        if (!cancelled) setClients(toClientRows(data));
+      } catch {
+        // Leave the list empty; the field explains itself below.
+        if (!cancelled) setClients([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const availableProducts = ISSUERS.find((i) => i.issuer === form.issuer)?.products ?? [];
 
@@ -53,7 +75,9 @@ function NewApplicationPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!form.issuer || !form.cardProduct || !form.requestedLimit) {
+    // The API refuses without a business, so check it here rather than
+    // letting the server explain a field the form used not to collect.
+    if (!form.clientId || !form.issuer || !form.cardProduct || !form.requestedLimit) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -62,32 +86,24 @@ function NewApplicationPage() {
     setError(null);
 
     try {
-      const token = localStorage.getItem('cf_access_token');
-      const res = await fetch('/api/v1/applications', {
+      await loadJson('/api/v1/applications', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
+        body: {
           businessId: form.clientId || undefined,
           issuer: form.issuer,
           cardProduct: form.cardProduct,
           requestedLimit: Number(form.requestedLimit),
           businessPurpose: form.businessPurpose,
           status: 'draft',
-        }),
+        },
       });
-
-      if (res.ok) {
-        router.push('/applications');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setError((data as { error?: { message?: string } })?.error?.message ?? 'Failed to create application');
-      }
-    } catch {
-      // If API doesn't exist yet, just redirect back
       router.push('/applications');
+    } catch (e) {
+      // This used to navigate to the list — "If API doesn't exist yet, just
+      // redirect back". A request that never completed took the user to a
+      // page of applications theirs was not on, which reads as success. Stay
+      // here and say what happened.
+      setError(`No application was created. ${toLoadError(e).message}`);
     } finally {
       setSubmitting(false);
     }
@@ -112,16 +128,28 @@ function NewApplicationPage() {
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Client */}
           <div>
-            <label htmlFor="clientName" className="cf-label">Client / Business Name</label>
-            <input
-              id="clientName"
-              name="clientName"
-              type="text"
-              placeholder="Search or enter client name..."
-              value={form.clientName}
+            <label htmlFor="clientId" className="cf-label">
+              Client / Business Name <span className="text-red-500">*</span>
+            </label>
+            <select
+              id="clientId"
+              name="clientId"
+              value={form.clientId}
               onChange={handleChange}
               className="cf-input"
-            />
+            >
+              <option value="">Select a client...</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.businessName}
+                </option>
+              ))}
+            </select>
+            {clients.length === 0 && (
+              <p className="text-xs text-gray-400 mt-1">
+                No clients could be loaded. An application must belong to one.
+              </p>
+            )}
             {prefillClientId && (
               <p className="text-xs text-gray-400 mt-1">Pre-filled from client: {prefillClientId}</p>
             )}

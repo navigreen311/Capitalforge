@@ -10,6 +10,7 @@
 //   - Resource-level helpers for every backend domain
 
 import type { ApiResponse, PaginationParams } from '../../shared/types';
+import { attemptTokenRefresh, canRecoverSession } from './token-refresh';
 
 // ─── Re-export core types ─────────────────────────────────────────────────────
 export type { ApiResponse };
@@ -120,43 +121,64 @@ async function request<T>(
   const qs = params ? buildQuery(params) : '';
   const url = `${BASE_URL}${path}${qs}`;
 
-  // Headers
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-    ...(extraHeaders as Record<string, string>),
+  // Built per attempt, not once: a retry after a refresh has to carry the new
+  // token, and reusing the first attempt's headers would repeat the 401.
+  const buildHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(extraHeaders as Record<string, string>),
+    };
+    if (!skipAuth) {
+      const token = getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
   };
 
-  if (!skipAuth) {
-    const token = getAuthToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-  }
+  const send = async (): Promise<Response> => {
+    // Timeout via AbortController
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  // Timeout via AbortController
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-      ...restInit,
-    });
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error(`Request timed out after ${timeoutMs}ms [${method} ${path}]`);
+    try {
+      return await fetch(url, {
+        method,
+        headers: buildHeaders(),
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+        ...restInit,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error(`Request timed out after ${timeoutMs}ms [${method} ${path}]`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
     }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
+  };
+
+  // No access token but a refresh token to trade for one: spend it now rather
+  // than sending a request with no Authorization header, which the API
+  // rejects as AUTH_TOKEN_MISSING. Worth doing before the attempt because
+  // some of these calls are submits — by the time the error came back, the
+  // caller had already filled in a five-step form.
+  if (!skipAuth && canRecoverSession()) {
+    await attemptTokenRefresh();
   }
 
-  // 401 — throw ApiRequestError so callers (e.g. useAuthFetch) can handle retry logic.
-  // Do NOT redirect to login here; let the hook decide after attempting a token refresh.
+  let response = await send();
+
+  // 401 — every imperative caller used to get this raw. `useAuthFetch` and the
+  // `loadJson` helpers each grew their own refresh-and-retry; the twelve
+  // components calling `apiClient` directly never did, so an access token that
+  // aged out mid-page turned the next click into a hard failure with a
+  // server-worded message. Doing it here covers all of them at once.
+  // `attemptTokenRefresh` is single-flight, so concurrent 401s share one call.
+  if (!skipAuth && response.status === 401 && (await attemptTokenRefresh())) {
+    response = await send();
+  }
 
   // Parse response
   const contentType = response.headers.get('content-type') ?? '';
@@ -178,8 +200,36 @@ async function request<T>(
   }
 
   if (!response.ok) {
+    // `ApiRequestError` reads `payload.error.message`, so a failure body
+    // without an `error` object threw a TypeError from inside the error
+    // constructor — the caller got "Cannot read properties of undefined"
+    // in place of the status it actually needed to handle. Every route in
+    // this API sends the envelope, but a proxy, a gateway or an unhandled
+    // throw upstream does not.
+    const payload = parsed as Partial<ApiErrorPayload>;
+    let error = payload.error ?? {
+      code: 'UNEXPECTED_ERROR',
+      message: response.statusText || `Request failed (${response.status})`,
+    };
+
+    // A 401 that survived the refresh above means there is no session left to
+    // repair. "Authorization token is required." is accurate and useless: it
+    // describes a missing HTTP header to someone who has just filled in a
+    // form and been told nothing about why it will not send. Nothing else in
+    // the interface says they are signed out — the name in the header is a
+    // placeholder and no route guards this page — so this message is the
+    // only place it can be said.
+    if (!skipAuth && response.status === 401) {
+      error = {
+        ...error,
+        message: 'Your session has ended. Sign in again to continue.',
+      };
+    }
+
     throw new ApiRequestError({
-      ...(parsed as ApiErrorPayload),
+      success: false,
+      ...payload,
+      error,
       statusCode: response.status,
     });
   }

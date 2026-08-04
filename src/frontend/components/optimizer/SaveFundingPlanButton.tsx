@@ -53,11 +53,6 @@ export function SaveFundingPlanButton({
     setStatus('loading');
 
     try {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('cf_access_token')
-          : null;
-
       await apiClient.post(
         `/v1/clients/${clientId}/funding-plans`,
         {
@@ -68,9 +63,6 @@ export function SaveFundingPlanButton({
             estimated_credit_max: r.creditMax,
             wait_days: r.waitDays,
           })),
-        },
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         },
       );
 

@@ -20,6 +20,8 @@ import {
 } from '@/lib/timeline-view';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard } from '../ui/card';
+import { publishEvent } from '@/components/dashboard/DashboardEventBus';
+import { toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -245,35 +247,36 @@ export function TimelineTab({ clientId }: TimelineTabProps) {
       setIsModalOpen(false);
 
       try {
-        const token =
-          typeof window !== 'undefined'
-            ? localStorage.getItem('cf_access_token')
-            : null;
-
-        await fetch('/api/v1/events', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            event_type: 'client.advisor_note_added',
-            payload: { client_id: clientId, note_text: noteText },
-          }),
+        // aggregateId, not just client_id: the server derives the ledger row's
+        // aggregate id from payload.aggregateId ?? payload.id ?? randomUUID().
+        // Without it the note would be written under a random id and could
+        // never be read back for the client it belongs to — a write that
+        // succeeds and cannot be found.
+        await publishEvent('client.advisor_note_added', {
+          aggregateId: clientId,
+          client_id: clientId,
+          note_text: noteText,
         });
 
-        // Success toast (simple alert fallback — would use a toast library in prod)
         if (typeof window !== 'undefined') {
-          // Dispatch a custom event that a toast system could pick up
           window.dispatchEvent(
             new CustomEvent('cf:toast', {
               detail: { message: 'Note added to timeline', type: 'success' },
             }),
           );
         }
-      } catch {
-        // Silently handle — optimistic event stays visible
-        console.error('[TimelineTab] Failed to save note');
+      } catch (e) {
+        console.error('[TimelineTab] Failed to save note', e);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('cf:toast', {
+              detail: {
+                message: `The note was not saved. ${toLoadError(e).message}`,
+                type: 'error',
+              },
+            }),
+          );
+        }
       } finally {
         setIsSaving(false);
       }

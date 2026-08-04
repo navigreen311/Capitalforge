@@ -8,7 +8,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson } from '@/lib/load-json';
 import { useParams, useRouter } from 'next/navigation';
 import { clientsApi, applicationsApi } from '../../../lib/api-client';
 import { EditProfileModal } from '../../../components/clients/EditProfileModal';
@@ -35,6 +35,7 @@ interface BusinessProfile {
   businessName: string;
   legalName: string;
   entityType: string;
+  dba?: string;
   ein: string;
   stateOfFormation: string;
   dateOfFormation?: string;
@@ -50,6 +51,15 @@ interface BusinessProfile {
   industry?: string;
   naicsCode?: string;
   mcc?: string;
+  // Present on the record since the address columns were added. Optional
+  // because a client created before that has none.
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  phoneNumber?: string;
+  businessEmail?: string;
   createdAt: string;
 }
 
@@ -166,16 +176,17 @@ export default function ClientDetailPage() {
         const [bizRes, appsRes, suitRes] = await Promise.allSettled([
           clientsApi.get(id),
           applicationsApi.list({ businessId: id }),
-          fetch(`/api/businesses/${encodeURIComponent(id)}/suitability/latest`, {
-            headers: authHeaders(),
-          }).then((r) => (r.ok ? r.json() : null)),
+          loadJson<SuitabilityResult | null>(
+            `/api/businesses/${encodeURIComponent(id)}/suitability/latest`,
+          ),
         ]);
 
         // Only a recorded check. No result means no check has been run, which
-        // is not the same as a client being unsuitable.
-        if (suitRes.status === 'fulfilled' && suitRes.value !== null) {
-          const body = suitRes.value as { success?: boolean; data?: SuitabilityResult | null };
-          setSuitability(body.success === true ? body.data ?? null : null);
+        // is not the same as a client being unsuitable — and a rejected
+        // request is neither, so it leaves suitability untouched rather than
+        // asserting that nothing was recorded.
+        if (suitRes.status === 'fulfilled') {
+          setSuitability(suitRes.value ?? null);
         }
 
         if (bizRes.status === 'fulfilled' && bizRes.value.success && bizRes.value.data) {
@@ -240,14 +251,24 @@ export default function ClientDetailPage() {
     .reduce((s, a) => s + (a.approvedLimit ?? 0), 0);
 
   const handleEditSave = async (updated: Record<string, unknown>) => {
+    let saved: BusinessProfile | null = null;
     try {
-      await clientsApi.update(id, updated);
-      setBusiness((prev) => prev ? { ...prev, ...updated } as BusinessProfile : prev);
-      setEditOpen(false);
-      showToast('Profile updated successfully');
-    } catch {
-      throw new Error('Failed to save');
+      const res = await clientsApi.update(id, updated);
+      // Show what the server stored, not what was typed. Merging the form
+      // values assumed the write matched the request — a field the API
+      // normalised, ignored or rejected still appeared changed on the page.
+      saved = (res?.data as BusinessProfile) ?? null;
+    } catch (e) {
+      // Carry the server's reason through to the modal rather than replacing
+      // it with "Failed to save", which says nothing anyone can act on.
+      throw new Error(
+        e instanceof Error && e.message ? e.message : 'The changes could not be saved.',
+      );
     }
+
+    setBusiness((prev) => (saved ?? (prev ? ({ ...prev, ...updated } as BusinessProfile) : prev)));
+    setEditOpen(false);
+    showToast('Profile updated successfully');
   };
 
   return (
@@ -479,17 +500,33 @@ export default function ClientDetailPage() {
         <EditProfileModal
           isOpen={editOpen}
           onClose={() => setEditOpen(false)}
+          // The API returns null for anything unset, and a null on a React
+          // input makes it uncontrolled — which renders as an empty box that
+          // silently ignores what the record holds. Every field is coerced.
           client={{
             id: biz.id,
-            legalName: biz.legalName,
-            entityType: biz.entityType,
-            stateOfFormation: biz.stateOfFormation,
-            annualRevenue: biz.annualRevenue,
-            employees: biz.employees,
+            legalName: biz.legalName ?? '',
+            entityType: biz.entityType ?? '',
+            stateOfFormation: biz.stateOfFormation ?? '',
+            annualRevenue: biz.annualRevenue ?? 0,
+            employees: biz.employees ?? 0,
             website: biz.website ?? '',
             industry: biz.industry ?? '',
             naicsCode: biz.naicsCode ?? '',
             mcc: biz.mcc ?? '',
+            dba: biz.dba ?? '',
+            ein: biz.ein ?? '',
+            // <input type="date"> needs YYYY-MM-DD; the API sends an ISO
+            // timestamp, which the control rejects and shows blank.
+            dateOfFormation: biz.dateOfFormation ? biz.dateOfFormation.slice(0, 10) : '',
+            monthlyRevenue: biz.monthlyRevenue ?? 0,
+            addressLine1: biz.addressLine1 ?? '',
+            addressLine2: biz.addressLine2 ?? '',
+            city: biz.city ?? '',
+            state: biz.state ?? '',
+            zip: biz.zip ?? '',
+            phoneNumber: biz.phoneNumber ?? '',
+            businessEmail: biz.businessEmail ?? '',
           }}
           onSave={handleEditSave}
         />

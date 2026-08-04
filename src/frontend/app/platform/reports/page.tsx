@@ -20,7 +20,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import { toApplicationRows, toClientRows, type ApplicationRow, type ClientRow } from '@/lib/client-roster-view';
 
 export default function PlatformReportsPage() {
@@ -35,9 +35,7 @@ export default function PlatformReportsPage() {
     setLoading(true);
     setError(null);
     try {
-      const clientsRes = await fetch('/api/clients?limit=500', { headers: authHeaders() });
-      const clientsBody = (await clientsRes.json()) as { success?: boolean; data?: unknown };
-      setClients(clientsBody.success === true ? toClientRows(clientsBody.data) : []);
+      setClients(toClientRows(await loadJson<unknown>('/api/clients?limit=500')));
 
       const { rows, truncated: cut } = await fetchAllPages('/api/applications', (json) => {
         const body = json as { success?: boolean; data?: unknown };
@@ -46,8 +44,8 @@ export default function PlatformReportsPage() {
       setApps(rows);
       setTruncated(cut);
       setGeneratedAt(new Date().toISOString());
-    } catch {
-      setError('Could not reach the server, so no figures are shown.');
+    } catch (e) {
+      setError(`No figures are shown. ${toLoadError(e).message}`);
       setClients(null);
       setApps(null);
     } finally {

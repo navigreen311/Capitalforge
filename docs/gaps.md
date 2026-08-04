@@ -22,8 +22,13 @@ be made before any of it can be built.
 
 ## 1. Endpoints that refuse
 
-Nineteen endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
+Twenty-one endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
 body, so a caller does not have to read the source to find out.
+
+The last two arrived differently from the rest. They were not refusals that had
+always been honest — they were mocks that answered `200` and `201` and reported
+success for writes that never happened. They are listed here because the gap is
+the same shape; only the reporting was worse.
 
 Every row below was verified by calling it against a running server, not by
 reading the handler. That check found one endpoint answering `404` instead —
@@ -44,8 +49,66 @@ It answers `501` now.
 | `POST /api/platform/reports/schedules` | Nothing stores a schedule and nothing runs one. | **Table + a runner.** |
 | `PATCH /api/platform/offboarding/:id/advance` | Deliberate: stage moves when the export or the deletion actually happens, not because somebody advanced it. | **None — this one should stay refused.** Advancing by hand is how a workflow claims a deletion that never ran. |
 | `POST /api/declines/:id/reminder` | Nothing schedules or delivers a reapply reminder. | **Product.** Same scheduling question as overdue reminders. |
+| `POST /api/optimizer/save-strategy` | No table stores an optimizer strategy. This answered `200` with `{ savedAt, clientId }` and wrote nothing, while the page reported "Strategy saved to *client* profile". | **Table.** A `SavedStrategy` holding the plan as JSON, including the input provenance it was built on. See `docs/backlog/saved-strategy-and-funding-round-persistence.md`. |
+| `POST /api/optimizer/create-round` | Nothing created the round. This answered `201` with an invented id — `round-<client>-<n>-<timestamp>` — reported "Funding Round N created" and navigated to `/funding-rounds`, where it was not. | **Wiring.** `FundingRound` exists; the optimizer never wrote one. Should call the same service the Funding Rounds page uses rather than adding a second creation path. |
 
 ---
+
+## 1b. A rule that was inverted — fixed 2026-08-04
+
+Everything else on this page is something the system declines to do. This one
+it does wrongly, which is a different category and is recorded separately so it
+is not mistaken for a gap that can wait.
+
+**Chase 5/24 counts credit union applications, when the point of a credit union
+application is that it does not count.**
+
+`issuer-rules.routes.ts:251` counts new cards in the 24-month window as:
+
+```ts
+business.cardApplications.filter(
+  (app) => app.status === 'approved' && app.decidedAt > twentyFourMonthsAgo,
+).length
+```
+
+Every approved application, whatever the issuer. `CardApplication.issuer` is a
+free string, so a credit union application is counted like a Chase one.
+
+Credit union applications do not report to the bureaus in the way that drives
+Chase 5/24, and `issuer-rules-engine.ts` says so in two places — *"Credit union
+applications do not count against Chase 5/24 or Amex velocity limits"*
+(line 666), *"Apply freely without impacting major bank eligibility"* (line 704).
+The engine holding that knowledge is not the code doing the counting.
+
+**Consequence if promoted to the live path.** The optimizer does not evaluate
+5/24 today, so nothing acts on this yet. The moment it is wired up — which is
+the obvious next step, and the reason the Credit Union Eligibility panel exists —
+a client who took the recommended credit union cards would be told they had
+exhausted their Chase eligibility when they had not. The advice would penalise
+the client for following the advice.
+
+**Cost.** *Correctness fix, small.* The count needs to exclude credit union
+issuers. It also needs an issuer identity it can trust: `CardApplication.issuer`
+is free text, and the credit union slugs in `issuer-rules-engine.ts`
+(`lake_michigan`) already disagree with the ones in `card_products`
+(`lake_michigan_cu`).
+
+**Fixed.** The count now excludes credit union applications, via
+`isCreditUnionIssuerName` in `src/shared/constants/issuers.ts`, which matches a
+slug, a known display name, or anything self-identifying as a credit union — so
+a credit union added to the catalogue without being added to the alias list is
+treated as one rather than silently counted as a bank.
+
+The exemption is *reported*, not merely subtracted:
+`creditUnionCardsExcludedFrom524` travels with the count. A number that is
+simply smaller is indistinguishable from cards having been missed, and an
+advisor reading "3" could not otherwise tell whether the client has three cards
+or five with two exempted.
+
+Recorded here rather than deleted because the entry is the reason the
+consolidation work has a fixed order: there are three velocity implementations,
+this was the only one that was wrong, and merging before fixing it risked making
+it the survivor.
 
 ## 2. Figures that are absent rather than zero
 

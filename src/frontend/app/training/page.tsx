@@ -40,6 +40,7 @@ import {
   type TrackStanding,
   type CertStatus,
 } from '@/lib/training-view';
+import { loadJson } from '@/lib/load-json';
 
 const STATUS_STYLE: Record<CertStatus, { label: string; cls: string }> = {
   passed: { label: 'Passed', cls: 'bg-green-900 text-green-300 border-green-700' },
@@ -48,11 +49,6 @@ const STATUS_STYLE: Record<CertStatus, { label: string; cls: string }> = {
   expired: { label: 'Expired', cls: 'bg-orange-900 text-orange-300 border-orange-700' },
   not_started: { label: 'Not started', cls: 'bg-gray-800 text-gray-500 border-gray-700' },
 };
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 function formatDate(iso: string | null): string {
   if (iso === null) return '—';
@@ -78,32 +74,25 @@ export default function TrainingPage() {
     setLoading(true);
     setLoadError(null);
     setPartial([]);
-    const headers = authHeaders();
     const failed: string[] = [];
 
     try {
-      const [tracksRes, certsRes] = await Promise.all([
-        fetch('/api/training/tracks', { headers }),
-        fetch('/api/training/certifications', { headers }),
+      // Per-endpoint reporting, kept: the catch is on each promise rather than
+      // around the group, so one failure names itself instead of emptying both.
+      const [tracks, certs] = await Promise.all([
+        loadJson<unknown>('/api/training/tracks').then(toTracks).catch(() => null),
+        loadJson<unknown>('/api/training/certifications')
+          .then(toCertifications)
+          .catch(() => null),
       ]);
 
-      if (tracksRes.ok) {
-        const body = (await tracksRes.json()) as { success?: boolean; data?: unknown };
-        setTracks(body.success === true ? toTracks(body.data) : []);
-      } else {
-        setTracks([]);
-        failed.push('the catalogue');
-      }
+      setTracks(tracks ?? []);
+      if (tracks === null) failed.push('the catalogue');
 
-      if (certsRes.ok) {
-        const body = (await certsRes.json()) as { success?: boolean; data?: unknown };
-        setCerts(body.success === true ? toCertifications(body.data) : []);
-      } else {
-        setCerts([]);
-        // Without this the page would show every track as not started, which
-        // reads as "you have done none of it".
-        failed.push('your certifications');
-      }
+      setCerts(certs ?? []);
+      // Without this the page would show every track as not started, which
+      // reads as "you have done none of it".
+      if (certs === null) failed.push('your certifications');
 
       setPartial(failed);
     } catch {

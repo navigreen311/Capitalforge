@@ -7,7 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,6 +40,10 @@ function slaFromCreated(created: string): string {
   return d.toISOString();
 }
 
+/**
+ * Sample rows, no longer rendered. See the note on `complaints` below — these
+ * must never reach the register again.
+ */
 const PLACEHOLDER_COMPLAINTS: Complaint[] = [
   { id: 'CMP-001', businessName: 'Apex Ventures LLC',       complaintType: 'Billing',          channel: 'Email',       status: 'Under Review', description: 'Client disputes fee charged on March statement. Claims no disclosure.',                  createdAt: '2026-03-15T10:00:00Z', updatedAt: '2026-03-20T14:00:00Z', assignee: 'Sarah Chen',      slaDeadline: slaFromCreated('2026-03-15T10:00:00Z') },
   { id: 'CMP-002', businessName: 'NovaTech Solutions Inc.',  complaintType: 'Fair Lending',     channel: 'Web Portal',  status: 'Escalated',    description: 'Alleges discriminatory denial based on ZIP code. ECOA review initiated.',               createdAt: '2026-03-10T08:00:00Z', updatedAt: '2026-03-25T16:00:00Z', assignee: 'Michael Torres',  slaDeadline: slaFromCreated('2026-03-10T08:00:00Z') },
@@ -98,7 +102,14 @@ function formatDate(iso: string) {
 // ---------------------------------------------------------------------------
 
 export default function ComplaintsPage() {
-  const [complaints, setComplaints] = useState<Complaint[]>(PLACEHOLDER_COMPLAINTS);
+  // Empty, not PLACEHOLDER_COMPLAINTS.
+  //
+  // The register fell back to invented complaints whenever the GET failed. A
+  // complaints log is a regulatory record; showing fabricated entries when the
+  // real ones cannot be read misstates what the business has received, and an
+  // empty log and an unreachable server are not the same fact.
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ComplaintStatus | 'All'>('All');
   const [showIntakeForm, setShowIntakeForm] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -115,12 +126,20 @@ export default function ComplaintsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/compliance/complaints', { headers: authHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.data?.length) setComplaints(data.data);
-        }
-      } catch { /* placeholder */ }
+        const data = await loadJson<Complaint[]>('/api/compliance/complaints');
+        setComplaints(data ?? []);
+        setLoadError(null);
+      } catch (e) {
+        const info = toLoadError(e);
+        setComplaints([]);
+        setLoadError(
+          info.type === 'auth_required'
+            ? 'Your session has ended. Sign in again to see the complaints register.'
+            : info.type === 'network_error'
+              ? 'Could not reach the server, so no complaints are shown.'
+              : `The complaints register could not be loaded. ${info.message}`,
+        );
+      }
     })();
   }, []);
 
@@ -148,10 +167,9 @@ export default function ComplaintsPage() {
     setShowIntakeForm(false);
     setForm({ businessName: '', complaintType: 'Billing', channel: 'Email', description: '' });
     setToast(`Complaint ${newComplaint.id} created`);
-    fetch('/api/compliance/complaints', {
+    void loadJson('/api/compliance/complaints', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(newComplaint),
+      body: newComplaint,
     }).catch(() => {});
   }, [form, complaints.length]);
 
@@ -160,10 +178,9 @@ export default function ComplaintsPage() {
       prev.map((c) => c.id === id ? { ...c, status: newStatus, updatedAt: new Date().toISOString() } : c)
     );
     setToast(`${id} status updated to ${newStatus}`);
-    fetch(`/api/compliance/complaints/${id}`, {
+    void loadJson(`/api/compliance/complaints/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ status: newStatus }),
+      body: { status: newStatus },
     }).catch(() => {});
   }, []);
 
@@ -228,7 +245,13 @@ export default function ComplaintsPage() {
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">No complaints match the filter.</td></tr>
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                    {loadError ?? (complaints.length === 0
+                      ? 'No complaints on record for this tenant.'
+                      : 'No complaints match the filter.')}
+                  </td>
+                </tr>
               ) : (
                 filtered.map((c) => {
                   const days = daysRemaining(c.slaDeadline);

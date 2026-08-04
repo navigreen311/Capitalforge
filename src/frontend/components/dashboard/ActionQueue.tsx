@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { useToast } from '@/components/global/ToastProvider';
 import { DashboardErrorState } from './DashboardErrorState';
+import { publishEvent } from './DashboardEventBus';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -165,25 +166,18 @@ export function ActionQueue() {
     setFadingOutIds((prev) => new Set(prev).add(task.id));
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      await fetch('/api/v1/events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          eventType: 'task.completed',
-          aggregateType: 'action_queue',
-          aggregateId: task.id,
-          payload: {
-            task_type: task.type,
-            client_id: task.client_id,
-          },
-        }),
+      // aggregateId goes inside the payload: the server reads it from there.
+      // This used to be an inline fetch sending `eventType` with a top-level
+      // aggregateId, which the server answered 400 to every time.
+      await publishEvent('task.completed', {
+        aggregateId: task.id,
+        task_type: task.type,
+        client_id: task.client_id,
       });
     } catch {
-      // Silently fail — removal still proceeds optimistically
+      // Swallowed deliberately: this is a telemetry write, and the task is
+      // removed optimistically either way. The event is now genuinely sent,
+      // so this catch covers a real failure rather than hiding a rejection.
     } finally {
       setCompletingIds((prev) => {
         const next = new Set(prev);

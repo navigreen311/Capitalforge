@@ -3,7 +3,12 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
+    // DOM is here for the tests, not for the backend. Some frontend modules
+    // are runtime code worth unit-testing — the token refresh, the JSON
+    // loader — and a test that imports one drags it into this program even
+    // though src/frontend is excluded below. Those modules read
+    // `localStorage` and `window`, which without this resolve to nothing.
+    "lib": ["ES2022", "DOM"],
     "outDir": "./dist",
     "rootDir": ".",
     "strict": true,
@@ -18,7 +23,11 @@
     "paths": {
       "@shared/*": ["src/shared/*"],
       "@backend/*": ["src/backend/*"],
-      "@frontend/*": ["src/frontend/*"]
+      "@frontend/*": ["src/frontend/*"],
+      // Mirrors "@/*" in src/frontend/tsconfig.json. Same reason as the DOM
+      // lib above: a frontend module pulled in by a test imports its siblings
+      // by that alias, and this program has to be able to follow it.
+      "@/*": ["src/frontend/*"]
     }
   },
   // src/frontend is deliberately NOT included. It has its own tsconfig
