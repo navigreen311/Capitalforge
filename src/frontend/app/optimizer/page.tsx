@@ -103,6 +103,19 @@ interface ApiStackingPlan {
   cardCount: number;
   inputProvenance: ApiInputProvenance;
   capacity?: ApiCapacity;
+  velocitySummary?: ApiVelocitySummary;
+}
+
+interface ApiVelocitySummary {
+  cardsCountingToward524: number;
+  cardsExemptFrom524: number;
+  cardsNotEvaluated: number;
+  chase524HeadroomBefore: number;
+  chase524HeadroomAfter: number;
+  chase524Overage: number;
+  exceedsChase524: boolean;
+  existingBankCardsInWindow: number;
+  existingCreditUnionCardsInWindow: number;
 }
 
 interface ApiCapacity {
@@ -1835,6 +1848,73 @@ export default function OptimizerPage() {
                         : `Bank capacity falls ${formatCurrencyShort(stackingPlan.capacity.shortfallAfterBanks)} short of target. `
                           + 'Credit unions are not included — turn them on above to extend the stack.'}
                   </p>
+                </SectionCard>
+              )}
+
+              {/* ── Chase 5/24 ─────────────────────────────── */}
+              {stackingPlan.velocitySummary && (
+                <SectionCard
+                  title="Chase 5/24"
+                  subtitle={`${stackingPlan.velocitySummary.chase524HeadroomBefore} of 5 slots open before this plan`}
+                >
+                  {/*
+                    A plan past the limit says so plainly. The headroom figure
+                    was clamped at zero, so a plan twelve cards over reported
+                    "0" — which reads as "at the limit" rather than "cannot be
+                    executed as sequenced".
+                  */}
+                  {stackingPlan.velocitySummary.exceedsChase524 && (
+                    <div
+                      role="alert"
+                      className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-900"
+                    >
+                      <p className="font-semibold">
+                        This plan cannot be executed as sequenced —{' '}
+                        {stackingPlan.velocitySummary.chase524Overage} card
+                        {stackingPlan.velocitySummary.chase524Overage === 1 ? '' : 's'} past the
+                        Chase 5/24 limit.
+                      </p>
+                      <p className="mt-1 text-amber-800">
+                        Chase will decline once five cards have been opened in 24 months.
+                        Reduce the card count, or sequence the Chase applications first.
+                      </p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Counts toward 5/24</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {stackingPlan.velocitySummary.cardsCountingToward524}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Exempt (credit union)</p>
+                      <p className="text-2xl font-bold text-green-700">
+                        {stackingPlan.velocitySummary.cardsExemptFrom524}
+                      </p>
+                      <p className="text-xs text-gray-500">Do not count against Chase</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Slots left after</p>
+                      <p
+                        className={`text-2xl font-bold ${
+                          stackingPlan.velocitySummary.chase524HeadroomAfter < 0
+                            ? 'text-amber-700'
+                            : 'text-gray-900'
+                        }`}
+                      >
+                        {stackingPlan.velocitySummary.chase524HeadroomAfter}
+                      </p>
+                    </div>
+                  </div>
+                  {stackingPlan.velocitySummary.cardsNotEvaluated > 0 && (
+                    /* An issuer no rule looked at must not read as one that passed. */
+                    <p className="mt-3 text-xs text-gray-600">
+                      {stackingPlan.velocitySummary.cardsNotEvaluated} card
+                      {stackingPlan.velocitySummary.cardsNotEvaluated === 1 ? '' : 's'} could not be
+                      evaluated — the issuer was not recognised, so no 5/24 treatment was decided.
+                    </p>
+                  )}
                 </SectionCard>
               )}
 

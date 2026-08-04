@@ -799,8 +799,19 @@ export interface VelocitySummary {
   cardsNotEvaluated: number;
   /** Slots left under 5/24 before this plan. */
   chase524HeadroomBefore: number;
-  /** Slots left after it. Unchanged by credit union cards — that is the point. */
+  /**
+   * Slots left after it. Negative when the plan goes past the limit.
+   *
+   * Deliberately signed. This was clamped at zero, so a plan seventeen cards
+   * deep against a limit of five reported "0" — technically true and badly
+   * understated, reading as "at the limit" rather than "twelve past it and not
+   * executable as sequenced".
+   */
   chase524HeadroomAfter: number;
+  /** Cards past the Chase limit. Zero when the plan fits. */
+  chase524Overage: number;
+  /** True when the plan cannot be executed as sequenced under 5/24. */
+  exceedsChase524: boolean;
   /** Bank cards opened in the trailing 24 months, from the client's record. */
   existingBankCardsInWindow: number;
   /** Credit union cards in that window, excluded from the count above. */
@@ -1814,7 +1825,11 @@ export async function runStackingOptimizer(
         // by adding them. That equality is the positive signal the exemption
         // fired, and it only means anything read beside cardsExemptFrom524:
         // headroom is equally unchanged when the cards were silently skipped.
-        chase524HeadroomAfter: Math.max(0, headroomBefore - counting),
+        // Signed, not clamped: how far past the limit matters more than the
+        // fact of being past it.
+        chase524HeadroomAfter: headroomBefore - counting,
+        chase524Overage: Math.max(0, counting - headroomBefore),
+        exceedsChase524: counting > headroomBefore,
         existingBankCardsInWindow: ctx.bankCardsInWindow,
         existingCreditUnionCardsInWindow: ctx.creditUnionCardsInWindow,
       };

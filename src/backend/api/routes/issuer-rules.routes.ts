@@ -18,7 +18,7 @@ import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { IssuerRulesEngine, EligibilityContext } from '../../services/issuer-rules-engine.js';
 import logger from '../../config/logger.js';
-import { isCreditUnionIssuerName } from '../../../shared/constants/issuers.js';
+import { isCreditUnionIssuerName, parseIssuer } from '../../../shared/constants/issuers.js';
 
 export const issuerRulesRouter = Router();
 
@@ -271,7 +271,18 @@ async function buildContextFromBusiness(
 
   // Count applications to this specific issuer
   const issuerApps = business.cardApplications.filter(
-    (app) => app.issuer.toLowerCase() === issuerName.toLowerCase(),
+    // Both sides through the boundary. This compared a CardApplication's
+    // display name against the Issuer table's display name, which agree only
+    // when both were typed the same way — "US Bank" against "U.S. Bank" did
+    // not match, and the result was an empty history that reads as a client
+    // who has never applied to this issuer.
+    (app) => {
+      const stored = parseIssuer(app.issuer);
+      const wanted = parseIssuer(issuerName);
+      return stored && wanted
+        ? stored.id === wanted.id
+        : app.issuer.toLowerCase() === issuerName.toLowerCase();
+    },
   );
   const issuerAppsInPeriod = issuerApps.filter(
     (app) => app.submittedAt && app.submittedAt > sixMonthsAgo,
