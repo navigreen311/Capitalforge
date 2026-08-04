@@ -307,3 +307,26 @@ paths and reported neither, so the bare-null conversion is behaviour-identical.
   warning-fatigue failure argued against in `chase-524-enforcement.md`. Needs
   the rule narrowed to cases where the normalised value is compared against an
   issuer constant, not every lowercase of a field called `issuer`.
+
+## Batch 4 — complaints, documents, contracts, compliance disclosures (done)
+
+Eleven call sites. `complaints` was the first file in the sweep whose reads were
+all inline `localStorage.getItem('cf_access_token')` rather than any helper —
+the population the original `authHeaders()` scope could not see at all.
+
+### Two of the seven token reads in `complaints` were dead
+
+Lines 1334 and 1538 read the token into a `const` that nothing used. Both sat
+above a `fetchAllPages` call, which builds its own header — so the reads were
+left behind when that walk moved into the shared helper. ESLint had been
+reporting both as unused the whole time, as warnings, among others.
+
+They were harmless, but they are the reason a grep-based scope over-counts:
+two of the eighty-seven "call sites" were never call sites.
+
+### Logged, not fixed
+
+- **`app/documents/page.tsx`** previously answered a non-success client-list
+  response with an empty list and no error, so an unreadable roster looked like
+  a tenant with no clients. Now reported. (Fixed in passing — it is the same
+  line the conversion rewrites, not a separate change.)

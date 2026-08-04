@@ -12,7 +12,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface AnalysisRow {
   id: string;
@@ -31,16 +31,12 @@ export default function ContractsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/contracts/analyses', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: AnalysisRow[] };
-      if (!res.ok || body.success !== true) {
-        setError(`Contract analyses could not be loaded (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      setRows(Array.isArray(body.data) ? body.data : []);
-    } catch {
-      setError('Could not reach the server.');
+      const data = await loadJson<AnalysisRow[]>('/api/contracts/analyses');
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      // rows stays null, not an empty array: the table distinguishes "no
+      // analyses on file" from "the list could not be read".
+      setError(`Contract analyses could not be loaded. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);
