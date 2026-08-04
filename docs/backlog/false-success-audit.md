@@ -246,8 +246,29 @@ the "not enabled" panel and its Enable button would have covered the unknown
 case silently. Every branch is now an explicit `=== true` / `=== false` /
 `=== null`, and a test asserts the truthiness check does not come back.
 
-### Still open elsewhere
+### Decided: the document generator keeps its mock fallback
 
-`lib/claude-document-service.ts` — `generateDocument` returns a mock template on
-API failure, distinguished from real output only by `model: 'template-fallback'`.
-Same family, needs a product decision rather than a fix.
+`lib/claude-document-service.ts` — `generateDocument` returns a mock template
+when the API is unavailable, distinguished from real output only by
+`model: 'template-fallback'`.
+
+**Ruled 2026-08-04: leave it.** Recorded as a decision rather than an oversight,
+because it is the one place in this codebase where a fallback to invented
+content is deliberate, and the next person to run the false-success audit will
+otherwise find it and remove it.
+
+The reasoning it rests on, so it can be revisited on its merits:
+
+- The module has an explicit mock mode above this path. The fallback is that
+  mode's failure branch, not a disguise for a broken request.
+- The output is a **draft an advisor edits before sending**, not a record, a
+  filing, or a claim to a third party. `GenerateDocumentModal` opens it in an
+  editor. That is categorically different from a compliance register, an
+  adverse-action notice, or a legal hold, where the artefact *is* the assertion.
+- `model` carries the truth, and it is stored with the document. A template
+  fallback saved to the vault is identifiable afterwards.
+
+**What would change the ruling:** if generated documents ever go anywhere
+without a human editing them first — auto-attached, auto-sent, auto-filed — the
+fallback stops being a convenience and becomes fabricated content in a record.
+The `model` field is the check to write the guard against.
