@@ -27,11 +27,7 @@ import {
   relativeTime,
   type ActivityRow,
 } from '@/lib/activity-view';
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 export function RecentActivity() {
   const [rows, setRows] = useState<ActivityRow[] | null>(null);
@@ -46,18 +42,13 @@ export function RecentActivity() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/activity?limit=20', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`The activity log could not be read (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      setRows(toActivityRows(body.data));
-      const t = (body.data as { total?: unknown }).total;
+      const data = await loadJson<unknown>('/api/activity?limit=20');
+      setRows(toActivityRows(data));
+      const t = (data as { total?: unknown }).total;
       setTotal(typeof t === 'number' ? t : null);
-    } catch {
-      setError('Could not reach the server, so no activity is shown.');
+    } catch (e) {
+      // rows stays null: an empty activity list would read as a quiet day.
+      setError(`The activity log could not be read. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);

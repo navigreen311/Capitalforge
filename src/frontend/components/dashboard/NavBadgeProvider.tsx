@@ -16,6 +16,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useSessionGate } from '@/hooks/useSessionGate';
+import { loadJson } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,19 +51,16 @@ const NavBadgeContext = createContext<NavBadgeContextValue>({
 
 const REFRESH_INTERVAL_MS = 60_000;
 
-async function fetchCount(url: string, token: string | null): Promise<number> {
+// Logged, not fixed: an unreadable count becomes 0, and a badge showing no
+// number reads as "nothing waiting" rather than "not known". Distinguishing
+// them needs an unknown state the badge can render, which is a redesign.
+async function fetchCount(url: string): Promise<number> {
   try {
-    const res = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-    if (!res.ok) return 0;
-    const json = await res.json();
+    const data = await loadJson<unknown>(url);
     // Support both { data: { total_count } } and { data: [...] } shapes
-    if (json?.data?.total_count !== undefined) return json.data.total_count;
-    if (Array.isArray(json?.data)) return json.data.length;
+    const record = data as { total_count?: unknown } | null;
+    if (typeof record?.total_count === 'number') return record.total_count;
+    if (Array.isArray(data)) return data.length;
     return 0;
   } catch {
     return 0;
@@ -82,32 +80,20 @@ export function NavBadgeProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     if (!shouldFetch) return;
 
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('cf_access_token')
-        : null;
-
     // Prefer the consolidated nav-counts endpoint; fall back to individual calls
     try {
-      const res = await fetch('/api/v1/dashboard/nav-counts', {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (res.ok) {
-        const json = await res.json();
-        if (json?.data) {
-          setCounts({
-            dashboardBadge: json.data.action_queue ?? 0,
-            applicationsBadge: json.data.applications ?? 0,
-            fundingRoundsBadge: json.data.funding_rounds ?? 0,
-            complianceBadge: json.data.compliance ?? 0,
-            complaintsBadge: json.data.complaints ?? 0,
-          });
-          return;
-        }
+      const data = await loadJson<Record<string, number> | null>(
+        '/api/v1/dashboard/nav-counts',
+      );
+      if (data) {
+        setCounts({
+          dashboardBadge: data['action_queue'] ?? 0,
+          applicationsBadge: data['applications'] ?? 0,
+          fundingRoundsBadge: data['funding_rounds'] ?? 0,
+          complianceBadge: data['compliance'] ?? 0,
+          complaintsBadge: data['complaints'] ?? 0,
+        });
+        return;
       }
     } catch {
       // Fall through to individual endpoint fetches
@@ -116,9 +102,9 @@ export function NavBadgeProvider({ children }: { children: ReactNode }) {
     // Fallback: fetch from individual endpoints
     const [dashboardBadge, applicationsBadge, fundingRoundsBadge] =
       await Promise.all([
-        fetchCount('/api/v1/dashboard/action-queue', token),
-        fetchCount('/api/v1/dashboard/committee-queue', token),
-        fetchCount('/api/v1/dashboard/active-rounds', token),
+        fetchCount('/api/v1/dashboard/action-queue'),
+        fetchCount('/api/v1/dashboard/committee-queue'),
+        fetchCount('/api/v1/dashboard/active-rounds'),
       ]);
 
     setCounts({

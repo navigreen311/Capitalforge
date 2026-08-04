@@ -330,3 +330,48 @@ two of the eighty-seven "call sites" were never call sites.
   response with an empty list and no error, so an unreadable roster looked like
   a tenant with no clients. Now reported. (Fixed in passing — it is the same
   line the conversion rewrites, not a separate change.)
+
+## Batch 5 — dashboard components (done)
+
+Seven files. `DashboardEventBus.ts` resisted as predicted, but not for the
+reason predicted, and what it turned up is the most serious thing in the sweep
+so far.
+
+### Two dashboard event streams have never recorded anything
+
+`POST /api/v1/events` requires `event_type` (snake_case) and an object
+`payload`, and derives the aggregate id from **inside** that payload:
+`payload.aggregateId ?? payload.id ?? randomUUID()`. A top-level `aggregateType`
+or `aggregateId` is ignored.
+
+`ActionQueue` and `AprExpiryPanel` each posted to it inline, both sending
+`eventType` with a top-level `aggregateId`. The server answered **400** to every
+one. Neither checked the response — both had a bare `await fetch(...)` inside a
+`catch {}` commented "silently fail — non-critical". So no `task.completed` and
+no `apr_expiry.acknowledged` event was ever written, and nothing anywhere said
+so.
+
+`publishEvent` in `DashboardEventBus.ts` sends the correct shape. It had **zero
+callers** — exported from `components/dashboard/index.ts` and imported by
+nothing.
+
+Both call sites now go through it, with `aggregateId` moved inside the payload.
+`publishEvent` throws on refusal rather than resolving: the callers still
+swallow it, because the events are genuinely non-critical, but that is now a
+decision taken in the open rather than a rejection nobody could see. Resolving
+regardless is what hid this.
+
+**This is the third spelling-mismatch defect in this codebase** — after the
+`issuerId` slug and the four auth-header idioms — and it has the same shape:
+two places describe the same thing differently, nothing checks, and the failure
+is silent. `docs/backlog/issuer-as-foreign-key.md` makes the argument for the
+first one; it applies here.
+
+### Logged, not fixed
+
+- **`NavBadgeProvider`** turns an unreadable count into `0`. A badge showing no
+  number reads as "nothing waiting" rather than "not known". Needs an unknown
+  state the badge can render.
+- **`UpcomingPayments`** writes a failed send to the console and shows nothing.
+  The button stops, so a send that never happened is indistinguishable from one
+  not attempted. Needs an error state the component does not have.

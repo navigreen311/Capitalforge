@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -31,15 +32,6 @@ interface TCPAReminderModalProps {
 
 function formatCurrency(amount: number): string {
   return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('cf_access_token');
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -66,21 +58,18 @@ export function TCPAReminderModal({ onClose, onSent }: TCPAReminderModalProps) {
 
     async function fetchEligibility() {
       try {
-        const res = await fetch('/api/v1/dashboard/payment-reminder-eligible', {
-          headers: getAuthHeaders(),
-        });
+        const data = await loadJson<{ eligible: ReminderClient[]; ineligible: ReminderClient[] }>(
+          '/api/v1/dashboard/payment-reminder-eligible',
+        );
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-
-        if (!cancelled && json.success) {
-          setEligible(json.data.eligible);
-          setIneligible(json.data.ineligible);
+        if (!cancelled) {
+          setEligible(data.eligible);
+          setIneligible(data.ineligible);
         }
       } catch (err) {
         if (!cancelled) {
           console.error('[TCPAReminderModal] fetch failed:', err);
-          setError('Failed to load reminder eligibility');
+          setError(`Failed to load reminder eligibility. ${toLoadError(err).message}`);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -98,29 +87,16 @@ export function TCPAReminderModal({ onClose, onSent }: TCPAReminderModalProps) {
     setError(null);
 
     try {
-      const res = await fetch('/api/v1/voiceforge/sms-campaign', {
+      const data = await loadJson<unknown>('/api/v1/voiceforge/sms-campaign', {
         method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
+        body: {
           client_ids: eligible.map((c) => c.client_id),
           template: 'payment_reminder',
           channel: 'sms',
-        }),
+        },
       });
 
-      const json = await res.json();
-
-      if (!res.ok || !json.success) {
-        // The API refuses rather than pretending: 503 when no SMS provider is
-        // configured, 501 when credentials exist but no dispatch client is
-        // wired. Both carry a message that says what is missing, and showing
-        // it beats "HTTP 503" — which reads as a fault rather than a setup
-        // step someone has to take.
-        setError(json?.error?.message ?? `Reminders were not sent (HTTP ${res.status}).`);
-        return;
-      }
-
-      const { sent_count, blocked_count, failed_count, results } = json.data as {
+      const { sent_count, blocked_count, failed_count, results } = data as {
         sent_count: number;
         blocked_count: number;
         failed_count: number;
@@ -154,8 +130,13 @@ export function TCPAReminderModal({ onClose, onSent }: TCPAReminderModalProps) {
       );
       onClose();
     } catch (err) {
+      // The API refuses rather than pretending: 503 when no SMS provider is
+      // configured, 501 when credentials exist but no dispatch client is
+      // wired. Both carry a message that says what is missing, and showing it
+      // beats "HTTP 503" — which reads as a fault rather than a setup step
+      // someone has to take. toLoadError carries the server's wording through.
       console.error('[TCPAReminderModal] send failed:', err);
-      setError('Could not reach the server. No reminders were sent.');
+      setError(`No reminders were sent. ${toLoadError(err).message}`);
     } finally {
       setSending(false);
     }

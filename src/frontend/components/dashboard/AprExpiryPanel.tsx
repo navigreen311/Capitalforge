@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import InitiateCallModal from '@/components/voiceforge/InitiateCallModal';
+import { publishEvent } from '@/components/dashboard/DashboardEventBus';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -190,27 +191,21 @@ export function AprExpiryPanel() {
   // Dismiss handler — logs apr_expiry.acknowledged event
   const handleDismiss = useCallback(async (alert: AprExpiryAlert) => {
     try {
-      const token = localStorage.getItem('cf_access_token');
-      await fetch('/api/v1/events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          eventType: 'apr_expiry.acknowledged',
-          aggregateType: 'CardApplication',
-          aggregateId: alert.card_id,
-          payload: {
-            client_id: alert.client_id,
-            days_remaining: alert.days_remaining,
-            tier: alert.tier,
-          },
-        }),
+      // aggregateId goes inside the payload: the server reads it from there.
+      // This used to be an inline fetch sending `eventType` with a top-level
+      // aggregateId, which the server answered 400 to every time — so no
+      // acknowledgement of an APR expiry was ever recorded.
+      await publishEvent('apr_expiry.acknowledged', {
+        aggregateId: alert.card_id,
+        client_id: alert.client_id,
+        days_remaining: alert.days_remaining,
+        tier: alert.tier,
       });
       setDismissedIds((prev) => new Set(prev).add(alert.card_id));
     } catch {
-      // Silently fail — non-critical action
+      // Swallowed deliberately: the dismissal is local-session state and the
+      // panel stays usable. The acknowledgement is now actually written when
+      // the server accepts it.
     }
   }, []);
 
