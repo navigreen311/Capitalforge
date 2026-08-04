@@ -55,6 +55,15 @@ which inputs were assumed. Normalising it into rows would let it drift.
 `hasAssumedDefaults` is denormalised so a list can flag estimate-only plans
 without parsing every JSON blob.
 
+**`influencesPlan` must survive with the rest.** Each provenance entry records
+whether the scorer actually read it — six inputs are collected and unread today,
+and that set will shrink as fields are wired. A plan read in six months has to
+report the system that produced it, not the system reading it: if PAYDEX is
+wired next quarter, a plan built before that must still show its PAYDEX as
+decorative. Storing the plan whole gets this for free, which is a further
+argument for JSON over normalised columns — a schema that models today's inputs
+would silently re-interpret yesterday's plans.
+
 **Real `FundingRound` create.** The model exists. The optimizer route should
 call the same service the Funding Rounds page uses rather than growing a second
 creation path — worth checking whether one exists before writing a new one.

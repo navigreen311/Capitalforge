@@ -3,6 +3,24 @@
 **Status:** open — audit list below, **no fixes applied**
 **Surfaced by:** three defects in one session, which turned out to be one pattern
 
+## The standing question
+
+Every entry below reduces to one of two checks, and they are not the same:
+
+1. **Does anything read it?**
+2. **Does anything act on it?**
+
+A field can pass the first and fail the second — collected, transmitted,
+accepted by a request schema, and never consulted by the code that decides the
+outcome. That is indistinguishable, from the outside, from a value that shaped
+everything. Six optimizer inputs passed check one and failed check two, and one
+of them was reported by the provenance panel as `advisor_entered`: the tool
+built to make inputs trustworthy, vouching for an input nothing used.
+
+Ask both of every surface in this audit. A toast that reports a write nothing
+performed and a field that reports an influence nothing exercised are the same
+defect, and the second is quieter.
+
 ## The pattern
 
 Optimistic UI written against endpoints that do not do what their name implies.
@@ -54,6 +72,49 @@ there is no false message to catch — only a control that appears to matter.
 Worth adding to the audit below: for each input surface, does anything read it?
 A field whose value never reaches a request is the quietest version of this
 pattern.
+
+## A fifth instance: inputs the scorer never reads
+
+Found 2026-08-04, immediately after the credit union panel, and the same shape
+one level down. Not a whole surface this time — individual fields.
+
+Six inputs on the optimizer form are collected, transmitted, accepted by the
+request schema, and **never read by the scorer**:
+
+| Field | Status |
+|---|---|
+| `dnbPaydex` | inert |
+| `experianBis` | inert |
+| `ficoSbss` | inert |
+| `employees` | inert |
+| `inquiries24mo` | inert — only the 12-month figure is used |
+| `derogatoryMarks` | inert |
+
+`ApplicationContext` — everything the scorer sees — carries exactly `ficoScore`,
+`annualRevenue`, `businessAgeMonths`, `recentInquiries`, `existingCardCount` and
+the held-product set. Nothing else reaches scoring.
+
+**`derogatoryMarks` is the sharp one.** The field was added so the provenance
+banner would stop reporting it as an assumed default. It now reports
+`advisor_entered` in the Inputs Used panel — which states, on the panel built
+for exactly this purpose, that a value the advisor supplied was used. It was
+not. A provenance panel that vouches for an unused input is worse than no
+panel, because it converts a quiet omission into an explicit false claim.
+
+`inquiries24mo` is the second sharp one: the field's own helper text reads
+"Chase 5/24 uses 24-month count", and 5/24 does not read it.
+
+**Marked, not wired.** Each field says "not used in scoring yet" on the form,
+and every provenance entry carries `influencesPlan`, so the Inputs Used panel
+greys and strikes the values the scorer never read. The flag is stored with the
+plan rather than derived at render: the unread set will shrink as fields are
+wired, and a plan read later must report the system that produced it. Wiring them is a modelling decision
+— what weight does a PAYDEX of 72 carry against a FICO of 745 — and inventing
+weights would produce a plan that looks more informed than it is, which is the
+same defect in a more expensive form.
+
+This is the instance that produced the standing question at the top of this
+document.
 
 ## What to audit
 

@@ -658,6 +658,32 @@ export interface ResolvedInput<T> {
   pulledAt?: string;
   /** Human-readable field name, for the banner and the "Inputs Used" panel. */
   label: string;
+  /**
+   * Where a single source label would misrepresent the value.
+   *
+   * Existing cards come from two places at once — the form and the client's
+   * approved applications — and naming only one of them made a true number
+   * look like a contradiction against the exclusion it drove.
+   */
+  detail?: string;
+  /**
+   * Whether this value reached the scorer at all.
+   *
+   * Six inputs are collected, transmitted, accepted by the request schema and
+   * never read: the three business credit scores, employee count, the 24-month
+   * inquiry figure, and derogatory marks. Reporting them beside the five that
+   * do decide the plan made the panel vouch for them — and for derogatory
+   * marks it did so as `advisor_entered`, which states outright that a value
+   * the advisor supplied was used. A provenance panel that vouches for an
+   * unused input is worse than none, because it turns a quiet omission into an
+   * explicit false claim.
+   *
+   * Carried on the record rather than derived at render, so a plan read in six
+   * months still says which of its inputs were decorative — the set will change
+   * as fields are wired, and a plan should report the system that produced it
+   * rather than the system reading it.
+   */
+  influencesPlan: boolean;
 }
 
 export interface InputProvenance {
@@ -667,6 +693,14 @@ export interface InputProvenance {
   recentInquiries: ResolvedInput<number>;
   derogatoryMarks: ResolvedInput<number>;
   existingCardCount: ResolvedInput<number>;
+  /**
+   * Inputs the form collects that the scorer does not read.
+   *
+   * Present so the panel can show them rather than omit them: an advisor who
+   * typed a PAYDEX of 72 will look for it, and finding nothing is its own kind
+   * of confusion. Every entry here has influencesPlan false.
+   */
+  collectedNotUsed: ResolvedInput<number | null>[];
   /** Labels of every input that fell back to a constant. */
   assumedDefaults: string[];
   /** True when the plan rests on at least one assumed value. */
@@ -924,19 +958,20 @@ function resolveInput(args: {
   const { label, supplied, recorded, recordedSource, pulledAt, fallback } = args;
 
   if (supplied !== null && supplied !== undefined && Number.isFinite(supplied)) {
-    return { value: supplied, source: 'advisor_entered', label };
+    return { value: supplied, source: 'advisor_entered', label, influencesPlan: true };
   }
   if (recorded !== null && recorded !== undefined && Number.isFinite(recorded)) {
     return {
       value: recorded,
       source: recordedSource,
       label,
+      influencesPlan: true,
       ...(recordedSource === 'bureau_pull' && pulledAt
         ? { pulledAt: pulledAt.toISOString() }
         : {}),
     };
   }
-  return { value: fallback, source: 'assumed_default', label };
+  return { value: fallback, source: 'assumed_default', label, influencesPlan: true };
 }
 
 // ── Credit union membership ──────────────────────────────────
@@ -1139,6 +1174,26 @@ function isHeldProduct(
   return held.has(normaliseProductName(withoutIssuer));
 }
 
+/**
+ * How many distinct products the client holds across both sources.
+ *
+ * Deduplicated, because the same card can arrive twice — ticked on the form and
+ * present as an approved application — and reporting two would overstate what
+ * the exclusion is acting on.
+ */
+function countDistinctHeldProducts(
+  activeApps: Array<{ issuer: string; cardProduct: string }>,
+  supplied?: SuppliedExistingCard[],
+): number {
+  const seen = new Set<string>();
+  for (const a of activeApps) seen.add(normaliseProductName(a.cardProduct));
+  for (const card of supplied ?? []) {
+    if (card.name) seen.add(normaliseProductName(card.name));
+    else if (card.cardProductId) seen.add(`id:${card.cardProductId.toLowerCase()}`);
+  }
+  return seen.size;
+}
+
 function buildApplicationContext(
   business: {
     annualRevenue: { toNumber: () => number } | null;
@@ -1216,6 +1271,9 @@ function buildApplicationContext(
   });
   const recentInquiries = inquiriesResolved.value;
 
+  // Collected, reported, and not read by the scorer. Marked rather than hidden:
+  // the field exists, an advisor fills it in, and the panel should say what
+  // became of it.
   const derogResolved = resolveInput({
     label: 'Derogatory marks',
     supplied: supplied?.derogatoryMarks,
@@ -1266,10 +1324,30 @@ function buildApplicationContext(
   ).length;
   const bankCardsInWindow = approvedInWindow.length - creditUnionCardsInWindow;
 
+  // Report the union the exclusion actually used, not one half of it.
+  //
+  // This said "Existing cards: 0 [client_record]" — the count of approved
+  // applications — while the filter loop excluded a card the advisor had ticked
+  // on the form. Both were true and the pair read as a contradiction: the panel
+  // that exists so inputs can be trusted was producing exactly the confusion it
+  // was built to prevent.
+  //
+  // The number is now the distinct products the exclusion will act on, and the
+  // sources are named. `advisor_entered` when the form supplied any, because
+  // that is the input an advisor would look for and not find.
+  const suppliedCount = (suppliedExistingCards ?? []).length;
+  const heldProductCount = countDistinctHeldProducts(activeApps, suppliedExistingCards);
   const existingCountResolved: ResolvedInput<number> = {
+    influencesPlan: true,
     label: 'Existing cards',
-    value: activeApps.length,
-    source: 'client_record',
+    value: heldProductCount,
+    source: suppliedCount > 0 ? 'advisor_entered' : 'client_record',
+    detail:
+      suppliedCount > 0 && activeApps.length > 0
+        ? `${suppliedCount} entered on the form, ${activeApps.length} from approved applications`
+        : suppliedCount > 0
+          ? `${suppliedCount} entered on the form; no approved applications on record`
+          : `${activeApps.length} from approved applications; none entered on the form`,
   };
 
   const fields = [
@@ -1280,17 +1358,42 @@ function buildApplicationContext(
     derogResolved,
     existingCountResolved,
   ];
+  // Only inputs that actually decide the plan can make it an estimate.
+  // Derogatory marks falls back to a default like the others, but the scorer
+  // never reads it — listing it in the banner would say the plan rests on an
+  // assumption it does not use, and a banner that overstates is one people
+  // learn to skip.
   const assumedDefaults = fields
-    .filter((f) => f.source === 'assumed_default')
+    .filter((f) => f.source === 'assumed_default' && f.label !== 'Derogatory marks')
     .map((f) => f.label);
+
+  // The scorer reads ficoScore, annualRevenue, businessAgeMonths,
+  // recentInquiries and the held-product set. Everything else the form sends
+  // is recorded here so the panel can show it as collected-and-unused rather
+  // than omit it, which would leave an advisor looking for a value they typed.
+  const collectedNotUsed: ResolvedInput<number | null>[] = [
+    { label: 'D&B PAYDEX', value: supplied?.dnbPaydex ?? null },
+    { label: 'Experian Intelliscore', value: supplied?.experianBis ?? null },
+    { label: 'FICO SBSS', value: supplied?.ficoSbss ?? null },
+    { label: 'Employees', value: supplied?.employees ?? null },
+    { label: 'Inquiries (24 months)', value: supplied?.inquiries24mo ?? null },
+  ].map((f) => ({
+    ...f,
+    source: (f.value === null ? 'client_record' : 'advisor_entered') as InputSource,
+    influencesPlan: false,
+  }));
 
   const provenance: InputProvenance = {
     ficoScore: ficoResolved,
     annualRevenue: revenueResolved,
     businessAgeMonths: ageResolved,
     recentInquiries: inquiriesResolved,
-    derogatoryMarks: derogResolved,
+    // The scorer does not read this one. Reported as advisor_entered before
+    // this flag existed, which stated that a value the advisor supplied had
+    // been used.
+    derogatoryMarks: { ...derogResolved, influencesPlan: false },
     existingCardCount: existingCountResolved,
+    collectedNotUsed,
     assumedDefaults,
     hasAssumedDefaults: assumedDefaults.length > 0,
   };

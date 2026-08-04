@@ -139,10 +139,14 @@ type ApiInputSource =
   | 'assumed_default';
 
 interface ApiResolvedInput {
-  value: number;
+  value: number | null;
   source: ApiInputSource;
   label: string;
   pulledAt?: string;
+  /** Where one source label would misrepresent the value. */
+  detail?: string;
+  /** False when the optimizer collects this value but does not read it. */
+  influencesPlan?: boolean;
 }
 
 interface ApiInputProvenance {
@@ -152,6 +156,7 @@ interface ApiInputProvenance {
   recentInquiries: ApiResolvedInput;
   derogatoryMarks: ApiResolvedInput;
   existingCardCount: ApiResolvedInput;
+  collectedNotUsed?: ApiResolvedInput[];
   assumedDefaults: string[];
   hasAssumedDefaults: boolean;
 }
@@ -171,10 +176,27 @@ const SOURCE_STYLE: Record<ApiInputSource, string> = {
 };
 
 /** Values that read better with units than as bare numbers. */
-function formatProvenanceValue(key: string, value: number): string {
+function formatProvenanceValue(key: string, value: number | null): string {
+  if (value === null) return 'Not entered';
   if (key === 'annualRevenue') return `$${value.toLocaleString()}`;
   if (key === 'businessAgeMonths') return `${value} months`;
   return String(value);
+}
+
+/**
+ * Marks an input the optimizer collects but does not yet read.
+ *
+ * An advisor who types PAYDEX 72 concludes it shaped the plan. It did not — the
+ * scorer reads FICO, revenue, business age, inquiries and existing cards, and
+ * nothing else. Saying so on the field is the same principle as labelling an
+ * assumed default: the alternative is a control that looks like it matters.
+ */
+function NotYetUsed() {
+  return (
+    <span className="ml-2 rounded-full border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500">
+      Not used in scoring yet
+    </span>
+  );
 }
 
 function formatCurrencyShort(value: number): string {
@@ -225,9 +247,34 @@ function InputsUsedPanel({ provenance }: { provenance: ApiInputProvenance }) {
             </thead>
             <tbody>
               {rows.map(([key, row]) => (
-                <tr key={key} className="border-t border-gray-100">
-                  <td className="py-2 pr-4 text-gray-700">{row.label}</td>
-                  <td className="py-2 pr-4 font-semibold text-gray-900">
+                /*
+                  A value the scorer never reads is greyed and struck. An
+                  advisor scanning this panel to decide whether to trust the
+                  plan should see at a glance which numbers shaped it — before
+                  this, an unused input sat in the same type as a decisive one
+                  and the panel vouched for both.
+                */
+                <tr
+                  key={key}
+                  className={`border-t border-gray-100 ${
+                    row.influencesPlan === false ? 'opacity-60' : ''
+                  }`}
+                >
+                  <td className="py-2 pr-4 text-gray-700">
+                    {row.label}
+                    {row.influencesPlan === false && (
+                      <span className="ml-2 rounded-full border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500">
+                        Not used
+                      </span>
+                    )}
+                  </td>
+                  <td
+                    className={`py-2 pr-4 font-semibold ${
+                      row.influencesPlan === false
+                        ? 'text-gray-400 line-through'
+                        : 'text-gray-900'
+                    }`}
+                  >
                     {formatProvenanceValue(key, row.value)}
                   </td>
                   <td className="py-2">
@@ -241,12 +288,36 @@ function InputsUsedPanel({ provenance }: { provenance: ApiInputProvenance }) {
                         pulled {row.pulledAt.slice(0, 10)}
                       </span>
                     )}
+                    {/* Two sources, both named — a single label here made a
+                        true number read as a contradiction. */}
+                    {row.detail && (
+                      <span className="ml-2 text-xs text-gray-500">{row.detail}</span>
+                    )}
                   </td>
+                </tr>
+              ))}
+              {(provenance.collectedNotUsed ?? []).map((row) => (
+                <tr key={row.label} className="border-t border-gray-100 opacity-60">
+                  <td className="py-2 pr-4 text-gray-700">
+                    {row.label}
+                    <span className="ml-2 rounded-full border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500">
+                      Not used
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4 font-semibold text-gray-400 line-through">
+                    {formatProvenanceValue(row.label, row.value)}
+                  </td>
+                  <td className="py-2 text-xs text-gray-500">Collected, not read by the scorer</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <p className="mt-3 text-xs text-gray-500">
+          Struck-through values are recorded with the plan but do not affect the
+          recommendations. They are shown so a value you entered is never simply
+          missing from this panel.
+        </p>
       </SectionCard>
     </div>
   );
@@ -1178,7 +1249,7 @@ export default function OptimizerPage() {
                     className="cf-input"
                   />
                 </FormField>
-                <FormField label="Employees">
+                <FormField label="Employees (not used in scoring yet)">
                   <input aria-label="10"
                     type="number"
                     min={1}
@@ -1192,7 +1263,14 @@ export default function OptimizerPage() {
 
               {/* Business Credit Scores */}
               <div className="border-t border-gray-100 pt-4 mt-2">
-                <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Business Credit Scores</p>
+                <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">
+                  Business Credit Scores
+                  <NotYetUsed />
+                </p>
+                <p className="text-[11px] text-gray-500 -mt-2 mb-3">
+                  Recorded and sent with the run, but the scorer does not read them yet.
+                  They do not affect the recommendations below.
+                </p>
                 <div className="space-y-3">
                   <FormField label="D&B PAYDEX Score">
                     <input aria-label="e.g. 80"
@@ -1259,7 +1337,7 @@ export default function OptimizerPage() {
                       className="cf-input"
                     />
                   </FormField>
-                  <FormField label="24 Months">
+                  <FormField label="24 Months (not used in scoring yet)">
                     <input aria-label="0"
                       type="number"
                       min={0}
@@ -1278,7 +1356,7 @@ export default function OptimizerPage() {
                   banner that fires on every plan is a banner nobody reads.
                 */}
                 <div className="grid grid-cols-3 gap-3 mt-3">
-                  <FormField label="Derogatory Marks">
+                  <FormField label="Derogatory Marks (not used in scoring yet)">
                     <input
                       aria-label="Derogatory marks"
                       type="number"
@@ -1289,7 +1367,8 @@ export default function OptimizerPage() {
                       className="cf-input"
                     />
                     <p className="text-[11px] text-gray-400 mt-1">
-                      Collections, charge-offs, late payments
+                      Collections, charge-offs, late payments. Recorded and reported in
+                      Inputs Used, but the scorer does not read it yet.
                     </p>
                   </FormField>
                 </div>
