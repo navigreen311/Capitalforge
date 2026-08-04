@@ -7,7 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson } from '@/lib/load-json';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,11 +115,8 @@ export default function ComplaintsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/compliance/complaints', { headers: authHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.data?.length) setComplaints(data.data);
-        }
+        const data = await loadJson<Complaint[]>('/api/compliance/complaints');
+        if (data?.length) setComplaints(data);
       } catch { /* placeholder */ }
     })();
   }, []);
@@ -148,10 +145,9 @@ export default function ComplaintsPage() {
     setShowIntakeForm(false);
     setForm({ businessName: '', complaintType: 'Billing', channel: 'Email', description: '' });
     setToast(`Complaint ${newComplaint.id} created`);
-    fetch('/api/compliance/complaints', {
+    void loadJson('/api/compliance/complaints', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(newComplaint),
+      body: newComplaint,
     }).catch(() => {});
   }, [form, complaints.length]);
 
@@ -160,10 +156,9 @@ export default function ComplaintsPage() {
       prev.map((c) => c.id === id ? { ...c, status: newStatus, updatedAt: new Date().toISOString() } : c)
     );
     setToast(`${id} status updated to ${newStatus}`);
-    fetch(`/api/compliance/complaints/${id}`, {
+    void loadJson(`/api/compliance/complaints/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ status: newStatus }),
+      body: { status: newStatus },
     }).catch(() => {});
   }, []);
 

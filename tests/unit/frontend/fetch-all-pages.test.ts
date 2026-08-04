@@ -235,10 +235,11 @@ describe('fetchAllPages — a token that ages out mid-walk', () => {
 
     await fetchAllPages('/api/things', () => []);
 
+    // The mock declares one parameter, so its recorded calls type as a
+    // single-element tuple; the init object is still there at runtime.
     const authOn = (n: number) =>
-      ((fetchMock.mock.calls[n]?.[1] as RequestInit | undefined)?.headers as
-        | Record<string, string>
-        | undefined)?.Authorization;
+      (((fetchMock.mock.calls[n] as unknown as [string, RequestInit | undefined])?.[1])
+        ?.headers as Record<string, string> | undefined)?.Authorization;
     expect(authOn(0)).toBe('Bearer expired');
     expect(authOn(2)).toBe('Bearer new-access-token');
   });

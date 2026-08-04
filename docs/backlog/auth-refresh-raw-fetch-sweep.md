@@ -114,3 +114,67 @@ grep -rn "authHeaders()" --include=*.tsx --include=*.ts src/frontend \
 - `components/dashboard/NavBadgeProvider.tsx`, `components/notification-inbox.tsx`
   — gated on session existence rather than converted; the bell's remaining
   sites are in this list.
+
+---
+
+# Sweep log
+
+## Corrections to the scope above
+
+**37 files, not 39.** `app/clients/page.tsx` and `app/optimizer/page.tsx` are
+already converted and now contain only comments mentioning `authHeaders()`.
+The 87 call-site count is unchanged.
+
+**A second population: ~54 inline `Authorization: Bearer` headers.** These do not
+call `authHeaders()` at all, so the grep this document was built from could not
+see them. They sit in about twenty files, **fourteen of which also use
+`authHeaders()`** — so those files mix both styles. Real total is nearer 130.
+
+This is the third time this session that a survey scoped around one spelling
+missed a variant. The rule taken from it: **scope a sweep by the behaviour, not
+the idiom** — "what gets an auth header attached" rather than "what calls
+`authHeaders()`".
+
+## Deliberate exclusions
+
+- `app/login/page.tsx` and `app/login/two-factor/page.tsx` — a token refresh
+  during sign-in is meaningless. There is no session to renew, and the failure
+  these pages need to report is a wrong password.
+
+## Batch 0 — `lib/fetch-all-pages.ts` (done, `11e84e3`)
+
+Shared by twelve pages, so it went first and alone.
+
+## Batch 1 — compliance documents, complaints (done); training deferred
+
+### Resisted: `app/compliance/training/page.tsx`
+
+Not converted. It fetches two endpoints together and **tracks which of them
+failed**, reporting a partial result naming the missing part. `loadJson` throws,
+which collapses that distinction — converting it means restructuring the error
+handling, which is a redesign rather than a mechanical swap.
+
+It also defines its **own local `authHeaders()`** at line 49 — a third variant
+of the same idiom, invisible to a search for the shared import.
+
+Wants its own change: keep the per-endpoint failure reporting and add refresh
+around each request.
+
+## Logged while sweeping — not fixed
+
+These are the audit's subject, found in passing. Not touched, per the sweep's
+mechanical-only rule.
+
+- **`app/compliance/documents/page.tsx`** — every mutation is fire-and-forget
+  with `.catch(() => {})` behind an optimistic UI update. Deleting a document
+  toasts "deleted" and removes it from the list before the DELETE is attempted;
+  a failed request leaves the row gone from the screen and present on the
+  server. **Legal hold is the serious one**: the page reports "legal hold
+  enabled" whether or not the PATCH succeeded, and a legal hold that was never
+  applied is a compliance failure that looks like a success.
+- **Both pages fall back to placeholder data** when the initial GET fails
+  (`catch { /* use placeholder */ }`), so an unreachable server renders a list
+  of invented documents and complaints indistinguishable from real ones.
+
+Both belong in `false-success-audit.md` rather than here; recorded at the point
+of discovery so the trail is not lost.

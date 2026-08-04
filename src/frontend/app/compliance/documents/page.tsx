@@ -7,7 +7,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson } from '@/lib/load-json';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -147,11 +147,8 @@ export default function DocumentVaultPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/compliance/documents', { headers: authHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.data?.length) setDocs(data.data);
-        }
+        const data = await loadJson<DocumentRecord[]>('/api/compliance/documents');
+        if (data?.length) setDocs(data);
       } catch { /* use placeholder */ }
     })();
   }, []);
@@ -177,10 +174,9 @@ export default function DocumentVaultPage() {
       const newState = !doc.legalHold;
       setToast(`${doc.fileName} — legal hold ${newState ? 'enabled' : 'released'}`);
       // Try API
-      fetch(`/api/compliance/documents/${id}/hold`, {
+      void loadJson(`/api/compliance/documents/${id}/hold`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ legalHold: newState }),
+        body: { legalHold: newState },
       }).catch(() => {});
     }
   }, [docs]);
@@ -239,10 +235,9 @@ export default function DocumentVaultPage() {
     setUploadForm({ businessId: '', businessName: '', docType: 'other', fileName: '', description: '', parseWithAI: false, applyLegalHold: false });
     setToast(`"${newDoc.fileName}" uploaded successfully`);
     // Try API
-    fetch('/api/compliance/documents', {
+    void loadJson('/api/compliance/documents', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(newDoc),
+      body: newDoc,
     }).catch(() => {});
   }, [uploadForm]);
 
@@ -258,17 +253,16 @@ export default function DocumentVaultPage() {
     setSelectedDoc(null);
     setDeleteConfirm(false);
     setToast(`"${doc.fileName}" deleted`);
-    fetch(`/api/compliance/documents/${doc.id}`, { method: 'DELETE', headers: authHeaders() }).catch(() => {});
+    void loadJson(`/api/compliance/documents/${doc.id}`, { method: 'DELETE' }).catch(() => {});
   }, []);
   const toggleSlideoverHold = useCallback((doc: DocumentRecord) => {
     const newState = !doc.legalHold;
     setDocs((prev) => prev.map((d) => d.id === doc.id ? { ...d, legalHold: newState } : d));
     setSelectedDoc((prev) => prev ? { ...prev, legalHold: newState } : prev);
     setToast(`${doc.fileName} — legal hold ${newState ? 'enabled' : 'released'}`);
-    fetch(`/api/compliance/documents/${doc.id}/hold`, {
+    void loadJson(`/api/compliance/documents/${doc.id}/hold`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ legalHold: newState }),
+      body: { legalHold: newState },
     }).catch(() => {});
   }, []);
 
