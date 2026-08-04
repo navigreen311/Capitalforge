@@ -6,6 +6,20 @@
 // ============================================================
 
 import { useState } from 'react';
+import {
+  CREDIT_UNION_MEMBERSHIP,
+  formatMembershipCost,
+  parseIssuer,
+} from '../../../shared/constants/issuers';
+
+/** Join cost, from the one table that holds it. */
+function membershipCostLabel(cuId: string): string {
+  const parsed = parseIssuer(cuId);
+  return parsed?.kind === 'credit_union'
+    ? formatMembershipCost(CREDIT_UNION_MEMBERSHIP[parsed.id].cost)
+    : 'Cost not confirmed';
+}
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,8 +38,14 @@ export interface CreditUnionMembership {
   availableProducts: string[];
   /** Whether the CU is open to anyone (no eligibility restrictions) */
   openMembership: boolean;
-  /** Fee to join, if applicable */
-  joinFee?: number;
+  /**
+   * Join cost is NOT held here.
+   *
+   * This component used to carry its own joinFee per credit union — a sixth
+   * copy of a figure that four other tables also held and none agreed on. It
+   * now reads CREDIT_UNION_MEMBERSHIP through `membershipCostLabel`, keyed on
+   * the row's id, so there is one number and one place to correct it.
+   */
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +61,6 @@ const MOCK_MEMBERSHIPS: CreditUnionMembership[] = [
     products: ['High-Rate Savings', 'Visa Platinum'],
     availableProducts: ['Business Checking', 'Business Visa'],
     openMembership: true,
-    joinFee: 0,
   },
   {
     id: 'penfed',
@@ -51,7 +70,6 @@ const MOCK_MEMBERSHIPS: CreditUnionMembership[] = [
     products: ['Savings'],
     availableProducts: ['Power Cash Rewards', 'Pathfinder Rewards', 'Business Line of Credit'],
     openMembership: true,
-    joinFee: 5,
   },
   {
     id: 'navy-federal',
@@ -68,7 +86,6 @@ const MOCK_MEMBERSHIPS: CreditUnionMembership[] = [
     products: [],
     availableProducts: ['Odyssey Rewards', 'Business Rewards', 'Business Checking'],
     openMembership: true,
-    joinFee: 5,
   },
   {
     id: 'becu',
@@ -85,7 +102,6 @@ const MOCK_MEMBERSHIPS: CreditUnionMembership[] = [
     products: [],
     availableProducts: ['Visa Signature', 'Business Checking'],
     openMembership: true,
-    joinFee: 5,
   },
 ];
 
@@ -320,7 +336,7 @@ function MembershipRow({
         {/* Open membership badge for non-members */}
         {cu.status === 'not_a_member' && cu.openMembership && (
           <p className="text-xs text-emerald-500 mt-0.5">
-            Open Membership{cu.joinFee != null ? ` — Join for $${cu.joinFee}` : ''}
+            Open Membership — {membershipCostLabel(cu.id)}
           </p>
         )}
 
@@ -355,12 +371,12 @@ function MembershipRow({
             type="button"
             onClick={() =>
               onToast(
-                `Initiating ${cu.name} membership${cu.joinFee ? ` — $${cu.joinFee} fee` : ''}`,
+                `Initiating ${cu.name} membership — ${membershipCostLabel(cu.id)}`,
               )
             }
             className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors whitespace-nowrap"
           >
-            Join{cu.joinFee ? ` — $${cu.joinFee}` : ''}
+            Join
           </button>
         )}
 

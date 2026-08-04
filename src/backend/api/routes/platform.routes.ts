@@ -1,3 +1,5 @@
+
+
 // ============================================================
 // CapitalForge — Platform Routes
 //
@@ -46,6 +48,21 @@ import { z, ZodError } from 'zod';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
+import {
+  CREDIT_UNION_MEMBERSHIP,
+  type CreditUnionIssuerId,
+  type MembershipCost,
+} from '../../../shared/constants/issuers.js';
+
+// Join cost comes from the membership registry, never from a literal here.
+//
+// This catalogue used to carry its own joinFee per credit union -- $10 for
+// Alliant, $17 for PenFed, $15 for First Tech -- none of which matched the
+// registry, and all of which reached an advisor through the Issuers page.
+function membershipCostFor(slug: CreditUnionIssuerId): MembershipCost {
+  return CREDIT_UNION_MEMBERSHIP[slug].cost;
+}
+
 
 const router = Router();
 
@@ -301,7 +318,7 @@ const ISSUERS_DATA = [
     cuMeta: {
       membershipRequirement: 'Active duty military, veterans, DoD civilians, and their family members',
       membershipType: 'Restricted' as const,
-      joinFee: 0,
+      membershipCost: membershipCostFor('navy_federal'),
       bureauPull: 'TransUnion',
     },
   },
@@ -316,7 +333,7 @@ const ISSUERS_DATA = [
     cuMeta: {
       membershipRequirement: 'Open to anyone via $10 Foster Care to Success donation',
       membershipType: 'Open' as const,
-      joinFee: 10,
+      membershipCost: membershipCostFor('alliant'),
       bureauPull: 'TransUnion',
     },
   },
@@ -331,7 +348,7 @@ const ISSUERS_DATA = [
     cuMeta: {
       membershipRequirement: 'Open to anyone via $17 Voices for Americas Troops donation',
       membershipType: 'Open' as const,
-      joinFee: 17,
+      membershipCost: membershipCostFor('penfed'),
       bureauPull: 'Equifax + TransUnion',
     },
   },
@@ -346,7 +363,7 @@ const ISSUERS_DATA = [
     cuMeta: {
       membershipRequirement: 'Tech industry employees or Computer History Museum / Financial Fitness Association members ($15)',
       membershipType: 'Restricted' as const,
-      joinFee: 15,
+      membershipCost: membershipCostFor('first_tech'),
       bureauPull: 'TransUnion',
     },
   },
@@ -361,7 +378,7 @@ const ISSUERS_DATA = [
     cuMeta: {
       membershipRequirement: 'Open to anyone via $10 Reach Out for Schools donation',
       membershipType: 'Open' as const,
-      joinFee: 10,
+      membershipCost: { kind: 'unconfirmed' as const, note: 'Not in the membership registry; join cost not sourced.' },
       bureauPull: 'TransUnion',
     },
   },
@@ -376,7 +393,7 @@ const ISSUERS_DATA = [
     cuMeta: {
       membershipRequirement: 'Washington state residents, Boeing employees/retirees, or family members of existing BECU members',
       membershipType: 'Restricted' as const,
-      joinFee: 0,
+      membershipCost: membershipCostFor('becu'),
       bureauPull: 'Equifax',
     },
   },
@@ -391,7 +408,7 @@ const ISSUERS_DATA = [
     cuMeta: {
       membershipRequirement: 'Open to anyone via $5 ALS Foundation donation',
       membershipType: 'Open' as const,
-      joinFee: 5,
+      membershipCost: membershipCostFor('lake_michigan_cu'),
       bureauPull: 'Equifax',
     },
   },

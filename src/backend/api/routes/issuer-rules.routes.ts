@@ -19,6 +19,23 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import { IssuerRulesEngine, EligibilityContext } from '../../services/issuer-rules-engine.js';
 import logger from '../../config/logger.js';
 import { isCreditUnionIssuerName, parseIssuer } from '../../../shared/constants/issuers.js';
+import {
+  CREDIT_UNION_MEMBERSHIP,
+  type MembershipCost,
+} from '../../../shared/constants/issuers.js';
+
+/** Membership cost for a row, preferring the registry over the column. */
+function membershipCostFromSlug(slug: string, columnFee: number | null): MembershipCost {
+  const parsed = parseIssuer(slug);
+  if (parsed?.kind === 'credit_union') return CREDIT_UNION_MEMBERSHIP[parsed.id].cost;
+  if (columnFee === null) {
+    return { kind: 'unconfirmed', note: 'No membership cost recorded for this credit union.' };
+  }
+  return columnFee > 0
+    ? { kind: 'confirmed', amount: columnFee, source: 'credit_unions.joinFee' }
+    : { kind: 'none' };
+}
+
 
 export const issuerRulesRouter = Router();
 
@@ -166,7 +183,10 @@ issuerRulesRouter.get('/credit-unions', async (_req: Request, res: Response) => 
       membership: {
         isOpen: cu.openMembership,
         criteria: cu.membershipCriteria ?? 'Contact credit union for details.',
-        joinFee: cu.joinFee ?? null,
+        // From the registry, not the column: credit_unions.joinFee still
+        // holds $50 for First Tech, a figure nothing here can source. Null
+        // means "not known", and callers must not read it as "no fee".
+        membershipCost: membershipCostFromSlug(cu.slug, cu.joinFee),
         joinUrl: `https://${cu.slug}.example.com/join`, // placeholder
       },
       productCount: cu.products.length,
