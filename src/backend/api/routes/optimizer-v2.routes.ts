@@ -44,6 +44,7 @@ const RunOptimizerSchema = z.object({
     .default('max_credit'),
   excludeIssuers: z.array(z.string()).optional().default([]),
   includeCreditUnions: z.boolean().optional().default(false),
+  maxCreditUnionCards: z.number().int().min(0).max(10).optional().default(3),
 
   // What the advisor typed. The optimizer used to read none of this — the
   // form was never sent, so a plan was built from the client record and, where
@@ -116,6 +117,7 @@ optimizerV2Router.post(
       profile: parsed.data.profile,
       existingCards: parsed.data.existingCards,
       creditUnionEligibility: parsed.data.creditUnionEligibility,
+      maxCreditUnionCards: parsed.data.maxCreditUnionCards,
     };
 
     try {

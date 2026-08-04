@@ -54,6 +54,49 @@ It answers `501` now.
 
 ---
 
+## 1b. A rule that is not merely missing, but inverted
+
+Everything else on this page is something the system declines to do. This one
+it does wrongly, which is a different category and is recorded separately so it
+is not mistaken for a gap that can wait.
+
+**Chase 5/24 counts credit union applications, when the point of a credit union
+application is that it does not count.**
+
+`issuer-rules.routes.ts:251` counts new cards in the 24-month window as:
+
+```ts
+business.cardApplications.filter(
+  (app) => app.status === 'approved' && app.decidedAt > twentyFourMonthsAgo,
+).length
+```
+
+Every approved application, whatever the issuer. `CardApplication.issuer` is a
+free string, so a credit union application is counted like a Chase one.
+
+Credit union applications do not report to the bureaus in the way that drives
+Chase 5/24, and `issuer-rules-engine.ts` says so in two places — *"Credit union
+applications do not count against Chase 5/24 or Amex velocity limits"*
+(line 666), *"Apply freely without impacting major bank eligibility"* (line 704).
+The engine holding that knowledge is not the code doing the counting.
+
+**Consequence if promoted to the live path.** The optimizer does not evaluate
+5/24 today, so nothing acts on this yet. The moment it is wired up — which is
+the obvious next step, and the reason the Credit Union Eligibility panel exists —
+a client who took the recommended credit union cards would be told they had
+exhausted their Chase eligibility when they had not. The advice would penalise
+the client for following the advice.
+
+**Cost.** *Correctness fix, small.* The count needs to exclude credit union
+issuers. It also needs an issuer identity it can trust: `CardApplication.issuer`
+is free text, and the credit union slugs in `issuer-rules-engine.ts`
+(`lake_michigan`) already disagree with the ones in `card_products`
+(`lake_michigan_cu`).
+
+**Do not consolidate the velocity implementations before fixing this.** There
+are three, and this is the only one that is wrong; merging first risks making
+it the survivor.
+
 ## 2. Figures that are absent rather than zero
 
 These endpoints answer normally. Individual figures come back `null` with the

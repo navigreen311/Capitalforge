@@ -713,6 +713,11 @@ export interface StackingOptimizerInput {
   existingCards?: SuppliedExistingCard[];
   /** What the advisor recorded about credit union standing. */
   creditUnionEligibility?: CreditUnionEligibility;
+  /**
+   * Most credit union cards to recommend. Separate from `maxCards` because
+   * each is a membership and a hard pull, not just another application.
+   */
+  maxCreditUnionCards?: number;
 }
 
 export interface CardRecommendation {
@@ -762,6 +767,25 @@ export interface AprExpirySummary {
   expiryEstimate: string;  // ISO date
 }
 
+export interface CapacityBreakdown {
+  /** What was asked for. A goal, not a ceiling. */
+  targetAmount: number;
+  /** Typical estimated credit from bank cards. */
+  bankEstimatedCredit: number;
+  /** Typical estimated credit from credit union cards. */
+  creditUnionEstimatedCredit: number;
+  /** Unmet by banks alone. Zero when the banks reached the target. */
+  shortfallAfterBanks: number;
+  /** Still unmet once credit unions are counted. */
+  remainingShortfall: number;
+  /** Whether credit unions were considered at all. */
+  creditUnionsIncluded: boolean;
+  /** The separate cap on credit union cards. */
+  creditUnionCardLimit: number;
+  bankCardCount: number;
+  creditUnionCardCount: number;
+}
+
 export interface StackingPlan {
   businessId: string;
   generatedAt: string;
@@ -777,6 +801,14 @@ export interface StackingPlan {
   cardCount: number;
   /** What each input was, and where it came from. */
   inputProvenance: InputProvenance;
+  /**
+   * How far the plan gets towards the target, and on whose capacity.
+   *
+   * The single `totalEstimatedCredit*` figures blend banks and credit unions,
+   * which hides the question the advisor is actually asking: did the banks
+   * cover it, and if not, what closes the gap.
+   */
+  capacity: CapacityBreakdown;
 }
 
 // ── Scoring helpers ──────────────────────────────────────────
@@ -1386,6 +1418,7 @@ export async function runStackingOptimizer(
     excludeIssuers = [],
     includeCreditUnions = false,
     creditUnionEligibility,
+    maxCreditUnionCards = 3,
   } = input;
 
   // 1. Load client data
@@ -1560,15 +1593,32 @@ export async function runStackingOptimizer(
   // 5. Sort by prioritization mode
   const sorted = sortByPrioritization(recommendations, prioritize);
 
-  // 6. Select top N and assign sequencing
-  const topN = sorted.slice(0, maxCards);
-  let cumulativeCredit = 0;
+  // 6. Select cards in two passes, and assign sequencing
+  //
+  // Banks first, to the target. Credit unions afterwards, against whatever the
+  // banks left unmet.
+  //
+  // One pass bounded by a single cap could not do this. Credit union limits are
+  // smaller, so those cards sort last under every prioritisation mode, and the
+  // loop reached the target and stopped before it got to them — at a realistic
+  // target they were unreachable. That inverts why they exist: a client turns
+  // to a credit union *because* bank capacity is exhausted, so the cards that
+  // extend the stack were exactly the ones being cut.
+  //
+  // The two passes are also why the plan reports a bank total and a credit
+  // union total rather than one blended figure. "$125,000" says nothing about
+  // whether the banks fell short, and the shortfall is the thing an advisor is
+  // reasoning about.
+  const bankPool = sorted.filter((r) => !isCreditUnionIssuer(r.issuer.toLowerCase()));
+  const cuPool = sorted.filter((r) => isCreditUnionIssuer(r.issuer.toLowerCase()));
+
   const finalRecs: CardRecommendation[] = [];
+  let bankCredit = 0;
+  let creditUnionCredit = 0;
 
-  for (let i = 0; i < topN.length; i++) {
-    const rec = topN[i];
-    const seqPos = i + 1;
-
+  /** Sequencing, cooldown and rationale are the same whichever pass selected it. */
+  const admit = (rec: CardRecommendation): void => {
+    const seqPos = finalRecs.length + 1;
     rec.sequencePosition = seqPos;
     const cooldown = getCooldown(rec.issuer, seqPos, ctx);
     rec.cooldownDays = cooldown.days;
@@ -1577,13 +1627,43 @@ export async function runStackingOptimizer(
     rec.rationale = buildRationale(rec, ctx);
     const membership = membershipByCardId.get(rec.cardProductId);
     if (membership) rec.membership = membership;
-
     finalRecs.push(rec);
-    cumulativeCredit += rec.estimatedLimitTypical;
+  };
 
-    // Stop if we've exceeded target (with 10% buffer)
-    if (targetAmount > 0 && cumulativeCredit >= targetAmount * 1.1) break;
+  // Pass 1 — banks, to the target. targetAmount is a goal, not a ceiling: the
+  // 10% buffer overshoots rather than stopping short of it.
+  for (const rec of bankPool.slice(0, maxCards)) {
+    admit(rec);
+    bankCredit += rec.estimatedLimitTypical;
+    if (targetAmount > 0 && bankCredit >= targetAmount * 1.1) break;
   }
+
+  const shortfallAfterBanks = Math.max(0, targetAmount - bankCredit);
+
+  // Pass 2 — credit unions, against the shortfall, and separately bounded.
+  //
+  // Each credit union card is a membership and a hard pull. "Extend the stack"
+  // and "join six credit unions" are different recommendations, so the count is
+  // capped independently of maxCards rather than sharing its budget.
+  if (includeCreditUnions) {
+    for (const rec of cuPool.slice(0, maxCreditUnionCards)) {
+      admit(rec);
+      creditUnionCredit += rec.estimatedLimitTypical;
+
+      // Stop once the gap is closed — but only when there was a gap. Credit
+      // unions are considered whenever they are enabled, not only when the
+      // banks fall short: Alliant and PenFed cost $5 to join and can beat a
+      // marginal bank card on terms, and gating them behind a shortfall would
+      // hide the better option from a client who happened to reach target.
+      // Extending the stack is the main case, not the only one.
+      if (shortfallAfterBanks > 0 && creditUnionCredit >= shortfallAfterBanks) break;
+    }
+  }
+
+  const remainingShortfall = Math.max(
+    0,
+    targetAmount - (bankCredit + creditUnionCredit),
+  );
 
   // 7. Compute velocity risk score
   const velocityRiskScore = computeVelocityRiskScore(ctx, finalRecs.length);
@@ -1623,6 +1703,17 @@ export async function runStackingOptimizer(
     prioritizationMode: prioritize,
     cardCount: finalRecs.length,
     inputProvenance: ctx.provenance,
+    capacity: {
+      targetAmount,
+      bankEstimatedCredit: bankCredit,
+      creditUnionEstimatedCredit: creditUnionCredit,
+      shortfallAfterBanks,
+      remainingShortfall,
+      creditUnionsIncluded: includeCreditUnions,
+      creditUnionCardLimit: maxCreditUnionCards,
+      bankCardCount: finalRecs.filter((r) => !isCreditUnionIssuer(r.issuer.toLowerCase())).length,
+      creditUnionCardCount: finalRecs.filter((r) => isCreditUnionIssuer(r.issuer.toLowerCase())).length,
+    },
   };
 }
 

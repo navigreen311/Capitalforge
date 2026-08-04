@@ -102,6 +102,19 @@ interface ApiStackingPlan {
   prioritizationMode: PrioritizationMode;
   cardCount: number;
   inputProvenance: ApiInputProvenance;
+  capacity?: ApiCapacity;
+}
+
+interface ApiCapacity {
+  targetAmount: number;
+  bankEstimatedCredit: number;
+  creditUnionEstimatedCredit: number;
+  shortfallAfterBanks: number;
+  remainingShortfall: number;
+  creditUnionsIncluded: boolean;
+  creditUnionCardLimit: number;
+  bankCardCount: number;
+  creditUnionCardCount: number;
 }
 
 // ─── Where each input came from ───────────────────────────────────────────────
@@ -149,6 +162,10 @@ function formatProvenanceValue(key: string, value: number): string {
   if (key === 'annualRevenue') return `$${value.toLocaleString()}`;
   if (key === 'businessAgeMonths') return `${value} months`;
   return String(value);
+}
+
+function formatCurrencyShort(value: number): string {
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
 function InputsUsedPanel({ provenance }: { provenance: ApiInputProvenance }) {
@@ -645,6 +662,8 @@ interface CUFormState {
   stackedCUs: string[];
   /** Whether credit union cards are considered in the plan at all. */
   includeInPlan: boolean;
+  /** Most credit union cards to recommend. Each is a membership and a hard pull. */
+  maxCards: string;
 }
 
 interface ExistingCardDetail {
@@ -719,6 +738,7 @@ const INITIAL_CU_FORM: CUFormState = {
   // and that should be a decision the advisor makes rather than a side effect
   // of filling in a state.
   includeInPlan: false,
+  maxCards: '3',
   state: '',
   militaryStatus: 'none',
   employer: '',
@@ -833,6 +853,7 @@ export default function OptimizerPage() {
             prioritize: form.prioritizationMode,
             excludeIssuers: form.excludeIssuers,
             includeCreditUnions: cuForm.includeInPlan,
+            maxCreditUnionCards: numOrNull(cuForm.maxCards) ?? 3,
             // Membership standing. Absent fields are reported as unknown by the
             // optimizer rather than resolved in the card's favour.
             creditUnionEligibility: {
@@ -1461,6 +1482,25 @@ export default function OptimizerPage() {
                     </span>
                   </span>
                 </label>
+
+                {cuForm.includeInPlan && (
+                  <div className="max-w-xs">
+                    <FormField label="Max credit union cards">
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={cuForm.maxCards}
+                        onChange={(e) => setCUForm({ ...cuForm, maxCards: e.target.value })}
+                        className="cf-input"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Each is a membership and a hard pull, so this is capped
+                        separately from the card count above.
+                      </p>
+                    </FormField>
+                  </div>
+                )}
                 {/* ── Eligibility Form ────────────────── */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField label="State of Residence">
@@ -1742,6 +1782,72 @@ export default function OptimizerPage() {
                   </div>
                 </div>
               </div>
+
+              {/* ── Capacity: did the banks cover it, and what closes the gap ── */}
+              {stackingPlan.capacity && (
+                <SectionCard
+                  title="Capacity against target"
+                  subtitle={`Target ${formatCurrencyShort(stackingPlan.capacity.targetAmount)}`}
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Bank cards</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {formatCurrencyShort(stackingPlan.capacity.bankEstimatedCredit)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {stackingPlan.capacity.bankCardCount} card
+                        {stackingPlan.capacity.bankCardCount === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Credit unions</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {stackingPlan.capacity.creditUnionsIncluded
+                          ? formatCurrencyShort(stackingPlan.capacity.creditUnionEstimatedCredit)
+                          : '--'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {stackingPlan.capacity.creditUnionsIncluded
+                          ? `${stackingPlan.capacity.creditUnionCardCount} of max ${stackingPlan.capacity.creditUnionCardLimit}`
+                          : 'Not included in this plan'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Still unmet</p>
+                      <p
+                        className={`text-2xl font-bold ${
+                          stackingPlan.capacity.remainingShortfall > 0
+                            ? 'text-amber-700'
+                            : 'text-green-700'
+                        }`}
+                      >
+                        {formatCurrencyShort(stackingPlan.capacity.remainingShortfall)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {stackingPlan.capacity.remainingShortfall > 0 ? 'Target not reached' : 'Target met'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/*
+                    The shortfall is the thing an advisor is reasoning about, and
+                    a single blended total hid it. Bank capacity is stated first
+                    because credit unions are what extends it, not what replaces it.
+                  */}
+                  <p className="mt-4 text-sm text-gray-600">
+                    {stackingPlan.capacity.shortfallAfterBanks === 0
+                      ? 'Bank cards alone reach the target.'
+                      : stackingPlan.capacity.creditUnionsIncluded
+                        ? `Bank capacity falls ${formatCurrencyShort(stackingPlan.capacity.shortfallAfterBanks)} short of target. `
+                          + (stackingPlan.capacity.creditUnionEstimatedCredit > 0
+                            ? `Credit unions close ${formatCurrencyShort(stackingPlan.capacity.creditUnionEstimatedCredit)} of that.`
+                            : 'No credit union card was eligible to close it.')
+                        : `Bank capacity falls ${formatCurrencyShort(stackingPlan.capacity.shortfallAfterBanks)} short of target. `
+                          + 'Credit unions are not included — turn them on above to extend the stack.'}
+                  </p>
+                </SectionCard>
+              )}
 
               {/* ── Inputs Used — read this before the recommendations ── */}
               {stackingPlan.inputProvenance && (
