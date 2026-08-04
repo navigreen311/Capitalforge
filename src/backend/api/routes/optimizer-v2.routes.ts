@@ -65,6 +65,16 @@ const RunOptimizerSchema = z.object({
     })
     .optional(),
 
+  creditUnionEligibility: z
+    .object({
+      state: z.string().length(2).nullish(),
+      militaryStatus: z.enum(['active', 'retired', 'veteran', 'family', 'none']).nullish(),
+      employer: z.string().max(200).nullish(),
+      techIndustry: z.boolean().nullish(),
+      existingMemberships: z.array(z.string()).nullish(),
+    })
+    .optional(),
+
   existingCards: z
     .array(
       z.object({
@@ -105,6 +115,7 @@ optimizerV2Router.post(
       includeCreditUnions: parsed.data.includeCreditUnions,
       profile: parsed.data.profile,
       existingCards: parsed.data.existingCards,
+      creditUnionEligibility: parsed.data.creditUnionEligibility,
     };
 
     try {

@@ -612,6 +612,10 @@ export const stackingOptimizer = new StackingOptimizerService();
 
 import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
+import {
+  CREDIT_UNION_MEMBERSHIP,
+  isCreditUnionIssuer,
+} from '../../shared/constants/issuers.js';
 
 const prisma = sharedPrisma;
 
@@ -707,6 +711,8 @@ export interface StackingOptimizerInput {
   profile?: SuppliedProfile;
   /** Cards the form says the client already holds. */
   existingCards?: SuppliedExistingCard[];
+  /** What the advisor recorded about credit union standing. */
+  creditUnionEligibility?: CreditUnionEligibility;
 }
 
 export interface CardRecommendation {
@@ -734,6 +740,11 @@ export interface CardRecommendation {
   cooldownDays: number;            // days to wait before this application
   /** Whether cooldownDays reflects a published issuer rule or a bare default. */
   cooldownSource: CooldownSource;
+  /**
+   * For credit union cards: whether the client can actually apply.
+   * Absent for bank cards, which have no membership requirement.
+   */
+  membership?: MembershipAssessment;
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
 }
@@ -776,7 +787,14 @@ interface ApplicationContext {
   businessAgeMonths: number;
   recentInquiries: number;
   existingCardCount: number;
-  existingIssuers: Set<string>;
+  /**
+   * Products the client already holds, as normalised identity keys.
+   *
+   * This was `existingIssuers`, a set of issuer names — and nothing in the
+   * filter loop ever read it. A client holding a Chase Ink Preferred was
+   * recommended a Chase Ink Preferred.
+   */
+  heldProductKeys: Set<string>;
   recentAppDates: Date[];
 }
 
@@ -829,12 +847,207 @@ function resolveInput(args: {
   return { value: fallback, source: 'assumed_default', label };
 }
 
+// ── Credit union membership ──────────────────────────────────
+
+export type MembershipStatus =
+  /** The client is already a member. */
+  | 'member'
+  /** Not a member, but a route to joining exists. Joining is a prerequisite. */
+  | 'eligibility_path'
+  /** Nothing on file says whether they qualify. Not the same as eligible. */
+  | 'unknown'
+  /** A requirement exists and the client demonstrably does not meet it. */
+  | 'ineligible';
+
+export interface MembershipAssessment {
+  status: MembershipStatus;
+  /** Shown with the recommendation. Says what joining requires. */
+  detail: string;
+  /**
+   * Whether joining is a formality or a qualification.
+   *
+   * "Requires joining first" covered both a $5 donation and having served in
+   * the military, which are not the same fact to carry to a client. An advisor
+   * can act on the first in the meeting; the second decides whether the card
+   * is available at all.
+   */
+  gate?: 'open_enrollment' | 'qualification_required';
+  /** Approximate cost of joining, where enrollment is open. */
+  joinCost?: number;
+}
+
+/** What the advisor told us about the client's credit union standing. */
+export interface CreditUnionEligibility {
+  /** Two-letter state of residence. */
+  state?: string | null;
+  militaryStatus?: 'active' | 'retired' | 'veteran' | 'family' | 'none' | null;
+  employer?: string | null;
+  techIndustry?: boolean | null;
+  /** Issuer ids of credit unions the client already belongs to. */
+  existingMemberships?: string[] | null;
+}
+
+/**
+ * Decide whether a credit union card can be applied for.
+ *
+ * The rule this enforces: an advisor must never carry a recommendation to a
+ * client and find it requires a membership they cannot get. So a card is only
+ * recommended when the client is a member, or when a specific route to joining
+ * is named alongside it.
+ *
+ * Absent information is reported as unknown rather than resolved in the card's
+ * favour, for the same reason an assumed FICO is labelled rather than trusted.
+ */
+export function assessMembership(
+  issuerId: string,
+  eligibility?: CreditUnionEligibility,
+): MembershipAssessment {
+  const path = CREDIT_UNION_MEMBERSHIP[issuerId];
+  if (!path) {
+    return {
+      status: 'unknown',
+      detail: 'No membership requirement is recorded for this credit union. Verify before presenting.',
+    };
+  }
+
+  const memberships = (eligibility?.existingMemberships ?? []).map((m) =>
+    m.trim().toLowerCase().replace(/-/g, '_'),
+  );
+  if (memberships.includes(issuerId)) {
+    return { status: 'member', detail: 'Client is already a member.' };
+  }
+
+  switch (path.kind) {
+    case 'open':
+      // Anyone can join, so the path is certain — but it is still a step the
+      // client has to take before applying.
+      return {
+        status: 'eligibility_path',
+        gate: 'open_enrollment',
+        joinCost: path.cost,
+        detail: path.description,
+      };
+
+    case 'state': {
+      const state = eligibility?.state?.trim().toUpperCase();
+      if (!state) {
+        return {
+          status: 'unknown',
+          detail: `Membership depends on state of residence, which is not recorded. ${path.description}`,
+        };
+      }
+      if (state !== path.state) {
+        return {
+          status: 'ineligible',
+          detail: `Client is in ${state}. ${path.description}`,
+        };
+      }
+      return {
+        status: 'eligibility_path',
+        gate: 'qualification_required',
+        detail: `Client qualifies on ${state} residency. ${path.description}`,
+      };
+    }
+
+    case 'industry': {
+      if (eligibility?.techIndustry === true) {
+        return {
+          status: 'eligibility_path',
+          gate: 'qualification_required',
+          detail: `Client qualifies on technology-industry employment. ${path.description}`,
+        };
+      }
+      if (eligibility?.techIndustry === false) {
+        // The association route stays open to anyone, so this is not a refusal.
+        return {
+          // The association route is open to anyone, so this is enrollment at
+          // a price rather than a qualification the client must already meet.
+          status: 'eligibility_path',
+          gate: 'open_enrollment',
+          joinCost: path.cost,
+          detail: `Not in the technology industry, so joining goes via the association route. ${path.description}`,
+        };
+      }
+      return {
+        status: 'unknown',
+        detail: `Membership depends on industry or association, neither recorded. ${path.description}`,
+      };
+    }
+
+    case 'military': {
+      const status = eligibility?.militaryStatus;
+      if (!status) {
+        return {
+          status: 'unknown',
+          detail: `Membership depends on military affiliation, which is not recorded. ${path.description}`,
+        };
+      }
+      if (status === 'none') {
+        return {
+          status: 'ineligible',
+          detail: `No military affiliation recorded for this client. ${path.description}`,
+        };
+      }
+      return {
+        status: 'eligibility_path',
+        gate: 'qualification_required',
+        detail: `Client qualifies on ${status} military affiliation. ${path.description}`,
+      };
+    }
+  }
+}
+
+// ── Matching a product the client already holds ──────────────
+//
+// Three sources name the same card three ways. `CardProduct.name` is the full
+// product name ("Chase Ink Business Preferred"). `CardApplication` splits it
+// into `issuer` ("Chase") and `cardProduct` ("Ink Business Preferred"). The
+// optimizer form sends the display name. Comparing any two of those directly
+// misses, so each is reduced to the same normalised key.
+
+function normaliseProductName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/** Every key a stored application could match a catalogue product by. */
+function heldKeysForApplication(issuer: string, cardProduct: string): string[] {
+  const product = normaliseProductName(cardProduct);
+  const withIssuer = normaliseProductName(`${issuer} ${cardProduct}`);
+  return [product, withIssuer].filter(Boolean);
+}
+
+/** Every key a form-supplied card could match a catalogue product by. */
+function heldKeysForSuppliedCard(card: SuppliedExistingCard): string[] {
+  const keys: string[] = [];
+  if (card.cardProductId) keys.push(`id:${card.cardProductId.trim().toLowerCase()}`);
+  if (card.name) {
+    keys.push(normaliseProductName(card.name));
+    if (card.issuer) keys.push(normaliseProductName(`${card.issuer} ${card.name}`));
+  }
+  return keys.filter(Boolean);
+}
+
+/** True when this catalogue product is one the client already holds. */
+function isHeldProduct(
+  card: { id: string; issuerId: string; name: string },
+  held: Set<string>,
+): boolean {
+  if (held.has(`id:${card.id.toLowerCase()}`)) return true;
+  if (held.has(normaliseProductName(card.name))) return true;
+  // The catalogue name usually leads with the issuer; an application's
+  // cardProduct usually does not. Compare with the issuer stripped too.
+  const issuerWords = card.issuerId.split('_').join(' ');
+  const withoutIssuer = card.name.toLowerCase().replace(issuerWords, '');
+  return held.has(normaliseProductName(withoutIssuer));
+}
+
 function buildApplicationContext(
   business: {
     annualRevenue: { toNumber: () => number } | null;
     dateOfFormation: Date | null;
     cardApplications: Array<{
       issuer: string;
+      cardProduct: string;
       status: string;
       submittedAt: Date | null;
     }>;
@@ -846,6 +1059,7 @@ function buildApplicationContext(
     }>;
   },
   supplied?: SuppliedProfile,
+  suppliedExistingCards?: SuppliedExistingCard[],
 ): ApplicationContext & { provenance: InputProvenance } {
   // Get best FICO from most recent credit profile
   const sortedProfiles = [...business.creditProfiles].sort(
@@ -917,7 +1131,20 @@ function buildApplicationContext(
   const activeApps = business.cardApplications.filter(
     (a) => a.status === 'approved' || a.status === 'active',
   );
-  const existingIssuers = new Set(activeApps.map((a) => a.issuer.toLowerCase()));
+  // Approved or active applications are cards the client holds. Drafts are
+  // not: a draft is an intention, and excluding on it would hide a product the
+  // client has not got.
+  const heldProductKeys = new Set<string>();
+  for (const a of activeApps) {
+    for (const key of heldKeysForApplication(a.issuer, a.cardProduct)) {
+      heldProductKeys.add(key);
+    }
+  }
+  // Cards the advisor ticked on the form. The client holds these whether or
+  // not an application record exists — most predate this system.
+  for (const card of suppliedExistingCards ?? []) {
+    for (const key of heldKeysForSuppliedCard(card)) heldProductKeys.add(key);
+  }
 
   // Recent application dates (past 90 days)
   const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
@@ -960,7 +1187,7 @@ function buildApplicationContext(
     businessAgeMonths,
     recentInquiries,
     existingCardCount: activeApps.length,
-    existingIssuers,
+    heldProductKeys,
     recentAppDates,
     provenance,
   };
@@ -1157,7 +1384,8 @@ export async function runStackingOptimizer(
     maxCards = 8,
     prioritize = 'max_credit',
     excludeIssuers = [],
-    includeCreditUnions: _includeCreditUnions = false,
+    includeCreditUnions = false,
+    creditUnionEligibility,
   } = input;
 
   // 1. Load client data
@@ -1170,7 +1398,7 @@ export async function runStackingOptimizer(
   });
 
   // 2. Build application context, recording where each input came from
-  const ctx = buildApplicationContext(business, input.profile);
+  const ctx = buildApplicationContext(business, input.profile, input.existingCards);
 
   // 3. Load all active card products
   const loadedCards = await prisma.cardProduct.findMany({
@@ -1208,6 +1436,7 @@ export async function runStackingOptimizer(
   const excludeSet = new Set(excludeIssuers.map((i) => i.toLowerCase()));
   const recommendations: CardRecommendation[] = [];
   const excludedCards: ExcludedCardInfo[] = [];
+  const membershipByCardId = new Map<string, MembershipAssessment>();
 
   for (const card of allCards) {
     const issuerLower = card.issuerId.toLowerCase();
@@ -1221,6 +1450,46 @@ export async function runStackingOptimizer(
         reason: `Issuer "${card.issuerId}" excluded by request.`,
       });
       continue;
+    }
+
+    // Already held.
+    //
+    // Recommending a product the client is already carrying is the clearest
+    // possible sign the plan was not built from their position. It also
+    // inflates the total estimated credit by a limit they already have.
+    if (isHeldProduct(card, ctx.heldProductKeys)) {
+      excludedCards.push({
+        cardProductId: card.id,
+        issuer: card.issuerId,
+        name: card.name,
+        reason: 'The client already holds this card.',
+      });
+      continue;
+    }
+
+    // Credit unions: only when asked for, and never as though membership
+    // were a given.
+    if (isCreditUnionIssuer(issuerLower)) {
+      if (!includeCreditUnions) {
+        excludedCards.push({
+          cardProductId: card.id,
+          issuer: card.issuerId,
+          name: card.name,
+          reason: 'Credit unions are not included in this plan.',
+        });
+        continue;
+      }
+      const membership = assessMembership(issuerLower, creditUnionEligibility);
+      if (membership.status === 'ineligible') {
+        excludedCards.push({
+          cardProductId: card.id,
+          issuer: card.issuerId,
+          name: card.name,
+          reason: membership.detail,
+        });
+        continue;
+      }
+      membershipByCardId.set(card.id, membership);
     }
 
     // Score minimum check
@@ -1306,6 +1575,8 @@ export async function runStackingOptimizer(
     rec.cooldownSource = cooldown.source;
     rec.velocityRisk = getVelocityRisk(ctx, seqPos);
     rec.rationale = buildRationale(rec, ctx);
+    const membership = membershipByCardId.get(rec.cardProductId);
+    if (membership) rec.membership = membership;
 
     finalRecs.push(rec);
     cumulativeCredit += rec.estimatedLimitTypical;

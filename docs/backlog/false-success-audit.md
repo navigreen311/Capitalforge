@@ -28,6 +28,33 @@ All three are now fixed. The pattern is not.
 records an advisor will later act on. A UI that reports a write it did not make
 is a data-integrity defect, not a cosmetic one.
 
+## A fourth instance: a panel that never ran
+
+Found 2026-08-03, after the three above, and it is the same pattern pointed the
+other way — not a success reported for a write that did not happen, but a whole
+input surface implying an influence it did not have.
+
+The optimizer's **Credit Union Eligibility panel** collects state of residence,
+employer, military status, tech-industry status and existing memberships, and
+computes an eligibility result on screen. The run payload sent
+`includeCreditUnions: false` — hardcoded, never wired to anything. **Every field
+in that panel was computed client-side and discarded.** No credit union card
+could appear in a plan, whatever an advisor entered.
+
+It cost real time: several rounds of debugging treated the panel as live and
+returning nothing, when it had never executed. Nothing about it looked disabled.
+
+Now fixed — an explicit "Include credit unions in this plan" toggle, the
+eligibility fields sent, and each CU recommendation stating whether the client
+is a member, how they could join, or that their standing is unknown. Logged here
+because the class is worth watching for: **a form that changes nothing is the
+same defect as a toast that saves nothing**, and it is harder to spot, because
+there is no false message to catch — only a control that appears to matter.
+
+Worth adding to the audit below: for each input surface, does anything read it?
+A field whose value never reaches a request is the quietest version of this
+pattern.
+
 ## What to audit
 
 **43 success toasts across 17 files**, plus every post-action `router.push`.

@@ -64,6 +64,13 @@ interface ApiCardRecommendation {
   cooldownDays: number;
   /** 'issuer_rule' when the wait reflects a published rule; otherwise a bare default. */
   cooldownSource?: 'issuer_rule' | 'unresearched_default';
+  /** Credit union cards only: whether the client can actually apply. */
+  membership?: {
+    status: 'member' | 'eligibility_path' | 'unknown' | 'ineligible';
+    detail: string;
+    gate?: 'open_enrollment' | 'qualification_required';
+    joinCost?: number;
+  };
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
 }
@@ -636,6 +643,8 @@ interface CUFormState {
   techIndustry: boolean;
   existingMemberships: string[];
   stackedCUs: string[];
+  /** Whether credit union cards are considered in the plan at all. */
+  includeInPlan: boolean;
 }
 
 interface ExistingCardDetail {
@@ -706,6 +715,10 @@ const ISSUER_OPTIONS = [
 ];
 
 const INITIAL_CU_FORM: CUFormState = {
+  // Off by default: including credit unions changes what a plan recommends,
+  // and that should be a decision the advisor makes rather than a side effect
+  // of filling in a state.
+  includeInPlan: false,
   state: '',
   militaryStatus: 'none',
   employer: '',
@@ -819,7 +832,16 @@ export default function OptimizerPage() {
             maxCards: form.maxCards ? Number(form.maxCards) : 8,
             prioritize: form.prioritizationMode,
             excludeIssuers: form.excludeIssuers,
-            includeCreditUnions: false,
+            includeCreditUnions: cuForm.includeInPlan,
+            // Membership standing. Absent fields are reported as unknown by the
+            // optimizer rather than resolved in the card's favour.
+            creditUnionEligibility: {
+              state: cuForm.state || null,
+              militaryStatus: cuForm.militaryStatus,
+              employer: cuForm.employer || null,
+              techIndustry: cuForm.techIndustry,
+              existingMemberships: cuForm.existingMemberships,
+            },
             // Everything the advisor typed. None of this used to leave the
             // browser: the optimizer read the client record, and where that
             // was empty it used constants — so a FICO entered here was
@@ -882,7 +904,7 @@ export default function OptimizerPage() {
     //
     // `form` is replaced wholesale on every edit, so listing it is both correct
     // and no more work than listing its parts.
-  }, [form]);
+  }, [form, cuForm]);
 
   // Derive selected client name for toasts
   const selectedClientName = useMemo(() => {
@@ -1416,6 +1438,29 @@ export default function OptimizerPage() {
 
             {cuPanelOpen && (
               <div className="border-t border-surface-border px-5 py-5 space-y-5">
+
+                {/*
+                  An explicit decision, not an inference. Filling in a state
+                  should not silently change which cards a plan recommends.
+                */}
+                <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-surface-border bg-gray-50 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={cuForm.includeInPlan}
+                    onChange={(e) => setCUForm({ ...cuForm, includeInPlan: e.target.checked })}
+                    className="mt-0.5 rounded border-gray-400"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-gray-800">
+                      Include credit unions in this plan
+                    </span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Credit union cards require joining the credit union first. When
+                      included, each recommendation states whether the client is a
+                      member, how they could join, or that their standing is unknown.
+                    </span>
+                  </span>
+                </label>
                 {/* ── Eligibility Form ────────────────── */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField label="State of Residence">
@@ -2154,6 +2199,43 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
       <p className="text-xs text-gray-500 leading-relaxed">{rec.rationale}</p>
 
       {/* Cooldown */}
+      {/*
+        A credit union card cannot be applied for without joining first. An
+        advisor who carries this to a client must know that before the client
+        does, and must not be told "eligible" when nothing on file says so.
+      */}
+      {rec.membership && (
+        <div
+          className={`mb-2 rounded-lg border px-3 py-2 text-xs ${
+            rec.membership.status === 'member'
+              ? 'border-green-300 bg-green-50 text-green-800'
+              : rec.membership.status === 'eligibility_path'
+                ? rec.membership.gate === 'open_enrollment'
+                  ? 'border-blue-300 bg-blue-50 text-blue-900'
+                  : 'border-amber-300 bg-amber-50 text-amber-900'
+                : 'border-gray-300 bg-gray-50 text-gray-700'
+          }`}
+        >
+          <span className="font-semibold">
+            {rec.membership.status === 'member'
+              ? 'Member'
+              : rec.membership.status !== 'eligibility_path'
+                ? 'Membership status unknown'
+                : rec.membership.gate === 'open_enrollment'
+                  // Open enrollment is a step, not a barrier — an advisor can
+                  // act on it in the meeting. Saying only "membership required"
+                  // read the same as needing to have served in the military.
+                  ? `Open enrollment${
+                      typeof rec.membership.joinCost === 'number'
+                        ? ` — join for $${rec.membership.joinCost}`
+                        : ''
+                    }`
+                  : 'Qualifies — membership required before applying'}
+          </span>{' '}
+          {rec.membership.detail}
+        </div>
+      )}
+
       {rec.cooldownDays > 0 && (
         <div className="mt-2 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-1.5">
           <p className="text-xs text-brand-navy font-semibold">
