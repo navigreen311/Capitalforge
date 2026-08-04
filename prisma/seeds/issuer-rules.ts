@@ -9,6 +9,31 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import {
+  CREDIT_UNION_MEMBERSHIP,
+  type CreditUnionIssuerId,
+} from '../../src/shared/constants/issuers.js';
+
+/**
+ * The join fee for a credit union, from the membership registry.
+ *
+ * This seed used to carry its own numbers, and one of them — $50 for First
+ * Tech — was a figure nothing in this codebase could source. It reached the
+ * database, and from there the Issuers page and the membership-steps endpoint.
+ * Six surfaces have since been pointed at CREDIT_UNION_MEMBERSHIP; this is the
+ * seventh, and the one that would have put the number back on a fresh database.
+ *
+ * Null where the registry cannot confirm a cost. Null means "not recorded" —
+ * every reader now distinguishes that from "no fee", which is the distinction
+ * the old `joinFee ? paid : 'No join fee required.'` could not make.
+ */
+function registryJoinFee(slug: CreditUnionIssuerId): number | null {
+  const cost = CREDIT_UNION_MEMBERSHIP[slug].cost;
+  if (cost.kind === 'confirmed') return cost.amount;
+  if (cost.kind === 'none') return 0;
+  return null;
+}
+
 
 export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
   console.log('  🏦 Seeding issuers and rules...');
@@ -415,7 +440,7 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
       charterNumber: '5536',
       membershipCriteria: 'Active duty military, veterans, DoD civilians, and immediate family members',
       openMembership: false,
-      joinFee: 0,
+      joinFee: registryJoinFee('navy_federal'),
       assetMillions: 165000,
       businessCardsOffered: true,
       isActive: true,
@@ -430,9 +455,9 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
       name: 'Alliant Credit Union',
       slug: 'alliant',
       charterNumber: '14354',
-      membershipCriteria: 'Anyone can join via Foster Care to Success donation ($5)',
+      membershipCriteria: 'Anyone can join via a Foster Care to Success donation',
       openMembership: true,
-      joinFee: 5,
+      joinFee: registryJoinFee('alliant'),
       assetMillions: 19000,
       businessCardsOffered: true,
       isActive: true,
@@ -449,7 +474,7 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
       charterNumber: '4309',
       membershipCriteria: 'Anyone can join via Voices for Americas Troops donation or military affiliation',
       openMembership: true,
-      joinFee: 5,
+      joinFee: registryJoinFee('penfed'),
       assetMillions: 36000,
       businessCardsOffered: true,
       isActive: true,
@@ -464,9 +489,9 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
       name: 'First Tech Federal Credit Union',
       slug: 'first-tech',
       charterNumber: '4098',
-      membershipCriteria: 'Employees of select tech companies (Intel, HP, Microsoft, Nike, Amazon, etc.) or join via Computer History Museum ($50)',
+      membershipCriteria: 'Employees of select tech companies (Intel, HP, Microsoft, Nike, Amazon, etc.) or join via the Computer History Museum',
       openMembership: true,
-      joinFee: 50,
+      joinFee: registryJoinFee('first_tech'),
       assetMillions: 17000,
       businessCardsOffered: true,
       isActive: true,
@@ -483,7 +508,7 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
       charterNumber: '4201',
       membershipCriteria: 'Must live, work, or attend school in Washington state',
       openMembership: false,
-      joinFee: 0,
+      joinFee: registryJoinFee('becu'),
       assetMillions: 29000,
       businessCardsOffered: true,
       isActive: true,
@@ -498,9 +523,9 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
       name: 'Lake Michigan Credit Union',
       slug: 'lake-michigan-cu',
       charterNumber: '7649',
-      membershipCriteria: 'Anyone can join via $5 ALS of Michigan donation',
+      membershipCriteria: 'Anyone can join via an ALS of Michigan donation',
       openMembership: true,
-      joinFee: 5,
+      joinFee: registryJoinFee('lake_michigan_cu'),
       assetMillions: 12000,
       businessCardsOffered: true,
       isActive: true,

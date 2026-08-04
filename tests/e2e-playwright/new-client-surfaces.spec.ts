@@ -27,12 +27,38 @@ const API = 'http://127.0.0.1:4000/api';
  * seeded, because the point is the state a client is in before anything has
  * happened to them — which a seeded client is never in.
  */
+
+/** A unique, digit-free suffix, so a fixture name cannot collide with an
+ *  assertion about numbers rendered on the page. */
+function uniqueSuffix(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let out = '';
+  for (let i = 0; i < 8; i += 1) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return out;
+}
+
 async function onboardClient(token: string | null): Promise<string> {
   const res = await fetch(`${API}/businesses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      legalName: `Onboarding Check ${String(Date.now()).slice(-8)}`,
+      // Letters, not digits.
+      //
+      // This was `String(Date.now()).slice(-8)`, and the suitability test below
+      // asserts that "72" appears nowhere on the client's page — the score this
+      // panel used to invent. `getByText('72')` is a substring match, so it
+      // matched the client's own name whenever that timestamp fragment
+      // contained 72, and the name renders twice.
+      //
+      // The leading digits of an 8-digit millisecond window only turn over
+      // every ~2.8 hours, so this did not fail at random: it failed for hours
+      // at a time and passed for the rest. Two runs five minutes apart both saw
+      // 726... and 729..., after two earlier runs on the same code had passed.
+      // A unique name is still needed; it just must not carry digits that
+      // content assertions can collide with.
+      legalName: `Onboarding Check ${uniqueSuffix()}`,
       entityType: 'llc',
       industry: 'Professional Services',
       state: 'DE',
@@ -96,7 +122,16 @@ test.describe('A newly onboarded client', () => {
     // This panel used to show a fixed score of 72 and "suitable for moderate
     // stacking" for every client, assessed or not.
     await expect(page.getByText('Not assessed', { exact: true })).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText('72')).toHaveCount(0);
+
+    // The suitability card says so positively, rather than being merely empty.
+    await expect(page.getByText('no check on record', { exact: true })).toBeVisible();
+
+    // `exact: true` matters here. Without it this is a substring match against
+    // the whole page, and it matched the client's own generated name — the
+    // fabricated score is a stat-card value whose entire text is "72", so an
+    // exact match is both what we mean and the only form that cannot collide
+    // with a revenue figure, a date or an id that happens to contain 72.
+    await expect(page.getByText('72', { exact: true })).toHaveCount(0);
   });
 
   test('the endpoints behind those panels answer, they do not fail', async ({
