@@ -9,7 +9,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface Row { [key: string]: unknown; id?: string }
 
@@ -29,18 +29,11 @@ export default function WorkflowsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/platform/workflows', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`Workflows could not be loaded (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      const d = body.data as Record<string, unknown> | unknown[];
+      const d = await loadJson<Record<string, unknown> | unknown[]>('/api/platform/workflows');
       const list = Array.isArray(d) ? d : ((d?.['workflows'] as unknown[]) ?? []);
       setRows(list as Row[]);
-    } catch {
-      setError('Could not reach the server.');
+    } catch (e) {
+      setError(`Workflows could not be loaded. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);
@@ -58,21 +51,15 @@ export default function WorkflowsPage() {
     setSaving(true);
     setFormError(null);
     try {
-      const res = await fetch('/api/platform/workflows', {
+      await loadJson('/api/platform/workflows', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ name, trigger, condition, action }),
+        body: { name, trigger, condition, action },
       });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: { message?: string } };
-        setFormError(body.error?.message ?? `The rule was not saved (HTTP ${res.status}).`);
-        return;
-      }
       setShowForm(false);
       setName('');
       await load();
-    } catch {
-      setFormError('Could not reach the server, so nothing was saved.');
+    } catch (e) {
+      setFormError(`The rule was not saved. ${toLoadError(e).message}`);
     } finally {
       setSaving(false);
     }

@@ -475,3 +475,36 @@ stale header is the weaker guarantee; the ordering is now the strong one.
   rounds')` in the catch**. Both paths identical, so a round that was never
   created looked exactly like one that was: the user landed on a register that
   simply did not contain it. Now stays on the form and says why.
+
+## Batch 8 — platform pages (done)
+
+Seven files: `platform/{crm,data-lineage,referrals,reports,voiceforge,workflows}`
+and `app/workflows`. Five were plain conversions. Two were not.
+
+### A write that stored nothing and looked like it had
+
+`app/platform/referrals` carried the comment **"Try to persist via API, but
+always add locally"**, and did exactly that: a refused POST still pushed the new
+referral into the list, the modal closed, and the form reset. It appeared saved.
+The next reload lost it.
+
+A referral that exists only on one screen is worse than one never entered,
+because nobody knows to enter it again. It now reports the failure and keeps the
+modal open with the values still in it.
+
+This is the same shape as the compliance placeholder fallback escalated earlier
+— local state standing in for a server that refused — and the same rule settles
+it: an absence must not be dressed as a success.
+
+### An optimistic toggle that told the truth
+
+`app/platform/workflows` fires "Workflow activated" **before** the request and
+reverts on failure with a second toast. Left as it is: the revert is real and
+the correction is visible, which is a legitimate optimistic pattern rather than
+a false success. Converted only for the refresh.
+
+### Note on `data-lineage`
+
+Its failure message — *"Nothing is reconstructed in its place"* — is worth
+keeping as written. It is one of the few places in this codebase that says out
+loud what it is refusing to do.

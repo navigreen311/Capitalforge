@@ -8,7 +8,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface Row { [key: string]: unknown; id?: string }
 
@@ -21,18 +21,11 @@ export default function VoiceForgePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/voiceforge/calls', { headers: authHeaders() });
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      if (!res.ok || body.success !== true) {
-        setError(`Calls could not be loaded (HTTP ${res.status}).`);
-        setRows(null);
-        return;
-      }
-      const d = body.data as Record<string, unknown> | unknown[];
+      const d = await loadJson<Record<string, unknown> | unknown[]>('/api/voiceforge/calls');
       const list = Array.isArray(d) ? d : ((d?.['calls'] as unknown[]) ?? []);
       setRows(list as Row[]);
-    } catch {
-      setError('Could not reach the server.');
+    } catch (e) {
+      setError(`Calls could not be loaded. ${toLoadError(e).message}`);
       setRows(null);
     } finally {
       setLoading(false);

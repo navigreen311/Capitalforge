@@ -13,7 +13,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { authHeaders } from '@/lib/api-client';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 interface ClientOption {
   id: string;
@@ -38,13 +38,11 @@ export default function DataLineagePage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch('/api/clients?limit=200', { headers: authHeaders() });
-        const body = (await res.json()) as { success?: boolean; data?: ClientOption[] };
-        const list = body.success === true ? body.data ?? [] : [];
+        const list = (await loadJson<ClientOption[] | null>('/api/clients?limit=200')) ?? [];
         setClients(list);
         if (list.length > 0) setSelected(list[0].id);
-      } catch {
-        setError('Could not load the client list.');
+      } catch (e) {
+        setError(`Could not load the client list. ${toLoadError(e).message}`);
       } finally {
         setLoading(false);
       }
@@ -55,25 +53,17 @@ export default function DataLineagePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
+      const raw = await loadJson<{ events?: LedgerEvent[] } | LedgerEvent[] | undefined>(
         `/api/governance/lineage?aggregateId=${encodeURIComponent(businessId)}`,
-        { headers: authHeaders() },
       );
-      if (!res.ok) {
-        // The endpoint may not exist. Saying so beats drawing a lineage.
-        setEvents(null);
-        setError(
-          `No lineage could be read for this client (HTTP ${res.status}). ` +
-            'Nothing is reconstructed in its place.',
-        );
-        return;
-      }
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      const raw = body.data as { events?: LedgerEvent[] } | LedgerEvent[] | undefined;
       setEvents(Array.isArray(raw) ? raw : raw?.events ?? []);
-    } catch {
-      setError('Could not reach the server.');
+    } catch (e) {
+      // The endpoint may not exist. Saying so beats drawing a lineage.
       setEvents(null);
+      setError(
+        `No lineage could be read for this client. ${toLoadError(e).message} ` +
+          'Nothing is reconstructed in its place.',
+      );
     } finally {
       setLoading(false);
     }

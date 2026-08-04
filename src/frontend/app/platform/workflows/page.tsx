@@ -795,22 +795,10 @@ export default function PlatformWorkflowsPage() {
     showToast(`Workflow ${label}`);
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-      const _h: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) _h['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`/api/platform/workflows/${id}`, {
+      await loadJson(`/api/platform/workflows/${id}`, {
         method: 'PATCH',
-        headers: _h,
-        body: JSON.stringify({ status: newStatus }),
+        body: { status: newStatus },
       });
-      const json = await res.json();
-      if (!json.success) {
-        // Revert on server failure
-        const revertStatus = newStatus === 'active' ? 'paused' : 'active';
-        setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, status: revertStatus } : w)));
-        showToast('Failed to update workflow — reverted');
-      }
     } catch {
       // The optimistic update must be rolled back: nothing was persisted, and
       // claiming the workflow was enabled would leave the UI disagreeing with
