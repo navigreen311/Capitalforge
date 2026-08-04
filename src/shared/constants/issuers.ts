@@ -78,7 +78,10 @@ const CREDIT_UNION_ALIASES: Record<string, readonly string[]> = {
   alliant: ['Alliant Credit Union', 'Alliant'],
   first_tech: ['First Tech Federal Credit Union', 'First Tech', 'First Tech FCU'],
   becu: ['BECU', 'Boeing Employees Credit Union'],
-  lake_michigan_cu: ['Lake Michigan Credit Union', 'Lake Michigan CU', 'LMCU'],
+  // "Lake Michigan" without the suffix is how the frontend list spells it.
+  // The slug carries a `_cu` the display name does not, so without this alias
+  // a member of this credit union parsed to nothing and was told to join.
+  lake_michigan_cu: ['Lake Michigan Credit Union', 'Lake Michigan CU', 'LMCU', 'Lake Michigan'],
 };
 
 function normaliseIssuerText(value: string): string {
@@ -107,6 +110,96 @@ export function isCreditUnionIssuerName(value: string | null | undefined): boole
   }
   return normalised.includes('creditunion') || normalised.endsWith('fcu');
 }
+
+// ── The parse boundary ───────────────────────────────────────
+//
+// Issuer identity arrives as free text from four directions: a database column
+// (`CardApplication.issuer` holds display names, `CardProduct.issuerId` holds
+// slugs), a request body, a query parameter, and seed data. Every place that
+// needed identity from one of those has, so far, worked it out for itself —
+// `issuer.toLowerCase()`, `.replace(/\s+/g, '_')`, a `Record<string, T>` lookup
+// that silently returns undefined. Five such sites existed before this
+// function, no two agreeing, and the two most recently found were discovered by
+// accident while doing something else.
+//
+// This is the one place text becomes identity. Past it, an issuer is a typed
+// value with a known kind; before it, it is a string nobody has checked.
+
+export interface BankIssuerIdentity {
+  kind: 'bank';
+  id: string;
+}
+
+export interface CreditUnionIssuerIdentity {
+  kind: 'credit_union';
+  id: string;
+}
+
+/**
+ * An issuer, and which sort it is.
+ *
+ * The kind is on the identity rather than on each card, because everything it
+ * decides — the Chase 5/24 exemption, whether membership is required, which
+ * velocity rules apply — is a fact about the institution. A per-card flag could
+ * disagree with itself; this cannot.
+ */
+export type IssuerIdentity = BankIssuerIdentity | CreditUnionIssuerIdentity;
+
+/**
+ * Resolve free text to an issuer, or null when it names none.
+ *
+ * Accepts a slug (`navy_federal`), a display name ("Navy Federal Credit
+ * Union"), and the hyphen and spacing variants each of those appears in.
+ * Returns null rather than guessing: a caller that cannot identify an issuer
+ * needs to decide what to do, and the habit of defaulting is what put a
+ * 30-day cooldown on issuers nobody had looked up.
+ */
+export function parseIssuer(raw: string | null | undefined): IssuerIdentity | null {
+  if (!raw) return null;
+  const normalised = normaliseIssuerText(raw);
+  if (!normalised) return null;
+
+  for (const id of CREDIT_UNION_ISSUER_IDS) {
+    if (normaliseIssuerText(id) === normalised) return { kind: 'credit_union', id };
+  }
+  for (const [id, aliases] of Object.entries(CREDIT_UNION_ALIASES)) {
+    if (aliases.some((alias) => normaliseIssuerText(alias) === normalised)) {
+      return { kind: 'credit_union', id };
+    }
+  }
+  for (const id of BANK_ISSUER_IDS) {
+    if (normaliseIssuerText(id) === normalised) return { kind: 'bank', id };
+  }
+  for (const [id, aliases] of Object.entries(BANK_ISSUER_ALIASES)) {
+    if (aliases.some((alias) => normaliseIssuerText(alias) === normalised)) {
+      return { kind: 'bank', id };
+    }
+  }
+
+  // Self-identifying credit unions resolve even when unlisted, for the same
+  // reason `isCreditUnionIssuerName` accepts them: treating an unknown credit
+  // union as a bank counts its applications against 5/24, which is the silent
+  // and worse direction of error.
+  if (normalised.includes('creditunion') || normalised.endsWith('fcu')) {
+    return { kind: 'credit_union', id: normalised };
+  }
+
+  return null;
+}
+
+/** Display names each bank appears under. `CardApplication.issuer` holds these. */
+const BANK_ISSUER_ALIASES: Record<string, readonly string[]> = {
+  chase: ['Chase', 'JPMorgan Chase', 'Chase Bank'],
+  amex: ['American Express', 'Amex', 'AmEx'],
+  capital_one: ['Capital One'],
+  citi: ['Citi', 'Citibank'],
+  bank_of_america: ['Bank of America', 'BofA', 'BoA'],
+  us_bank: ['US Bank', 'U.S. Bank', 'U.S. Bancorp'],
+  wells_fargo: ['Wells Fargo'],
+  discover: ['Discover'],
+  td_bank: ['TD Bank', 'TD'],
+  pnc: ['PNC', 'PNC Bank'],
+};
 
 // ── Credit union membership ──────────────────────────────────
 //

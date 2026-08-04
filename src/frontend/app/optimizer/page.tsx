@@ -247,7 +247,6 @@ const CU_BUREAU_PULLS: Record<string, string> = {
   'first-tech':    'TransUnion',
   'navy-federal':  'Equifax',
   'becu':          'Equifax',
-  'dcu':           'Equifax',
   'lake-michigan': 'Equifax',
 };
 
@@ -262,7 +261,6 @@ function isCreditUnionIssuer(issuerName: string): boolean {
     lower === 'penfed' ||
     lower === 'alliant' ||
     lower === 'navy federal' ||
-    lower === 'dcu' ||
     lower === 'first tech' ||
     lower === 'becu' ||
     lower === 'lake michigan' ||
@@ -1601,15 +1599,12 @@ export default function OptimizerPage() {
                       {cuEligibility.map((result) => {
                         const isStacked = cuForm.stackedCUs.includes(result.cu.id);
                         const isMember = cuForm.existingMemberships.includes(result.cu.id);
-                        const isDCU = result.cu.id === 'dcu';
                         return (
                           <div
                             key={result.cu.id}
                             className={`rounded-xl border p-4 transition-all ${
                               result.eligible
-                                ? isDCU
-                                  ? 'bg-emerald-50 border-emerald-300 ring-1 ring-emerald-200'
-                                  : 'bg-white border-gray-200 hover:border-brand-navy/30'
+                                ? 'bg-white border-gray-200 hover:border-brand-navy/30'
                                 : 'bg-gray-50 border-gray-200 opacity-70'
                             }`}
                           >
@@ -1633,11 +1628,6 @@ export default function OptimizerPage() {
                                 <span className={`text-xs font-bold ${result.eligible ? 'text-emerald-600' : 'text-red-500'}`}>
                                   {result.eligible ? '✓ Eligible' : '✕ Not eligible'}
                                 </span>
-                                {isDCU && result.eligible && (
-                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
-                                    RECOMMEND
-                                  </span>
-                                )}
                               </div>
                             </div>
 
@@ -1702,7 +1692,6 @@ export default function OptimizerPage() {
                             <div className="flex-1 space-y-1">
                               <p className="text-sm font-semibold text-gray-900">
                                 Join {cu.name}
-                                {cu.id === 'dcu' && <span className="text-emerald-600 ml-1">(Best APR)</span>}
                               </p>
                               <div className="space-y-0.5">
                                 <p className="text-xs text-gray-600">

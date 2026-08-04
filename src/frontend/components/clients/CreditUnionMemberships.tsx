@@ -62,15 +62,6 @@ const MOCK_MEMBERSHIPS: CreditUnionMembership[] = [
     openMembership: false,
   },
   {
-    id: 'dcu',
-    name: 'Digital Federal Credit Union (DCU)',
-    status: 'not_a_member',
-    products: [],
-    availableProducts: ['Visa Platinum', 'Business Savings', 'Business Checking'],
-    openMembership: true,
-    joinFee: 5,
-  },
-  {
     id: 'first-tech',
     name: 'First Tech Federal Credit Union',
     status: 'not_a_member',

@@ -615,6 +615,7 @@ import logger from '../config/logger.js';
 import {
   CREDIT_UNION_MEMBERSHIP,
   isCreditUnionIssuer,
+  parseIssuer,
 } from '../../shared/constants/issuers.js';
 
 const prisma = sharedPrisma;
@@ -942,9 +943,13 @@ export function assessMembership(
     };
   }
 
-  const memberships = (eligibility?.existingMemberships ?? []).map((m) =>
-    m.trim().toLowerCase().replace(/-/g, '_'),
-  );
+  // Through the parse boundary rather than a hand-rolled replace. The frontend
+  // list spells these with hyphens and without the `_cu` suffix, so
+  // `lake-michigan` normalised to `lake_michigan` and matched no issuer — a
+  // client who was already a member was told to join.
+  const memberships = (eligibility?.existingMemberships ?? [])
+    .map((m) => parseIssuer(m)?.id)
+    .filter((id): id is string => typeof id === 'string');
   if (memberships.includes(issuerId)) {
     return { status: 'member', detail: 'Client is already a member.' };
   }
@@ -1340,6 +1345,13 @@ const ISSUER_COOLDOWNS: Record<string, { days: number; source: CooldownSource }>
   navy_federal:     { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
   penfed:           { days: UNRESEARCHED_COOLDOWN_DAYS, source: 'unresearched_default' },
 };
+
+/**
+ * Issuers the cooldown table has an entry for. Exported for the registry
+ * completeness test — a missing entry is not an error at runtime, it silently
+ * becomes an unresearched 30-day default.
+ */
+export const ISSUER_COOLDOWN_IDS: readonly string[] = Object.keys(ISSUER_COOLDOWNS);
 
 function getCooldown(
   issuer: string,

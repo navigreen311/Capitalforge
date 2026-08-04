@@ -542,7 +542,9 @@ export type CreditUnionSlug =
   | 'alliant'
   | 'first_tech'
   | 'becu'
-  | 'lake_michigan';
+  // Matches card_products.issuerId, which is the constrained source. This
+  // engine previously said 'lake_michigan' and nothing reconciled the two.
+  | 'lake_michigan_cu';
 
 /** Bureau that a credit union primarily pulls for underwriting. */
 export type CreditBureau = 'TransUnion' | 'Equifax' | 'Experian';
@@ -634,8 +636,8 @@ const CREDIT_UNION_CONFIGS: Record<CreditUnionSlug, CreditUnionConfig> = {
     membershipNote:
       'Membership requires living or working in Washington state.',
   },
-  lake_michigan: {
-    slug: 'lake_michigan',
+  lake_michigan_cu: {
+    slug: 'lake_michigan_cu',
     name: 'Lake Michigan Credit Union',
     bureau: 'Equifax',
     minimumScore: 620,
@@ -644,6 +646,19 @@ const CREDIT_UNION_CONFIGS: Record<CreditUnionSlug, CreditUnionConfig> = {
       'Membership open to anyone — join via ACA International membership ($5).',
   },
 };
+
+/**
+ * The credit union slugs this engine has configuration for.
+ *
+ * Exported so a test can assert they match the issuer registry. They did not:
+ * this engine said `lake_michigan` while the card catalogue said
+ * `lake_michigan_cu`, and because the lookup is a Record, the mismatch
+ * resolved to `undefined` and read as "no special handling" rather than as an
+ * error.
+ */
+export const CREDIT_UNION_SLUGS_IN_RULES_ENGINE: readonly string[] =
+  Object.keys(CREDIT_UNION_CONFIGS);
+
 
 // ============================================================
 // Credit Union — Eligibility Evaluation
