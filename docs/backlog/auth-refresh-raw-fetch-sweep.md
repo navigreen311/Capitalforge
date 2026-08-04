@@ -262,3 +262,48 @@ Two files in batch 5 and batch 10 are not components —
 Neither can surface an error to a user directly, so the conversion has to decide
 what a failure means to their callers rather than adding a toast. Expect them to
 resist.
+
+## Batch 3 — the six top-level compliance twins (done)
+
+`comm-compliance`, `decisions`, `declines`, `disclosures`, `regulatory`,
+`fair-lending`. All six defined their own `authHeaders()`; all six are gone.
+
+### The partial-load shape converts cleanly
+
+Four of these pages fetch several endpoints together and name which one failed
+(`partial: string[]`, "per-module rates", "the coverage check"). That shape is
+why `app/compliance/training/page.tsx` was set aside in batch 1 as resisting.
+
+It does not resist. `loadJson(...).then(parse).catch(() => null)` inside the
+existing `Promise.all` keeps per-endpoint reporting exactly, because the catch
+is per-promise rather than around the group. **The training page should be
+reconsidered** — it was excluded on a judgement that four later files disproved.
+
+### `null` is not always a safe sentinel
+
+`fair-lending` resisted for a reason the others did not: `toFairLendingDashboard`
+and `toCoverageCheck` return `null` for a payload they do not recognise. Using
+null to mean "did not load" would merge that with "did not answer", and only the
+second is a load failure — the page would name an endpoint that is up.
+
+It resolves `{ loaded, value }` instead. The other pages' parsers return arrays
+or a Map and never null, so a bare null is unambiguous there.
+
+`declines` has the same `| null` parsers, but its old code set null on both
+paths and reported neither, so the bare-null conversion is behaviour-identical.
+
+### Logged, not fixed
+
+- **`app/disclosures/page.tsx`** — a failed version-history read renders as "no
+  prior versions". Separating them needs an error state and somewhere to show
+  it, which is a redesign rather than a conversion.
+- **The `no-restricted-syntax` issuer rule has a false positive.** It fires on
+  `app/declines/page.tsx:713`, which is `r.issuer.toLowerCase().includes(q)` —
+  a search box filtering rows by typed text, not issuer identity. Lowercasing
+  for a substring match is correct there and `parseIssuer` is the wrong tool.
+  The rule matches `issuer` plus `.toLowerCase()` without regard to what the
+  result is used for. It is a warning, so CI stays green, but a rule that fires
+  on legitimate code is one people learn to scroll past — the same
+  warning-fatigue failure argued against in `chase-524-enforcement.md`. Needs
+  the rule narrowed to cases where the normalised value is compared against an
+  issuer constant, not every lowercase of a field called `issuer`.

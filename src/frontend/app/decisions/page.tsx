@@ -31,6 +31,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
+import { loadJson } from '@/lib/load-json';
 import {
   toDecisionRows,
   toModuleMetrics,
@@ -52,11 +53,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'modules', label: 'By Module' },
   { key: 'versions', label: 'Model Versions' },
 ];
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 function formatDateTime(iso: string | null): string {
   if (iso === null) return '—';
@@ -86,11 +82,14 @@ export default function DecisionsPage() {
     setLoading(true);
     setLoadError(null);
     setPartial([]);
-    const headers = authHeaders();
     const failed: string[] = [];
 
     try {
-      const [log, metricsRes, versionsRes] = await Promise.all([
+      // The decision log decides whether this page has anything to show, so it
+      // throws. The other two are supporting panels: each resolves to null on
+      // failure and is named in `partial`, so one dead endpoint reports itself
+      // rather than emptying a panel that would then read as a real zero.
+      const [log, metrics, versions] = await Promise.all([
         // Paged, and counted: a governance log that silently shows its first
         // page understates every rate computed from it.
         fetchAllPages(
@@ -99,30 +98,23 @@ export default function DecisionsPage() {
             const body = json as { success?: boolean; data?: unknown };
             return body.success === true ? toDecisionRows(body.data) : [];
           },
-          { headers },
         ),
-        fetch('/api/ai-governance/metrics', { headers }),
-        fetch('/api/ai-governance/versions', { headers }),
+        loadJson<unknown>('/api/ai-governance/metrics')
+          .then(toModuleMetrics)
+          .catch(() => null),
+        loadJson<unknown>('/api/ai-governance/versions')
+          .then(toVersionRows)
+          .catch(() => null),
       ]);
 
       setDecisions(log.rows);
       setTruncated(log.truncated);
 
-      if (metricsRes.ok) {
-        const body = (await metricsRes.json()) as { success?: boolean; data?: unknown };
-        setMetrics(body.success === true ? toModuleMetrics(body.data) : []);
-      } else {
-        setMetrics([]);
-        failed.push('per-module rates');
-      }
+      setMetrics(metrics ?? []);
+      if (metrics === null) failed.push('per-module rates');
 
-      if (versionsRes.ok) {
-        const body = (await versionsRes.json()) as { success?: boolean; data?: unknown };
-        setVersions(body.success === true ? toVersionRows(body.data) : []);
-      } else {
-        setVersions([]);
-        failed.push('version history');
-      }
+      setVersions(versions ?? []);
+      if (versions === null) failed.push('version history');
 
       setPartial(failed);
     } catch {

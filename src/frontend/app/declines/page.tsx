@@ -28,6 +28,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { getReconGuidance } from '@/lib/issuer-recon-guidance';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
+import { loadJson, toLoadError } from '@/lib/load-json';
 import {
   toDeclineRows,
   toDeclineStats,
@@ -103,11 +104,6 @@ function formatDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toISOString().slice(0, 10);
 }
 
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
-
 // ---------------------------------------------------------------------------
 // Cooldown
 // ---------------------------------------------------------------------------
@@ -163,24 +159,20 @@ function LetterModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/declines/${row.id}/reconsideration`, {
-        method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessName: row.businessName ?? '' }),
-      });
-      const body = (await res.json()) as {
-        success?: boolean;
-        data?: { letter?: GeneratedLetter };
-        error?: { message?: string };
-      };
-      if (!res.ok || body.success !== true || !body.data?.letter) {
-        setError(body.error?.message ?? `The letter could not be generated (HTTP ${res.status}).`);
+      const data = await loadJson<{ letter?: GeneratedLetter }>(
+        `/api/declines/${row.id}/reconsideration`,
+        { method: 'POST', body: { businessName: row.businessName ?? '' } },
+      );
+      // A 2xx with no letter in it is still nothing generated. Reported as a
+      // failure rather than shown as an empty letter.
+      if (!data?.letter) {
+        setError('The letter could not be generated. The server returned no letter.');
         return;
       }
-      setLetter(body.data.letter);
+      setLetter(data.letter);
       onGenerated();
-    } catch {
-      setError('Could not reach the server. Nothing was generated.');
+    } catch (e) {
+      setError(`The letter could not be generated. ${toLoadError(e).message}`);
     } finally {
       setBusy(false);
     }
@@ -299,10 +291,9 @@ function LogDeclineModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/declines', {
+      await loadJson('/api/declines', {
         method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           client_id: form.client_id,
           issuer: form.issuer.trim(),
           card_name: form.card_name.trim(),
@@ -312,18 +303,13 @@ function LogDeclineModal({
             : { declined_at: new Date(`${form.declined_at}T00:00:00.000Z`).toISOString() }),
           ...(form.requested_limit === '' ? {} : { requested_limit: Number(form.requested_limit) }),
           ...(form.notes.trim() === '' ? {} : { notes: form.notes.trim() }),
-        }),
+        },
       });
-      const body = (await res.json()) as { success?: boolean; error?: { message?: string } };
-      if (!res.ok || body.success !== true) {
-        // The failure is shown, not swallowed. This form used to push onto an
-        // array and report success unconditionally.
-        setError(body.error?.message ?? `The decline was not saved (HTTP ${res.status}).`);
-        return;
-      }
       onLogged('Decline logged.');
-    } catch {
-      setError('Could not reach the server. The decline was not saved.');
+    } catch (e) {
+      // The failure is shown, not swallowed. This form used to push onto an
+      // array and report success unconditionally.
+      setError(`The decline was not saved. ${toLoadError(e).message}`);
     } finally {
       setBusy(false);
     }
@@ -632,37 +618,26 @@ export default function DeclinesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const auth = authHeaders();
 
     try {
-      const [listed, statsRes, analyticsRes] = await Promise.all([
+      // Stats and analytics are shown only if they arrive. A failed panel stays
+      // blank rather than falling back to a figure computed from the rows that
+      // happened to load, which would not be the same number. Null carries
+      // that: they resolve to it instead of throwing, so a dead stats endpoint
+      // does not empty the register beside it.
+      const [listed, stats, analytics] = await Promise.all([
         fetchAllPages('/api/declines', (json) => {
           const body = json as { success?: boolean; data?: unknown };
           return body.success === true ? toDeclineRows(body.data) : [];
-        }, { headers: auth }),
-        fetch('/api/declines/stats', { headers: auth }),
-        fetch('/api/declines/analytics', { headers: auth }),
+        }),
+        loadJson<unknown>('/api/declines/stats').then(toDeclineStats).catch(() => null),
+        loadJson<unknown>('/api/declines/analytics').then(toDeclineAnalytics).catch(() => null),
       ]);
 
       setRows(listed.rows);
       setTruncated(listed.truncated);
-
-      // Stats and analytics are shown only if they arrive. A failed panel
-      // stays blank rather than falling back to a figure computed from the
-      // rows that happened to load, which would not be the same number.
-      if (statsRes.ok) {
-        const body = (await statsRes.json()) as { success?: boolean; data?: unknown };
-        setStats(body.success === true ? toDeclineStats(body.data) : null);
-      } else {
-        setStats(null);
-      }
-
-      if (analyticsRes.ok) {
-        const body = (await analyticsRes.json()) as { success?: boolean; data?: unknown };
-        setAnalytics(body.success === true ? toDeclineAnalytics(body.data) : null);
-      } else {
-        setAnalytics(null);
-      }
+      setStats(stats);
+      setAnalytics(analytics);
     } catch {
       setLoadError('Could not reach the server. No declines are shown.');
       setRows([]);
@@ -708,25 +683,16 @@ export default function DeclinesPage() {
         // Resolving is a different endpoint: it stamps resolvedAt and, for a
         // win, approves the underlying application. Advancing does neither.
         const resolving = isTerminal(stage);
-        const res = await fetch(
-          `/api/declines/${row.id}/${resolving ? 'resolve' : 'stage'}`,
-          {
-            method: 'PATCH',
-            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify(resolving ? { outcome: stage } : { stage }),
-          },
-        );
-        const body = (await res.json()) as { success?: boolean; error?: { message?: string } };
-        if (!res.ok || body.success !== true) {
-          // The old handler ran a setTimeout, moved the card and reported
-          // success. Nothing was sent and nothing was saved.
-          setActionError(body.error?.message ?? `The stage was not changed (HTTP ${res.status}).`);
-          return;
-        }
+        await loadJson(`/api/declines/${row.id}/${resolving ? 'resolve' : 'stage'}`, {
+          method: 'PATCH',
+          body: resolving ? { outcome: stage } : { stage },
+        });
         showToast(`Moved to ${STAGE_LABELS[stage]}.`);
         await load();
-      } catch {
-        setActionError('Could not reach the server. The stage was not changed.');
+      } catch (e) {
+        // The old handler ran a setTimeout, moved the card and reported
+        // success. Nothing was sent and nothing was saved.
+        setActionError(`The stage was not changed. ${toLoadError(e).message}`);
       } finally {
         setBusyId(null);
       }

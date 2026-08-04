@@ -37,6 +37,7 @@ import {
   type CoverageCheck,
   type AdverseActionRow,
 } from '@/lib/fair-lending-view';
+import { loadJson } from '@/lib/load-json';
 
 type TabKey = 'overview' | 'adverse' | 'collection' | 'obligations';
 
@@ -92,11 +93,6 @@ const OBLIGATIONS: { label: string; detail: string }[] = [
   },
 ];
 
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
-
 function pct(value: number | null): string {
   return value === null ? '—' : `${value}%`;
 }
@@ -124,39 +120,38 @@ export default function FairLendingPage() {
     setLoading(true);
     setLoadError(null);
     setPartial([]);
-    const headers = authHeaders();
     const failed: string[] = [];
 
     try {
-      const [dashRes, covRes, advRes] = await Promise.all([
-        fetch(`/api/fair-lending/dashboard?year=${year}`, { headers }),
-        fetch(`/api/fair-lending/coverage?year=${year}`, { headers }),
-        fetch(`/api/fair-lending/adverse-action?year=${year}`, { headers }),
+      // Three independent panels: each is caught rather than thrown, so one
+      // dead endpoint does not blank the other two.
+      //
+      // The outcome is wrapped rather than signalled with null, because two of
+      // these parsers return null for a payload they do not recognise. A bare
+      // null would make "the server did not answer" and "the server answered
+      // with something unreadable" the same value, and only the first is a
+      // failure to load — reporting the second as one would name an endpoint
+      // that is up.
+      const [dashboard, coverage, adverse] = await Promise.all([
+        loadJson<unknown>(`/api/fair-lending/dashboard?year=${year}`)
+          .then((d) => ({ loaded: true as const, value: toFairLendingDashboard(d) }))
+          .catch(() => ({ loaded: false as const, value: null })),
+        loadJson<unknown>(`/api/fair-lending/coverage?year=${year}`)
+          .then((d) => ({ loaded: true as const, value: toCoverageCheck(d) }))
+          .catch(() => ({ loaded: false as const, value: null })),
+        loadJson<unknown>(`/api/fair-lending/adverse-action?year=${year}`)
+          .then((d) => ({ loaded: true as const, value: toAdverseActionRows(d) }))
+          .catch(() => ({ loaded: false as const, value: null })),
       ]);
 
-      if (dashRes.ok) {
-        const body = (await dashRes.json()) as { success?: boolean; data?: unknown };
-        setDashboard(body.success === true ? toFairLendingDashboard(body.data) : null);
-      } else {
-        setDashboard(null);
-        failed.push('the reporting summary');
-      }
+      setDashboard(dashboard.value);
+      if (!dashboard.loaded) failed.push('the reporting summary');
 
-      if (covRes.ok) {
-        const body = (await covRes.json()) as { success?: boolean; data?: unknown };
-        setCoverage(body.success === true ? toCoverageCheck(body.data) : null);
-      } else {
-        setCoverage(null);
-        failed.push('the coverage check');
-      }
+      setCoverage(coverage.value);
+      if (!coverage.loaded) failed.push('the coverage check');
 
-      if (advRes.ok) {
-        const body = (await advRes.json()) as { success?: boolean; data?: unknown };
-        setAdverse(body.success === true ? toAdverseActionRows(body.data) : []);
-      } else {
-        setAdverse([]);
-        failed.push('the adverse action register');
-      }
+      setAdverse(adverse.value ?? []);
+      if (!adverse.loaded) failed.push('the adverse action register');
 
       // Each panel reports its own failure. A partial load must not leave one
       // section showing another year's numbers under this year's heading.

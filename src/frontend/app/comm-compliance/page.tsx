@@ -42,6 +42,7 @@ import {
   type QaScoreRow,
   type RiskLevel,
 } from '@/lib/comm-compliance-view';
+import { loadJson, toLoadError } from '@/lib/load-json';
 
 type TabKey = 'scan' | 'scripts' | 'qa';
 
@@ -57,11 +58,6 @@ const RISK_STYLE: Record<RiskLevel, string> = {
   medium: 'border-yellow-700 bg-yellow-900/20 text-yellow-200',
   low: 'border-green-700 bg-green-900/20 text-green-200',
 };
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
-  return token === null ? {} : { Authorization: `Bearer ${token}` };
-}
 
 /** The signed-in user, as the login stored it. */
 function currentUser(): { id: string } | null {
@@ -119,16 +115,9 @@ export default function CommCompliancePage() {
     setLoading(true);
     setScriptsError(null);
     try {
-      const res = await fetch('/api/scripts', { headers: authHeaders() });
-      if (!res.ok) {
-        setScriptsError(`The script library could not be loaded (HTTP ${res.status}).`);
-        setScripts([]);
-        return;
-      }
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      setScripts(body.success === true ? toScriptRows(body.data) : []);
-    } catch {
-      setScriptsError('Could not reach the server. No scripts are shown.');
+      setScripts(toScriptRows(await loadJson<unknown>('/api/scripts')));
+    } catch (e) {
+      setScriptsError(`The script library could not be loaded. ${toLoadError(e).message}`);
       setScripts([]);
     } finally {
       setLoading(false);
@@ -150,23 +139,13 @@ export default function CommCompliancePage() {
     try {
       // Scanned as the signed-in user. The endpoint records who ran it, and
       // that is the only advisor id this page can know: nothing lists them.
-      const res = await fetch('/api/comm-compliance/scan', {
+      const data = await loadJson<unknown>('/api/comm-compliance/scan', {
         method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ advisorId: me.id, channel, content: draft }),
+        body: { advisorId: me.id, channel, content: draft },
       });
-      const body = (await res.json()) as {
-        success?: boolean;
-        data?: unknown;
-        error?: { message?: string };
-      };
-      if (!res.ok || body.success !== true) {
-        setScanError(body.error?.message ?? `Nothing was scanned (HTTP ${res.status}).`);
-        return;
-      }
-      setScan(toScanResult(body.data));
-    } catch {
-      setScanError('Could not reach the server. Nothing was scanned.');
+      setScan(toScanResult(data));
+    } catch (e) {
+      setScanError(`Nothing was scanned. ${toLoadError(e).message}`);
     } finally {
       setScanning(false);
     }
@@ -179,17 +158,12 @@ export default function CommCompliancePage() {
     setQaError(null);
     setQaScores(null);
     try {
-      const res = await fetch(`/api/advisors/${encodeURIComponent(id)}/qa-scores`, {
-        headers: authHeaders(),
-      });
-      if (!res.ok) {
-        setQaError(`No scores could be read for that advisor (HTTP ${res.status}).`);
-        return;
-      }
-      const body = (await res.json()) as { success?: boolean; data?: unknown };
-      setQaScores(body.success === true ? toQaScoreRows(body.data) : []);
-    } catch {
-      setQaError('Could not reach the server.');
+      const data = await loadJson<unknown>(`/api/advisors/${encodeURIComponent(id)}/qa-scores`);
+      setQaScores(toQaScoreRows(data));
+    } catch (e) {
+      // qaScores stays null rather than becoming an empty list: a failed read
+      // must not render as "this advisor has no QA scores".
+      setQaError(`No scores could be read for that advisor. ${toLoadError(e).message}`);
     } finally {
       setQaLoading(false);
     }
