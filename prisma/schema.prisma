@@ -151,9 +151,31 @@ model Business {
   stateOfFormation    String?
   dateOfFormation     DateTime?
   mcc                 String?
+  /** NAICS industry code. Referenced by the client PATCH allowlist and the
+   *  edit-profile form since before it existed as a column, so saving it
+   *  passed validation and then failed at the database with a 500. */
+  naicsCode           String?
   industry            String?
   annualRevenue       Decimal?
   monthlyRevenue      Decimal?
+  employees           Int?
+  website             String?
+
+  /**
+   * Business address and email.
+   *
+   * The onboarding wizard has always collected these — address line 1, city,
+   * state and ZIP are required to leave its first step — and there was
+   * nowhere to put them. The create validator dropped them as unknown keys
+   * and no column existed, so the one part of the form a user could not skip
+   * was the part guaranteed to be discarded.
+   */
+  addressLine1        String?
+  addressLine2        String?
+  city                String?
+  state               String?
+  zip                 String?
+  businessEmail       String?
   /**
    * IANA timezone for this client, e.g. "America/Chicago".
    *
@@ -196,10 +218,26 @@ model BusinessOwner {
   businessId          String
   firstName           String
   lastName            String
+  /** Role at the business, e.g. "CEO". Rendered on the client profile card
+   *  since before it was a column, so it always read blank. */
+  title               String?
   ownershipPercent    Decimal
   ssn                 String?
+  /**
+   * Last four digits only.
+   *
+   * The add-owner form asks for four digits; `ssn` holds a full nine and its
+   * validator rejects anything shorter. Keeping them apart means the short
+   * form cannot quietly become the record of a full SSN, and nothing here
+   * stores more of one than it needs.
+   */
+  ssnLast4            String?
   dateOfBirth         DateTime?
   address             Json?
+  /** Whether this owner personally guarantees the debt. Also rendered on the
+   *  profile card ("PG: Yes"/"PG: No") before it could be recorded, so it
+   *  answered "No" for everyone. */
+  personalGuarantee   Boolean  @default(false)
   isBeneficialOwner   Boolean  @default(true)
   kycStatus           String   @default("pending")
   kycVerifiedAt       DateTime?

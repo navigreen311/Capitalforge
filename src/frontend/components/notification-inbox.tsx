@@ -23,6 +23,7 @@ import {
   type NotificationRow,
   type Severity,
 } from '@/lib/notifications-view';
+import { useSessionGate } from '@/hooks/useSessionGate';
 
 export type { NotificationRow, Severity };
 
@@ -258,12 +259,22 @@ export function NotificationInbox({ open, onClose, onCountChange }: Notification
  *
  * Null means it could not be read, and the badge is hidden: a zero on the
  * bell is the claim that nothing needs attention.
+ *
+ * The bell is part of the header, so this ran on the sign-in page too and
+ * spent a guaranteed 401 asking how many notifications a signed-out visitor
+ * had. Null is the honest answer there, and it needs no request to reach.
  */
 export function useNotificationInbox() {
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState<number | null>(null);
+  const shouldFetch = useSessionGate();
 
   useEffect(() => {
+    if (!shouldFetch) {
+      setCount(null);
+      return;
+    }
+
     let cancelled = false;
     void (async () => {
       try {
@@ -278,7 +289,7 @@ export function useNotificationInbox() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shouldFetch]);
 
   const openInbox = useCallback(() => setOpen(true), []);
   const closeInbox = useCallback(() => setOpen(false), []);

@@ -575,6 +575,17 @@ describe('createBusiness() — with mocked Prisma and EventBus', () => {
     industry:             'software',
     annualRevenue:        null,
     monthlyRevenue:       null,
+    // Columns added so the onboarding wizard's address, contact and profile
+    // fields have somewhere to land; they were collected and discarded.
+    naicsCode:            null,
+    employees:            null,
+    website:              null,
+    addressLine1:         null,
+    addressLine2:         null,
+    city:                 null,
+    state:                null,
+    zip:                  null,
+    businessEmail:        null,
     fundingReadinessScore: 55,
     status:               'intake',
     createdAt:            new Date(),
@@ -600,10 +611,15 @@ describe('createBusiness() — with mocked Prisma and EventBus', () => {
           businessId:       'biz-uuid-001',
           firstName:        'John',
           lastName:         'Doe',
+          // Columns added so the add-owner form's title, personal guarantee
+          // and SSN last-four have somewhere to be recorded.
+          title:            null,
           ownershipPercent: new Prisma.Decimal(100),
           ssn:              null,
+          ssnLast4:         null,
           dateOfBirth:      null,
           address:          null,
+          personalGuarantee: false,
           isBeneficialOwner: true,
           kycStatus:        'pending',
           kycVerifiedAt:    null,

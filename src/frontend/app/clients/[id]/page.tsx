@@ -35,6 +35,7 @@ interface BusinessProfile {
   businessName: string;
   legalName: string;
   entityType: string;
+  dba?: string;
   ein: string;
   stateOfFormation: string;
   dateOfFormation?: string;
@@ -50,6 +51,15 @@ interface BusinessProfile {
   industry?: string;
   naicsCode?: string;
   mcc?: string;
+  // Present on the record since the address columns were added. Optional
+  // because a client created before that has none.
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  phoneNumber?: string;
+  businessEmail?: string;
   createdAt: string;
 }
 
@@ -240,14 +250,24 @@ export default function ClientDetailPage() {
     .reduce((s, a) => s + (a.approvedLimit ?? 0), 0);
 
   const handleEditSave = async (updated: Record<string, unknown>) => {
+    let saved: BusinessProfile | null = null;
     try {
-      await clientsApi.update(id, updated);
-      setBusiness((prev) => prev ? { ...prev, ...updated } as BusinessProfile : prev);
-      setEditOpen(false);
-      showToast('Profile updated successfully');
-    } catch {
-      throw new Error('Failed to save');
+      const res = await clientsApi.update(id, updated);
+      // Show what the server stored, not what was typed. Merging the form
+      // values assumed the write matched the request — a field the API
+      // normalised, ignored or rejected still appeared changed on the page.
+      saved = (res?.data as BusinessProfile) ?? null;
+    } catch (e) {
+      // Carry the server's reason through to the modal rather than replacing
+      // it with "Failed to save", which says nothing anyone can act on.
+      throw new Error(
+        e instanceof Error && e.message ? e.message : 'The changes could not be saved.',
+      );
     }
+
+    setBusiness((prev) => (saved ?? (prev ? ({ ...prev, ...updated } as BusinessProfile) : prev)));
+    setEditOpen(false);
+    showToast('Profile updated successfully');
   };
 
   return (
@@ -479,17 +499,33 @@ export default function ClientDetailPage() {
         <EditProfileModal
           isOpen={editOpen}
           onClose={() => setEditOpen(false)}
+          // The API returns null for anything unset, and a null on a React
+          // input makes it uncontrolled — which renders as an empty box that
+          // silently ignores what the record holds. Every field is coerced.
           client={{
             id: biz.id,
-            legalName: biz.legalName,
-            entityType: biz.entityType,
-            stateOfFormation: biz.stateOfFormation,
-            annualRevenue: biz.annualRevenue,
-            employees: biz.employees,
+            legalName: biz.legalName ?? '',
+            entityType: biz.entityType ?? '',
+            stateOfFormation: biz.stateOfFormation ?? '',
+            annualRevenue: biz.annualRevenue ?? 0,
+            employees: biz.employees ?? 0,
             website: biz.website ?? '',
             industry: biz.industry ?? '',
             naicsCode: biz.naicsCode ?? '',
             mcc: biz.mcc ?? '',
+            dba: biz.dba ?? '',
+            ein: biz.ein ?? '',
+            // <input type="date"> needs YYYY-MM-DD; the API sends an ISO
+            // timestamp, which the control rejects and shows blank.
+            dateOfFormation: biz.dateOfFormation ? biz.dateOfFormation.slice(0, 10) : '',
+            monthlyRevenue: biz.monthlyRevenue ?? 0,
+            addressLine1: biz.addressLine1 ?? '',
+            addressLine2: biz.addressLine2 ?? '',
+            city: biz.city ?? '',
+            state: biz.state ?? '',
+            zip: biz.zip ?? '',
+            phoneNumber: biz.phoneNumber ?? '',
+            businessEmail: biz.businessEmail ?? '',
           }}
           onSave={handleEditSave}
         />

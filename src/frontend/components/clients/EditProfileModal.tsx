@@ -35,6 +35,20 @@ export interface EditProfileClient {
   industry: string;
   naicsCode: string;
   mcc: string;
+  // Everything below was collected by the onboarding wizard and had no way
+  // back into the record once it was created: this form could not edit it
+  // and, until the columns existed, the database could not hold it.
+  dba: string;
+  ein: string;
+  dateOfFormation: string;
+  monthlyRevenue: number;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  zip: string;
+  phoneNumber: string;
+  businessEmail: string;
 }
 
 export interface EditProfileModalProps {
@@ -82,6 +96,7 @@ function getChangedFields(
 export function EditProfileModal({ isOpen, onClose, client, onSave }: EditProfileModalProps) {
   const [form, setForm] = useState<EditProfileClient>(client);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -90,6 +105,7 @@ export function EditProfileModal({ isOpen, onClose, client, onSave }: EditProfil
     if (isOpen) {
       setForm(client);
       setErrors({});
+      setSaveError(null);
       setSaving(false);
     }
   }, [isOpen, client]);
@@ -123,8 +139,14 @@ export function EditProfileModal({ isOpen, onClose, client, onSave }: EditProfil
       return;
     }
     setSaving(true);
+    setSaveError(null);
     try {
       await onSave(changed);
+    } catch (e) {
+      // Without this the rejection escaped as an unhandled promise: the modal
+      // stayed open, no message appeared, and the button looked inert. A save
+      // that failed was indistinguishable from a click that never registered.
+      setSaveError(e instanceof Error ? e.message : 'The changes could not be saved.');
     } finally {
       setSaving(false);
     }
@@ -181,6 +203,31 @@ export function EditProfileModal({ isOpen, onClose, client, onSave }: EditProfil
               {errors.legalName && <p className="mt-1 text-xs text-red-500">{errors.legalName}</p>}
             </div>
 
+            {/* DBA & EIN */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="epm-dba" className="cf-label">DBA (Doing Business As)</label>
+                <input
+                  id="epm-dba"
+                  type="text"
+                  className="cf-input"
+                  value={form.dba}
+                  onChange={(e) => handleChange('dba', e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="epm-ein" className="cf-label">EIN</label>
+                <input
+                  id="epm-ein"
+                  type="text"
+                  className="cf-input"
+                  placeholder="12-3456789"
+                  value={form.ein}
+                  onChange={(e) => handleChange('ein', e.target.value)}
+                />
+              </div>
+            </div>
+
             {/* Entity Type & State of Formation — side by side */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -210,6 +257,30 @@ export function EditProfileModal({ isOpen, onClose, client, onSave }: EditProfil
                     <option key={st} value={st}>{st}</option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            {/* Date of Formation & Monthly Revenue */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="epm-dateOfFormation" className="cf-label">Date of Formation</label>
+                <input
+                  id="epm-dateOfFormation"
+                  type="date"
+                  className="cf-input"
+                  value={form.dateOfFormation}
+                  onChange={(e) => handleChange('dateOfFormation', e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="epm-monthlyRevenue" className="cf-label">Monthly Revenue</label>
+                <input
+                  id="epm-monthlyRevenue"
+                  type="number"
+                  className="cf-input"
+                  value={form.monthlyRevenue}
+                  onChange={(e) => handleChange('monthlyRevenue', Number(e.target.value))}
+                />
               </div>
             </div>
 
@@ -287,9 +358,107 @@ export function EditProfileModal({ isOpen, onClose, client, onSave }: EditProfil
                 />
               </div>
             </div>
+
+            {/* Business address */}
+            <fieldset className="border-t border-surface-border pt-4">
+              <legend className="cf-label mb-2">Business Address</legend>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="epm-addressLine1" className="cf-label">Address Line 1</label>
+                  <input
+                    id="epm-addressLine1"
+                    type="text"
+                    className="cf-input"
+                    value={form.addressLine1}
+                    onChange={(e) => handleChange('addressLine1', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="epm-addressLine2" className="cf-label">Address Line 2</label>
+                  <input
+                    id="epm-addressLine2"
+                    type="text"
+                    className="cf-input"
+                    value={form.addressLine2}
+                    onChange={(e) => handleChange('addressLine2', e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="epm-city" className="cf-label">City</label>
+                    <input
+                      id="epm-city"
+                      type="text"
+                      className="cf-input"
+                      value={form.city}
+                      onChange={(e) => handleChange('city', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="epm-state" className="cf-label">State</label>
+                    <select
+                      id="epm-state"
+                      className="cf-input"
+                      value={form.state}
+                      onChange={(e) => handleChange('state', e.target.value)}
+                    >
+                      <option value="">Select...</option>
+                      {US_STATES.map((st) => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="epm-zip" className="cf-label">ZIP Code</label>
+                    <input
+                      id="epm-zip"
+                      type="text"
+                      className="cf-input"
+                      value={form.zip}
+                      onChange={(e) => handleChange('zip', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            </fieldset>
+
+            {/* Contact */}
+            <fieldset className="border-t border-surface-border pt-4">
+              <legend className="cf-label mb-2">Contact</legend>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="epm-phoneNumber" className="cf-label">Business Phone</label>
+                  <input
+                    id="epm-phoneNumber"
+                    type="tel"
+                    className="cf-input"
+                    value={form.phoneNumber}
+                    onChange={(e) => handleChange('phoneNumber', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="epm-businessEmail" className="cf-label">Business Email</label>
+                  <input
+                    id="epm-businessEmail"
+                    type="email"
+                    className="cf-input"
+                    value={form.businessEmail}
+                    onChange={(e) => handleChange('businessEmail', e.target.value)}
+                  />
+                </div>
+              </div>
+            </fieldset>
           </div>
 
           {/* Footer */}
+          {saveError && (
+            <div
+              role="alert"
+              className="mx-6 mb-1 rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-300"
+            >
+              {saveError}
+            </div>
+          )}
           <div className="flex items-center justify-end gap-3 border-t border-surface-border px-6 py-4">
             <button
               type="button"

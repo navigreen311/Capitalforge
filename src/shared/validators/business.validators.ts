@@ -138,6 +138,48 @@ export const createBusinessSchema = z.object({
   monthlyRevenue: moneySchema.optional(),
 
   advisorId: z.string().uuid('Advisor ID must be a valid UUID').optional(),
+
+  // ── Fields the onboarding wizard has always collected ────────────
+  //
+  // A bare `z.object()` strips unknown keys, so every one of these was
+  // silently discarded on the way in: the request looked accepted, the
+  // response looked correct, and the record came back without them.
+  // Address line 1, city, state and ZIP cannot even be skipped in the
+  // wizard — it will not advance past step one without them.
+
+  naicsCode: z
+    .string()
+    .regex(/^\d{4,6}$/, 'NAICS code must be 4 to 6 digits')
+    .optional(),
+
+  employees: z
+    .number()
+    .int('Employee count must be a whole number')
+    .min(0, 'Employee count cannot be negative')
+    .max(1_000_000)
+    .optional(),
+
+  website: z
+    .string()
+    .trim()
+    .url('Website must be a full URL, e.g. https://example.com')
+    .max(300)
+    .optional(),
+
+  addressLine1: z.string().trim().max(200).optional(),
+  addressLine2: z.string().trim().max(200).optional(),
+  city: z.string().trim().max(100).optional(),
+  state: stateCodeSchema.optional(),
+  zip: z
+    .string()
+    .trim()
+    .regex(/^\d{5}(-\d{4})?$/, 'ZIP must be 5 or 9 digits (XXXXX or XXXXX-XXXX)')
+    .optional(),
+
+  businessEmail: z.string().trim().email('Business email must be a valid address').max(200).optional(),
+
+  /** Primary contact number. The column is `phoneNumber`. */
+  phoneNumber: z.string().trim().max(40).optional(),
 });
 
 export type CreateBusinessInput = z.infer<typeof createBusinessSchema>;
@@ -174,7 +216,26 @@ export const createOwnerSchema = z.object({
 
   ownershipPercent: ownershipPercentSchema,
 
+  /** Role at the business, e.g. "CEO". */
+  title: z.string().trim().max(100, 'Title cannot exceed 100 characters').optional(),
+
   ssn: ssnSchema,
+
+  /**
+   * Last four digits of the SSN.
+   *
+   * Separate from `ssn`, whose validator demands all nine. The add-owner form
+   * collects four, so without this the form's value could only ever be
+   * rejected — or, worse, stored as though it were a whole SSN.
+   */
+  ssnLast4: z
+    .string()
+    .trim()
+    .regex(/^\d{4}$/, 'Enter the last four digits of the SSN')
+    .optional(),
+
+  /** Whether this owner personally guarantees the debt. */
+  personalGuarantee: z.boolean().optional(),
 
   dateOfBirth: z
     .string()

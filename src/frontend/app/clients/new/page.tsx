@@ -470,9 +470,16 @@ export default function NewClientPage() {
         city: biz.city.trim(),
         state: biz.state,
         zip: biz.zip.trim(),
-        businessPhone: biz.businessPhone.trim() || undefined,
+        // The API field is `phoneNumber`; this was sent as `businessPhone`,
+        // which the create validator did not recognise and therefore dropped.
+        phoneNumber: biz.businessPhone.trim() || undefined,
         businessEmail: biz.businessEmail.trim() || undefined,
-        monthsInBusiness: biz.monthsInBusiness ? parseInt(biz.monthsInBusiness, 10) : undefined,
+        // Collected on step 1 and simply never put in the request body.
+        website: biz.website.trim() || undefined,
+        employees: biz.employees ? parseInt(biz.employees, 10) : undefined,
+        // `monthsInBusiness` is deliberately not sent: it is derived from
+        // dateOfFormation and would be a second copy of the same fact, free
+        // to drift from it.
       };
 
       // Create business
@@ -1029,16 +1036,35 @@ export default function NewClientPage() {
       {/* Suitability summary */}
       <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-5">
         <h3 className="text-sm font-semibold text-[#C9A84C] mb-3 uppercase tracking-wide">Suitability</h3>
-        <div className="flex items-center gap-4">
-          <span className={`text-3xl font-extrabold ${
-            suitability.recommendation === 'Suitable' ? 'text-green-400' :
-            suitability.recommendation === 'Marginal' ? 'text-yellow-400' : 'text-red-400'
-          }`}>{suitability.score}/100</span>
-          <span className={`text-sm font-bold ${
-            suitability.recommendation === 'Suitable' ? 'text-green-400' :
-            suitability.recommendation === 'Marginal' ? 'text-yellow-400' : 'text-red-400'
-          }`}>{suitability.recommendation}</span>
-          {suitResult && (
+        {/*
+          A missing result is not a score of zero. This panel used to read
+          "0/100 — Not Suitable" in red whenever the assessment had not run,
+          which is the same sentence the engine produces for a business with
+          no revenue and no trading history. A failed request, a step the user
+          skipped, and a genuinely unsuitable applicant were indistinguishable
+          on the page that decides whether to take them on.
+        */}
+        {suitResult === null ? (
+          <div className="flex items-start gap-3">
+            <span className="text-2xl font-extrabold text-gray-500">--</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-300">Not assessed</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                No suitability result was recorded. Go back to the Suitability step and
+                run the assessment. You can still create the client without one.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-4">
+            <span className={`text-3xl font-extrabold ${
+              suitability.recommendation === 'Suitable' ? 'text-green-400' :
+              suitability.recommendation === 'Marginal' ? 'text-yellow-400' : 'text-red-400'
+            }`}>{suitability.score}/100</span>
+            <span className={`text-sm font-bold ${
+              suitability.recommendation === 'Suitable' ? 'text-green-400' :
+              suitability.recommendation === 'Marginal' ? 'text-yellow-400' : 'text-red-400'
+            }`}>{suitability.recommendation}</span>
             <span className="text-xs text-gray-500">
               Max {suitResult.maxSafeLeverage} card{suitResult.maxSafeLeverage === 1 ? '' : 's'}
               {suitResult.hardNoGoTriggers.length > 0 && (
@@ -1047,13 +1073,31 @@ export default function NewClientPage() {
                 </span>
               )}
             </span>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {submitError && (
         <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-sm text-red-300">
-          {submitError}
+          <p>{submitError}</p>
+          {/*
+            Everything typed across the five steps lives in this component's
+            state, so a signed-out session is recoverable — but only if the
+            page survives. Navigating to the sign-in form in this tab throws
+            the form away, which is the obvious thing to do and the one thing
+            that loses the work.
+          */}
+          {/^Your session has ended/.test(submitError) && (
+            <p className="mt-2 text-xs text-red-200/80">
+              Open{' '}
+              <a href="/login" target="_blank" rel="noopener noreferrer" className="underline font-semibold">
+                the sign-in page in a new tab
+              </a>{' '}
+              rather than leaving this one — everything you have entered is held on this page
+              and is lost if you navigate away. Once signed in, come back here and press
+              Create Client again.
+            </p>
+          )}
         </div>
       )}
     </div>

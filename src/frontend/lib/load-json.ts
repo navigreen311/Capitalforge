@@ -126,16 +126,27 @@ export async function loadJson<T>(path: string, options: LoadOptions = {}): Prom
   return json.data as T;
 }
 
-/** As `loadJson`, but also returns the envelope's `meta` (for stub detection). */
+/**
+ * As `loadJson`, but also returns the envelope's `meta` (for stub detection).
+ *
+ * This used to differ from its sibling in one unstated way: a 401 threw
+ * immediately instead of attempting a refresh first. Access tokens last
+ * fifteen minutes, so every page reading through this function locked at the
+ * quarter-hour and stayed locked, while the pages next to it recovered by
+ * themselves. Whether your screen came back depended on which of two
+ * near-identical helpers it happened to call.
+ *
+ * `authHeaders()` is read per attempt rather than once, so the retry picks up
+ * the token the refresh just stored.
+ */
 export async function loadJsonWithMeta<T>(
   path: string,
   options: LoadOptions = {},
 ): Promise<{ data: T; meta: Record<string, unknown> | undefined }> {
-  const { body, allowAnonymous: _allowAnonymous, headers: extraHeaders, ...init } = options;
+  const { body, allowAnonymous = false, headers: extraHeaders, ...init } = options;
 
-  let response: Response;
-  try {
-    response = await fetch(path, {
+  const send = (): Promise<Response> =>
+    fetch(path, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
@@ -144,16 +155,32 @@ export async function loadJsonWithMeta<T>(
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
+
+  let response: Response;
+  try {
+    response = await send();
   } catch {
     throw new LoadError({ type: 'network_error', message: 'Connection issue' });
   }
 
   if (response.status === 401 || response.status === 403) {
-    throw new LoadError({
-      type: 'auth_required',
-      message: 'Sign in required',
-      status: response.status,
-    });
+    // `attemptTokenRefresh` is single-flight, so several of these running at
+    // once produce one refresh between them rather than one each against a
+    // token the server rotates on every call.
+    if (!allowAnonymous && (await attemptTokenRefresh())) {
+      try {
+        response = await send();
+      } catch {
+        throw new LoadError({ type: 'network_error', message: 'Connection issue' });
+      }
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new LoadError({
+        type: 'auth_required',
+        message: 'Sign in required',
+        status: response.status,
+      });
+    }
   }
 
   const json = (await response.json().catch(() => null)) as Envelope | null;

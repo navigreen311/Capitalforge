@@ -15,6 +15,7 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
+import { useSessionGate } from '@/hooks/useSessionGate';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -73,7 +74,14 @@ async function fetchCount(url: string, token: string | null): Promise<number> {
 export function NavBadgeProvider({ children }: { children: ReactNode }) {
   const [counts, setCounts] = useState<NavBadgeCounts>(DEFAULT_COUNTS);
 
+  // Badges are chrome around whatever page is open, including the sign-in
+  // page. Without this the provider polled four endpoints a minute at a
+  // visitor who had not signed in yet, and every one of them was a 401.
+  const shouldFetch = useSessionGate();
+
   const refresh = useCallback(async () => {
+    if (!shouldFetch) return;
+
     const token =
       typeof window !== 'undefined'
         ? localStorage.getItem('cf_access_token')
@@ -120,16 +128,24 @@ export function NavBadgeProvider({ children }: { children: ReactNode }) {
       complianceBadge: 0,
       complaintsBadge: 0,
     });
-  }, []);
+  }, [shouldFetch]);
 
   useEffect(() => {
+    // No session, or a route that does not expect one: render the badges at
+    // their defaults and send nothing. Signing in changes the route, which
+    // reopens the gate and starts the poll.
+    if (!shouldFetch) {
+      setCounts(DEFAULT_COUNTS);
+      return;
+    }
+
     // Initial fetch
     refresh();
 
     // Auto-refresh every 60s
     const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [refresh]);
+  }, [refresh, shouldFetch]);
 
   return (
     <NavBadgeContext.Provider value={{ ...counts, refresh }}>
