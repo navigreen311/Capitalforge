@@ -150,3 +150,36 @@ describe('5/24 does not claim headroom it cannot verify', () => {
     expect(counted).toBe(3);
   });
 });
+
+describe('credit limit range renders one dollar sign per figure', () => {
+  // Mirrors formatCreditLimitRange in app/optimizer/page.tsx. Kept here rather
+  // than exported from a page component, which would be a bigger change than
+  // the defect warrants; the assertions are about the output shape.
+  const money = (value: number): string => `$${Math.round(value).toLocaleString()}`;
+  const format = (min: number, max: number): string =>
+    max > 0 ? `${money(min)} – ${money(max)}` : `${money(min)} – No preset limit`;
+
+  it('does not double the dollar sign on the upper bound', () => {
+    // The defect: a literal `$` in JSX text in front of an expression that
+    // already returned "$100,000". Only the max side was affected, because the
+    // min side passed a raw number through.
+    expect(format(10_000, 100_000)).toBe('$10,000 – $100,000');
+    expect(format(10_000, 100_000)).not.toContain('$$');
+  });
+
+  it('never prefixes a dollar sign to a non-numeric bound', () => {
+    // `$No limit` is what identified the bug: a currency symbol glued to a
+    // phrase. Whatever the wording, it must not arrive with a `$` in front.
+    const charge = format(15_000, 0);
+    expect(charge).toBe('$15,000 – No preset limit');
+    expect(charge).not.toMatch(/\$\s*[A-Za-z]/);
+  });
+
+  it('says no preset limit rather than no limit', () => {
+    // A charge card is not unlimited. The issuer still decides what it will
+    // authorise; there is simply no preset ceiling. Those are different claims
+    // and only the second is true.
+    expect(format(15_000, 0)).not.toContain('No limit');
+    expect(format(15_000, 0)).toContain('No preset limit');
+  });
+});

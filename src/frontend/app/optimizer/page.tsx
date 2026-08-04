@@ -2462,6 +2462,30 @@ function EligibilityBar({ score }: { score: number }) {
   );
 }
 
+/**
+ * A card's estimated credit limit range.
+ *
+ * Both ends go through one formatter. They did not, and it showed:
+ *
+ *   ${min.toLocaleString()} – ${max > 0 ? `$${max.toLocaleString()}` : 'No limit'}
+ *
+ * In JSX that leading `$` is literal text, so the minimum — a raw number —
+ * came out right, while the maximum arrived already carrying its own `$` and
+ * rendered as `$$100,000`. The tell was the charge-card branch: a literal `$`
+ * in front of a non-numeric string produced `$No limit`, which is what
+ * identified the shape of the bug rather than just its symptom.
+ *
+ * "No limit" is also the wrong words. A charge card has no *preset* spending
+ * limit — the issuer still decides what it will authorise, against the
+ * cardholder's history. Telling an advisor a card is unlimited is a different
+ * claim from telling them it has no preset ceiling, and only the second is
+ * true.
+ */
+function formatCreditLimitRange(min: number, max: number): string {
+  const money = (value: number): string => `$${Math.round(value).toLocaleString()}`;
+  return max > 0 ? `${money(min)} – ${money(max)}` : `${money(min)} – No preset limit`;
+}
+
 function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
   const isCU = isCreditUnionIssuer(rec.issuer);
   const bureauPull = isCU ? getCUBureauPull(rec.issuer) : null;
@@ -2513,7 +2537,7 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
         <div>
           <p className="text-gray-400 font-medium">Credit Limit</p>
           <p className="text-gray-800 font-semibold">
-            ${rec.estimatedLimitMin.toLocaleString()} – ${rec.estimatedLimitMax > 0 ? `$${rec.estimatedLimitMax.toLocaleString()}` : 'No limit'}
+            {formatCreditLimitRange(rec.estimatedLimitMin, rec.estimatedLimitMax)}
           </p>
         </div>
         <div>
