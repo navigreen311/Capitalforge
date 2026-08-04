@@ -24,6 +24,7 @@ import {
 import {
   CREDIT_UNION_MEMBERSHIP,
   formatMembershipCost,
+  type MembershipCost,
   membershipCostAmount,
   parseIssuer,
   issuerDisplayName,
@@ -77,7 +78,16 @@ interface ApiCardRecommendation {
     status: 'member' | 'eligibility_path' | 'unknown' | 'ineligible';
     detail: string;
     gate?: 'open_enrollment' | 'qualification_required';
-    joinCost?: number;
+    /**
+     * What joining costs, as the API sends it.
+     *
+     * This said `number`, while the API had been changed to send a
+     * MembershipCost object. TypeScript was satisfied -- the local interface
+     * simply disagreed with the wire -- and the runtime check below,
+     * `typeof joinCost === 'number'`, was quietly false for every credit
+     * union, so the join cost stopped rendering and nothing failed.
+     */
+    joinCost?: MembershipCost;
   };
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
@@ -120,6 +130,8 @@ interface ApiStackingPlan {
 interface ApiVelocitySummary {
   cardsCountingToward524: number;
   cardsExemptFrom524: number;
+  /** Held bank cards with no opening date, so 5/24 cannot place them. */
+  heldBankCardsOfUnknownAge: number;
   cardsNotEvaluated: number;
   chase524HeadroomBefore: number;
   chase524HeadroomAfter: number;
@@ -602,84 +614,38 @@ const EXISTING_CARDS = [
 
 // ─── Network diversity ────────────────────────────────────────────────────────
 
-interface NetworkSlice {
-  network: string;
-  count: number;
-  color: string;
-}
-
-const NETWORK_DATA: NetworkSlice[] = [
-  { network: 'Visa',       count: 3, color: '#1A56DB' },
-  { network: 'Mastercard', count: 2, color: '#F97316' },
-  { network: 'Amex',       count: 2, color: '#0A1628' },
-  { network: 'Discover',   count: 1, color: '#D97706' },
-];
-
-function NetworkPieChart({ data }: { data: NetworkSlice[] }) {
-  const total = data.reduce((s, d) => s + d.count, 0);
-  let cumAngle = -90; // start at top
-
-  const slices = data.map((d) => {
-    const angle = (d.count / total) * 360;
-    const start = cumAngle;
-    cumAngle += angle;
-    return { ...d, startAngle: start, sweepAngle: angle };
-  });
-
-  function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
-    const rad = (angleDeg * Math.PI) / 180;
-    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-  }
-
-  function describeArc(
-    cx: number, cy: number, r: number,
-    startAngle: number, endAngle: number,
-  ) {
-    const s = polarToXY(cx, cy, r, startAngle);
-    const e = polarToXY(cx, cy, r, endAngle);
-    const largeArc = endAngle - startAngle > 180 ? 1 : 0;
-    return [
-      `M ${cx} ${cy}`,
-      `L ${s.x} ${s.y}`,
-      `A ${r} ${r} 0 ${largeArc} 1 ${e.x} ${e.y}`,
-      'Z',
-    ].join(' ');
-  }
-
+/**
+ * The network spread this system cannot compute.
+ *
+ * This panel drew a pie chart of Visa 3 / Mastercard 2 / Amex 2 / Discover 1
+ * for every client who ever opened it, beside a fixed recommendation to "add a
+ * Discover card" — which the chart already showed them holding. Two advisors
+ * comparing two different clients saw identical charts.
+ *
+ * It cannot be computed from anything held today. There is no network column
+ * in the schema, and SuppliedExistingCard — the card an advisor ticks on the
+ * form — carries an issuer and a limit but no network. So the honest output is
+ * not a smaller chart or a zeroed one; it is the absence, named.
+ *
+ * What would make it real is recorded here rather than in a backlog file
+ * nobody opens: a network on the held-card record, which the same form change
+ * that adds an opening date for 5/24 could carry.
+ */
+function NetworkDiversityUnavailable() {
   return (
-    <div className="flex items-center gap-6">
-      <svg width="96" height="96" viewBox="0 0 96 96" aria-label="Network diversity chart">
-        {slices.map((s) => (
-          <path
-            key={s.network}
-            d={describeArc(48, 48, 44, s.startAngle, s.startAngle + s.sweepAngle)}
-            fill={s.color}
-            stroke="white"
-            strokeWidth="2"
-          />
-        ))}
-        {/* Donut hole */}
-        <circle cx="48" cy="48" r="22" fill="white" />
-        <text x="48" y="48" textAnchor="middle" dominantBaseline="central"
-          style={{ fontSize: '10px', fontWeight: 700, fill: '#0A1628' }}>
-          {total}
-        </text>
-      </svg>
-      <div className="space-y-1.5">
-        {data.map((d) => (
-          <div key={d.network} className="flex items-center gap-2 text-xs">
-            <span
-              className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
-              style={{ backgroundColor: d.color }}
-            />
-            <span className="text-gray-600 font-medium">{d.network}</span>
-            <span className="text-gray-400 ml-auto pl-3">{d.count} cards</span>
-          </div>
-        ))}
-      </div>
+    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+      <p className="text-xs text-gray-600">
+        The networks of this client&apos;s existing cards are not recorded, so their
+        spread cannot be shown.
+      </p>
+      <p className="text-xs text-gray-500 mt-2">
+        Held cards are captured with an issuer and a credit limit, but not a
+        network. Until that is recorded, any breakdown here would be invented.
+      </p>
     </div>
   );
 }
+
 
 // ─── Sequencing timeline ──────────────────────────────────────────────────────
 
@@ -1991,8 +1957,36 @@ export default function OptimizerPage() {
               {stackingPlan.velocitySummary && (
                 <SectionCard
                   title="Chase 5/24"
-                  subtitle={`${stackingPlan.velocitySummary.chase524HeadroomBefore} of 5 slots open before this plan`}
+                  subtitle={
+                    stackingPlan.velocitySummary.heldBankCardsOfUnknownAge > 0
+                      ? `At most ${stackingPlan.velocitySummary.chase524HeadroomBefore} of 5 slots open before this plan`
+                      : `${stackingPlan.velocitySummary.chase524HeadroomBefore} of 5 slots open before this plan`
+                  }
                 >
+                  {/*
+                    The count is built from application records. A card the
+                    advisor ticked on the form has none, and carries no opening
+                    date, so 5/24 cannot tell whether it sits inside the
+                    trailing 24 months.
+
+                    This panel used to say "5 of 5 slots open" for a client
+                    whose held Chase card was listed in Inputs Used two panels
+                    away — the output contradicting itself on one screen. It
+                    now reports a ceiling and names what could lower it, rather
+                    than guessing in either direction.
+                  */}
+                  {stackingPlan.velocitySummary.heldBankCardsOfUnknownAge > 0 && (
+                    <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      {stackingPlan.velocitySummary.heldBankCardsOfUnknownAge} held bank{' '}
+                      {stackingPlan.velocitySummary.heldBankCardsOfUnknownAge === 1
+                        ? 'card has'
+                        : 'cards have'}{' '}
+                      no opening date on record, so 5/24 cannot tell whether{' '}
+                      {stackingPlan.velocitySummary.heldBankCardsOfUnknownAge === 1 ? 'it' : 'they'}{' '}
+                      already occupy a slot. Treat the figure above as the most
+                      headroom available, not a confirmed count.
+                    </p>
+                  )}
                   {/*
                     A plan past the limit says so plainly. The headroom figure
                     was clamped at zero, so a plan twelve cards over reported
@@ -2158,8 +2152,23 @@ export default function OptimizerPage() {
                     <div className="relative">
                       <div className="absolute left-4 top-2 bottom-2 w-px bg-gray-200" aria-hidden="true" />
                       <div className="space-y-6 pl-10">
-                        {stackingPlan.recommendations.map((rec) => (
-                          <ApiSequenceStep key={rec.cardProductId} rec={rec} />
+                        {/*
+                          The running total, not just each step's own wait.
+                          Every step said "Wait 30 days before this
+                          application", so a four-card plan read as four
+                          separate 30-day waits happening at once rather than
+                          a sequence finishing in ninety days. The cooldown is
+                          still shown -- it is the issuer's rule -- but the day
+                          it lands on is what an advisor puts in a calendar.
+                        */}
+                        {stackingPlan.recommendations.map((rec, i) => (
+                          <ApiSequenceStep
+                            key={rec.cardProductId}
+                            rec={rec}
+                            dayOffset={stackingPlan.recommendations
+                              .slice(0, i + 1)
+                              .reduce((sum, r) => sum + (r.cooldownDays ?? 0), 0)}
+                          />
                         ))}
                       </div>
                     </div>
@@ -2169,15 +2178,9 @@ export default function OptimizerPage() {
                 <div>
                   <SectionCard
                     title="Network Diversity"
-                    subtitle="Current card network spread"
+                    subtitle="Not recorded for this client"
                   >
-                    <NetworkPieChart data={NETWORK_DATA} />
-                    <div className="mt-4 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-2.5">
-                      <p className="text-xs text-brand-navy font-semibold mb-0.5">Recommendation</p>
-                      <p className="text-xs text-gray-600">
-                        Add a Discover card to broaden acceptance coverage and reduce single-network exposure.
-                      </p>
-                    </div>
+                    <NetworkDiversityUnavailable />
                   </SectionCard>
                 </div>
               </div>
@@ -2302,15 +2305,9 @@ export default function OptimizerPage() {
                 <div>
                   <SectionCard
                     title="Network Diversity"
-                    subtitle="Current card network spread"
+                    subtitle="Not recorded for this client"
                   >
-                    <NetworkPieChart data={NETWORK_DATA} />
-                    <div className="mt-4 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-2.5">
-                      <p className="text-xs text-brand-navy font-semibold mb-0.5">Recommendation</p>
-                      <p className="text-xs text-gray-600">
-                        Add a Discover card to broaden acceptance coverage and reduce single-network exposure.
-                      </p>
-                    </div>
+                    <NetworkDiversityUnavailable />
                   </SectionCard>
                 </div>
               </div>
@@ -2465,6 +2462,30 @@ function EligibilityBar({ score }: { score: number }) {
   );
 }
 
+/**
+ * A card's estimated credit limit range.
+ *
+ * Both ends go through one formatter. They did not, and it showed:
+ *
+ *   ${min.toLocaleString()} – ${max > 0 ? `$${max.toLocaleString()}` : 'No limit'}
+ *
+ * In JSX that leading `$` is literal text, so the minimum — a raw number —
+ * came out right, while the maximum arrived already carrying its own `$` and
+ * rendered as `$$100,000`. The tell was the charge-card branch: a literal `$`
+ * in front of a non-numeric string produced `$No limit`, which is what
+ * identified the shape of the bug rather than just its symptom.
+ *
+ * "No limit" is also the wrong words. A charge card has no *preset* spending
+ * limit — the issuer still decides what it will authorise, against the
+ * cardholder's history. Telling an advisor a card is unlimited is a different
+ * claim from telling them it has no preset ceiling, and only the second is
+ * true.
+ */
+function formatCreditLimitRange(min: number, max: number): string {
+  const money = (value: number): string => `$${Math.round(value).toLocaleString()}`;
+  return max > 0 ? `${money(min)} – ${money(max)}` : `${money(min)} – No preset limit`;
+}
+
 function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
   const isCU = isCreditUnionIssuer(rec.issuer);
   const bureauPull = isCU ? getCUBureauPull(rec.issuer) : null;
@@ -2516,7 +2537,7 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
         <div>
           <p className="text-gray-400 font-medium">Credit Limit</p>
           <p className="text-gray-800 font-semibold">
-            ${rec.estimatedLimitMin.toLocaleString()} – ${rec.estimatedLimitMax > 0 ? `$${rec.estimatedLimitMax.toLocaleString()}` : 'No limit'}
+            {formatCreditLimitRange(rec.estimatedLimitMin, rec.estimatedLimitMax)}
           </p>
         </div>
         <div>
@@ -2570,8 +2591,8 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
                   // act on it in the meeting. Saying only "membership required"
                   // read the same as needing to have served in the military.
                   ? `Open enrollment${
-                      typeof rec.membership.joinCost === 'number'
-                        ? ` — join for $${rec.membership.joinCost}`
+                      rec.membership.joinCost
+                        ? ` — ${formatMembershipCost(rec.membership.joinCost)}`
                         : ''
                     }`
                   : 'Qualifies — membership required before applying'}
@@ -2627,7 +2648,14 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
   );
 }
 
-function ApiSequenceStep({ rec }: { rec: ApiCardRecommendation }) {
+function ApiSequenceStep({
+  rec,
+  dayOffset,
+}: {
+  rec: ApiCardRecommendation;
+  /** Days from today this application lands on, cumulative across the plan. */
+  dayOffset: number;
+}) {
   return (
     <div className="relative">
       <div className="absolute -left-[26px] top-1 w-3.5 h-3.5 rounded-full bg-brand-navy border-2 border-white shadow-sm" />
@@ -2650,7 +2678,7 @@ function ApiSequenceStep({ rec }: { rec: ApiCardRecommendation }) {
         <p className="text-xs text-gray-500 leading-relaxed">{rec.rationale}</p>
         {rec.cooldownDays > 0 && (
           <p className="text-xs font-semibold text-brand-gold-600 mt-1">
-            -- Wait {rec.cooldownDays} days
+            -- Wait {rec.cooldownDays} days, landing on day {dayOffset} of the plan
             {rec.cooldownSource === 'unresearched_default' && ' (default)'}
           </p>
         )}

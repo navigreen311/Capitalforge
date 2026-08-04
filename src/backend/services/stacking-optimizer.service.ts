@@ -850,6 +850,13 @@ export type VelocityTreatment =
 export interface VelocitySummary {
   /** Cards in this plan that Chase will see. */
   cardsCountingToward524: number;
+  /**
+   * Held bank cards with no opening date, so 5/24 cannot place them.
+   *
+   * Above zero, `chase524HeadroomBefore` is an upper bound rather than a
+   * figure: each of these may already occupy a slot.
+   */
+  heldBankCardsOfUnknownAge: number;
   /** Cards exempted. Zero here with credit unions in the plan means the
    *  exemption is not firing — the check that distinguishes it from skipping. */
   cardsExemptFrom524: number;
@@ -940,6 +947,8 @@ interface ApplicationContext {
   heldProductKeys: Set<string>;
   /** Bank cards approved in the trailing 24 months. Drives Chase 5/24. */
   bankCardsInWindow: number;
+  /** Held bank cards whose opening date is unknown; see the 5/24 summary. */
+  heldBankCardsOfUnknownAge: number;
   /** Credit union cards in that window. Excluded from 5/24 by the exemption. */
   creditUnionCardsInWindow: number;
   recentAppDates: Date[];
@@ -1355,6 +1364,26 @@ function buildApplicationContext(
   ).length;
   const bankCardsInWindow = approvedInWindow.length - creditUnionCardsInWindow;
 
+  // Held bank cards the 5/24 count cannot see.
+  //
+  // The count above is built from CardApplication rows. A card the advisor
+  // ticked on the form has no application record — most predate this system —
+  // and SuppliedExistingCard carries no opening date, so there is no way to
+  // know whether it falls inside the trailing 24 months.
+  //
+  // Counting them anyway would be a guess in the strict direction: a Chase
+  // card opened nine years ago does not consume a slot, and treating it as
+  // though it did withholds a card the client could have had. Not counting
+  // them is the guess we were making, and it reads worse — the panel said
+  // "5 of 5 slots open" for a client whose held Chase card was listed two
+  // panels away, so the output contradicted itself on one screen.
+  //
+  // Neither guess is available. The number is reported as a floor and the
+  // headroom as a ceiling, with the count of cards that could move it.
+  const heldBankCardsOfUnknownAge = (suppliedExistingCards ?? []).filter(
+    (card) => !isCreditUnionIssuerName(card.issuer ?? null),
+  ).length;
+
   // Report the union the exclusion actually used, not one half of it.
   //
   // This said "Existing cards: 0 [client_record]" — the count of approved
@@ -1437,6 +1466,7 @@ function buildApplicationContext(
     existingCardCount: activeApps.length,
     heldProductKeys,
     bankCardsInWindow,
+    heldBankCardsOfUnknownAge,
     creditUnionCardsInWindow,
     recentAppDates,
     provenance,
@@ -1969,6 +1999,7 @@ export async function runStackingOptimizer(
       const headroomBefore = Math.max(0, CHASE_524_LIMIT - ctx.bankCardsInWindow);
       return {
         cardsCountingToward524: counting,
+        heldBankCardsOfUnknownAge: ctx.heldBankCardsOfUnknownAge,
         cardsExemptFrom524: exempt,
         cardsNotEvaluated: notEvaluated,
         chase524HeadroomBefore: headroomBefore,

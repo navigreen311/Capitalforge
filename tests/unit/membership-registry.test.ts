@@ -16,6 +16,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
   CREDIT_UNION_ISSUER_IDS,
+  isCreditUnionIssuerName,
   CREDIT_UNION_MEMBERSHIP,
   formatMembershipCost,
   membershipCostAmount,
@@ -122,5 +123,63 @@ describe('the seed cannot reintroduce an unsourced fee', () => {
     const criteria = [...seed.matchAll(/membershipCriteria:\s*'([^']*)'/g)].map((m) => m[1]);
     const withMoney = criteria.filter((c) => /\$\d/.test(c));
     expect(withMoney).toEqual([]);
+  });
+});
+
+describe('5/24 does not claim headroom it cannot verify', () => {
+  it('counts held bank cards that 5/24 cannot place, and excludes credit unions', () => {
+    // The count of open slots is built from CardApplication rows. A card the
+    // advisor ticked on the form has no such row and carries no opening date,
+    // so it cannot be placed inside or outside the trailing 24 months.
+    //
+    // Neither guess is available: counting them withholds cards from a client
+    // whose Chase card is nine years old, and not counting them is what made
+    // the panel report "5 of 5 slots open" for a client whose held Chase card
+    // was listed two panels away. The figure is reported as a ceiling instead.
+    //
+    // Credit unions are excluded here for the same reason they are exempt from
+    // the count itself — they do not drive 5/24.
+    const held = [
+      { issuer: 'Chase' },
+      { issuer: 'American Express' },
+      { issuer: 'Navy Federal Credit Union' },
+      { issuer: 'Alliant Credit Union' },
+      { issuer: null },
+    ];
+    const counted = held.filter((c) => !isCreditUnionIssuerName(c.issuer)).length;
+    expect(counted).toBe(3);
+  });
+});
+
+describe('credit limit range renders one dollar sign per figure', () => {
+  // Mirrors formatCreditLimitRange in app/optimizer/page.tsx. Kept here rather
+  // than exported from a page component, which would be a bigger change than
+  // the defect warrants; the assertions are about the output shape.
+  const money = (value: number): string => `$${Math.round(value).toLocaleString()}`;
+  const format = (min: number, max: number): string =>
+    max > 0 ? `${money(min)} – ${money(max)}` : `${money(min)} – No preset limit`;
+
+  it('does not double the dollar sign on the upper bound', () => {
+    // The defect: a literal `$` in JSX text in front of an expression that
+    // already returned "$100,000". Only the max side was affected, because the
+    // min side passed a raw number through.
+    expect(format(10_000, 100_000)).toBe('$10,000 – $100,000');
+    expect(format(10_000, 100_000)).not.toContain('$$');
+  });
+
+  it('never prefixes a dollar sign to a non-numeric bound', () => {
+    // `$No limit` is what identified the bug: a currency symbol glued to a
+    // phrase. Whatever the wording, it must not arrive with a `$` in front.
+    const charge = format(15_000, 0);
+    expect(charge).toBe('$15,000 – No preset limit');
+    expect(charge).not.toMatch(/\$\s*[A-Za-z]/);
+  });
+
+  it('says no preset limit rather than no limit', () => {
+    // A charge card is not unlimited. The issuer still decides what it will
+    // authorise; there is simply no preset ceiling. Those are different claims
+    // and only the second is true.
+    expect(format(15_000, 0)).not.toContain('No limit');
+    expect(format(15_000, 0)).toContain('No preset limit');
   });
 });
