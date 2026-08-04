@@ -24,6 +24,7 @@ import {
 import {
   CREDIT_UNION_MEMBERSHIP,
   formatMembershipCost,
+  type MembershipCost,
   membershipCostAmount,
   parseIssuer,
   issuerDisplayName,
@@ -77,7 +78,16 @@ interface ApiCardRecommendation {
     status: 'member' | 'eligibility_path' | 'unknown' | 'ineligible';
     detail: string;
     gate?: 'open_enrollment' | 'qualification_required';
-    joinCost?: number;
+    /**
+     * What joining costs, as the API sends it.
+     *
+     * This said `number`, while the API had been changed to send a
+     * MembershipCost object. TypeScript was satisfied -- the local interface
+     * simply disagreed with the wire -- and the runtime check below,
+     * `typeof joinCost === 'number'`, was quietly false for every credit
+     * union, so the join cost stopped rendering and nothing failed.
+     */
+    joinCost?: MembershipCost;
   };
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
@@ -2142,8 +2152,23 @@ export default function OptimizerPage() {
                     <div className="relative">
                       <div className="absolute left-4 top-2 bottom-2 w-px bg-gray-200" aria-hidden="true" />
                       <div className="space-y-6 pl-10">
-                        {stackingPlan.recommendations.map((rec) => (
-                          <ApiSequenceStep key={rec.cardProductId} rec={rec} />
+                        {/*
+                          The running total, not just each step's own wait.
+                          Every step said "Wait 30 days before this
+                          application", so a four-card plan read as four
+                          separate 30-day waits happening at once rather than
+                          a sequence finishing in ninety days. The cooldown is
+                          still shown -- it is the issuer's rule -- but the day
+                          it lands on is what an advisor puts in a calendar.
+                        */}
+                        {stackingPlan.recommendations.map((rec, i) => (
+                          <ApiSequenceStep
+                            key={rec.cardProductId}
+                            rec={rec}
+                            dayOffset={stackingPlan.recommendations
+                              .slice(0, i + 1)
+                              .reduce((sum, r) => sum + (r.cooldownDays ?? 0), 0)}
+                          />
                         ))}
                       </div>
                     </div>
@@ -2542,8 +2567,8 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
                   // act on it in the meeting. Saying only "membership required"
                   // read the same as needing to have served in the military.
                   ? `Open enrollment${
-                      typeof rec.membership.joinCost === 'number'
-                        ? ` — join for $${rec.membership.joinCost}`
+                      rec.membership.joinCost
+                        ? ` — ${formatMembershipCost(rec.membership.joinCost)}`
                         : ''
                     }`
                   : 'Qualifies — membership required before applying'}
@@ -2599,7 +2624,14 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
   );
 }
 
-function ApiSequenceStep({ rec }: { rec: ApiCardRecommendation }) {
+function ApiSequenceStep({
+  rec,
+  dayOffset,
+}: {
+  rec: ApiCardRecommendation;
+  /** Days from today this application lands on, cumulative across the plan. */
+  dayOffset: number;
+}) {
   return (
     <div className="relative">
       <div className="absolute -left-[26px] top-1 w-3.5 h-3.5 rounded-full bg-brand-navy border-2 border-white shadow-sm" />
@@ -2622,7 +2654,7 @@ function ApiSequenceStep({ rec }: { rec: ApiCardRecommendation }) {
         <p className="text-xs text-gray-500 leading-relaxed">{rec.rationale}</p>
         {rec.cooldownDays > 0 && (
           <p className="text-xs font-semibold text-brand-gold-600 mt-1">
-            -- Wait {rec.cooldownDays} days
+            -- Wait {rec.cooldownDays} days, landing on day {dayOffset} of the plan
             {rec.cooldownSource === 'unresearched_default' && ' (default)'}
           </p>
         )}
