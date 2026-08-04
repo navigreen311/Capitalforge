@@ -120,6 +120,8 @@ interface ApiStackingPlan {
 interface ApiVelocitySummary {
   cardsCountingToward524: number;
   cardsExemptFrom524: number;
+  /** Held bank cards with no opening date, so 5/24 cannot place them. */
+  heldBankCardsOfUnknownAge: number;
   cardsNotEvaluated: number;
   chase524HeadroomBefore: number;
   chase524HeadroomAfter: number;
@@ -1991,8 +1993,36 @@ export default function OptimizerPage() {
               {stackingPlan.velocitySummary && (
                 <SectionCard
                   title="Chase 5/24"
-                  subtitle={`${stackingPlan.velocitySummary.chase524HeadroomBefore} of 5 slots open before this plan`}
+                  subtitle={
+                    stackingPlan.velocitySummary.heldBankCardsOfUnknownAge > 0
+                      ? `At most ${stackingPlan.velocitySummary.chase524HeadroomBefore} of 5 slots open before this plan`
+                      : `${stackingPlan.velocitySummary.chase524HeadroomBefore} of 5 slots open before this plan`
+                  }
                 >
+                  {/*
+                    The count is built from application records. A card the
+                    advisor ticked on the form has none, and carries no opening
+                    date, so 5/24 cannot tell whether it sits inside the
+                    trailing 24 months.
+
+                    This panel used to say "5 of 5 slots open" for a client
+                    whose held Chase card was listed in Inputs Used two panels
+                    away — the output contradicting itself on one screen. It
+                    now reports a ceiling and names what could lower it, rather
+                    than guessing in either direction.
+                  */}
+                  {stackingPlan.velocitySummary.heldBankCardsOfUnknownAge > 0 && (
+                    <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      {stackingPlan.velocitySummary.heldBankCardsOfUnknownAge} held bank{' '}
+                      {stackingPlan.velocitySummary.heldBankCardsOfUnknownAge === 1
+                        ? 'card has'
+                        : 'cards have'}{' '}
+                      no opening date on record, so 5/24 cannot tell whether{' '}
+                      {stackingPlan.velocitySummary.heldBankCardsOfUnknownAge === 1 ? 'it' : 'they'}{' '}
+                      already occupy a slot. Treat the figure above as the most
+                      headroom available, not a confirmed count.
+                    </p>
+                  )}
                   {/*
                     A plan past the limit says so plainly. The headroom figure
                     was clamped at zero, so a plan twelve cards over reported
