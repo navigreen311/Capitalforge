@@ -89,6 +89,16 @@ interface ApiCardRecommendation {
      */
     joinCost?: MembershipCost;
   };
+  /**
+   * How Chase 5/24 treats this card.
+   *
+   * The API has sent this since the per-card 5/24 work; this interface never
+   * declared it, so nothing read it and the badge it was computed for never
+   * reached the screen. An undeclared field on a hand-written response
+   * interface is invisible to the compiler in exactly the way a wrongly-typed
+   * one is — both render nothing and neither fails.
+   */
+  velocityTreatment?: 'counts_toward_5_24' | 'exempt_from_5_24' | 'not_evaluated';
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
 }
@@ -2486,6 +2496,46 @@ function formatCreditLimitRange(min: number, max: number): string {
   return max > 0 ? `${money(min)} – ${money(max)}` : `${money(min)} – No preset limit`;
 }
 
+/**
+ * How Chase 5/24 treats one card.
+ *
+ * `not_evaluated` is the one that must not be quiet. It means the issuer could
+ * not be identified, so nothing decided whether this card consumes a slot —
+ * and a card of unknown treatment sitting in a plan is a gap in the very
+ * arithmetic the 5/24 panel above reports. Rendering it in the same grey as
+ * "exempt" would file an unanswered question next to an answer.
+ *
+ * Absent treatment renders nothing rather than guessing: an older saved plan
+ * predates this field, and "counts" would be a claim, not a default.
+ */
+function VelocityTreatmentBadge({
+  treatment,
+}: {
+  treatment?: 'counts_toward_5_24' | 'exempt_from_5_24' | 'not_evaluated';
+}) {
+  if (!treatment) return null;
+
+  const style =
+    treatment === 'exempt_from_5_24'
+      ? { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'Exempt from 5/24' }
+      : treatment === 'counts_toward_5_24'
+        ? { cls: 'bg-gray-100 text-gray-600 border-gray-200', label: 'Counts toward 5/24' }
+        : { cls: 'bg-amber-50 text-amber-800 border-amber-300', label: '5/24 not evaluated' };
+
+  return (
+    <span
+      title={
+        treatment === 'not_evaluated'
+          ? 'The issuer could not be identified, so it is not known whether this card consumes a 5/24 slot.'
+          : undefined
+      }
+      className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${style.cls}`}
+    >
+      {style.label}
+    </span>
+  );
+}
+
 function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
   const isCU = isCreditUnionIssuer(rec.issuer);
   const bureauPull = isCU ? getCUBureauPull(rec.issuer) : null;
@@ -2509,6 +2559,7 @@ function ApiCardRecommendationCard({ rec }: { rec: ApiCardRecommendation }) {
                   CU
                 </span>
               )}
+              <VelocityTreatmentBadge treatment={rec.velocityTreatment} />
             </div>
             <p className="text-xs text-gray-400 capitalize">{rec.issuer.replace(/_/g, ' ')}</p>
           </div>
