@@ -12,6 +12,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { parseIssuer } from '../../shared/constants/issuers.js';
 import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
@@ -110,8 +111,14 @@ export const ISSUER_COOLDOWN_DAYS: Record<string, number> = {
 };
 
 function getIssuerCooldownDays(issuer: string): number {
-  const normalized = issuer.toLowerCase().replace(/\s+/g, '_');
-  return ISSUER_COOLDOWN_DAYS[normalized] ?? ISSUER_COOLDOWN_DAYS['default'];
+  // Through the parse boundary rather than a hand-rolled normalise. This did
+  // `toLowerCase().replace(/\s+/g, '_')`, which turns "Bank of America" into a
+  // matching key and "U.S. Bank" into `u.s._bank`, which matches nothing and
+  // silently takes the 60-day default. A wrong reapply date reads exactly like
+  // a researched one.
+  const parsed = parseIssuer(issuer);
+  const key = parsed?.id ?? issuer.toLowerCase().replace(/\s+/g, '_');
+  return ISSUER_COOLDOWN_DAYS[key] ?? ISSUER_COOLDOWN_DAYS['default'];
 }
 
 function addDays(date: Date, days: number): Date {

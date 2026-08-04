@@ -12,6 +12,7 @@
 // ============================================================
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { parseIssuer } from '../../shared/constants/issuers.js';
 import { prisma as sharedPrisma } from '../config/database.js';
 import crypto from 'crypto';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
@@ -817,7 +818,11 @@ export class OffboardingService {
     });
 
     return apps.map((app) => {
-      const issuerKey = app.issuer.toLowerCase().replace(/\s+/g, '_');
+      // Parsed, not normalised by hand. A miss here is not cosmetic: the
+      // client gets no closure phone number for a card they are trying to
+      // close, and the omission looks like the issuer simply having none.
+      const issuerKey =
+        parseIssuer(app.issuer)?.id ?? app.issuer.toLowerCase().replace(/\s+/g, '_');
       const contact = ISSUER_CLOSURE_CONTACTS[issuerKey];
       const hasBalance = app.creditLimit && Number(app.creditLimit) > 0;
 

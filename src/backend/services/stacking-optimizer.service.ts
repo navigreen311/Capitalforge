@@ -615,6 +615,7 @@ import logger from '../config/logger.js';
 import {
   CREDIT_UNION_MEMBERSHIP,
   isCreditUnionIssuer,
+  isCreditUnionIssuerName,
   parseIssuer,
   type CreditUnionIssuerId,
 } from '../../shared/constants/issuers.js';
@@ -752,6 +753,8 @@ export interface CardRecommendation {
    * Absent for bank cards, which have no membership requirement.
    */
   membership?: MembershipAssessment;
+  /** How this card is treated by Chase 5/24. */
+  velocityTreatment: VelocityTreatment;
   rationale: string;
   velocityRisk: 'low' | 'medium' | 'high';
 }
@@ -767,6 +770,41 @@ export interface AprExpirySummary {
   cardName: string;
   introMonths: number;
   expiryEstimate: string;  // ISO date
+}
+
+/**
+ * How a recommended card is treated by Chase 5/24.
+ *
+ * Reported per card because the exemption fires per card, and because three
+ * situations otherwise look identical on the output: a credit union card
+ * counted (the bug this replaces), a credit union card exempted (correct), and
+ * a card no rule looked at. An exemption that shows up only as a smaller number
+ * is indistinguishable from cards being skipped.
+ */
+export type VelocityTreatment =
+  /** A bank card. Counts towards the five. */
+  | 'counts_toward_5_24'
+  /** A credit union card. Does not count — the reason to reach for one. */
+  | 'exempt_from_5_24'
+  /** The issuer could not be identified, so no treatment was decided. */
+  | 'not_evaluated';
+
+export interface VelocitySummary {
+  /** Cards in this plan that Chase will see. */
+  cardsCountingToward524: number;
+  /** Cards exempted. Zero here with credit unions in the plan means the
+   *  exemption is not firing — the check that distinguishes it from skipping. */
+  cardsExemptFrom524: number;
+  /** Cards no rule evaluated. Must not read as cards that passed. */
+  cardsNotEvaluated: number;
+  /** Slots left under 5/24 before this plan. */
+  chase524HeadroomBefore: number;
+  /** Slots left after it. Unchanged by credit union cards — that is the point. */
+  chase524HeadroomAfter: number;
+  /** Bank cards opened in the trailing 24 months, from the client's record. */
+  existingBankCardsInWindow: number;
+  /** Credit union cards in that window, excluded from the count above. */
+  existingCreditUnionCardsInWindow: number;
 }
 
 export interface CapacityBreakdown {
@@ -803,6 +841,8 @@ export interface StackingPlan {
   cardCount: number;
   /** What each input was, and where it came from. */
   inputProvenance: InputProvenance;
+  /** How the plan sits against Chase 5/24, and which cards are exempt. */
+  velocitySummary: VelocitySummary;
   /**
    * How far the plan gets towards the target, and on whose capacity.
    *
@@ -829,6 +869,10 @@ interface ApplicationContext {
    * recommended a Chase Ink Preferred.
    */
   heldProductKeys: Set<string>;
+  /** Bank cards approved in the trailing 24 months. Drives Chase 5/24. */
+  bankCardsInWindow: number;
+  /** Credit union cards in that window. Excluded from 5/24 by the exemption. */
+  creditUnionCardsInWindow: number;
   recentAppDates: Date[];
 }
 
@@ -840,6 +884,9 @@ interface ApplicationContext {
  * pull. Named here so they can be recorded on the plan and shown to the
  * person reading it.
  */
+/** Chase 5/24: five cards in twenty-four months. */
+const CHASE_524_LIMIT = 5;
+
 const ASSUMED = {
   ficoScore: 680,
   annualRevenue: 0,
@@ -1192,6 +1239,22 @@ function buildApplicationContext(
     .filter((a) => a.submittedAt && a.submittedAt >= ninetyDaysAgo)
     .map((a) => a.submittedAt!);
 
+  // Chase 5/24 counts cards opened in the trailing 24 months, from every bank.
+  // Credit union applications are exempt — the whole strategic reason to reach
+  // for one once bank velocity is spent. Counting them was the inverse of the
+  // rule; see docs/gaps.md 1b.
+  const twentyFourMonthsAgo = new Date(now.getTime() - 730 * 24 * 60 * 60 * 1000);
+  const approvedInWindow = business.cardApplications.filter(
+    (a) =>
+      (a.status === 'approved' || a.status === 'active') &&
+      a.submittedAt !== null &&
+      a.submittedAt >= twentyFourMonthsAgo,
+  );
+  const creditUnionCardsInWindow = approvedInWindow.filter((a) =>
+    isCreditUnionIssuerName(a.issuer),
+  ).length;
+  const bankCardsInWindow = approvedInWindow.length - creditUnionCardsInWindow;
+
   const existingCountResolved: ResolvedInput<number> = {
     label: 'Existing cards',
     value: activeApps.length,
@@ -1228,6 +1291,8 @@ function buildApplicationContext(
     recentInquiries,
     existingCardCount: activeApps.length,
     heldProductKeys,
+    bankCardsInWindow,
+    creditUnionCardsInWindow,
     recentAppDates,
     provenance,
   };
@@ -1603,6 +1668,7 @@ export async function runStackingOptimizer(
       sequencePosition: 0,
       cooldownDays: 0,
       cooldownSource: 'issuer_rule' as CooldownSource,
+      velocityTreatment: 'not_evaluated' as VelocityTreatment,
       rationale: '',
       velocityRisk: 'low',
     });
@@ -1645,6 +1711,19 @@ export async function runStackingOptimizer(
     rec.rationale = buildRationale(rec, ctx);
     const membership = membershipByCardId.get(rec.cardProductId);
     if (membership) rec.membership = membership;
+
+    // Chase 5/24 treatment, decided from the parsed identity rather than a
+    // string comparison. `not_evaluated` is kept distinct from "passed": an
+    // issuer we cannot name is one no rule looked at, and that must not read
+    // as a clean result.
+    const identity = parseIssuer(rec.issuer);
+    rec.velocityTreatment =
+      identity === null
+        ? 'not_evaluated'
+        : identity.kind === 'credit_union'
+          ? 'exempt_from_5_24'
+          : 'counts_toward_5_24';
+
     finalRecs.push(rec);
   };
 
@@ -1721,6 +1800,25 @@ export async function runStackingOptimizer(
     prioritizationMode: prioritize,
     cardCount: finalRecs.length,
     inputProvenance: ctx.provenance,
+    velocitySummary: (() => {
+      const counting = finalRecs.filter((r) => r.velocityTreatment === 'counts_toward_5_24').length;
+      const exempt = finalRecs.filter((r) => r.velocityTreatment === 'exempt_from_5_24').length;
+      const notEvaluated = finalRecs.filter((r) => r.velocityTreatment === 'not_evaluated').length;
+      const headroomBefore = Math.max(0, CHASE_524_LIMIT - ctx.bankCardsInWindow);
+      return {
+        cardsCountingToward524: counting,
+        cardsExemptFrom524: exempt,
+        cardsNotEvaluated: notEvaluated,
+        chase524HeadroomBefore: headroomBefore,
+        // Credit union cards are absent from `counting`, so this is unchanged
+        // by adding them. That equality is the positive signal the exemption
+        // fired, and it only means anything read beside cardsExemptFrom524:
+        // headroom is equally unchanged when the cards were silently skipped.
+        chase524HeadroomAfter: Math.max(0, headroomBefore - counting),
+        existingBankCardsInWindow: ctx.bankCardsInWindow,
+        existingCreditUnionCardsInWindow: ctx.creditUnionCardsInWindow,
+      };
+    })(),
     capacity: {
       targetAmount,
       bankEstimatedCredit: bankCredit,

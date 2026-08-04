@@ -30,6 +30,7 @@ import {
   type SimulatorProfile,
   type ScenarioResult,
 } from './funding-simulator.service.js';
+import { issuerDisplayName } from '../../shared/constants/issuers.js';
 
 // ============================================================
 // Archetype Types
@@ -1029,7 +1030,10 @@ export class SandboxService {
 
       responses.push({
         issuer,
-        cardProduct: `${issuer.replace('_', ' ').toUpperCase()} Business Card`,
+        // issuerDisplayName rather than replace('_',' ').toUpperCase(), which
+        // handles one underscore and shouts: bank_of_america became
+        // "BANK OF_AMERICA".
+        cardProduct: `${issuerDisplayName(issuer)} Business Card`,
         decision,
         approvedLimit,
         declineReasons,

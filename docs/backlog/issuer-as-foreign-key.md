@@ -73,3 +73,30 @@ card at rank 1 and rank 2 of one plan.
   hardcodes Chase, Amex and Citi. If cooldowns move to the table, the velocity
   rules probably should too — at which point "no published rule on file" becomes
   a nullable column rather than a marker in code.
+
+## Correction: where the credit union blind spot actually began
+
+Recorded because we traced this to the wrong place twice, and the wrong path is
+plausible enough that the next reader will take it too.
+
+The reasoning ran: `ExistingCard.issuer` is typed to ten banks, so a credit
+union card is unrepresentable, so the Chase 5/24 exemption has nowhere to live.
+That is true, and it is not where it starts.
+
+**It starts at the request schema.** `optimizer.routes.ts` validated incoming
+existing cards with a Zod enum of the same ten banks. A credit union card in a
+request was rejected with a validation error before any type, engine or rule saw
+it. The type limitation downstream was real but redundant — nothing could reach
+it.
+
+Two lessons worth keeping:
+
+- **A type is not the outermost boundary.** The schema is. Widening a type
+  without widening the validator that feeds it changes nothing, and the symptom
+  — credit union cards never appearing — is identical either way.
+- **The cast hid it.** `existingCards as ExistingCard[]` made the schema and the
+  type agree by assertion. Removing the cast is what surfaced the enum; while it
+  stood, the two could disagree indefinitely.
+
+Both are now fixed (`5e2007a`). The schema accepts any issuer string and
+resolves it through `parseIssuer`.
