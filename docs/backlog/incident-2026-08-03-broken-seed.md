@@ -25,9 +25,34 @@ that was already in the new state and an app that was already running. Nothing
 rebuilt from scratch, which is the only thing that would have exercised the
 seeder.
 
-`npm run db:seed` runs in CI before the E2E job (`.github/workflows/ci.yml:237`),
-so this would have failed there — after the commit, on a signal nobody was
-watching yet.
+## What would and would not have caught it — measured, not assumed
+
+An earlier version of this note said CI would have caught it, because
+`npm run db:seed` runs before the E2E job (`.github/workflows/ci.yml:237`).
+**That is wrong.** It was tested on a throwaway database:
+
+| Scenario | Result |
+|---|---|
+| Fresh table, pre-fix seeder, run twice | **passes** — creates the long ids, matches them again |
+| Table with re-keyed short ids, pre-fix seeder | **P2002** on `(issuerId, name)` |
+
+CI creates an empty database, migrates and seeds **once**. The pre-fix seeder is
+perfectly happy there: nothing exists, so it creates rows under the derived long
+ids and finds them again next time. **CI would have stayed green.**
+
+The failure needs the re-keyed state — a database where the dedup script has
+already run and the surviving rows hold short ids. That existed in exactly one
+place: the developer's own database.
+
+So the only thing that would have caught this is running `npm run db:seed`
+locally, against the database the change had just been applied to. Which is the
+rule below, and it is enough on its own.
+
+It also means the idempotence check (`scripts/check-seed-idempotent.ts`) would
+**not** have caught this one. It runs against a scratch database, which is the
+passing scenario above. It is still worth having — it catches a seed that cannot
+run twice at all, which is a real and separate failure — but it is not a
+substitute for seeding the database you actually changed.
 
 ## Why the existing checks did not catch it
 
@@ -53,13 +78,19 @@ Added to `CLAUDE.md`.
 
 ## Worth considering separately
 
-The rule depends on remembering it. Two options that would not:
+The rule depends on remembering it, and — as measured above — no automated check
+run against a fresh database can replace it. The defect lives in the difference
+between a database that has been *migrated and modified* and one built from
+nothing, and CI only ever builds from nothing.
 
-- **Run `db:seed` against a scratch database in CI on every PR**, not only
-  before E2E, so the failure lands on the PR that caused it.
-- **A test that seeds a throwaway schema and asserts it is idempotent** — run
-  it twice, expect the same row count. That would have caught this, and would
-  catch the next unique constraint that collides with a derived key.
+`scripts/check-seed-idempotent.ts` is built and wired into CI. It seeds a scratch
+database twice and asserts the second run changes nothing. It catches a seed that
+cannot run twice — a `create` where an upsert was meant, a unique constraint that
+collides on the second pass. It does not catch this incident's failure, and the
+script says so.
 
-Neither is built. The second is the stronger of the two: it turns a process rule
-into a check.
+What would catch this class automatically is harder: seeding a database that has
+been through the same data migrations the developer's has. That means either
+running one-off data scripts in CI (they are one-off for a reason) or keeping a
+restorable snapshot of a realistic database to seed against. Neither is built,
+and both are a larger commitment than the rule.

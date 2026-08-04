@@ -51,8 +51,9 @@ Every feature or significant change follows this sequence:
   or the seed guards. A commit that collapsed duplicate rows, re-keyed the
   survivors and added a unique constraint broke `db:seed` and shipped green on
   tsc, vitest, lint and a live re-run of the feature — the seeder still upserted
-  on the old derived key. `db:seed` runs in CI before E2E, so the failure lands
-  after the commit. See `docs/backlog/incident-2026-08-03-broken-seed.md`.
+  on the old derived key. CI would not have caught it: CI seeds an empty
+  database, where the old key still worked. Only seeding the database you just
+  changed reaches it. See `docs/backlog/incident-2026-08-03-broken-seed.md`.
 
 ### 5. Docs
 - Update `README.md` and add `docs/<feature>.md` (overview, architecture, endpoints, env vars).
