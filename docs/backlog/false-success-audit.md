@@ -116,6 +116,32 @@ same defect in a more expensive form.
 This is the instance that produced the standing question at the top of this
 document.
 
+## Fixed while sweeping (2026-08-04)
+
+Two entries escalated out of this list rather than waiting for the audit,
+because the surface made them severe rather than merely wrong.
+
+**Legal hold reported success regardless of outcome.**
+`app/compliance/documents/page.tsx` updated the row and toasted "legal hold
+enabled" before the request, then swallowed any failure. Legal hold is the
+control that preserves records for litigation and regulatory review: a hold that
+silently no-ops leaves the records it was meant to protect deletable, while the
+screen says they are protected. Now awaited — the row changes and the message
+appears only when the server confirms, and a failure says plainly that the hold
+was NOT applied.
+
+**Compliance registers fabricated their contents on failure.** Both the document
+and complaint pages initialised from placeholder arrays and fell back to them
+whenever the GET failed, so an unreachable server rendered records the business
+does not hold — on the two surfaces where knowing what it holds is the whole
+point. Removed. Both now start empty, show a classified error, and distinguish
+"no records on file" from "the register could not be loaded", which a table of
+zero rows otherwise conflates.
+
+The general rule, worth stating once: **a compliance surface must never
+synthesise a record.** Everywhere else, placeholder data is a bad default;
+here it is a false statement about a regulated business.
+
 ## What to audit
 
 **43 success toasts across 17 files**, plus every post-action `router.push`.
