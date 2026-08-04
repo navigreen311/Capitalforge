@@ -16,6 +16,8 @@
 //   { data: [...], meta: { total, page, pageSize } }
 // ============================================================
 
+import { attemptTokenRefresh } from './token-refresh';
+
 export interface PagedResult<T> {
   rows: T[];
   /** What the server says exists, or null when it does not report a total. */
@@ -42,6 +44,32 @@ function numberOrNull(value: unknown): number | null {
 export function readTotal(json: unknown): number | null {
   const body = asRecord(json);
   return numberOrNull(asRecord(body['meta'])['total']) ?? numberOrNull(asRecord(body['data'])['total']);
+}
+
+/**
+ * One page request, refreshed and retried once if the token has aged out.
+ *
+ * Access tokens last fifteen minutes and this walks up to twenty pages, so a
+ * long register could outlive its own token part way through — the first pages
+ * arriving and the rest returning 401, which this reads as empty and reports as
+ * `truncated`. A partial register that says it is partial is the honest failure
+ * mode for a page that could not be read; it is the wrong one for a page that
+ * could have been read after a refresh.
+ *
+ * Headers are rebuilt per attempt so the retry carries the new token.
+ */
+async function fetchPage(
+  url: string,
+  extraHeaders: Record<string, string>,
+): Promise<Response> {
+  const send = (): Promise<Response> =>
+    fetch(url, { headers: { ...authHeader(), ...extraHeaders } });
+
+  let response = await send();
+  if (response.status === 401 || response.status === 403) {
+    if (await attemptTokenRefresh()) response = await send();
+  }
+  return response;
 }
 
 function authHeader(): Record<string, string> {
@@ -71,10 +99,10 @@ export async function fetchAllPages<T>(
 ): Promise<PagedResult<T>> {
   const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
-  const headers = { ...authHeader(), ...(options.headers ?? {}) };
+  const extraHeaders = options.headers ?? {};
 
   const join = path.includes('?') ? '&' : '?';
-  const first = await fetch(`${path}${join}pageSize=${pageSize}`, { headers });
+  const first = await fetchPage(`${path}${join}pageSize=${pageSize}`, extraHeaders);
   if (!first.ok) throw new Error(`Request failed: ${first.status}`);
 
   const firstJson: unknown = await first.json();
@@ -94,7 +122,7 @@ export async function fetchAllPages<T>(
 
   const rest = await Promise.all(
     Array.from({ length: lastPage - 1 }, (_, i) =>
-      fetch(`${path}${join}pageSize=${pageSize}&page=${i + 2}`, { headers })
+      fetchPage(`${path}${join}pageSize=${pageSize}&page=${i + 2}`, extraHeaders)
         .then(async (res) => (res.ok ? pick(await res.json()) : []))
         .catch(() => []),
     ),

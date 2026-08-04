@@ -159,3 +159,98 @@ describe('fetchAllPages', () => {
     expect(responder.mock.calls[0][0]).toBe('/api/complaints?status=open&pageSize=100');
   });
 });
+
+// ── Token refresh mid-walk ───────────────────────────────────
+//
+// Access tokens last fifteen minutes and this walks up to twenty pages, so a
+// long register can outlive its own token part way through. Before the retry,
+// the later pages returned 401, were read as empty, and the result was reported
+// as `truncated` — a partial register that says it is partial, which is the
+// honest failure for a page that could not be read and the wrong one for a page
+// that could have been read after a refresh.
+
+describe('fetchAllPages — a token that ages out mid-walk', () => {
+  const REFRESH = {
+    success: true,
+    data: { accessToken: 'new-access-token', refreshToken: 'rotated' },
+  };
+
+  function storage(seed: Record<string, string>) {
+    const store = new Map(Object.entries(seed));
+    return {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+      clear: () => store.clear(),
+      key: () => null,
+      length: 0,
+    } as unknown as Storage;
+  }
+
+  function res(status: number, body: unknown): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+    } as Response;
+  }
+
+  beforeEach(() => {
+    const s = storage({ cf_access_token: 'expired', cf_refresh_token: 'valid' });
+    vi.stubGlobal('localStorage', s);
+    vi.stubGlobal('window', { localStorage: s });
+  });
+
+  it('refreshes and retries rather than reporting a truncated register', async () => {
+    let firstPageCalls = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/auth/refresh')) return res(200, REFRESH);
+      firstPageCalls += 1;
+      // The token has aged out; the retry carries a new one.
+      return firstPageCalls === 1
+        ? res(401, { success: false })
+        : res(200, { data: [{ id: 'a' }], meta: { total: 1 } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchAllPages<{ id: string }>(
+      '/api/things',
+      (json) => ((json as { data?: { id: string }[] }).data ?? []),
+    );
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('sends the refreshed token on the retry, not the expired one', async () => {
+    let pageCalls = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/auth/refresh')) return res(200, REFRESH);
+      pageCalls += 1;
+      return pageCalls === 1
+        ? res(401, { success: false })
+        : res(200, { data: [], meta: { total: 0 } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchAllPages('/api/things', () => []);
+
+    const authOn = (n: number) =>
+      ((fetchMock.mock.calls[n]?.[1] as RequestInit | undefined)?.headers as
+        | Record<string, string>
+        | undefined)?.Authorization;
+    expect(authOn(0)).toBe('Bearer expired');
+    expect(authOn(2)).toBe('Bearer new-access-token');
+  });
+
+  it('still reports a genuine failure rather than retrying forever', async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      String(url).includes('/auth/refresh')
+        ? res(400, { success: false })
+        : res(401, { success: false }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchAllPages('/api/things', () => [])).rejects.toThrow();
+  });
+});
