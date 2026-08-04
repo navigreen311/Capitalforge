@@ -604,84 +604,38 @@ const EXISTING_CARDS = [
 
 // ─── Network diversity ────────────────────────────────────────────────────────
 
-interface NetworkSlice {
-  network: string;
-  count: number;
-  color: string;
-}
-
-const NETWORK_DATA: NetworkSlice[] = [
-  { network: 'Visa',       count: 3, color: '#1A56DB' },
-  { network: 'Mastercard', count: 2, color: '#F97316' },
-  { network: 'Amex',       count: 2, color: '#0A1628' },
-  { network: 'Discover',   count: 1, color: '#D97706' },
-];
-
-function NetworkPieChart({ data }: { data: NetworkSlice[] }) {
-  const total = data.reduce((s, d) => s + d.count, 0);
-  let cumAngle = -90; // start at top
-
-  const slices = data.map((d) => {
-    const angle = (d.count / total) * 360;
-    const start = cumAngle;
-    cumAngle += angle;
-    return { ...d, startAngle: start, sweepAngle: angle };
-  });
-
-  function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
-    const rad = (angleDeg * Math.PI) / 180;
-    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-  }
-
-  function describeArc(
-    cx: number, cy: number, r: number,
-    startAngle: number, endAngle: number,
-  ) {
-    const s = polarToXY(cx, cy, r, startAngle);
-    const e = polarToXY(cx, cy, r, endAngle);
-    const largeArc = endAngle - startAngle > 180 ? 1 : 0;
-    return [
-      `M ${cx} ${cy}`,
-      `L ${s.x} ${s.y}`,
-      `A ${r} ${r} 0 ${largeArc} 1 ${e.x} ${e.y}`,
-      'Z',
-    ].join(' ');
-  }
-
+/**
+ * The network spread this system cannot compute.
+ *
+ * This panel drew a pie chart of Visa 3 / Mastercard 2 / Amex 2 / Discover 1
+ * for every client who ever opened it, beside a fixed recommendation to "add a
+ * Discover card" — which the chart already showed them holding. Two advisors
+ * comparing two different clients saw identical charts.
+ *
+ * It cannot be computed from anything held today. There is no network column
+ * in the schema, and SuppliedExistingCard — the card an advisor ticks on the
+ * form — carries an issuer and a limit but no network. So the honest output is
+ * not a smaller chart or a zeroed one; it is the absence, named.
+ *
+ * What would make it real is recorded here rather than in a backlog file
+ * nobody opens: a network on the held-card record, which the same form change
+ * that adds an opening date for 5/24 could carry.
+ */
+function NetworkDiversityUnavailable() {
   return (
-    <div className="flex items-center gap-6">
-      <svg width="96" height="96" viewBox="0 0 96 96" aria-label="Network diversity chart">
-        {slices.map((s) => (
-          <path
-            key={s.network}
-            d={describeArc(48, 48, 44, s.startAngle, s.startAngle + s.sweepAngle)}
-            fill={s.color}
-            stroke="white"
-            strokeWidth="2"
-          />
-        ))}
-        {/* Donut hole */}
-        <circle cx="48" cy="48" r="22" fill="white" />
-        <text x="48" y="48" textAnchor="middle" dominantBaseline="central"
-          style={{ fontSize: '10px', fontWeight: 700, fill: '#0A1628' }}>
-          {total}
-        </text>
-      </svg>
-      <div className="space-y-1.5">
-        {data.map((d) => (
-          <div key={d.network} className="flex items-center gap-2 text-xs">
-            <span
-              className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
-              style={{ backgroundColor: d.color }}
-            />
-            <span className="text-gray-600 font-medium">{d.network}</span>
-            <span className="text-gray-400 ml-auto pl-3">{d.count} cards</span>
-          </div>
-        ))}
-      </div>
+    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+      <p className="text-xs text-gray-600">
+        The networks of this client&apos;s existing cards are not recorded, so their
+        spread cannot be shown.
+      </p>
+      <p className="text-xs text-gray-500 mt-2">
+        Held cards are captured with an issuer and a credit limit, but not a
+        network. Until that is recorded, any breakdown here would be invented.
+      </p>
     </div>
   );
 }
+
 
 // ─── Sequencing timeline ──────────────────────────────────────────────────────
 
@@ -2199,15 +2153,9 @@ export default function OptimizerPage() {
                 <div>
                   <SectionCard
                     title="Network Diversity"
-                    subtitle="Current card network spread"
+                    subtitle="Not recorded for this client"
                   >
-                    <NetworkPieChart data={NETWORK_DATA} />
-                    <div className="mt-4 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-2.5">
-                      <p className="text-xs text-brand-navy font-semibold mb-0.5">Recommendation</p>
-                      <p className="text-xs text-gray-600">
-                        Add a Discover card to broaden acceptance coverage and reduce single-network exposure.
-                      </p>
-                    </div>
+                    <NetworkDiversityUnavailable />
                   </SectionCard>
                 </div>
               </div>
@@ -2332,15 +2280,9 @@ export default function OptimizerPage() {
                 <div>
                   <SectionCard
                     title="Network Diversity"
-                    subtitle="Current card network spread"
+                    subtitle="Not recorded for this client"
                   >
-                    <NetworkPieChart data={NETWORK_DATA} />
-                    <div className="mt-4 rounded-lg bg-brand-navy/5 border border-brand-navy/10 px-3 py-2.5">
-                      <p className="text-xs text-brand-navy font-semibold mb-0.5">Recommendation</p>
-                      <p className="text-xs text-gray-600">
-                        Add a Discover card to broaden acceptance coverage and reduce single-network exposure.
-                      </p>
-                    </div>
+                    <NetworkDiversityUnavailable />
                   </SectionCard>
                 </div>
               </div>
