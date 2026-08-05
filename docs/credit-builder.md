@@ -21,7 +21,7 @@ claim**.
 | Net-30 vendor table | in-page reference list | no |
 | Tradeline tracker | `GET /api/credit-builder/:clientId/tradelines` | POST tradelines, tradeline-payments, tradeline-disputes; PATCH tradelines/:id |
 | SBSS milestones | reference thresholds only | no |
-| Stacking unlock criteria | **nothing — not assessed** | no |
+| Stacking unlock criteria | `GET /api/credit-builder/:clientId/stacking-criteria` | no |
 | Estimated timeline | derived from the scores and tradelines above | no |
 
 Everything above the tradeline tracker is read-only. The two things this page
@@ -107,6 +107,48 @@ fail it. The circles are disabled when no client is selected.
 
 ---
 
+## Stacking unlock criteria
+
+Eight requirements across three tiers, assessed from **the same `CreditFacts`
+the DUNS steps derive from**. That sharing is the point: `sc_002` and step 4 are
+the same question about trade lines, `sc_003` and step 5 the same question about
+PAYDEX, and asking them separately is how two figures on one page come to
+disagree. `credit-facts.ts` reads them once; `credit-builder-steps.service.ts`
+and `stacking-criteria.service.ts` both consume the result and are pure.
+
+| Criterion | Tier | Assessed from |
+|---|---|---|
+| `sc_001` DUNS registered & active | 1 | step 1's attestation **and** ≥ 1 D&B trade line |
+| `sc_002` 5+ trade lines | 1 | same count as step 4 |
+| `sc_003` PAYDEX ≥ 80 | 1 | same score as step 5 |
+| `sc_004` SBSS ≥ 140 | 2 | latest `sbss` profile |
+| `sc_005` Intelliscore ≥ 60 | 2 | latest `intelliscore` profile |
+| `sc_006` Equifax ≥ 500 | 2 | **nothing — unassessable** |
+| `sc_007` 2+ years | 3 | `Business.dateOfFormation` |
+| `sc_008` SBSS ≥ 175 | 3 | latest `sbss` profile |
+
+### Four statuses, because there are four things that can be true
+
+| Status | Means | Shown as |
+|---|---|---|
+| `met` | the figure clears the threshold | Met |
+| `not_met` | the figure is on record and falls short | Not yet |
+| `unknown` | that score has never been pulled for this client | Not measured |
+| `unassessable` | nothing in this system produces that figure, for anybody | Cannot assess |
+
+Collapsing `unknown` or `unassessable` into `not_met` would tell an advisor
+their client had failed a threshold nobody measured them against. Neither
+borrows the failure colour, for the same reason.
+
+`sc_001` is the only criterion built from an attestation and a fact together,
+and its basis says which half is missing.
+
+A tier unlocks only when **every** criterion in it is met — an unknown or an
+unassessable one leaves it locked, because a tier is a statement that the client
+clears every requirement and "we did not check" is not clearing it. Tier 2 is
+therefore unreachable today, blocked by `sc_006`. The panel names what each tier
+is waiting on rather than only counting.
+
 ## Score types, by product
 
 Each card reads one product, by name. The names are not interchangeable and
@@ -169,17 +211,10 @@ though nothing had been asked for.
 
 ## What this page does not claim
 
-- **The eight stacking criteria are not assessed.** They are the requirements,
-  not a judgment about any client, and every one reads "not assessed". A
-  backend roadmap does exist —
-  `GET /api/businesses/:id/credit-builder/roadmap` — but it evaluates five
-  different gates (personal FICO, tradelines, utilisation, business age,
-  revenue) against the Starter Stack track, and its tradeline count comes from
-  a bureau profile's JSON rather than the `VendorTradeline` table this page
-  writes. Wiring the two together is a modelling decision, not a connection.
-- **No business age.** `Business.dateOfFormation` exists and is populated, but
-  `/api/v1/clients` does not return it, so the page passes `null` rather than
-  the constant 36 it used to.
+- **The Equifax criterion cannot be assessed for anybody.** No pull path
+  produces an Equifax business risk score — the Equifax business adapter writes
+  an SBSS — so there is no figure to compare against 500. Reported as *cannot
+  assess*, never as *not met*.
 - **No SBSS milestone progress** for a client with no SBSS on record. A bar at
   0% would read as a client scoring zero rather than one never scored.
 - **No "Verify DUNS" or "Record account" button.** Both existed and neither had

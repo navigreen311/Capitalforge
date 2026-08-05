@@ -31,6 +31,11 @@ const EMPTY: StepDerivationInput = {
   dnbTradelineCount: 0,
   paydex: null,
   paydexPulledAt: null,
+  sbss: null,
+  sbssPulledAt: null,
+  intelliscore: null,
+  intelliscorePulledAt: null,
+  businessAgeMonths: null,
   submittedApplicationCount: 0,
 };
 
@@ -44,6 +49,11 @@ const COMPLETE: StepDerivationInput = {
   dnbTradelineCount: 5,
   paydex: 80,
   paydexPulledAt: new Date('2026-03-01T00:00:00.000Z'),
+  sbss: 180,
+  sbssPulledAt: new Date('2026-03-01T00:00:00.000Z'),
+  intelliscore: 64,
+  intelliscorePulledAt: new Date('2026-03-01T00:00:00.000Z'),
+  businessAgeMonths: 84,
   submittedApplicationCount: 2,
 };
 

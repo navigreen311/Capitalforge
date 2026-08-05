@@ -131,14 +131,21 @@ test.describe('Credit builder figures', () => {
     expect(res.status, 'a real client id is not a 404').toBe(200);
   });
 
-  test('does not claim a business age that nothing records', async ({ signedInPage: page }) => {
+  test('reads business age from the formation date on the record', async ({
+    signedInPage: page,
+  }) => {
     await selectClient(page, CLIENT_WITH_SCORE);
 
-    // businessAgeMonths was 36 for everyone, so this criterion reported
-    // "Already met" to every client on a fact held nowhere in the schema.
-    await expect(page.getByText('Formation date not recorded').first()).toBeVisible({
+    // Two wrong answers preceded this one. First a constant 36 months for
+    // every client, which cleared the two-year threshold for all of them.
+    // Then null, on the belief that nothing recorded a formation date —
+    // `Business.dateOfFormation` exists and is populated, so the timeline said
+    // "Formation date not recorded" while the criterion beside it counted the
+    // months.
+    await expect(page.getByText(/months since formation/).first()).toBeVisible({
       timeout: 30000,
     });
+    await expect(page.getByText('Formation date not recorded')).toHaveCount(0);
   });
 });
 
@@ -287,7 +294,10 @@ test.describe('Derived DUNS steps', () => {
     await selectClient(page, CLIENT_WITHOUT_SCORE);
 
     await expect(page.getByText(/Missing on the client record:/)).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText('No PAYDEX on record')).toBeVisible();
+    // The step's own line, with its prefix. The stacking criteria panel below
+    // says "No PAYDEX on record for this client" about the same absence, and a
+    // bare substring matches both.
+    await expect(page.getByText("From this client's data: No PAYDEX on record")).toBeVisible();
   });
 
   test('offers a toggle only on the two steps an advisor attests', async ({
@@ -318,6 +328,122 @@ test.describe('Derived DUNS steps', () => {
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error?: { code?: string } };
     expect(body.error?.code).toBe('STEP_IS_DERIVED');
+  });
+});
+
+// ── Stacking criteria ───────────────────────────────────────────────────────
+//
+// Eight criteria were held as literals with a hardcoded status of "unknown"
+// and `allMet = false` beside them, so this panel reported "none assessed" to
+// every client since it was written. Seven are now answered from the same
+// facts the DUNS steps derive from; the eighth cannot be answered for anybody
+// and says so.
+
+test.describe('Stacking unlock criteria', () => {
+  async function selectClient(page: import('@playwright/test').Page, name: string) {
+    const box = page.getByRole('combobox', { name: 'Search clients' });
+    await box.click();
+    await box.fill(name);
+    await page.getByText(name).first().click();
+  }
+
+  test('assesses the criteria and states what each read', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    await expect(page.getByText('none assessed')).toHaveCount(0, { timeout: 30000 });
+    await expect(page.getByText(/stacking criteria met/)).toBeVisible();
+
+    // The figure behind a status, not just the status.
+    await expect(page.getByText('PAYDEX 80, needs 80')).toBeVisible();
+    await expect(page.getByText('Intelliscore 64, needs 60')).toBeVisible();
+  });
+
+  test('says a score was never pulled rather than that the client failed', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    // This client has no SBSS. "Not measured" and "Not yet" are different
+    // claims, and only one of them is about the client.
+    await expect(page.getByText('No SBSS on record for this client').first()).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.getByText('Not measured').first()).toBeVisible();
+  });
+
+  test('marks the Equifax criterion unassessable, for every client', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    // No pull path produces an Equifax business risk score — the Equifax
+    // business adapter writes an SBSS. Nothing to assess, for anybody.
+    await expect(page.getByText('Cannot assess')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText(/No Equifax business risk score is produced/)).toBeVisible();
+  });
+
+  test('assesses nothing until a client is chosen', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+
+    // Not read is not "none met". This panel used to state that no criterion
+    // was satisfied whether or not anything had been asked.
+    await expect(
+      page.getByText('Select a client to assess these against their credit file.'),
+    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole('button', { name: 'UNLOCKED' })).toHaveCount(0);
+  });
+
+  test('follows the DUNS attestation it depends on', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+    const mark = (completed: boolean) =>
+      fetch(`${API}/credit-builder/seed-biz-001/steps/1`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed }),
+      });
+
+    await mark(false);
+    await selectClient(page, CLIENT_WITH_SCORE);
+    await expect(
+      page.getByText(/no advisor has confirmed the DUNS registration/i).first(),
+    ).toBeVisible({ timeout: 30000 });
+
+    // sc_001 is the one criterion built from an attestation and a fact
+    // together, so marking step 1 has to move it — and the panel has to
+    // refresh, or two states of one fact sit on screen at once.
+    await page.getByRole('checkbox').first().click();
+    await expect(page.getByText(/DUNS confirmed by an advisor/).first()).toBeVisible({
+      timeout: 30000,
+    });
+
+    await mark(false);
+  });
+
+  test('agrees with the DUNS step asking the same question', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+
+    const steps = (await fetch(`${API}/credit-builder/seed-biz-001/steps`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(expectOk)) as { data: { steps: { stepNumber: number; completed: boolean }[] } };
+
+    const criteria = (await fetch(`${API}/credit-builder/seed-biz-001/stacking-criteria`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(expectOk)) as { data: { criteria: { id: string; status: string }[] } };
+
+    const step = (n: number) => steps.data.steps.find((s) => s.stepNumber === n)!.completed;
+    const criterion = (id: string) =>
+      criteria.data.criteria.find((c) => c.id === id)!.status === 'met';
+
+    // Step 4 and sc_002 are the same question about trade lines; step 5 and
+    // sc_003 the same question about PAYDEX. They read one fact set, so they
+    // cannot answer differently.
+    expect(criterion('sc_002')).toBe(step(4));
+    expect(criterion('sc_003')).toBe(step(5));
   });
 });
 

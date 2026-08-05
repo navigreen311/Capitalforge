@@ -42,23 +42,17 @@ export interface StepState {
   completedBy: string | null;
 }
 
-/** Everything the derived rules read. Assembled by the route from Prisma. */
-export interface StepDerivationInput {
-  /** Address fields as held on the business. */
-  addressLine1: string | null;
-  city: string | null;
-  state: string | null;
-  zip: string | null;
-  phoneNumber: string | null;
-  /** Open trade lines reporting to D&B. */
-  dnbTradelineCount: number;
-  /** Latest PAYDEX on record, null when no D&B pull exists. */
-  paydex: number | null;
-  /** When that PAYDEX was pulled. */
-  paydexPulledAt: Date | null;
-  /** Card applications that have left draft. */
-  submittedApplicationCount: number;
-}
+import type { CreditFacts } from './credit-facts.js';
+
+/**
+ * What the derived rules read.
+ *
+ * The same fact set the stacking criteria are assessed from: step 4 and
+ * criterion sc_002 are the same question about trade lines, step 5 and sc_003
+ * the same question about PAYDEX, and reading them from two places is how two
+ * figures on one page come to disagree.
+ */
+export type StepDerivationInput = CreditFacts;
 
 /** A mark an advisor made, as stored. */
 export interface AttestedMark {

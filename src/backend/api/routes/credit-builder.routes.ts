@@ -6,6 +6,7 @@
 //   GET  /api/credit-builder/:clientId/score-history      — movement over pulls
 //   GET  /api/credit-builder/:clientId/steps              — DUNS track progress
 //   PUT  /api/credit-builder/:clientId/steps/:stepNumber  — mark a step
+//   GET  /api/credit-builder/:clientId/stacking-criteria  — tier unlock criteria
 //   GET  /api/credit-builder/:clientId/tradelines         — vendor tradelines
 //   POST /api/credit-builder/:clientId/tradelines         — open a tradeline
 //   POST /api/credit-builder/:clientId/tradeline-disputes — dispute a tradeline
@@ -28,6 +29,11 @@ import {
   isDerivedStep,
   CREDIT_BUILDER_STEP_COUNT,
 } from '../../services/credit-builder-steps.service.js';
+import { readCreditFacts } from '../../services/credit-facts.js';
+import {
+  assessStackingCriteria,
+  assessTiers,
+} from '../../services/stacking-criteria.service.js';
 
 const prisma = sharedPrisma;
 
@@ -104,23 +110,6 @@ function rangeFor(scoreType: string | null): string | null {
 }
 
 const TRADELINE_STATUSES = new Set(['open', 'closed', 'delinquent']);
-
-/**
- * Whether a trade line's `reportsTo` names Dun & Bradstreet.
- *
- * The column is free-form JSON written by a form whose checkbox is labelled
- * "D&B", but a line imported or entered another way may say "Dun & Bradstreet"
- * or "DNB". Matching on all three is the difference between a step that
- * completes and one that silently never does.
- */
-function reportsToDnb(reportsTo: unknown): boolean {
-  if (!Array.isArray(reportsTo)) return false;
-  return reportsTo.some((entry) => {
-    if (typeof entry !== 'string') return false;
-    const normalised = entry.toLowerCase().replace(/[^a-z]/g, '');
-    return normalised === 'db' || normalised === 'dnb' || normalised.startsWith('dunbradstreet');
-  });
-}
 
 /** Vendor terms, and the days each allows before a charge is due. */
 const PAYMENT_TERMS: Record<string, number> = {
@@ -224,57 +213,17 @@ creditBuilderRouter.get(
     const tenantId = getTenantId(req);
 
     try {
-      const business = await prisma.business.findFirst({
-        where: { id: clientId, tenantId },
-        select: {
-          id: true,
-          addressLine1: true,
-          city: true,
-          state: true,
-          zip: true,
-          phoneNumber: true,
-        },
-      });
+      const [facts, marks] = await Promise.all([
+        readCreditFacts(prisma, clientId, tenantId),
+        prisma.creditBuilderStep.findMany({ where: { businessId: clientId, tenantId } }),
+      ]);
 
-      if (!business) {
+      if (!facts) {
         err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
         return;
       }
 
-      // Four of the six steps are computed from the client's own data, so this
-      // reads what those rules need. Trade lines are counted against D&B
-      // specifically: step 4 asks for lines that build the D&B file, and one
-      // reporting only to Experian Business does not.
-      const [marks, tradelines, latestPaydex, submittedApplications] = await Promise.all([
-        prisma.creditBuilderStep.findMany({ where: { businessId: clientId, tenantId } }),
-        prisma.vendorTradeline.findMany({
-          where: { businessId: clientId, tenantId, status: 'open' },
-          select: { reportsTo: true },
-        }),
-        prisma.creditProfile.findFirst({
-          where: { businessId: clientId, profileType: 'business', scoreType: 'paydex' },
-          orderBy: { pulledAt: 'desc' },
-          select: { score: true, pulledAt: true },
-        }),
-        prisma.cardApplication.count({
-          where: { businessId: clientId, NOT: { status: 'draft' } },
-        }),
-      ]);
-
-      const steps = deriveStepStates(
-        {
-          addressLine1: business.addressLine1,
-          city: business.city,
-          state: business.state,
-          zip: business.zip,
-          phoneNumber: business.phoneNumber,
-          dnbTradelineCount: tradelines.filter((t) => reportsToDnb(t.reportsTo)).length,
-          paydex: latestPaydex?.score ?? null,
-          paydexPulledAt: latestPaydex?.pulledAt ?? null,
-          submittedApplicationCount: submittedApplications,
-        },
-        marks,
-      );
+      const steps = deriveStepStates(facts, marks);
 
       ok(
         res,
@@ -290,6 +239,62 @@ creditBuilderRouter.get(
     } catch (error) {
       logger.error('Failed to load credit-builder steps', { clientId, tenantId, error });
       err(res, 500, 'CREDIT_BUILDER_STEPS_FAILED', 'Unable to load DUNS track progress.');
+    }
+  },
+);
+
+// ── GET /stacking-criteria ───────────────────────────────────
+
+creditBuilderRouter.get(
+  '/:clientId/stacking-criteria',
+  async (req: Request, res: Response): Promise<void> => {
+    const clientId = param(req, 'clientId');
+    const tenantId = getTenantId(req);
+
+    try {
+      // The same facts the DUNS steps derive from, read once. sc_002 and step
+      // 4 are the same question about trade lines, sc_003 and step 5 the same
+      // question about PAYDEX; asking them separately is how two figures on
+      // one page come to disagree.
+      const [facts, dunsMark] = await Promise.all([
+        readCreditFacts(prisma, clientId, tenantId),
+        prisma.creditBuilderStep.findFirst({
+          where: { businessId: clientId, tenantId, stepNumber: 1 },
+          select: { completed: true },
+        }),
+      ]);
+
+      if (!facts) {
+        err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
+        return;
+      }
+
+      const criteria = assessStackingCriteria(facts, dunsMark?.completed === true);
+      const tiers = assessTiers(criteria);
+
+      ok(
+        res,
+        {
+          clientId,
+          criteria,
+          tiers,
+          // Carried alongside because the progress timeline on the same page
+          // needs it, and reported "Formation date not recorded" while the
+          // criterion beside it read "88 months since formation". One page
+          // stating both is worse than either.
+          businessAgeMonths: facts.businessAgeMonths,
+          assessed: criteria.filter((c) => c.status !== 'unassessable').length,
+          // Reported rather than folded into "not met": a criterion nothing
+          // can assess and a criterion the client fails are different facts,
+          // and only one of them is the client's problem.
+          unassessable: criteria.filter((c) => c.status === 'unassessable').length,
+          total: criteria.length,
+        },
+        { total: criteria.length },
+      );
+    } catch (error) {
+      logger.error('Failed to assess stacking criteria', { clientId, tenantId, error });
+      err(res, 500, 'STACKING_CRITERIA_FAILED', 'Unable to assess stacking criteria.');
     }
   },
 );

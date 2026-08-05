@@ -326,6 +326,122 @@ export function completedStepCount(steps: DunsStepState[] | null): number | null
   return steps === null ? null : steps.filter((s) => s.completed).length;
 }
 
+// ── Stacking unlock criteria ────────────────────────────────────────────────
+
+export type CriterionStatus = 'met' | 'not_met' | 'unknown' | 'unassessable';
+
+export interface StackingCriterionView {
+  id: string;
+  label: string;
+  description: string;
+  requiredForTier: number;
+  status: CriterionStatus;
+  /** What the assessment read, or why it could not be made. */
+  basis: string;
+}
+
+export interface TierAssessmentView {
+  tier: number;
+  criteria: StackingCriterionView[];
+  met: number;
+  total: number;
+  unlocked: boolean;
+  blockedBy: string[];
+}
+
+const CRITERION_STATUSES = new Set<CriterionStatus>([
+  'met',
+  'not_met',
+  'unknown',
+  'unassessable',
+]);
+
+/**
+ * The assessed criteria, from GET /:clientId/stacking-criteria.
+ *
+ * Null when nothing was read — no client is selected, or the request failed.
+ * The page listed eight criteria with a hardcoded status of "unknown" and
+ * `allMet = false` beside them, so it reported "none assessed" to every client
+ * whether or not anything had been asked.
+ *
+ * An unrecognised status becomes `unknown` rather than `not_met`: a client must
+ * not be reported as failing a threshold because a string did not parse.
+ */
+export function toStackingCriteria(data: unknown): TierAssessmentView[] | null {
+  const root = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  const body = root['data'] && typeof root['data'] === 'object'
+    ? (root['data'] as Record<string, unknown>)
+    : root;
+
+  const rows = Array.isArray(body['tiers']) ? (body['tiers'] as unknown[]) : null;
+  if (rows === null) return null;
+
+  return rows.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const t = raw as Record<string, unknown>;
+    const tier = typeof t['tier'] === 'number' ? t['tier'] : null;
+    if (tier === null) return [];
+
+    const criteria = (Array.isArray(t['criteria']) ? (t['criteria'] as unknown[]) : []).flatMap(
+      (entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const c = entry as Record<string, unknown>;
+        const id = typeof c['id'] === 'string' ? c['id'] : null;
+        if (id === null) return [];
+
+        const status = c['status'] as CriterionStatus;
+        return [
+          {
+            id,
+            label: typeof c['label'] === 'string' ? c['label'] : id,
+            description: typeof c['description'] === 'string' ? c['description'] : '',
+            requiredForTier: typeof c['requiredForTier'] === 'number' ? c['requiredForTier'] : tier,
+            status: CRITERION_STATUSES.has(status) ? status : ('unknown' as CriterionStatus),
+            basis: typeof c['basis'] === 'string' ? c['basis'] : '',
+          },
+        ];
+      },
+    );
+
+    return [
+      {
+        tier,
+        criteria,
+        met: typeof t['met'] === 'number' ? t['met'] : criteria.filter((c) => c.status === 'met').length,
+        total: typeof t['total'] === 'number' ? t['total'] : criteria.length,
+        // Never inferred here. A tier is unlocked when the server says every
+        // criterion is met; deriving it from a partially-parsed list is how a
+        // page comes to announce an unlock nothing assessed.
+        unlocked: t['unlocked'] === true,
+        blockedBy: Array.isArray(t['blockedBy'])
+          ? (t['blockedBy'] as unknown[]).filter((b): b is string => typeof b === 'string')
+          : [],
+      },
+    ];
+  });
+}
+
+/**
+ * Months since formation, from the stacking-criteria response.
+ *
+ * `Business.dateOfFormation` exists and is populated — the page passed null to
+ * the progress timeline anyway, which rendered "Formation date not recorded"
+ * for every client. An earlier revision of docs/gaps.md called this a missing
+ * column; the column was there the whole time and nothing surfaced it.
+ *
+ * Still null when genuinely absent, which the timeline renders as unknown
+ * rather than as a business that has just been formed.
+ */
+export function toBusinessAgeMonths(data: unknown): number | null {
+  const root = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  const body = root['data'] && typeof root['data'] === 'object'
+    ? (root['data'] as Record<string, unknown>)
+    : root;
+
+  const months = body['businessAgeMonths'];
+  return typeof months === 'number' && Number.isFinite(months) ? months : null;
+}
+
 // ── Credit-builder client picker ────────────────────────────────────────────
 
 export interface CreditBuilderClientView {

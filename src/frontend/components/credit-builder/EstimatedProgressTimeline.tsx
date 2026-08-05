@@ -18,7 +18,13 @@ export interface EstimatedProgressTimelineProps {
   tradelineCount: number | null;
   experianBusiness: number | null;
   sbss: number | null;
-  /** Months since formation, or null — nothing records a formation date. */
+  /**
+   * Months since formation, from `Business.dateOfFormation`, or null when no
+   * date is recorded for this client.
+   *
+   * This was documented as "nothing records a formation date". The column
+   * exists and is populated; the page simply passed null.
+   */
   businessAgeMonths: number | null;
 }
 
@@ -138,9 +144,9 @@ function computeTier2(experianBusiness: number | null): TierEstimate {
 }
 
 function computeTier3(sbss: number | null, businessAgeMonths: number | null): TierEstimate {
-  // Nothing in this system records when a business was formed, so the age was
-  // supplied as a constant 36 months — three years, for every client, which
-  // cleared the two-year threshold and reported "Already met" to all of them.
+  // The age was once a constant 36 months — three years, for every client,
+  // which cleared the two-year threshold and reported "Already met" to all of
+  // them. It is now read from the client's formation date.
   // Unknown now stays unknown: the criterion is unmet rather than satisfied,
   // and no date is projected from it.
   const ageKnown = businessAgeMonths !== null;
