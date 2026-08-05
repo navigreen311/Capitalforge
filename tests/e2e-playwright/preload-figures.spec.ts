@@ -100,9 +100,14 @@ const EXEMPT: Record<string, string> = {
   // Net-30 vendor credit limits ($500–$5,000 and similar) and the D&B Paydex
   // target of 80. Facts about third-party vendors and a bureau's scale, not
   // about the client — the same reasoning that kept the vendor table when
-  // this page's client-specific figures were removed. The progress percentage
-  // is 0 of 6 DUNS steps because nothing records a client's progress through
-  // them, which the page states on itself.
+  // this page's client-specific figures were removed.
+  //
+  // This entry also used to justify itself with "the progress percentage is
+  // 0 of 6 DUNS steps because nothing records a client's progress through
+  // them". Both halves are now wrong: CreditBuilderStep records it, steps
+  // 2/4/5/6 derive it, and the page renders "DUNS progress not read" and an
+  // em dash until it has been read, never a zero. The exemption stands on
+  // the vendor terms alone.
   '/credit-builder': 'third-party vendor terms and bureau thresholds',
 
   // The page is a "not implemented" notice whose explanation quotes the
