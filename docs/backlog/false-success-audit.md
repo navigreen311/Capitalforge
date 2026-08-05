@@ -21,6 +21,42 @@ Ask both of every surface in this audit. A toast that reports a write nothing
 performed and a field that reports an influence nothing exercised are the same
 defect, and the second is quieter.
 
+### A third check, added 2026-08-05
+
+3. **Does a test assert the current behaviour?**
+
+If one does, that is **worse than no coverage at all**, and it is the check
+most likely to be skipped — a green suite reads as evidence the behaviour was
+considered.
+
+The instance that prompted this. `/credit-builder` told advisors to *"Pull a
+FICO SBSS report for this client"*, with a timeline estimate of **"Same day"**.
+Nobody can pull an SBSS: FICO calculates it when a *lender* requests it, from
+an application. So the page named an errand that does not exist and put a
+deadline on it.
+
+That string was **pinned by a passing browser test**, which had been green
+since it was written.
+
+The damage is not that the test failed to catch the defect. It is that the test
+*documented* it. A wrong behaviour with an assertion behind it looks
+deliberate: the next reader finds a test that says the page should say this,
+concludes somebody decided it, and works around it instead of fixing it. An
+untested defect looks like an oversight and gets fixed. A tested one looks like
+a specification and gets preserved — and every future change is measured
+against it.
+
+So when auditing a surface, read its tests as **claims to be checked**, not as
+evidence. The question is not "is this covered" but "does the assertion say
+something true about the world". Two of the tests changed during this audit
+asserted `toBeNull()` for figures that were genuinely derivable, and one
+asserted an action nobody could take.
+
+Corollary for writing tests: assert the **property**, not the wording. The
+replacement here pins that the two empty states differ from each other rather
+than pinning either string, so it survives a rewording and still fails if the
+distinction is ever collapsed.
+
 ## The pattern
 
 Optimistic UI written against endpoints that do not do what their name implies.

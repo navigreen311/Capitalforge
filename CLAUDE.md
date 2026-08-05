@@ -54,9 +54,29 @@ Every feature or significant change follows this sequence:
   on the old derived key. CI would not have caught it: CI seeds an empty
   database, where the old key still worked. Only seeding the database you just
   changed reaches it. See `docs/backlog/incident-2026-08-03-broken-seed.md`.
+- **Before trusting a local browser run, confirm the servers under test are
+  running current code.** A green run against a stale backend proves nothing.
+  `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, so a local
+  run attaches to whatever already holds :4000 and :3000 — which may be a server
+  started from an earlier session, an earlier branch, or before the edit you are
+  verifying. This has already happened once: a run showed the frontend change
+  applied and the backend change absent, against two leftover `tsx watch
+  server.ts` processes. That failure was legible only because it went red. **The
+  same setup goes green in the other direction** — a backend still holding the
+  code you just deleted will happily satisfy the test you were about to update,
+  and the change ships unverified. Check what owns the port
+  (`Get-NetTCPConnection -LocalPort 4000 -State Listen`), and restart by
+  **verified PID** rather than by a name pattern — a broad `Stop-Process` match
+  has already killed unrelated shells here.
 - **Widening a type or a value's range requires checking every consumer that
   compares it to a threshold.** Not the feature you built — the code downstream
   that was written when the old range was the only one.
+- **A passing test is not evidence that the behaviour it asserts is correct.**
+  Read a surface's tests as claims to be checked. A wrong behaviour with an
+  assertion behind it looks deliberate, so the next reader preserves it instead
+  of fixing it — see the third standing check in
+  `docs/backlog/false-success-audit.md`. Prefer asserting the property over the
+  wording, so a test survives a rewrite and still fails if the property breaks.
 
   Giving Equifax business pulls their own product moved that score from `sbss`
   (0–300) to `equifax_business_risk` (101–992). Three call sites take
