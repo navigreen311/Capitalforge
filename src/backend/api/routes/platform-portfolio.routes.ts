@@ -214,9 +214,16 @@ platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) =
       ),
 
       unavailable: {
+        // A decision, not pending work. Delinquency is recorded — as a missed
+        // payment on a repayment plan — but that observes only clients already
+        // on a plan, so a rate derived from it would draw its numerator and
+        // denominator from different populations and read as near zero beside
+        // the industry figure this page prints next to it. Ruled 2026-08-05;
+        // docs/gaps.md 2b carries the reasoning and what would change it.
         delinquencyRate:
-          'Delinquency is recorded only as a missed payment on a repayment plan, which covers '
-          + 'cards under a plan and not the portfolio. See docs/gaps.md section 2.',
+          'Not measured. Delinquency is recorded only as a missed payment on a repayment plan, '
+          + 'which observes clients already on one rather than the portfolio. Publishing that as '
+          + 'a portfolio rate would understate it structurally. See docs/gaps.md section 2b.',
         graduationRate: 'Nothing records a client graduating from the programme.',
       },
 
