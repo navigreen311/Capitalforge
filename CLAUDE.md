@@ -68,6 +68,37 @@ Every feature or significant change follows this sequence:
   (`Get-NetTCPConnection -LocalPort 4000 -State Listen`), and restart by
   **verified PID** rather than by a name pattern — a broad `Stop-Process` match
   has already killed unrelated shells here.
+- **Root `tsc --noEmit` does not type-check the frontend.** `src/frontend`
+  compiles with its own `tsconfig`, so **`npm run build` is the only local
+  check that covers it**. A real type error in `BusinessCreditScoresPanel`
+  passed root `tsc` and failed the Next build in CI — every "tsc clean" claim
+  in that sequence was narrower than it read.
+
+  **For any change touching `src/frontend`, run `npm run build` before saying
+  it type-checks.** Root `tsc` alone is not evidence. The failure mode is
+  quiet: the command you ran really did pass, so nothing prompts you to look
+  further until CI does it for you.
+
+- **TypeScript narrows from a direct comparison and cannot narrow through a
+  helper's return value.** These are equivalent by construction and not to the
+  compiler:
+
+  ```ts
+  const hasScore = score !== null;             // narrows `score` below
+  const hasScore = state === 'measured';       // does NOT, even though
+                                               // scoreCardState returns
+                                               // 'measured' iff score !== null
+  ```
+
+  The second left every later use of `score` typed `number | null`, and the
+  error surfaced far from the line that caused it — on `score >= target`, which
+  looks like the bug and is not.
+
+  This codebase extracts predicates into helpers constantly, and that is the
+  right instinct: the helper is where the *meaning* lives. But a narrowing site
+  is not a meaning site. Keep the `x !== null` form where the value is used,
+  and let the helper carry the vocabulary.
+
 - **Widening a type or a value's range requires checking every consumer that
   compares it to a threshold.** Not the feature you built — the code downstream
   that was written when the old range was the only one.
