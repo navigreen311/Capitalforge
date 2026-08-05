@@ -15,7 +15,7 @@
 // ============================================================
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { apiClient, ApiRequestError } from '../../../src/frontend/lib/api-client';
+import { apiClient, documentsApi, ApiRequestError } from '../../../src/frontend/lib/api-client';
 
 const REFRESH_RESPONSE = {
   success: true,
@@ -211,5 +211,62 @@ describe('apiClient — untouched behaviour', () => {
 
     await expect(apiClient.get('/businesses')).rejects.toMatchObject({ statusCode: 500 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── documentsApi.upload — the one call that bypasses request() ───────────────
+//
+// Upload cannot go through `request()`: it must omit Content-Type so the
+// browser sets the multipart boundary. In bypassing it, it lost the two things
+// `request()` does for every other call — refresh-and-retry on 401, and
+// treating a non-2xx as an error. It read the token once, sent it, and handed
+// `r.json()` back whatever came, so an aged-out token returned the 401
+// envelope to the caller as though it were a result.
+//
+// No component calls it today. It is exported surface, and the next person to
+// reach for it should get the same guarantees as `documentsApi.get`.
+
+describe('documentsApi.upload — refresh on a bypassed path', () => {
+  it('refreshes and retries rather than returning the 401 envelope', async () => {
+    let dataCalls = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/auth/refresh')) return jsonResponse(200, REFRESH_RESPONSE);
+      dataCalls += 1;
+      return dataCalls === 1
+        ? jsonResponse(401, { success: false, error: { code: 'AUTH_TOKEN_EXPIRED', message: 'expired' } })
+        : jsonResponse(200, { success: true, data: { id: 'doc-1' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await documentsApi.upload(new FormData());
+
+    expect(res).toEqual({ success: true, data: { id: 'doc-1' } });
+  });
+
+  it('rebuilds the header so the retry carries the new token', async () => {
+    let dataCalls = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/auth/refresh')) return jsonResponse(200, REFRESH_RESPONSE);
+      dataCalls += 1;
+      return dataCalls === 1 ? jsonResponse(401, { success: false }) : jsonResponse(200, { success: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await documentsApi.upload(new FormData());
+
+    expect(authOn(fetchMock, 0)).toBe('Bearer expired-access-token');
+    expect(authOn(fetchMock, 2)).toBe('Bearer new-access-token');
+  });
+
+  it('throws on a non-2xx instead of handing the error body back as a result', async () => {
+    // The defect in miniature: `.then(r => r.json())` cannot tell a document
+    // from a refusal, so the caller decides it succeeded.
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/auth/refresh')) return jsonResponse(200, REFRESH_RESPONSE);
+      return jsonResponse(500, { success: false, error: { code: 'STORAGE_DOWN', message: 'Storage unavailable' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(documentsApi.upload(new FormData())).rejects.toBeInstanceOf(ApiRequestError);
   });
 });

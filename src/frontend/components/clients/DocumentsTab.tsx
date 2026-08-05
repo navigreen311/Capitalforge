@@ -16,6 +16,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { SectionCard } from '../ui/card';
 import { FocusTrap } from '@/components/ui/focus-trap';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { attemptTokenRefresh } from '@/lib/token-refresh';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import {
   toDocumentRecords,
@@ -419,27 +420,43 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
   const handleSendForSignature = useCallback(async (doc: DocumentRecord) => {
     setSendingSignatureId(doc.id);
     try {
-      const token = getAuthToken();
+      // Rebuilt per attempt so the retry carries the refreshed token rather
+      // than repeating the 401. This was a bare `fetch` with the token read
+      // once and no refresh: an access token that aged out mid-page turned
+      // this click into a failure the advisor could only fix by reloading.
+      // Every other imperative call in this app refreshes — `apiClient`,
+      // `loadJson` and `fetch-all-pages` each do — and this one did not.
+      const send = (): Promise<Response> => {
+        const token = getAuthToken();
+        return fetch('/api/docusign/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            signerEmail:     'client@example.com', // In production, fetched from client record
+            signerName:      'Client Signer',      // In production, fetched from client record
+            documentBase64:  btoa(doc.name),        // Stub — real impl sends actual doc bytes
+            documentName:    doc.name,
+            envelopeSubject: `CapitalForge: Please sign ${doc.name}`,
+            envelopeMessage: `Please review and sign the document "${doc.name}".`,
+            businessId:      clientId,
+            docType:         doc.type,
+          }),
+        });
+      };
 
-      const res = await fetch('/api/docusign/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          signerEmail:     'client@example.com', // In production, fetched from client record
-          signerName:      'Client Signer',      // In production, fetched from client record
-          documentBase64:  btoa(doc.name),        // Stub — real impl sends actual doc bytes
-          documentName:    doc.name,
-          envelopeSubject: `CapitalForge: Please sign ${doc.name}`,
-          envelopeMessage: `Please review and sign the document "${doc.name}".`,
-          businessId:      clientId,
-          docType:         doc.type,
-        }),
-      });
+      let res = await send();
+      if ((res.status === 401 || res.status === 403) && (await attemptTokenRefresh())) {
+        res = await send();
+      }
 
-      const result = await res.json();
+      // `result.success` was read whatever the status. A 401 or a 500 parses
+      // to an envelope with no `success`, which is falsy — so the failure did
+      // surface, but as the generic "could not send" message rather than as
+      // what actually happened.
+      const result = await res.json().catch(() => ({}));
 
       if (result.success) {
         // Update local state to reflect sent status
