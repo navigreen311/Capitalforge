@@ -191,7 +191,7 @@ reason stated, because a zero would be a claim.
 | ~~`graduationRate` (portfolio benchmarks)~~ | ~~Nothing records a client graduating from the programme.~~ | **Defined and counted, 2026-08-05.** A client graduates when observed on a track further along `TRACK_ORDER` than the one they were last observed on. `GraduationEvent` records observations; `graduationRate` counts upward moves in the quarter over clients observed before it began. Null with a stated reason until a quarter has history behind it — see 2c. |
 | ~~`topPerformingSegments` (portfolio benchmarks)~~ | ~~Businesses carry an `industry`, but no application volume is attributed to a segment.~~ | **Done 2026-08-05.** It was query work only, as this row said: the endpoint fetched decided applications without selecting the business's industry, so it had nothing to group by. `segmentApprovalRates` in `platform-portfolio.routes.ts`, each segment carrying its own sample size. |
 | ~~`resolved` (compliance sweep)~~ | ~~The sweep writes a new check row; nothing marks an earlier one resolved.~~ **`ComplianceCheck.resolvedAt` already existed** and was read in three places; no code path ever set it. | **Done 2026-08-05.** A finding is resolved when the next check of the same kind, for the same business, comes back below the level that raised it. Written in the service, so every path that runs a check resolves what it cleared. |
-| `applications` sparkline (dashboard KPIs) | "Active" is a current status with nothing on the row recording what it was before. | **Column or table.** A status-history row per application would make every trend on this page derivable. |
+| ~~`applications` sparkline (dashboard KPIs)~~ | ~~"Active" is a current status with nothing on the row recording what it was before.~~ Half right: the *status* has no history, and the dates bounding an application's active life — `createdAt` and `decidedAt` — were on the row already. | **Done 2026-08-05.** Derived, no table. `activeApplicationsByDay` in `dashboard-kpi.routes.ts`; the last point equals the live headline count by construction. See 2d. |
 | ~~`businessAgeMonths` (credit builder)~~ | ~~No formation date is recorded for a business.~~ **This was wrong.** `Business.dateOfFormation` exists (`schema.prisma:171`) and is populated for every seeded business. Nothing surfaced it: the credit-builder page passed `null` to the progress timeline, which rendered "Formation date not recorded". | **Done 2026-08-05.** No column was needed. The age is computed in `credit-facts.ts` and reaches both the Tier 3 criterion and the timeline. |
 | `estimatedUnusedValue` (card benefits) | Null only when no unused benefit carries a value — this is working as intended. | **None.** |
 | Compliance score, when no checks have run | A score of 100 from an empty check table is a clean bill of health derived from never having looked. | **None.** |
@@ -316,6 +316,34 @@ clients somebody opened.
 
 ---
 
+### 2d. The applications sparkline, and what counts as active
+
+The row said this needed a status-history table. It did not. "Active" is
+`status NOT IN (approved, declined)`, and the two dates bounding an
+application's active life were on the row all along: `createdAt` opens it,
+`decidedAt` closes it. The series is derived from those, so it reproduces the
+headline rather than approximating it — the last point equals the live count by
+construction, and a test asserts that for every case where the two could
+disagree.
+
+**Two edges, both judgments.** A terminal application with no `decidedAt`
+cannot be placed in time: we know it left the active set, not when. It is
+excluded, which keeps the last point honest because the headline excludes it
+too. No such row exists today. An application decided and later reopened counts
+as active across the whole window, including days it was closed — its current
+status is not terminal, so the headline counts it, and a line disagreeing with
+the number printed above it would be worse than one imprecise about its past.
+
+**Surfaced while doing it, and left alone: `cancelled` counts as active.** The
+headline is `NOT IN (approved, declined)`, so a cancelled application appears in
+"active applications" on the dashboard; `rewards.routes.ts` sets that status.
+Whether it should is a product question — it is plainly not *active* in the
+English sense, but changing it moves a number on the main dashboard, which is
+not a decision to take while fixing a sparkline. The series matches the headline
+either way; fix them together or not at all.
+
+---
+
 ## 3. Tables that exist but are never written
 
 Four tables are in the schema and never receive a row:
@@ -397,15 +425,19 @@ missed payment is recorded on `PaymentSchedule` and linked to a card. What it
 needs is a decision about what "portfolio delinquency" means when the only
 delinquency observable is among clients already on a repayment plan. See 2b.
 
-Three claims in this document have now been checked against the schema and
-found wrong. Nothing here should be planned from without running the query
-first.
+**Five** claims in this document have now been checked against the schema and
+found wrong — business age, delinquency, section 3's nine tables, the
+compliance `resolvedAt` column, and the status-history table below. Nothing
+here should be planned from without running the query first.
 
-**Then the application status history.** One table — a row per status change on
-a card application — turns the dashboard's `applications` sparkline from null
-into a real series, and makes every other trend on that page derivable rather
-than approximated. It is the highest ratio of surface unlocked to work done on
-this page.
+**~~Then the application status history.~~ No table was needed.** This
+recommended a row per status change to turn the `applications` sparkline from
+null into a real series. The series is real now and no such table exists: an
+application's active life is bounded by `createdAt` and `decidedAt`, both on
+the row already, and a `cancelledAt` column closed the third case. See 2d.
+
+The recommendation was not wrong about the value — it was wrong about the cost,
+in the same direction as every other entry here that has been checked.
 
 **Then decide about tax.** It is the largest gap and the only one where the
 absence is currently safer than a fast implementation. A wrong 1099 is worse

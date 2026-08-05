@@ -24,6 +24,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The applications sparkline is a line.** It was null, on the reasoning that
+  "active" is a current status with no history on the row — true of the status,
+  and beside the point: `createdAt` opens an application and `decidedAt` closes
+  it, so the active count on any past day is derivable from columns that were
+  there all along. **No status-history table was needed.** The last point equals
+  the live headline count by construction, including for a cancelled
+  application, a reopened one, and a decided one that cannot be placed in time.
 - **Graduation is defined, recorded and counted.** A client graduates when
   observed on a track further along than the one they were last observed on —
   the vocabulary the track engine already had. `GraduationEvent` records an
