@@ -120,6 +120,7 @@ test.describe('Portfolio benchmarks', () => {
         avgCreditScore: number | null;
         approvalRate: number | null;
         delinquencyRate: number | null;
+        unavailable: { delinquencyRate: string; graduationRate?: string };
         basedOn: { decidedApplications: number; creditPulls: number };
       };
     };
@@ -128,9 +129,19 @@ test.describe('Portfolio benchmarks', () => {
     expect(body.data.avgCreditScore).not.toBe(718);
     expect(body.data.approvalRate).not.toBe(72.1);
 
-    // Nothing records a delinquency against a card, so this cannot be a
-    // number. It was 1.8, which reads as measured.
+    // Null because publishing it would mislead, not because nothing records
+    // it. This test used to assert the latter, and docs/gaps.md 2b disproved
+    // it: delinquency *is* recorded, as a missed payment on a repayment plan,
+    // which observes only clients already on one. A rate built from that
+    // draws its numerator and denominator from different populations and
+    // lands near zero beside the industry figure printed next to it. It was
+    // 1.8, which read as measured.
     expect(body.data.delinquencyRate).toBeNull();
+
+    // What makes that null honest rather than an unfinished figure: the same
+    // response says why. A bare null is indistinguishable from something
+    // nobody got round to computing, and this one is a standing decision.
+    expect(body.data.unavailable.delinquencyRate).toMatch(/repayment plan/);
 
     // Sample sizes, so an approval rate over three applications is not read
     // the same way as one over three hundred.
