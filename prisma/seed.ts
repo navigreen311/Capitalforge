@@ -109,15 +109,31 @@ const SEED_PHONES = {
   biz3: '+17135550103', // Houston, TX     → America/Chicago
 } as const;
 
+  // An address on the one client that has a business credit file.
+  //
+  // Step 2 of the DUNS track — "Establish Business Address & Phone" — is read
+  // from these columns. Without them no seeded client can satisfy it, so the
+  // completed case is undemonstrable in the app and unassertable in a test.
+  // Only biz1 gets one: biz2 and biz3 are the partial and empty cases, and the
+  // step names exactly which parts are missing.
+  const BIZ1_ADDRESS = {
+    addressLine1: '1201 Market Street, Suite 400',
+    city: 'Wilmington',
+    state: 'DE',
+    zip: '19801',
+    businessEmail: 'ops@apexdigital.example',
+  } as const;
+
   const biz1 = await prisma.business.upsert({
     where: { id: 'seed-biz-001' },
     // Applied on re-seed as well as on create: rows that predate these
     // columns need them, and without a timezone a client is never messaged.
-    update: { phoneNumber: SEED_PHONES.biz1, timezone: 'America/New_York' },
+    update: { phoneNumber: SEED_PHONES.biz1, timezone: 'America/New_York', ...BIZ1_ADDRESS },
     create: {
       id: 'seed-biz-001',
       phoneNumber: SEED_PHONES.biz1,
       timezone: 'America/New_York',
+      ...BIZ1_ADDRESS,
       tenantId: tenant.id,
       advisorId: advisorUser.id,
       legalName: 'Apex Digital Solutions LLC',

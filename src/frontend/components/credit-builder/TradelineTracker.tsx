@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
-import { toTradelines, reportingCount } from '@/lib/credit-view';
+import { toTradelines, dnbReportingCount } from '@/lib/credit-view';
 import { loadJson, toLoadError } from '@/lib/load-json';
 import { useToast } from '@/components/global/ToastProvider';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
@@ -588,7 +588,13 @@ export function TradelineTracker({ clientId, clientName, prefillVendor, showAddM
   // Derived from the rows themselves rather than read off the response — the
   // API reports the tradelines, not a summary, and a count that disagreed
   // with the list beneath it would be worse than none.
-  const reportingTotal = reportingCount(apiTradelines);
+  //
+  // Counted against D&B, which is what the label below says and what DUNS step
+  // 4 requires. It was counted with `reportingCount`, which counts a line
+  // reporting to any bureau at all, so five Experian-only lines read as five of
+  // five toward a D&B threshold — the label and the figure have disagreed since
+  // this summary was written.
+  const reportingTotal = dnbReportingCount(apiTradelines);
   const reportingTarget = 5;
 
   // Payment history is not modelled, so no average is asserted.

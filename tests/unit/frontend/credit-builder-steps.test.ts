@@ -20,12 +20,12 @@ import { checkMilestones } from '../../../src/frontend/lib/credit-milestones';
 const STEPS_RESPONSE = {
   clientId: 'seed-biz-001',
   steps: [
-    { stepNumber: 1, completed: true, completedAt: '2026-08-01T10:00:00.000Z', completedBy: 'user-1' },
-    { stepNumber: 2, completed: true, completedAt: '2026-08-02T10:00:00.000Z', completedBy: 'user-1' },
-    { stepNumber: 3, completed: false, completedAt: null, completedBy: null },
-    { stepNumber: 4, completed: false, completedAt: null, completedBy: null },
-    { stepNumber: 5, completed: false, completedAt: null, completedBy: null },
-    { stepNumber: 6, completed: false, completedAt: null, completedBy: null },
+    { stepNumber: 1, source: 'attested', completed: true, basis: null, completedAt: '2026-08-01T10:00:00.000Z', completedBy: 'user-1' },
+    { stepNumber: 2, source: 'derived', completed: true, basis: 'Address and phone on file', completedAt: null, completedBy: null },
+    { stepNumber: 3, source: 'attested', completed: false, basis: null, completedAt: null, completedBy: null },
+    { stepNumber: 4, source: 'derived', completed: false, basis: '0 of 5 trade lines reporting to D&B', completedAt: null, completedBy: null },
+    { stepNumber: 5, source: 'derived', completed: false, basis: 'No PAYDEX on record', completedAt: null, completedBy: null },
+    { stepNumber: 6, source: 'derived', completed: false, basis: 'No card application submitted', completedAt: null, completedBy: null },
   ],
   completedCount: 2,
   totalSteps: 6,
@@ -37,10 +37,30 @@ describe('toDunsSteps', () => {
     expect(steps).toHaveLength(6);
     expect(steps?.[0]).toEqual({
       stepNumber: 1,
+      source: 'attested',
       completed: true,
+      basis: null,
       completedAt: '2026-08-01T10:00:00.000Z',
       completedBy: 'user-1',
     });
+  });
+
+  it('carries the kind of claim each step makes, and its basis', () => {
+    const steps = toDunsSteps(STEPS_RESPONSE);
+    expect(steps?.map((s) => s.source)).toEqual([
+      'attested', 'derived', 'attested', 'derived', 'derived', 'derived',
+    ]);
+    expect(steps?.[1]?.basis).toBe('Address and phone on file');
+    // An attested step's evidence is the person who marked it, not a figure.
+    expect(steps?.[0]?.basis).toBeNull();
+  });
+
+  it('treats an unrecognised source as attested', () => {
+    // The safe direction: an attested step offers a control and names who
+    // marked it, so a mislabelled one is visibly wrong rather than quietly
+    // authoritative about data it never read.
+    const steps = toDunsSteps({ steps: [{ stepNumber: 1, completed: true }] });
+    expect(steps?.[0]?.source).toBe('attested');
   });
 
   it('accepts the response either bare or under a data wrapper', () => {
