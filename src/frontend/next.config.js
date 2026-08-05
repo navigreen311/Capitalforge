@@ -2,6 +2,24 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  /**
+   * Build output directory.
+   *
+   * `next dev` and `next start` both read and write this, so a dev server and
+   * a production server pointed at the same one fight: whichever ran last
+   * wins, and the other dies with `Cannot find module './383.js'` from
+   * `.next/server/webpack-runtime.js` — a running dev server loses its module
+   * graph the moment a production build replaces the chunks underneath it.
+   *
+   * Left at `.next` by default, because the Dockerfile copies
+   * `src/frontend/.next/standalone` and CI archives `src/frontend/.next/` by
+   * that name. Point the production server elsewhere with NEXT_DIST_DIR —
+   * `npm run build:frontend:prod` and `npm run start:frontend:prod` do exactly
+   * that, so both servers can run side by side. The variable has to be set for
+   * the build *and* the start, or `start` looks for a build that is not there.
+   */
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+
   // Disable the Next.js dev overlay indicator ("1 Issue" red badge)
   // so it doesn't appear during demos or confuse stakeholders.
   devIndicators: false,

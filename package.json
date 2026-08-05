@@ -10,6 +10,8 @@
     "build": "npm run build:backend && npm run build:frontend",
     "build:backend": "cd src/backend && tsc",
     "build:frontend": "cd src/frontend && next build",
+    "build:frontend:prod": "node scripts/next-prod.mjs build",
+    "start:frontend:prod": "node scripts/next-prod.mjs start -p 3000",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
