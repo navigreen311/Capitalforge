@@ -31,6 +31,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { RiskLevel, ComplianceCheckType } from '@shared/types/index.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '@shared/constants/index.js';
 import { eventBus } from '../events/event-bus.js';
+import logger from '../config/logger.js';
 import { scoreUdapRisk } from './udap-scorer.js';
 import {
   getStateLawProfile,
@@ -121,6 +122,12 @@ export interface ComplianceCheckResult {
    * behind it used to return the reassuring end of the scale.
    */
   riskLevel: RiskLevel | 'unknown';
+  /**
+   * Earlier findings this check closed, by coming back below the level that
+   * raised them. Zero when it cleared nothing, which includes every check that
+   * itself came back high, critical or unknown.
+   */
+  resolvedFindings: number;
   findings: ComplianceFinding[];
   riskRegister?: RiskRegisterResult;
   udapResult?: UdapScorerOutput;
@@ -600,6 +607,33 @@ export class ComplianceService {
       },
     });
 
+    // ── Resolve what this check cleared ───────────────────────────
+    //
+    // `ComplianceCheck.resolvedAt` has existed, and been read in three places,
+    // since the column was added. Nothing ever wrote it, so every finding this
+    // system has raised is still open: the compliance overview counted
+    // `openFindings` over rows that could never leave that set, and the sweep
+    // reported `resolved: null` because a count of resolutions would have been
+    // invented.
+    //
+    // The model, stated once because it is a judgment and not a mechanism: a
+    // finding is resolved when the next check of the same kind, for the same
+    // business, comes back below the level that raised it. That is what "no
+    // longer flagged" means operationally — the condition was observed, looked
+    // at again, and is no longer there.
+    //
+    // It deliberately does not resolve on a check that could not run.
+    // `unknown` is not below `high`; it is an absence of evidence, and closing
+    // a finding on it would be a clean bill of health issued by a check that
+    // never happened.
+    const resolvedFindings = await this._resolveClearedFindings(
+      input.tenantId,
+      input.businessId,
+      input.checkType,
+      riskLevel,
+      checkId,
+    );
+
     // ── Emit ledger event ─────────────────────────────────────────
 
     await eventBus.publish(input.tenantId, {
@@ -637,6 +671,7 @@ export class ComplianceService {
       checkType:  input.checkType,
       riskScore,
       riskLevel,
+      resolvedFindings,
       findings,
       riskRegister,
       udapResult,
@@ -644,6 +679,56 @@ export class ComplianceService {
       vendorHistory,
       createdAt,
     };
+  }
+
+  /**
+   * Mark earlier findings resolved when this check came back clean.
+   *
+   * Returns how many rows were closed, so a caller running a sweep can report
+   * a real resolution count rather than a plausible one.
+   *
+   * Scoped to the same business *and* the same check type: a clean KYB says
+   * nothing about an open UDAP finding, and resolving across types would close
+   * findings nobody re-examined.
+   */
+  private async _resolveClearedFindings(
+    tenantId: string,
+    businessId: string | undefined,
+    checkType: string,
+    riskLevel: RiskLevel | 'unknown',
+    exceptCheckId: string,
+  ): Promise<number> {
+    // Only a check that actually cleared resolves anything. `unknown` means
+    // the check could not run; `high` and `critical` mean the condition is
+    // still there.
+    if (riskLevel !== 'low' && riskLevel !== 'medium') return 0;
+    if (!businessId) return 0;
+
+    const { count } = await this.prisma.complianceCheck.updateMany({
+      where: {
+        tenantId,
+        businessId,
+        checkType,
+        riskLevel: { in: ['high', 'critical'] },
+        resolvedAt: null,
+        // Never the row just written. It is not high or critical, so it cannot
+        // match today — but a later change to those levels should not be able
+        // to make a check resolve itself.
+        NOT: { id: exceptCheckId },
+      },
+      data: { resolvedAt: new Date() },
+    });
+
+    if (count > 0) {
+      logger.info('[ComplianceService] Findings resolved by a later clean check', {
+        businessId,
+        checkType,
+        riskLevel,
+        resolved: count,
+      });
+    }
+
+    return count;
   }
 
   /**

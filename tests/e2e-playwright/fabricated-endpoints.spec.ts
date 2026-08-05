@@ -69,8 +69,16 @@ test.describe('Compliance sweep', () => {
     expect(first.data.total_checked).toBe(first.data.checks_run);
     expect(second.data.total_checked).toBe(second.data.checks_run);
 
-    // Nothing marks an earlier check resolved, so there is no count to give.
-    expect(first.data.resolved).toBeNull();
+    // A real count now. `resolvedAt` existed and was read in three places
+    // with nothing writing it, so this was null rather than invented; a check
+    // coming back below the level that raised a finding closes it.
+    //
+    // Not compared across the two runs, unlike the figures above: the first
+    // sweep closes whatever was open, so the second legitimately finds less to
+    // close. That difference is the feature working, not flakiness.
+    expect(typeof first.data.resolved).toBe('number');
+    expect(first.data.resolved).toBeGreaterThanOrEqual(0);
+    expect(typeof second.data.resolved).toBe('number');
 
     // It used to name six types regardless of what ran.
     expect(first.data.check_types.length).toBeGreaterThan(0);

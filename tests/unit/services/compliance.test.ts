@@ -32,6 +32,10 @@ function makePrismaMock() {
     complianceCheck: {
       create:    vi.fn().mockResolvedValue({ id: 'check-001' }),
       findFirst: vi.fn().mockResolvedValue(null),
+      // A check coming back clean closes the findings its predecessors
+      // raised, so the service updates earlier rows. Closes nothing by
+      // default; tests that care set their own count.
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     business: {
       findFirst: vi.fn().mockResolvedValue({ id: 'biz-001' }),

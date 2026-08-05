@@ -9,6 +9,19 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Compliance findings can be resolved.** `ComplianceCheck.resolvedAt` existed
+  and was read in three places — the overview's `openFindings`, the sweep's
+  `resolved` count, and the per-check display — and **no code path ever wrote
+  it**, so every finding raised stayed open for ever and the sweep reported
+  `resolved: null` rather than invent a count. A finding is now resolved when
+  the next check of the same kind, for the same business, comes back below the
+  level that raised it. It happens in the service, so every path that runs a
+  check resolves what it cleared. A check that came back `unknown` resolves
+  nothing: an absence of evidence is not a pass.
+
+
 ### Added
 
 - **Graduation is defined, recorded and counted.** A client graduates when
