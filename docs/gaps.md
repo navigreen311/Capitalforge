@@ -239,7 +239,7 @@ as `sbss`/`intelliscore` one table over. It is not: `repayment.service` writes
 vocabulary is consistent. Recorded because the next person to grep for
 `'overdue'` will have the same moment.
 
-**Three honest options, in the order they cost:**
+**Three options were weighed, in the order they cost:**
 
 1. **Rename the figure to what it measures** — *missed payments among clients
    on a repayment plan* — and publish it with that denominator. True today,
@@ -249,12 +249,38 @@ vocabulary is consistent. Recorded because the next person to grep for
    The column is trivial; the writer is not. It needs a source: issuer feed,
    statement import, or advisor entry — and until one exists the column would
    be another unwritten field, which section 3 of this document is about.
-3. **Leave it null.** Currently the most honest state, and the reason it has
-   stayed null.
+3. **Leave it null.**
 
-Option 1 is the smallest true thing. It is not obviously the right one: a
-number labelled "delinquency rate" invites the comparison whatever the label
-says underneath.
+### Decided 2026-08-05: it stays null
+
+Option 3. Recorded as a decision rather than left as an open question, because
+the figure is computable-looking and the next person to find it will otherwise
+work out that a rate can be derived from `PaymentSchedule` and derive one.
+
+The reasoning, so it can be revisited on its merits rather than rediscovered:
+
+- Option 1 is the smallest true thing and still probably wrong **here**. A
+  figure sits on this page beside a published industry delinquency rate, in a
+  block the reader is invited to compare across. A number labelled "missed
+  payments among clients on a repayment plan" placed in that column will be
+  read as the portfolio's delinquency rate whatever the label says underneath,
+  because that is what the column means everywhere else it appears.
+- Option 2 is the right answer and cannot be built yet. It needs a source of
+  truth for whether a card is past due, and this system has none — no issuer
+  feed, no statement import that carries it, no advisor-entry surface. Adding
+  the column first would produce a field nothing writes, which is what section
+  3 of this document exists to warn against.
+- A null with a stated reason is the only option that does not make a claim.
+  It is also the state the endpoint has been in since the literals were
+  removed, so this decision changes no behaviour — it records why the behaviour
+  is correct.
+
+**What would change the ruling.** Any source that observes a card going past
+due: an issuer integration, a statement import that carries payment status, or
+a deliberate advisor-entered delinquency flag with a surface behind it. At that
+point option 2 becomes available, the column has a writer, and the figure can
+mean what the page implies it means. Until then, the honest answer to "what is
+this portfolio's delinquency rate" is that this system does not know.
 
 
 ---
