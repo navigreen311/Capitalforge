@@ -289,7 +289,10 @@ export const SBSS_SCORE_MILESTONES: SbssScoreMilestone[] = [
     unlockedProducts: [
       'Premium business cards (Amex Business Gold/Platinum, Chase Ink Preferred)',
       'Full Stack track',
-      'SBA Express loan pre-qualification',
+      // Was 'SBA Express loan pre-qualification'. Wrong twice: SBA Express was
+      // explicitly unaffected by the SBSS prescreen, so no SBSS figure ever
+      // pre-qualified a client for it; and the prescreen itself was retired on
+      // 2026-03-01. See docs/product/business-credit-scores.md.
     ],
     estimatedMonths: 12,
   },
@@ -305,7 +308,10 @@ export const SBSS_SCORE_MILESTONES: SbssScoreMilestone[] = [
       'Debt service coverage ratio > 1.25',
     ],
     unlockedProducts: [
-      'SBA 7(a) loan ($500K–$5M)',
+      // Was 'SBA 7(a) loan ($500K–$5M)'. The SBSS prescreen only ever applied
+      // to 7(a) *Small* Loans of $350,000 and under, so no SBSS score gated a
+      // $500K–$5M loan at any point. Those are underwritten on full credit
+      // analysis, which is now what all 7(a) Small Loans get as well.
       'Business line of credit ($100K–$500K)',
       'LOC/SBA Bridge track',
     ],

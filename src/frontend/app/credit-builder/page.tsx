@@ -183,15 +183,37 @@ const NET30_VENDORS: Net30Vendor[] = [
   { id: 'v_008', vendorName: 'Costco Business Credit', category: 'Retail / Wholesale', bureausReported: ['Experian Biz'], tier: 3, netTerms: 30, creditLimit: '$10,000–$50,000', requires: 'Paydex 80+, 5+ trade lines', approvalDifficulty: 'hard', applicationUrl: 'https://costco.com/business' },
 ];
 
-// SBA and lender thresholds. The thresholds are real; the score against
-// them was not — every milestone carried currentValue 148, an SBSS score
-// for a business nobody had scored, with two of the four marked achieved.
-// No SBSS score is recorded anywhere in this system.
+// SBA and lender thresholds. Two rounds of correction, both worth recording.
+//
+// First: the thresholds were real but the score against them was not — every
+// milestone carried currentValue 148, an SBSS for a business nobody had
+// scored, with two of the four marked achieved.
+//
+// Second, 2026-08-05: the thresholds were not real either.
+//
+//  - "≥ 140" was the SBA pre-screen minimum until October 2020. It became 155,
+//    then 165 in June 2025, and then the prescreen was retired outright on
+//    2026-03-01 — SBA Procedural Notices 5000-875701 (2026-01-16) and
+//    5000-876777 (2026-02-20), the second being the operative one because it
+//    replaced the SOP 50 10 8 amendments in the first. Two revisions stale on
+//    a requirement that no longer exists.
+//  - "(7a/504 loans)" was wrong throughout. The prescreen applied to 7(a)
+//    Small Loans of $350,000 and under. SBA Express was explicitly unaffected
+//    and 504 never applied.
+//  - "≥ 160" for Preferred Lender Program eligibility has no source I could
+//    find. It is marked unverified rather than quietly deleted, because the
+//    PLP itself is real and somebody may be able to cite a figure.
+//
+// Note what did *not* change: the SBA removed the requirement, not the option.
+// Lenders still use SBSS by choice, with their own models. It is no longer a
+// universal floor, which is why there is no single number left to aim at.
+//
+// See docs/product/business-credit-scores.md for the full sourcing.
 const SBSS_MILESTONES: SbssMilestone[] = [
-  { id: 1, title: 'SBSS Score Established', target: 'Score > 0', description: 'Initial FICO SBSS score generated via 3+ business credit tradelines.', currentValue: null, targetValue: 1, unit: 'score exists', achieved: null },
-  { id: 2, title: 'SBA Loan Pre-screening Threshold', target: '≥ 140', description: 'Minimum SBSS to pass SBA automated pre-screening (7a/504 loans).', currentValue: null, targetValue: 140, unit: 'pts', achieved: null },
-  { id: 3, title: 'Preferred Lender Program Eligibility', target: '≥ 160', description: 'Score to qualify for SBA Preferred Lender expedited processing.', currentValue: null, targetValue: 160, unit: 'pts', achieved: null },
-  { id: 4, title: 'Tier 3 Stacking Unlock', target: '≥ 175', description: 'Internal threshold to unlock Tier 3 credit card stacking strategy.', currentValue: null, targetValue: 175, unit: 'pts', achieved: null },
+  { id: 1, title: 'SBSS Score Established', target: 'Score > 0', description: 'A first FICO SBSS is produced when a lender requests one — it is not a record a business can establish or pull on its own.', currentValue: null, targetValue: 1, unit: 'score exists', achieved: null },
+  { id: 2, title: 'SBA pre-screen (retired 2026-03-01)', target: 'no longer applies', description: 'The SBA required an SBSS pre-screen for 7(a) Small Loans of $350K and under. Retired 2026-03-01; all such loans now get full credit analysis. The minimum was 140, then 155 (Oct 2020), then 165 (Jun 2025). Notices 5000-875701 and 5000-876777.', currentValue: null, targetValue: 165, unit: 'pts', achieved: null },
+  { id: 3, title: 'Preferred Lender Program eligibility', target: '≥ 160 (unverified)', description: 'No published SBSS threshold for PLP expedited processing was found when this was checked on 2026-08-05. Treat 160 as uncited until somebody can source it.', currentValue: null, targetValue: 160, unit: 'pts', achieved: null },
+  { id: 4, title: 'Tier 3 Stacking Unlock', target: '≥ 175', description: 'Internal threshold, not an SBA one. No client has ever had an SBSS on record, so this has never been measured against anything.', currentValue: null, targetValue: 175, unit: 'pts', achieved: null },
 ];
 
 // The eight criteria were held here as literals with a hardcoded status of
