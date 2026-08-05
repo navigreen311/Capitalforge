@@ -1,4 +1,5 @@
 'use client';
+import { getAccessToken } from '@/lib/session-storage';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { attemptTokenRefresh } from '@/lib/token-refresh';
@@ -71,7 +72,10 @@ export function AskCapitalForge() {
 
   function getAuthToken(): string | null {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem('cf_access_token') || sessionStorage.getItem('cf_access_token');
+    // The sessionStorage fallback is gone. Nothing writes it, so a token
+    // placed there would have authenticated this chat and nothing else —
+    // "is this user signed in" must not depend on which component you ask.
+    return getAccessToken();
   }
 
   // ── Send message ───────────────────────────────────────────

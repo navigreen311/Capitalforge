@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient, ApiRequestError } from '@/lib/api-client';
 import { attemptTokenRefresh } from '@/lib/token-refresh';
+import { getAccessToken } from '@/lib/session-storage';
 
 export interface AuthFetchError {
   type: 'auth_required' | 'server_error' | 'network_error' | 'not_configured';
@@ -35,7 +36,7 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
     // pointed at nothing. Data on screen now came from the server or the
     // component shows why it did not.
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const token = getAccessToken();
       setIsAuthLoading(false);
 
       if (!token) {
