@@ -7,6 +7,13 @@
 // ============================================================
 
 import { useState } from 'react';
+import {
+  coachingForTier,
+  PAYDEX_TARGET,
+  TRADELINE_TARGET,
+  type CoachingFacts,
+  type CoachingItem,
+} from '@/lib/coaching';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,9 +59,12 @@ interface CriterionStatus {
 // Constants
 // ---------------------------------------------------------------------------
 
-const PAYDEX_TARGET = 80;
+// PAYDEX_TARGET and TRADELINE_TARGET are imported from `@/lib/coaching`
+// rather than declared here. They were about to exist twice — once for the
+// tier criteria, once for the coaching cards — and two copies of a threshold
+// is how one panel comes to say "4 of 5 trade lines" while the card beneath
+// it asks for two more.
 const PAYDEX_PTS_PER_MONTH = 3;
-const TRADELINE_TARGET = 5;
 const DAYS_PER_TRADELINE = 14;
 const EXPERIAN_TARGET = 60;
 const BUSINESS_AGE_TARGET_MONTHS = 24;
@@ -226,94 +236,14 @@ function tierBadgeClass(tier: number): string {
 // Coaching data
 // ---------------------------------------------------------------------------
 
-interface CoachingItem {
-  id: string;
-  title: string;
-  description: string;
-  actionLabel?: string;
-  actionUrl?: string;
-}
-
-const COACHING_BY_TIER: Record<number, CoachingItem[]> = {
-  1: [
-    {
-      id: 'c1-1',
-      title: 'Apply for 2 more Net-30 vendors',
-      description: 'You need 5 reporting tradelines to unlock Tier 1. Browse the vendor table above and apply to at least 2 new Net-30 accounts this week.',
-      actionLabel: 'View Vendors',
-    },
-    {
-      id: 'c1-2',
-      title: 'Pay all outstanding invoices early',
-      description: 'Early payments push your Paydex score higher faster. Review open invoices and pay at least 10 days before due date for maximum impact.',
-      actionLabel: 'View Tradelines',
-    },
-    {
-      id: 'c1-3',
-      title: 'Verify your D&B file is accurate',
-      description: 'Log into D&B and confirm your business name, address, SIC code, and employee count are correct. Errors can delay your Paydex scoring.',
-      actionLabel: 'Check D&B Profile',
-      actionUrl: 'https://www.dnb.com/duns-number/lookup.html',
-    },
-  ],
-  2: [
-    {
-      id: 'c2-1',
-      title: 'Apply for Tier 2 vendors',
-      description: 'With your Paydex approaching 80, you can now apply to Tier 2 vendors like Home Depot Pro and Staples Business for higher credit limits.',
-      actionLabel: 'View Tier 2 Vendors',
-    },
-    {
-      id: 'c2-2',
-      title: 'Pull your Experian Business report',
-      // This said "Pull a free report". Experian does not give a business its
-      // own Intelliscore Plus for free — it is ~$49.95 one-time or ~$199/yr
-      // (verified 2026-08-05, docs/product/business-credit-scores.md). An
-      // advisor reading this told the client something they would find untrue
-      // at the paywall, which is worse than saying nothing.
-      description: 'Your Experian Intelliscore needs to reach 60+. A report with Intelliscore Plus costs about $49.95 one-time, or about $199/year for monitoring — tell the client to expect a charge. It is usually worth it: correcting bad data on the file moves the score faster than building new tradelines.',
-      actionLabel: 'Check Experian',
-      actionUrl: 'https://www.experian.com/small-business/business-credit-report.jsp',
-    },
-    {
-      id: 'c2-3',
-      title: 'Ensure consistent bank deposits',
-      description: 'Maintain regular business bank deposits of $5,000+/month. Lenders and credit algorithms factor in cash flow stability when scoring.',
-    },
-  ],
-  3: [
-    {
-      id: 'c3-1',
-      // Was "Schedule credit review at SBSS 160" — telling a client to wait
-      // for a number they cannot observe. SBSS is computed by a lender at
-      // application; nobody can watch it "hit" anything. 160 was also a third
-      // inconsistent threshold on this page, alongside 140 and 175, and the
-      // SBA sequence was 140, 155, 165, then retired on 2026-03-01.
-      title: 'Talk to a lender rather than waiting on a score',
-      description: 'There is no SBSS to watch: it is calculated when a lender requests it, from the owners\' personal credit, business bureau data, financials and the application. The SBA retired its pre-screen minimum on 2026-03-01 and lenders now use their own models. Ask the loan officer what they score on, and what they pulled.',
-    },
-    {
-      id: 'c3-2',
-      title: 'Prepare financial statements',
-      description: 'Tier 3 credit products require formal financials. Prepare your P&L statement, balance sheet, and 2-year tax returns for upcoming applications.',
-    },
-    {
-      id: 'c3-3',
-      title: 'Apply for Costco Business Credit',
-      description: 'With Paydex 80+ and 5+ tradelines, you qualify for Costco Business Credit (up to $50K limit). This is a strong Tier 3 tradeline that reports to Experian.',
-      actionLabel: 'Apply at Costco',
-      actionUrl: 'https://www.costco.com/business.html',
-    },
-  ],
-};
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function CoachingCards({ tier }: { tier: number }) {
+function CoachingCards({ tier, facts }: { tier: number; facts: CoachingFacts }) {
   const [expanded, setExpanded] = useState(false);
-  const items = COACHING_BY_TIER[tier] ?? [];
+  const items = coachingForTier(tier, facts);
 
   if (items.length === 0) return null;
 
@@ -364,7 +294,7 @@ function CoachingCards({ tier }: { tier: number }) {
   );
 }
 
-function TierRow({ estimate }: { estimate: TierEstimate }) {
+function TierRow({ estimate, facts }: { estimate: TierEstimate; facts: CoachingFacts }) {
   const allMet = estimate.criteria.every((c) => c.met);
   const narrow = estimate.coverage === 'narrow';
 
@@ -448,7 +378,7 @@ function TierRow({ estimate }: { estimate: TierEstimate }) {
       )}
 
       {/* Coaching Cards */}
-      <CoachingCards tier={estimate.tier} />
+      <CoachingCards tier={estimate.tier} facts={facts} />
     </div>
   );
 }
@@ -468,6 +398,13 @@ export function EstimatedProgressTimeline({
   const tier2 = computeTier2(experianBusiness);
   const tier3 = computeTier3(businessAgeMonths);
 
+  // The same values the tier estimates are computed from, handed to coaching
+  // rather than coaching reading anything of its own. One reading of the
+  // client per render is the point: two readers of the same fact are how a
+  // page comes to say "4 of 5 trade lines" in one panel and "apply for 2
+  // more" in another.
+  const facts: CoachingFacts = { tradelineCount, paydex, experianBusiness };
+
   const paydexDays = computePaydexDays(paydex);
   const hasPaydex = paydex !== null;
 
@@ -485,9 +422,9 @@ export function EstimatedProgressTimeline({
 
       {/* Tier estimates */}
       <div className="space-y-3">
-        <TierRow estimate={tier1} />
-        <TierRow estimate={tier2} />
-        <TierRow estimate={tier3} />
+        <TierRow estimate={tier1} facts={facts} />
+        <TierRow estimate={tier2} facts={facts} />
+        <TierRow estimate={tier3} facts={facts} />
       </div>
 
       {/* Paydex trajectory footer */}
