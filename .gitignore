@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .next/
+# The production server's own build directory, so `next start` stops fighting
+# `next dev` over one distDir. See scripts/next-prod.mjs.
+.next-prod/
 .env
 .env.local
 .env.*.local

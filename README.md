@@ -254,13 +254,41 @@ See [`docs/all-modules.md`](docs/all-modules.md) for the complete module registr
 | `npm run dev:frontend` | Start Next.js dev server on port 3000 |
 | `npm run build` | Build backend + frontend for production |
 | `npm run build:backend` | Compile TypeScript backend |
-| `npm run build:frontend` | Build Next.js frontend |
+| `npm run build:frontend` | Build Next.js frontend into `.next` (used by CI and Docker) |
+| `npm run build:frontend:prod` | Build into `.next-prod`, so a running dev server is not disturbed |
+| `npm run start:frontend:prod` | Serve that build on port 3000 |
 | `npm test` | Run all tests (unit + integration + e2e) |
 | `npm run test:unit` | Run unit tests only |
 | `npm run test:integration` | Run integration tests (requires Docker infrastructure) |
 | `npm run test:e2e` | Run end-to-end tests |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:coverage` | Run tests with coverage report |
+
+> **Running a dev server and a production server at once.** `next dev` and
+> `next start` both read and write `distDir`, so pointed at the same directory
+> they fight — a production build replaces the chunks a running dev server is
+> holding, and it dies with `Cannot find module './383.js'` from
+> `.next/server/webpack-runtime.js`, while the production server serves 404s
+> from a route manifest that no longer matches the disk. Use
+> `build:frontend:prod` / `start:frontend:prod` for the production server; they
+> set `NEXT_DIST_DIR=.next-prod`. `build:frontend` keeps writing `.next`,
+> because the Dockerfile copies `src/frontend/.next/standalone` and CI archives
+> that path by name.
+>
+> **Two side effects to leave alone.** A build with `NEXT_DIST_DIR` set makes
+> Next rewrite two files it manages itself:
+>
+> - `src/frontend/tsconfig.json` — reformatted, with `.next-prod/types/**/*.ts`
+>   added to `include`. Harmless but noisy.
+> - `src/frontend/next-env.d.ts` — its `reference path` repointed from
+>   `./.next/types/routes.d.ts` to `./.next-prod/…`. **Committing this one
+>   breaks the default build for everyone else, including CI.**
+>
+> Revert both rather than committing the churn:
+>
+> ```sh
+> git checkout -- src/frontend/tsconfig.json src/frontend/next-env.d.ts
+> ```
 | `npm run lint` | Run ESLint |
 | `npm run lint:fix` | Run ESLint with auto-fix |
 | `npm run format` | Run Prettier formatter |
