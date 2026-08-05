@@ -21,6 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildCaveats,
+  CROSS_ISSUER_VELOCITY_RULE,
   type EligibilityContext,
 } from '../../../src/backend/services/issuer-rules-engine';
 
@@ -43,7 +44,15 @@ const context = (over: Partial<EligibilityContext> = {}): EligibilityContext =>
     ...over,
   }) as EligibilityContext;
 
-const velocityRule = (periodDays: number) => ({ ruleType: 'velocity', periodDays });
+// The literal the engine's own switch dispatches on, imported rather than
+// retyped. An earlier draft of this file used 'velocity' — a rule type this
+// engine has never emitted — and the test passed, because it asserted the
+// same wrong string the code did. A test that repeats the assumption it is
+// meant to check is not a check.
+const velocityRule = (periodDays: number) => ({
+  ruleType: CROSS_ISSUER_VELOCITY_RULE,
+  periodDays,
+});
 
 describe('buildCaveats — cross-issuer velocity', () => {
   it('says what the 5/24 count was drawn from', () => {
