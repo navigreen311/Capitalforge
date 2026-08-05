@@ -110,40 +110,61 @@ consolidation work has a fixed order: there are three velocity implementations,
 this was the only one that was wrong, and merging before fixing it risked making
 it the survivor.
 
-## 1c. One figure compares three scales — open
+## 1c. One figure compared three scales — fixed 2026-08-05
 
-Recorded 2026-08-04, while giving each bureau's business score its own product
-name. Deliberately **not** fixed in that change, because the fix has a
-behavioural consequence that needs deciding rather than assuming.
+Recorded 2026-08-04 while giving each bureau's business score its own product
+name, deliberately not fixed in that change, and fixed now as its own decision.
 
-`client-graduation.service.ts` computes a single `businessCreditScore` as the
-`Math.max` of every business profile a client holds. Those profiles are now
-three different products on three different scales:
+**What it was.** `client-graduation.service` computed a single
+`businessCreditScore` as `Math.max` over every business profile a client held —
+PAYDEX 0–100, Intelliscore 1–100, SBSS 0–300 — and measured the result against
+thresholds that are SBSS figures (50 for Full Stack, 100 for LOC/SBA Bridge).
+**A PAYDEX of 88 cleared a requirement for an SBSS of 50.** Nothing in the
+comparison could notice: a number cannot say which product it is a number of.
 
-| Product | Bureau | Scale |
-|---|---|---|
-| SBSS | Equifax, TransUnion | 0–300 |
-| Intelliscore | Experian | 1–100 |
-| PAYDEX | D&B | 0–100 |
+Arithmetic on incompatible units, one scale further along than `rewardsRate`
+storing both 2 and 0.02.
 
-The result is then measured against the SBSS milestone thresholds — 50, 80,
-140, 200. So **a PAYDEX of 88 is read as an SBSS of 88**, and a client with an
-excellent payment record is reported as approaching the SBA pre-screening
-threshold on a score nobody has ever pulled for them.
+**The fix — every threshold names its product.** `ScoreThreshold { scoreType,
+min }` replaces the bare number, and `GraduationInput.businessScores` keeps each
+product apart instead of flattening them. A threshold reads the product it
+names, and only that one.
 
-This predates the renaming: the max already mixed PAYDEX with SBSS. What the
-renaming changes is that the mixing is now visible in the filter.
+Three options were weighed. Normalising every score onto a shared 0–1 band was
+rejected: it invents equivalences nobody has validated — is a PAYDEX of 80
+really an SBSS of 160? — and converts "we do not know" into a plausible number,
+which is the defect this codebase has spent several changes removing.
 
-**Why it was left.** The figure feeds `checkTrackEligibility`, so narrowing it
-to SBSS alone would move every client whose only business score is a PAYDEX
-from whatever track that 88 currently buys them to a `businessCreditScore` of
-0. That is probably correct and is certainly more honest, but it is a change to
-who is eligible for what, and it should be made deliberately rather than as a
-side effect of a rename.
+**Unknown is a third state, not a failure.** A client with no SBSS is `unknown`
+on an SBSS gate, never `failed`. The gate carries what would resolve it —
+*"Pull a FICO SBSS report for this client. No FICO SBSS is on record, so this
+requirement has not been measured — it is not a shortfall."* — and the action
+roadmap offers *pull the report, same day* rather than *raise the score, months*.
+Unknown does not unlock a track: a track asserts the client clears every
+requirement, and "we did not measure that one" is not clearing it.
 
-**Cost.** *Product decision, then small.* Decide what a business credit score
-means when a client holds several incommensurable ones — the likely answer is
-that each threshold names the product it applies to — and the code follows.
+A track that asserts no business-credit requirement now emits **no gate** rather
+than a gate with a threshold of zero. Zero is a comparison a client with no
+score would pass, which manufactures a cleared requirement out of an absent one.
+
+**Migration.** `scripts/track-migration-impact.ts` reports who changes track,
+and separately whose business-credit gate changes answer without moving them
+today — a movement count alone understates the reach, because another gate may
+already bind. Run against the development database: **3 businesses, 0 moved, 1
+gate flipped.** That sample proves little and the reason is worth knowing: every
+seeded client is pinned to Credit Builder by the tradeline gate, because seeded
+`CreditProfile.tradelines` holds a summary object rather than an array, so the
+count reads 0. Real pulls write arrays. **Run the script against a populated
+database before trusting a number.**
+
+**Still open — no surface renders any of this.** Nothing in the frontend calls
+`/graduation/status` or `/graduation/assess`; the "graduation banner" on
+`/credit-builder` is a different mechanism. The engine now distinguishes unknown
+from failed and says what would resolve it, but no page shows it to an advisor.
+When one is built, `MilestoneGate.status` and `MilestoneGate.resolution` are
+what it should render, and the stacking-criteria panel on `/credit-builder` is
+the precedent for how — four statuses, the unmeasured ones not borrowing the
+failure colour.
 
 ---
 

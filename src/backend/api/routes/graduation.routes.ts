@@ -46,7 +46,18 @@ const GraduationAssessSchema = z.object({
   ficoScore:            z.number().int().min(300).max(850),
   businessAgeMonths:    z.number().int().nonnegative(),
   monthlyRevenue:       z.number().nonnegative(),
-  businessCreditScore:  z.number().int().min(0).max(300).default(0),
+  // Business scores by product, because a threshold names the product it
+  // reads. `businessCreditScore` was a single 0–300 number whatever it came
+  // from, so a caller could send a PAYDEX of 88 and have it clear an SBSS
+  // requirement. Omitting a product means it has never been pulled, which the
+  // engine reports as unknown rather than as a shortfall.
+  businessScores: z
+    .object({
+      sbss:         z.number().int().min(0).max(300).optional(),
+      paydex:       z.number().int().min(0).max(100).optional(),
+      intelliscore: z.number().int().min(1).max(100).optional(),
+    })
+    .default({}),
   tradelineCount:       z.number().int().nonnegative().default(0),
   currentUtilization:   z.number().min(0).max(2).default(0),
 });
@@ -270,7 +281,9 @@ graduationRouter.post(
         ficoScore:           ficoScore ?? 680,
         businessAgeMonths:   businessAgeMonths ?? 0,
         monthlyRevenue:      monthlyRevenue ?? 0,
-        businessCreditScore: sbssScore,
+        // This endpoint's query parameter is explicitly an SBSS, so it is
+        // supplied as one rather than as an unlabelled business score.
+        businessScores:      { sbss: sbssScore },
         tradelineCount:      tradelineCount ?? 0,
         currentUtilization:  currentUtilization ?? 0,
       };

@@ -15,6 +15,7 @@ import { prisma as sharedPrisma } from '../config/database.js';
 import { eventBus } from '../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '@shared/constants/index.js';
 import logger from '../config/logger.js';
+import type { ScoreType } from '@shared/types/index.js';
 
 // ── Prisma singleton ─────────────────────────────────────────
 
@@ -44,11 +45,28 @@ export type GraduationTrack = (typeof GRADUATION_TRACKS)[keyof typeof GRADUATION
 
 // ── Track Thresholds ─────────────────────────────────────────
 
+/**
+ * A threshold that names the product it reads.
+ *
+ * The whole point of the type: a number on its own cannot say which score it
+ * is a number *of*, so nothing stopped a PAYDEX being compared against an SBSS
+ * requirement. `scoreType` makes the comparison state its terms.
+ */
+export interface ScoreThreshold {
+  scoreType: ScoreType;
+  min:       number;
+}
+
 export interface TrackThresholds {
   minFicoScore:        number;
   minBusinessAgeMonths: number;
   minMonthlyRevenue:   number;
-  minBusinessCreditScore: number;
+  /**
+   * The business-credit requirement, naming its product. Null where a track
+   * asserts none — which is different from a threshold of zero, because zero
+   * is a comparison that a client with no score at all would pass.
+   */
+  businessCredit:         ScoreThreshold | null;
   /** Minimum number of positive tradelines required */
   minTradelines:       number;
   /** Maximum utilization allowed to unlock */
@@ -60,7 +78,7 @@ export const TRACK_THRESHOLDS: Record<GraduationTrack, TrackThresholds> = {
     minFicoScore:           0,     // entry-level — no FICO gate
     minBusinessAgeMonths:   0,
     minMonthlyRevenue:      0,
-    minBusinessCreditScore: 0,
+    businessCredit:         null,
     minTradelines:          0,
     maxUtilization:         1.0,
   },
@@ -68,7 +86,7 @@ export const TRACK_THRESHOLDS: Record<GraduationTrack, TrackThresholds> = {
     minFicoScore:           620,
     minBusinessAgeMonths:   6,
     minMonthlyRevenue:      3_000,
-    minBusinessCreditScore: 0,     // business credit not required at entry
+    businessCredit:         null,  // business credit not required at entry
     minTradelines:          2,
     maxUtilization:         0.70,
   },
@@ -76,7 +94,7 @@ export const TRACK_THRESHOLDS: Record<GraduationTrack, TrackThresholds> = {
     minFicoScore:           680,
     minBusinessAgeMonths:   12,
     minMonthlyRevenue:      8_000,
-    minBusinessCreditScore: 50,
+    businessCredit:         { scoreType: 'sbss', min: 50 },
     minTradelines:          4,
     maxUtilization:         0.50,
   },
@@ -84,7 +102,7 @@ export const TRACK_THRESHOLDS: Record<GraduationTrack, TrackThresholds> = {
     minFicoScore:           720,
     minBusinessAgeMonths:   24,
     minMonthlyRevenue:      15_000,
-    minBusinessCreditScore: 100,
+    businessCredit:         { scoreType: 'sbss', min: 100 },
     minTradelines:          6,
     maxUtilization:         0.30,
   },
@@ -117,12 +135,34 @@ export const TRACK_METADATA: Record<GraduationTrack, { label: string; descriptio
 
 // ── Milestone Gate Result ────────────────────────────────────
 
+/**
+ * Three outcomes, because there are three things that can be true.
+ *
+ * `unknown` is a client we have not measured against this requirement — not a
+ * client who fell short of it. Collapsing the two tells an advisor their client
+ * failed a threshold nobody applied to them, and it is the reason a PAYDEX of
+ * 88 used to be read as an SBSS of 88: with only pass and fail available, the
+ * absent score had to become a number, and the nearest number was another
+ * product's.
+ */
+export type GateStatus = 'passed' | 'failed' | 'unknown';
+
 export interface MilestoneGate {
   criterion:    string;
   required:     number | string;
-  actual:       number | string;
+  /** Null when the figure this gate reads has never been recorded. */
+  actual:       number | string | null;
+  status:       GateStatus;
+  /**
+   * `status === 'passed'`. Kept because callers predate the third state, and
+   * because false is the safe reading for both `failed` and `unknown` — a gate
+   * that was not measured must not let a client through. Anything that shows a
+   * client why they are held back should read `status`, not this.
+   */
   passed:       boolean;
-  gap:          number | null;  // numeric gap to requirement (null if non-numeric)
+  gap:          number | null;  // numeric gap to requirement (null if non-numeric or unknown)
+  /** What would answer an unknown gate. Absent when the gate was measured. */
+  resolution?:  string;
 }
 
 // ── Graduation Assessment ────────────────────────────────────
@@ -151,11 +191,22 @@ export interface RoadmapAction {
 
 // ── Client Profile Input ─────────────────────────────────────
 
+/**
+ * A client's business scores, by product.
+ *
+ * A key that is absent means that score has never been pulled for this client.
+ * This replaced a single `businessCreditScore: number` produced by `Math.max`
+ * over whatever business profiles existed — PAYDEX 0–100, Intelliscore 1–100
+ * and SBSS 0–300 — and then compared against thresholds that are SBSS figures.
+ * A PAYDEX of 88 cleared a requirement for an SBSS of 50.
+ */
+export type BusinessScores = Partial<Record<ScoreType, number>>;
+
 export interface GraduationInput {
   ficoScore:           number;
   businessAgeMonths:   number;
   monthlyRevenue:      number;
-  businessCreditScore: number;
+  businessScores:      BusinessScores;
   tradelineCount:      number;
   currentUtilization:  number;
 }
@@ -184,6 +235,76 @@ export function resolveCurrentTrack(input: GraduationInput): GraduationTrack {
 }
 
 /**
+ * A gate on a figure this system always holds — a FICO, an age, a count.
+ *
+ * These have no unknown state: zero revenue is a real answer, and a client
+ * with no tradelines genuinely has none. Only scores that must be *pulled*
+ * can be absent.
+ */
+function numericGate(criterion: string, required: number, actual: number): MilestoneGate {
+  const passed = actual >= required;
+  return {
+    criterion,
+    required,
+    actual,
+    status: passed ? 'passed' : 'failed',
+    passed,
+    gap: Math.max(0, required - actual),
+  };
+}
+
+/** How each business score is referred to when the client has not got one. */
+const SCORE_LABELS: Partial<Record<ScoreType, string>> = {
+  sbss: 'FICO SBSS',
+  paydex: 'D&B PAYDEX',
+  intelliscore: 'Experian Intelliscore',
+  fico: 'FICO',
+  vantage: 'VantageScore',
+};
+
+function scoreLabel(scoreType: ScoreType): string {
+  return SCORE_LABELS[scoreType] ?? scoreType;
+}
+
+/**
+ * The business-credit gate, read against the one product its threshold names.
+ *
+ * Absent is `unknown`, and the gate carries what would resolve it. That is the
+ * difference the whole change exists for: "this client needs a stronger SBSS"
+ * and "nobody has pulled this client's SBSS" are different sentences, and only
+ * the first is about the client.
+ */
+function businessCreditGate(
+  threshold: ScoreThreshold,
+  scores: BusinessScores,
+): MilestoneGate {
+  const label = scoreLabel(threshold.scoreType);
+  const actual = scores[threshold.scoreType];
+
+  if (actual === undefined) {
+    return {
+      criterion: `Business Credit Score (${label})`,
+      required: threshold.min,
+      actual: null,
+      status: 'unknown',
+      passed: false,
+      gap: null,
+      resolution: `Pull a ${label} report for this client. No ${label} is on record, so this requirement has not been measured — it is not a shortfall.`,
+    };
+  }
+
+  const passed = actual >= threshold.min;
+  return {
+    criterion: `Business Credit Score (${label})`,
+    required: threshold.min,
+    actual,
+    status: passed ? 'passed' : 'failed',
+    passed,
+    gap: Math.max(0, threshold.min - actual),
+  };
+}
+
+/**
  * Check whether a client meets all milestones for a specific track.
  */
 export function checkTrackEligibility(
@@ -194,60 +315,55 @@ export function checkTrackEligibility(
   const gates: MilestoneGate[] = [];
 
   // FICO gate
-  gates.push({
-    criterion: 'Personal FICO Score',
-    required:  t.minFicoScore,
-    actual:    input.ficoScore,
-    passed:    input.ficoScore >= t.minFicoScore,
-    gap:       Math.max(0, t.minFicoScore - input.ficoScore),
-  });
+  gates.push(numericGate(
+    'Personal FICO Score',
+    t.minFicoScore,
+    input.ficoScore,
+  ));
 
   // Business age gate
-  gates.push({
-    criterion: 'Business Age (months)',
-    required:  t.minBusinessAgeMonths,
-    actual:    input.businessAgeMonths,
-    passed:    input.businessAgeMonths >= t.minBusinessAgeMonths,
-    gap:       Math.max(0, t.minBusinessAgeMonths - input.businessAgeMonths),
-  });
+  gates.push(numericGate(
+    'Business Age (months)',
+    t.minBusinessAgeMonths,
+    input.businessAgeMonths,
+  ));
 
   // Revenue gate
-  gates.push({
-    criterion: 'Monthly Revenue ($)',
-    required:  t.minMonthlyRevenue,
-    actual:    input.monthlyRevenue,
-    passed:    input.monthlyRevenue >= t.minMonthlyRevenue,
-    gap:       Math.max(0, t.minMonthlyRevenue - input.monthlyRevenue),
-  });
+  gates.push(numericGate(
+    'Monthly Revenue ($)',
+    t.minMonthlyRevenue,
+    input.monthlyRevenue,
+  ));
 
-  // Business credit score gate
-  gates.push({
-    criterion: 'Business Credit Score (SBSS/Paydex)',
-    required:  t.minBusinessCreditScore,
-    actual:    input.businessCreditScore,
-    passed:    input.businessCreditScore >= t.minBusinessCreditScore,
-    gap:       Math.max(0, t.minBusinessCreditScore - input.businessCreditScore),
-  });
+  // Business credit gate — reads the product the threshold names, and only
+  // that one. A client with a strong PAYDEX and no SBSS is unknown here, not
+  // eligible: a gate asserts the client clears a specific requirement, and
+  // another bureau's score on another scale is not evidence about it.
+  if (t.businessCredit !== null) {
+    gates.push(businessCreditGate(t.businessCredit, input.businessScores));
+  }
 
   // Tradeline count gate
-  gates.push({
-    criterion: 'Active Positive Tradelines',
-    required:  t.minTradelines,
-    actual:    input.tradelineCount,
-    passed:    input.tradelineCount >= t.minTradelines,
-    gap:       Math.max(0, t.minTradelines - input.tradelineCount),
-  });
+  gates.push(numericGate(
+    'Active Positive Tradelines',
+    t.minTradelines,
+    input.tradelineCount,
+  ));
 
   // Utilization gate (lower is better)
+  const utilisationPasses = input.currentUtilization <= t.maxUtilization;
   gates.push({
     criterion: 'Credit Utilization (max)',
     required:  `≤ ${(t.maxUtilization * 100).toFixed(0)}%`,
     actual:    `${(input.currentUtilization * 100).toFixed(1)}%`,
-    passed:    input.currentUtilization <= t.maxUtilization,
+    status:    utilisationPasses ? 'passed' : 'failed',
+    passed:    utilisationPasses,
     gap:       null,
   });
 
-  const eligible = gates.every((g) => g.passed);
+  // Unknown does not pass. A track is a statement that the client clears every
+  // requirement, and "we did not measure that one" is not clearing it.
+  const eligible = gates.every((g) => g.status === 'passed');
   return { eligible, gates };
 }
 
@@ -306,10 +422,18 @@ export function estimateMonthsToNextTrack(
     maxMonths = Math.max(maxMonths, Math.ceil(gap / 1.5));
   }
 
-  // Business credit: ~10–15 pts/month with active trade accounts
-  if (input.businessCreditScore < t.minBusinessCreditScore) {
-    const gap = t.minBusinessCreditScore - input.businessCreditScore;
-    maxMonths = Math.max(maxMonths, Math.ceil(gap / 12));
+  // Business credit: ~10–15 pts/month with active trade accounts.
+  //
+  // Only when the score is on record. A client whose SBSS has never been
+  // pulled has no gap to close at 12 points a month — the wait is a report,
+  // not months of building, and projecting one from an absence is how a
+  // timeline comes to promise something nobody measured.
+  if (t.businessCredit !== null) {
+    const actual = input.businessScores[t.businessCredit.scoreType];
+    if (actual !== undefined && actual < t.businessCredit.min) {
+      const gap = t.businessCredit.min - actual;
+      maxMonths = Math.max(maxMonths, Math.ceil(gap / 12));
+    }
   }
 
   return maxMonths > 0 ? maxMonths : 0;
@@ -366,16 +490,28 @@ export function buildActionRoadmap(
     });
   }
 
-  // Business credit score
-  const bizCreditGate = failingGates.find((g) => g.criterion === 'Business Credit Score (SBSS/Paydex)');
-  if (bizCreditGate && !bizCreditGate.passed) {
-    const gap = typeof bizCreditGate.gap === 'number' ? bizCreditGate.gap : 0;
+  // Business credit — two different actions, because there are two different
+  // situations. Telling an advisor to raise a score nobody has pulled sends
+  // them to build something for months when the answer is a report.
+  const bizCreditGate = failingGates.find((g) => g.criterion.startsWith('Business Credit Score'));
+  if (bizCreditGate && bizCreditGate.status === 'unknown') {
     actions.push({
       priority: priority++,
       category: 'business_credit',
-      action:   `Increase SBSS/Paydex score by ${gap} points (target: ${t.minBusinessCreditScore})`,
+      action:   bizCreditGate.resolution
+        ?? `Pull the business credit report this track requires (target: ${bizCreditGate.required})`,
+      impact:   'This requirement has not been measured for this client — it is not a shortfall',
+      timelineEstimate: 'Same day',
+    });
+  } else if (bizCreditGate && bizCreditGate.status === 'failed') {
+    const gap = typeof bizCreditGate.gap === 'number' ? bizCreditGate.gap : 0;
+    const product = t.businessCredit ? scoreLabel(t.businessCredit.scoreType) : 'business credit';
+    actions.push({
+      priority: priority++,
+      category: 'business_credit',
+      action:   `Increase ${product} by ${gap} points (target: ${bizCreditGate.required})`,
       impact:   'Required for Full Stack and LOC/SBA tracks; lenders weight this heavily',
-      timelineEstimate: `${Math.ceil(gap / 15)}–${Math.ceil(gap / 10)} months`,
+      timelineEstimate: gap > 0 ? `${Math.ceil(gap / 15)}–${Math.ceil(gap / 10)} months` : 'Unknown',
     });
   }
 
@@ -487,33 +623,28 @@ export async function autoAssessGraduation(
     ? Math.max(...personalProfiles.map((p) => p.score ?? 0))
     : 0;
 
-  // Extract best business credit score (SBSS, Intelliscore or Paydex).
+  // The latest score of each business product, kept apart.
   //
-  // `intelliscore` is listed because Experian business pulls now carry their
-  // own product name rather than being written as SBSS; without it those
-  // profiles would stop counting here, which would be a behaviour change
-  // smuggled in by a renaming.
+  // This was `Math.max` over every business profile — PAYDEX 0–100,
+  // Intelliscore 1–100, SBSS 0–300 — producing one number that was then
+  // compared against thresholds that are SBSS figures. A PAYDEX of 88 cleared
+  // a requirement for an SBSS of 50. There was no way for the comparison to
+  // notice, because a number cannot say which product it is a number of.
   //
-  // KNOWN, and older than this list: the `Math.max` below compares three
-  // different scales — SBSS 0–300, Intelliscore 1–100, PAYDEX 0–100 — and the
-  // result is measured against SBSS milestone thresholds. A PAYDEX of 88 is
-  // read as an SBSS of 88. Not corrected here because the figure feeds track
-  // eligibility, and narrowing it would silently demote every client whose
-  // only business score is a PAYDEX. Recorded in docs/gaps.md 1c.
-  //
-  // `equifax_business_risk` is absent from this allowlist on purpose. It runs
-  // 101–992, so including it would let a routine Equifax score clear every
-  // threshold here. A client whose only business score is an Equifax one now
-  // contributes nothing rather than contributing a number that means something
-  // else — which is the same trade the list already makes, made visible.
-  const bizProfiles = business.creditProfiles.filter(
-    (p) =>
-      p.profileType === 'business' &&
-      (p.scoreType === 'sbss' || p.scoreType === 'intelliscore' || p.scoreType === 'paydex'),
-  );
-  const businessCreditScore = bizProfiles.length > 0
-    ? Math.max(...bizProfiles.map((p) => p.score ?? 0))
-    : 0;
+  // Each threshold now names its product, so nothing has to be flattened, and
+  // a product the client has never been scored on is simply absent.
+  const bizProfiles = business.creditProfiles
+    .filter((p) => p.profileType === 'business')
+    .sort((a, b) => b.pulledAt.getTime() - a.pulledAt.getTime());
+
+  const businessScores: BusinessScores = {};
+  for (const p of bizProfiles) {
+    if (!p.scoreType || p.score === null) continue;
+    const scoreType = p.scoreType as ScoreType;
+    // Latest wins: the list is newest-first, so the first of each product is
+    // the current one.
+    if (businessScores[scoreType] === undefined) businessScores[scoreType] = p.score;
+  }
 
   // Tradeline count from most recent business profile
   const latestBizProfile = bizProfiles[0] ?? null;
@@ -534,7 +665,7 @@ export async function autoAssessGraduation(
     ficoScore,
     businessAgeMonths:   ageMonths,
     monthlyRevenue,
-    businessCreditScore,
+    businessScores,
     tradelineCount,
     currentUtilization,
   };
