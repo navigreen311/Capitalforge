@@ -158,7 +158,12 @@ test.describe('DUNS step completion', () => {
     await page.getByText(name).first().click();
   }
 
-  /** Clears any marks left by an earlier run, so each test starts from none. */
+  /**
+   * Clears the marks an earlier run left, so each test starts from none.
+   *
+   * Only steps 1 and 3: the rest are derived from the client's data and the
+   * API refuses to have them set by hand.
+   */
   async function resetSteps(page: import('@playwright/test').Page, clientName: string) {
     const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
     const clients = (await fetch(`${API}/v1/clients?pageSize=100`, {
@@ -172,12 +177,13 @@ test.describe('DUNS step completion', () => {
     const target = clients.find((c) => c.businessName === clientName);
     expect(target, `${clientName} is seeded`).toBeTruthy();
 
-    for (let step = 1; step <= 6; step += 1) {
-      await fetch(`${API}/credit-builder/${target!.id}/steps/${step}`, {
+    for (const step of [1, 3]) {
+      const res = await fetch(`${API}/credit-builder/${target!.id}/steps/${step}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: false }),
       });
+      expect(res.ok, `clearing attested step ${step}`).toBe(true);
     }
     return target!.id;
   }
@@ -201,15 +207,20 @@ test.describe('DUNS step completion', () => {
     await resetSteps(page, CLIENT_WITH_SCORE);
     await selectClient(page, CLIENT_WITH_SCORE);
 
-    await expect(page.getByText('0/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+    // Asserted on the attested step's own confirmation line rather than the
+    // aggregate count, which now also moves with derived data — a test that
+    // watched the total would pass or fail on how many trade lines the seed
+    // happens to carry.
+    const confirmed = page.getByText(/Confirmed by an advisor/);
+    await expect(confirmed).toHaveCount(0, { timeout: 30000 });
 
     await page.getByRole('checkbox').first().click();
-    await expect(page.getByText('1/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+    await expect(confirmed).toHaveCount(1, { timeout: 30000 });
 
-    // The whole point. This used to come back 0/6.
+    // The whole point. This used to come back unmarked.
     await page.reload();
     await selectClient(page, CLIENT_WITH_SCORE);
-    await expect(page.getByText('1/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText(/Confirmed by an advisor/)).toHaveCount(1, { timeout: 30000 });
   });
 
   test('marks belong to one client and do not follow the picker', async ({
@@ -221,13 +232,92 @@ test.describe('DUNS step completion', () => {
 
     await selectClient(page, CLIENT_WITH_SCORE);
     await page.getByRole('checkbox').first().click();
-    await expect(page.getByText('1/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText(/Confirmed by an advisor/)).toHaveCount(1, { timeout: 30000 });
 
     // Switching client used to carry the marks across, so a business nobody
     // had touched showed another one's progress.
     await page.getByRole('button', { name: 'Clear selected client' }).click();
     await selectClient(page, CLIENT_WITHOUT_SCORE);
-    await expect(page.getByText('0/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText(/Confirmed by an advisor/)).toHaveCount(0, { timeout: 30000 });
+  });
+});
+
+// ── Derived steps ───────────────────────────────────────────────────────────
+//
+// A client with a PAYDEX of 80 showed the score card ticked and the step-5 bar
+// full at 80/80, while the step itself sat unchecked and the track read 0/6.
+// Completion was manual-only, so nothing connected the figure on screen to the
+// step describing it.
+//
+// Steps 2, 4, 5 and 6 are now read from the client's data; 1 and 3 stay an
+// advisor's claim, because nothing here records a DUNS number or a bank
+// account.
+
+test.describe('Derived DUNS steps', () => {
+  async function selectClient(page: import('@playwright/test').Page, name: string) {
+    const box = page.getByRole('combobox', { name: 'Search clients' });
+    await box.click();
+    await box.fill(name);
+    await page.getByText(name).first().click();
+  }
+
+  test('completes step 5 from the PAYDEX already on screen', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    // The exact defect: this client's PAYDEX is 80 and the step is about
+    // reaching 80. Nobody has to tick anything.
+    await expect(page.getByText('PAYDEX 80, pulled')).toBeVisible({ timeout: 30000 });
+
+    // And the track is no longer 0/6 for a client who has done three of them.
+    await expect(page.getByText('0/6 DUNS steps recorded')).toHaveCount(0);
+  });
+
+  test('states what each derived step read', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    await expect(page.getByText('Address and phone on file')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText('trade lines reporting to D&B').first()).toBeVisible();
+    await expect(page.getByText(/card application(s)? submitted/)).toBeVisible();
+  });
+
+  test('names what is missing rather than only failing', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITHOUT_SCORE);
+
+    await expect(page.getByText(/Missing on the client record:/)).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText('No PAYDEX on record')).toBeVisible();
+  });
+
+  test('offers a toggle only on the two steps an advisor attests', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    // Steps 1 and 3 only. A derived step is not an advisor's to set, and a
+    // control that took the click and changed nothing would be the quiet
+    // version of the defect this page was audited for.
+    await expect(page.getByRole('checkbox')).toHaveCount(2, { timeout: 30000 });
+  });
+
+  test('refuses a hand-marked derived step at the API', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+
+    const res = await fetch(`${API}/credit-builder/seed-biz-001/steps/5`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completed: true }),
+    });
+
+    // 422, not a 200 that changes nothing: a stored mark disagreeing with the
+    // PAYDEX would be read as fact by everything downstream, including the
+    // Tier 1 readiness banner.
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe('STEP_IS_DERIVED');
   });
 });
 
@@ -251,5 +341,20 @@ test.describe('Inert step actions', () => {
     // The two that do something are still offered.
     await expect(page.getByRole('button', { name: /View vendors/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /View eligible cards/ })).toBeVisible();
+  });
+
+  test('links step 1 to D&B, where the registration actually happens', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+
+    // A link that goes where it says, in place of a "Verify DUNS" button that
+    // verified nothing. URL checked 2026-08-05: 200, no redirect. The path
+    // this repo used before, /duns-number/get-a-duns.html, now 301s to it.
+    const link = page.getByRole('link', { name: /Register at D&B/ });
+    await expect(link).toBeVisible({ timeout: 30000 });
+    await expect(link).toHaveAttribute('href', 'https://www.dnb.com/en-us/smb/duns/get-a-duns.html');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 });

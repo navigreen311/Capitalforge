@@ -23,6 +23,11 @@ import { Prisma } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
+import {
+  deriveStepStates,
+  isDerivedStep,
+  CREDIT_BUILDER_STEP_COUNT,
+} from '../../services/credit-builder-steps.service.js';
 
 const prisma = sharedPrisma;
 
@@ -98,16 +103,24 @@ function rangeFor(scoreType: string | null): string | null {
   return spec ? `0-${spec.max}` : null;
 }
 
-/**
- * The DUNS registration track is six steps, and the page renders exactly six.
- *
- * A step outside this range is rejected rather than stored: a row numbered 7
- * would be counted by `completedCount` and never rendered, so the progress
- * figure would disagree with the track it describes.
- */
-const CREDIT_BUILDER_STEP_COUNT = 6;
-
 const TRADELINE_STATUSES = new Set(['open', 'closed', 'delinquent']);
+
+/**
+ * Whether a trade line's `reportsTo` names Dun & Bradstreet.
+ *
+ * The column is free-form JSON written by a form whose checkbox is labelled
+ * "D&B", but a line imported or entered another way may say "Dun & Bradstreet"
+ * or "DNB". Matching on all three is the difference between a step that
+ * completes and one that silently never does.
+ */
+function reportsToDnb(reportsTo: unknown): boolean {
+  if (!Array.isArray(reportsTo)) return false;
+  return reportsTo.some((entry) => {
+    if (typeof entry !== 'string') return false;
+    const normalised = entry.toLowerCase().replace(/[^a-z]/g, '');
+    return normalised === 'db' || normalised === 'dnb' || normalised.startsWith('dunbradstreet');
+  });
+}
 
 /** Vendor terms, and the days each allows before a charge is due. */
 const PAYMENT_TERMS: Record<string, number> = {
@@ -211,30 +224,57 @@ creditBuilderRouter.get(
     const tenantId = getTenantId(req);
 
     try {
-      if (!(await assertClient(clientId, tenantId))) {
+      const business = await prisma.business.findFirst({
+        where: { id: clientId, tenantId },
+        select: {
+          id: true,
+          addressLine1: true,
+          city: true,
+          state: true,
+          zip: true,
+          phoneNumber: true,
+        },
+      });
+
+      if (!business) {
         err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
         return;
       }
 
-      const rows = await prisma.creditBuilderStep.findMany({
-        where: { businessId: clientId, tenantId },
-      });
+      // Four of the six steps are computed from the client's own data, so this
+      // reads what those rules need. Trade lines are counted against D&B
+      // specifically: step 4 asks for lines that build the D&B file, and one
+      // reporting only to Experian Business does not.
+      const [marks, tradelines, latestPaydex, submittedApplications] = await Promise.all([
+        prisma.creditBuilderStep.findMany({ where: { businessId: clientId, tenantId } }),
+        prisma.vendorTradeline.findMany({
+          where: { businessId: clientId, tenantId, status: 'open' },
+          select: { reportsTo: true },
+        }),
+        prisma.creditProfile.findFirst({
+          where: { businessId: clientId, profileType: 'business', scoreType: 'paydex' },
+          orderBy: { pulledAt: 'desc' },
+          select: { score: true, pulledAt: true },
+        }),
+        prisma.cardApplication.count({
+          where: { businessId: clientId, NOT: { status: 'draft' } },
+        }),
+      ]);
 
-      const byNumber = new Map(rows.map((r) => [r.stepNumber, r]));
-
-      // All six are returned whether or not a row exists. A step nobody has
-      // touched is not completed, and saying so here keeps the caller from
-      // having to decide what a missing row means.
-      const steps = Array.from({ length: CREDIT_BUILDER_STEP_COUNT }, (_, i) => {
-        const stepNumber = i + 1;
-        const row = byNumber.get(stepNumber);
-        return {
-          stepNumber,
-          completed: row?.completed ?? false,
-          completedAt: row?.completedAt?.toISOString() ?? null,
-          completedBy: row?.completedBy ?? null,
-        };
-      });
+      const steps = deriveStepStates(
+        {
+          addressLine1: business.addressLine1,
+          city: business.city,
+          state: business.state,
+          zip: business.zip,
+          phoneNumber: business.phoneNumber,
+          dnbTradelineCount: tradelines.filter((t) => reportsToDnb(t.reportsTo)).length,
+          paydex: latestPaydex?.score ?? null,
+          paydexPulledAt: latestPaydex?.pulledAt ?? null,
+          submittedApplicationCount: submittedApplications,
+        },
+        marks,
+      );
 
       ok(
         res,
@@ -243,6 +283,7 @@ creditBuilderRouter.get(
           steps,
           completedCount: steps.filter((s) => s.completed).length,
           totalSteps: CREDIT_BUILDER_STEP_COUNT,
+          derivedSteps: steps.filter((s) => s.source === 'derived').length,
         },
         { total: steps.length },
       );
@@ -279,6 +320,24 @@ creditBuilderRouter.put(
 
     if (typeof completed !== 'boolean') {
       err(res, 422, 'VALIDATION_ERROR', 'completed (boolean) is required.');
+      return;
+    }
+
+    // Refused rather than accepted and ignored. Steps 2, 4, 5 and 6 report what
+    // the client's data says — an address on file, trade lines reporting to
+    // D&B, the PAYDEX, a submitted application — and a stored mark that
+    // disagreed with the figure would be read as fact by everything downstream,
+    // including the Tier 1 readiness banner. Answering 200 here and changing
+    // nothing would be the quieter version of the same lie.
+    if (isDerivedStep(stepNumber)) {
+      err(
+        res,
+        422,
+        'STEP_IS_DERIVED',
+        `Step ${stepNumber} is derived from this client's data and cannot be marked by hand. `
+          + 'Change what it reads — the address on the client record, the trade lines, the PAYDEX '
+          + 'pull, or a submitted card application — and it follows.',
+      );
       return;
     }
 

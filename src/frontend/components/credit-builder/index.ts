@@ -7,4 +7,5 @@ export { EstimatedProgressTimeline } from './EstimatedProgressTimeline';
 export { GraduationBanner } from './GraduationBanner';
 export { MilestoneAlertSystem, checkMilestones } from './MilestoneAlertSystem';
 export { StepCompletionToggle } from './StepCompletionToggle';
+export { DerivedStepIndicator } from './DerivedStepIndicator';
 export { VendorFilterBar } from './VendorFilterBar';

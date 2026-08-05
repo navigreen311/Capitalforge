@@ -11,6 +11,30 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **DUNS steps 2, 4, 5 and 6 are derived from the client's data.** A client with
+  a PAYDEX of 80 showed the score card ticked and the step-5 bar full at 80/80,
+  while the step itself sat unchecked and the track read 0/6 with Overall
+  Progress at 0% — completion was manual-only, so nothing connected the figure
+  on screen to the step describing it. Address and phone, trade lines reporting
+  to D&B, the PAYDEX and a submitted card application are now read on every
+  request, each stating the basis it read. `PUT /steps/:n` on a derived step
+  answers 422 rather than accepting a mark it would ignore, and a stored mark
+  left from before these rules cannot outvote the data. Steps 1 and 3 stay
+  advisor-attested: nothing here records a DUNS number or a bank account.
+- **Step 1 links to D&B's registration page** —
+  `https://www.dnb.com/en-us/smb/duns/get-a-duns.html`, verified 2026-08-05 as
+  200 with no redirect. The path previously hardcoded in
+  `credit-builder.service.ts` now 301s to it; both are updated.
+
+### Fixed
+
+- **The tradeline tracker's D&B count matches its own label.** The summary reads
+  "Tradelines reporting to D&B" and was counted with `reportingCount`, which
+  counts a line reporting to *any* bureau — so five Experian-only lines read as
+  five of five toward a D&B threshold.
+
+### Added
+
 - **DUNS track progress is recorded per client** — new `credit_builder_steps` table
   (`businessId` + `stepNumber`, unique), `GET /api/credit-builder/:clientId/steps` and
   `PUT /api/credit-builder/:clientId/steps/:stepNumber`. The six completion circles on

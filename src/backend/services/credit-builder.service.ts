@@ -56,7 +56,9 @@ export const DUNS_REGISTRATION_STEPS: DunsRegistrationStep[] = [
     stepNumber:    2,
     title:         'Register for a D-U-N-S Number (Free)',
     detail:        'Go to D&B iUpdate or the D&B Credit Signup page. Select "Get a D-U-N-S Number" → "Get a D-U-N-S Number for Free". Allow 30 business days for standard processing. Expedited is available for a fee but is rarely necessary.',
-    url:           'https://www.dnb.com/duns-number/get-a-duns.html',
+    // Checked 2026-08-05: the /duns-number/ path this used answers 301 to the
+    // /en-us/smb/duns/ one below, which returns 200 with no redirect.
+    url:           'https://www.dnb.com/en-us/smb/duns/get-a-duns.html',
     estimatedDays: 30,
   },
   {

@@ -26,6 +26,7 @@ import {
   TradelineTracker,
   VendorFilterBar,
   StepCompletionToggle,
+  DerivedStepIndicator,
   TradelineSubProgress,
   PaydexSubProgress,
   EstimatedProgressTimeline,
@@ -51,6 +52,15 @@ interface DunsStep {
   description: string;
   estimatedDays: string;
   actionLabel?: string;
+  /**
+   * An outbound link, where the step is completed somewhere else entirely.
+   *
+   * Distinct from `actionLabel`, which drives something in this application.
+   * A link goes where it says it goes; nothing here claims to have done
+   * anything on the advisor's behalf.
+   */
+  externalUrl?: string;
+  externalLabel?: string;
 }
 
 interface Net30Vendor {
@@ -150,7 +160,14 @@ interface MilestoneAlert {
 // button labelled "Verify" that cannot verify is the failure this page has
 // been audited for twice.
 const DUNS_STEPS: DunsStep[] = [
-  { id: 1, title: 'Register DUNS Number', description: 'Apply at Dun & Bradstreet. DUNS is required for all business credit activity.', estimatedDays: '1–3 days' },
+  // The registration happens at D&B, so the honest control is a link to D&B.
+  // This step used to offer "Verify DUNS →", which had no handler branch and
+  // did nothing; nothing in this system can verify a DUNS number.
+  //
+  // URL checked 2026-08-05: 200, no redirect. The path D&B previously used,
+  // /duns-number/get-a-duns.html — which is still hardcoded in
+  // credit-builder.service.ts — now answers 301 to this one.
+  { id: 1, title: 'Register DUNS Number', description: 'Apply at Dun & Bradstreet. DUNS is required for all business credit activity.', estimatedDays: '1–3 days', externalUrl: 'https://www.dnb.com/en-us/smb/duns/get-a-duns.html', externalLabel: 'Register at D&B' },
   { id: 2, title: 'Establish Business Address & Phone', description: 'Ensure business address is a physical or registered agent address. Get a dedicated business phone line.', estimatedDays: 'Immediate' },
   { id: 3, title: 'Open Business Bank Account', description: 'Separate personal and business finances. Minimum 3 months of activity strengthens profile.', estimatedDays: '1 day' },
   { id: 4, title: 'Apply for Net-30 Vendor Accounts', description: 'Open at least 5 trade lines with Tier 1 vendors that report to Dun & Bradstreet.', estimatedDays: '2–4 weeks', actionLabel: 'View vendors' },
@@ -295,7 +312,10 @@ export default function CreditBuilderPage() {
         const mark = stepState?.find((s) => s.stepNumber === step.id) ?? null;
         return {
           ...step,
+          // Attested until the API says otherwise, matching `toDunsSteps`.
+          source: mark?.source ?? 'attested',
           completed: mark?.completed ?? false,
+          basis: mark?.basis ?? null,
           completedDate: mark?.completedAt ?? null,
         };
       }),
@@ -471,7 +491,10 @@ export default function CreditBuilderPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-base font-semibold text-gray-200">DUNS Registration Track</h2>
-            <p className="text-xs text-gray-500 mt-0.5">6 foundational steps to establish D&B credit profile</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              6 foundational steps to establish D&B credit profile · 4 read from this
+              client&apos;s data, 2 confirmed by an advisor
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <div className="h-2 w-32 rounded-full bg-gray-800">
@@ -487,25 +510,49 @@ export default function CreditBuilderPage() {
         <div className="space-y-2">
           {dunsSteps.map((step) => (
             <div key={step.id} className={`flex items-start gap-4 p-4 rounded-lg border transition-colors ${step.completed ? 'border-green-800 bg-green-900/20' : 'border-gray-800 bg-gray-900/50 hover:bg-gray-900'}`}>
-              {/* Disabled without a client: there is nowhere to record the
-                  mark, and a circle that ticks and saves nothing is the
-                  defect this page had. */}
-              <StepCompletionToggle
-                stepId={String(step.id)}
-                completed={step.completed}
-                completedDate={null}
-                disabled={!selectedClient || savingStep !== null}
-                onToggle={(_stepId, next) => { void toggleStep(step.id, next); }}
-              />
+              {/* Two kinds of claim, two controls. A derived step reports what
+                  the client's data says and offers nothing to click: it is not
+                  an advisor's to set, and a control that took the click and
+                  changed nothing would be the quiet version of the defect this
+                  page was audited for. An attested step keeps the toggle, and
+                  is disabled without a client — there is nowhere to record it. */}
+              {step.source === 'derived' ? (
+                <DerivedStepIndicator completed={step.completed} known={stepState !== null} />
+              ) : (
+                <StepCompletionToggle
+                  stepId={String(step.id)}
+                  completed={step.completed}
+                  completedDate={null}
+                  disabled={!selectedClient || savingStep !== null}
+                  onToggle={(_stepId, next) => { void toggleStep(step.id, next); }}
+                />
+              )}
               <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center mt-0.5">
                 <span className="text-xs font-bold text-gray-400">{step.id}</span>
               </div>
               <div className="flex-1 min-w-0">
                 <p className={`text-sm font-semibold ${step.completed ? 'text-green-300 line-through opacity-70' : 'text-gray-100'}`}>{step.title}</p>
                 <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{step.description}</p>
-                {step.completed && step.completedDate && (
-                  <p className="text-xs text-green-500 mt-1">Completed {formatDate(step.completedDate)}</p>
+
+                {/* What the step rests on, stated differently for each kind.
+                    "The PAYDEX is 80" and "Sarah confirmed it" are different
+                    claims, and only one of them has an author. */}
+                {step.source === 'derived' && step.basis && (
+                  <p className={`text-xs mt-1 ${step.completed ? 'text-green-500' : 'text-gray-400'}`}>
+                    <span className="text-gray-500">From this client&apos;s data:</span> {step.basis}
+                  </p>
                 )}
+                {step.source === 'attested' && step.completed && step.completedDate && (
+                  <p className="text-xs text-green-500 mt-1">
+                    Confirmed by an advisor {formatDate(step.completedDate)}
+                  </p>
+                )}
+                {step.source === 'attested' && !step.completed && selectedClient && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    Nothing here records this — an advisor confirms it
+                  </p>
+                )}
+
                 {step.id === 4 && !step.completed && <div className="mt-2"><TradelineSubProgress current={tradelineCount} target={5} /></div>}
                 {step.id === 5 && !step.completed && <div className="mt-2"><PaydexSubProgress currentScore={scores.paydex} targetScore={80} /></div>}
               </div>
@@ -515,6 +562,16 @@ export default function CreditBuilderPage() {
                   <button onClick={() => handleStepAction(step)} className="mt-1 text-xs text-yellow-500 hover:text-yellow-400 hover:underline">
                     {step.actionLabel} →
                   </button>
+                )}
+                {step.externalUrl && !step.completed && (
+                  <a
+                    href={step.externalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 block text-xs text-yellow-500 hover:text-yellow-400 hover:underline whitespace-nowrap"
+                  >
+                    {step.externalLabel ?? 'Open'} &#x2197;
+                  </a>
                 )}
               </div>
             </div>

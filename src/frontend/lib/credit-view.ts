@@ -254,9 +254,23 @@ export function toTradelineCount(data: unknown): number | null {
 
 // ── DUNS registration track ─────────────────────────────────────────────────
 
+/**
+ * Which kind of claim a step carries.
+ *
+ * `derived` is recomputed from the client's data on every read and can go
+ * backwards — close a trade line and step 4 stops being complete. `attested`
+ * is an advisor saying so, with their id on the record. The page must not
+ * present them identically: "the PAYDEX is 80" and "Sarah confirmed the bank
+ * account" are different claims, and only one of them has an author.
+ */
+export type DunsStepSource = 'derived' | 'attested';
+
 export interface DunsStepState {
   stepNumber: number;
+  source: DunsStepSource;
   completed: boolean;
+  /** What the data said, for a derived step. Null for an attested one. */
+  basis: string | null;
   completedAt: string | null;
   /** User id of whoever marked it, when one was recorded. */
   completedBy: string | null;
@@ -293,7 +307,13 @@ export function toDunsSteps(data: unknown): DunsStepState[] | null {
     return [
       {
         stepNumber,
+        // Anything the API does not explicitly call derived is treated as
+        // attested, which is the safe direction: an attested step offers a
+        // control and says who marked it, so a mislabelled one is visibly
+        // wrong rather than quietly authoritative.
+        source: r['source'] === 'derived' ? 'derived' : 'attested',
         completed: r['completed'] === true,
+        basis: typeof r['basis'] === 'string' ? r['basis'] : null,
         completedAt: typeof r['completedAt'] === 'string' ? r['completedAt'] : null,
         completedBy: typeof r['completedBy'] === 'string' ? r['completedBy'] : null,
       },
@@ -427,6 +447,34 @@ export function toTradelines(data: unknown): TradelineView[] {
 /** How many tradelines are actually reporting to a bureau. */
 export function reportingCount(tradelines: TradelineView[]): number {
   return tradelines.filter((t) => t.status === 'Reporting').length;
+}
+
+/**
+ * Whether a `reportsTo` entry names Dun & Bradstreet.
+ *
+ * The list is free-form — the add form's checkbox writes "D&B", but a line
+ * entered or imported another way may say "Dun & Bradstreet" or "DNB".
+ * Mirrors the backend rule that derives DUNS step 4, so the count on this page
+ * and the step above it cannot disagree.
+ */
+function namesDnb(bureau: string): boolean {
+  const normalised = bureau.toLowerCase().replace(/[^a-z]/g, '');
+  return normalised === 'db' || normalised === 'dnb' || normalised.startsWith('dunbradstreet');
+}
+
+/**
+ * How many tradelines report to D&B specifically.
+ *
+ * The tradeline tracker's summary is labelled "Tradelines reporting to D&B"
+ * and counted with `reportingCount`, which counts a line reporting to *any*
+ * bureau — so a client with five Experian-only lines read as five of five
+ * toward a D&B threshold. The label and the figure have disagreed since the
+ * summary was written; this is the figure the label describes.
+ */
+export function dnbReportingCount(tradelines: TradelineView[]): number {
+  return tradelines.filter(
+    (t) => t.status === 'Reporting' && t.reportsTo.some(namesDnb),
+  ).length;
 }
 
 // ── Score history ───────────────────────────────────────────────────────────
