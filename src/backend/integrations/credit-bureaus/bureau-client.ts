@@ -388,8 +388,12 @@ async function equifaxPullBusiness(ein: string): Promise<CreditProfile> {
     profileId:       uuidv4(),
     bureau:          'equifax',
     profileType:     'business',
-    score:           100 + Math.floor(Math.random() * 200), // SBSS: 0–300
-    scoreType:       'sbss',
+    // Equifax Business Credit Risk Score, 101–992 — Equifax's own product.
+    // This wrote `sbss`, which is FICO's on a 0–300 scale, so nothing in the
+    // system produced the score the "Equifax Business Credit ≥ 500" criterion
+    // reads. SBSS keeps its producer in transunionPullBusiness above.
+    score:           101 + Math.floor(Math.random() * 892),
+    scoreType:       'equifax_business_risk',
     utilization:     parseFloat((Math.random() * 0.55).toFixed(4)),
     inquiryCount:    Math.floor(Math.random() * 5),
     derogatoryCount: Math.floor(Math.random() * 2),

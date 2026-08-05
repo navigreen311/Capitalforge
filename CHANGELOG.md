@@ -9,6 +9,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tier 2 is reachable.** `sc_006` ("Equifax Business Credit ≥ 500") could not be
+  satisfied by any client: the Equifax business adapter wrote `sbss` — FICO's
+  product, on a 0–300 scale — so nothing anywhere produced the score the
+  criterion reads, and a tier that requires it could never unlock. Equifax now
+  writes its own **Business Credit Risk Score, 101–992**, on both the live pull
+  path and the scaffolding adapters. SBSS keeps its producer in TransUnion, so
+  `sc_004` and `sc_008` are unaffected. Every business product now has exactly
+  one producer, and it is the product that bureau actually sells.
+
+  Same defect as the Intelliscore fix earlier in this release, one criterion
+  further along: a bureau adapter labelling its output with another company's
+  product name. A test now asserts every score type the eight criteria read has
+  a producer.
+
 ### Added
 
 - **The 8 stacking criteria are assessed**, from the same facts the DUNS steps

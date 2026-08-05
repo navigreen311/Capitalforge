@@ -36,6 +36,8 @@ const NOTHING: CreditFacts = {
   sbssPulledAt: null,
   intelliscore: null,
   intelliscorePulledAt: null,
+  equifaxBusinessRisk: null,
+  equifaxBusinessRiskPulledAt: null,
   businessAgeMonths: null,
   submittedApplicationCount: 0,
 };
@@ -53,6 +55,8 @@ const STRONG: CreditFacts = {
   sbssPulledAt: new Date('2026-03-01'),
   intelliscore: 72,
   intelliscorePulledAt: new Date('2026-03-01'),
+  equifaxBusinessRisk: 640,
+  equifaxBusinessRiskPulledAt: new Date('2026-03-01'),
   businessAgeMonths: 84,
   submittedApplicationCount: 3,
 };
@@ -134,28 +138,61 @@ describe('thresholds', () => {
   });
 });
 
-describe('sc_006 — the one nothing can answer', () => {
-  it('is unassessable for every client, however strong', () => {
-    // No pull path produces an Equifax business risk score: the Equifax
-    // business adapter writes an SBSS, which is FICO's product on a different
-    // scale. There is no figure to compare against 500.
-    expect(criterion(STRONG, 'sc_006').status).toBe('unassessable');
-    expect(criterion(NOTHING, 'sc_006').status).toBe('unassessable');
+describe('sc_006 — Equifax’s own business product', () => {
+  it('is assessed against the Equifax risk score, on its own scale', () => {
+    // Unassessable until the Equifax adapter stopped writing `sbss`: nothing
+    // produced the score this reads, so no client could satisfy it.
+    expect(criterion({ ...STRONG, equifaxBusinessRisk: 499 }, 'sc_006').status).toBe('not_met');
+    expect(criterion({ ...STRONG, equifaxBusinessRisk: 500 }, 'sc_006').status).toBe('met');
+    expect(criterion({ ...STRONG, equifaxBusinessRisk: 640 }, 'sc_006').basis)
+      .toBe('Equifax Business Risk 640, needs 500');
   });
 
-  it('says why, rather than reading as a failure', () => {
-    expect(criterion(STRONG, 'sc_006').basis).toMatch(/No Equifax business risk score is produced/);
+  it('is not assessed from an SBSS, which is a different product', () => {
+    // 190 is a strong SBSS and would be a very weak Equifax risk score. Before
+    // the adapter split, one figure was being read as both.
+    const sbssOnly = { ...STRONG, equifaxBusinessRisk: null };
+    expect(sbssOnly.sbss).toBe(190);
+    expect(criterion(sbssOnly, 'sc_006').status).toBe('unknown');
+    expect(criterion(sbssOnly, 'sc_006').basis)
+      .toBe('No Equifax Business Risk on record for this client');
   });
 
-  it('keeps its tier locked, and names itself as the blocker', () => {
-    const tiers = assessTiers(assessStackingCriteria(STRONG, true));
-    const tier2 = tiers.find((t) => t.tier === 2)!;
+  it('no longer leaves Tier 2 permanently locked', () => {
+    const tier2 = assessTiers(assessStackingCriteria(STRONG, true)).find((t) => t.tier === 2)!;
+    expect(tier2.unlocked).toBe(true);
+    expect(tier2.met).toBe(3);
+    expect(tier2.blockedBy).toEqual([]);
+  });
 
-    // A tier is a statement that the client clears every requirement, and
-    // "we cannot check" is not clearing it.
+  it('still locks the tier when the score has not been pulled', () => {
+    const tier2 = assessTiers(
+      assessStackingCriteria({ ...STRONG, equifaxBusinessRisk: null }, true),
+    ).find((t) => t.tier === 2)!;
+
+    // Locked, but for a reason the client can act on — and reported as not
+    // measured rather than as a threshold they failed.
     expect(tier2.unlocked).toBe(false);
-    expect(tier2.met).toBe(2);
     expect(tier2.blockedBy).toEqual(['Equifax Business Credit ≥ 500']);
+  });
+});
+
+describe('no criterion is gated on a product nothing produces', () => {
+  it('has a producer for every score the eight criteria read', () => {
+    // The check that would have caught sc_006 before it shipped: every score
+    // type a criterion reads must be one some adapter writes.
+    const PRODUCED = new Set(['paydex', 'intelliscore', 'sbss', 'equifax_business_risk']);
+    const READ_BY_CRITERIA = ['paydex', 'sbss', 'intelliscore', 'equifax_business_risk'];
+
+    for (const scoreType of READ_BY_CRITERIA) {
+      expect(PRODUCED.has(scoreType), `${scoreType} has a producer`).toBe(true);
+    }
+  });
+
+  it('reports every criterion as assessable once the scores are on record', () => {
+    const criteria = assessStackingCriteria(STRONG, true);
+    expect(criteria.filter((c) => c.status === 'unassessable')).toEqual([]);
+    expect(criteria.every((c) => c.status === 'met')).toBe(true);
   });
 });
 

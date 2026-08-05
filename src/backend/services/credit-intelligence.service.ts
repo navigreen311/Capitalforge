@@ -75,12 +75,25 @@ function stubSbssScore(): number {
   return 100 + Math.floor(Math.random() * 200); // SBSS: 0–300
 }
 
+/** Equifax Business Credit Risk Score: 101–992, higher is lower risk. */
+function stubEquifaxBusinessRisk(): number {
+  return 101 + Math.floor(Math.random() * 892);
+}
+
 function stubEquifaxPull(businessId: string, profileType: string): BureauPullResult {
   const base = 650 + Math.floor(Math.random() * 150);
   return {
     bureau: 'equifax',
-    score: profileType === 'business' ? stubSbssScore() : base,
-    scoreType: profileType === 'business' ? 'sbss' : 'fico',
+    // Equifax's business product is its Business Credit Risk Score, 101–992 —
+    // not SBSS, which is FICO's and runs 0–300. Writing it as `sbss` left the
+    // "Equifax Business Credit ≥ 500" criterion unassessable for every client,
+    // because nothing anywhere produced the score it reads.
+    //
+    // SBSS keeps a producer: TransUnion writes it. Every business product now
+    // has exactly one — PAYDEX from D&B, Intelliscore from Experian, SBSS from
+    // TransUnion, this from Equifax.
+    score: profileType === 'business' ? stubEquifaxBusinessRisk() : base,
+    scoreType: profileType === 'business' ? 'equifax_business_risk' : 'fico',
     utilization: parseFloat((Math.random() * 0.6).toFixed(4)),
     inquiryCount: Math.floor(Math.random() * 8),
     derogatoryCount: Math.floor(Math.random() * 3),

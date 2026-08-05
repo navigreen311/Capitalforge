@@ -9,7 +9,14 @@ import { z } from 'zod';
 
 export const BureauSchema = z.enum(['equifax', 'transunion', 'experian', 'dnb']);
 
-export const ScoreTypeSchema = z.enum(['fico', 'vantage', 'sbss', 'paydex', 'intelliscore']);
+export const ScoreTypeSchema = z.enum([
+  'fico',
+  'vantage',
+  'sbss',
+  'paydex',
+  'intelliscore',
+  'equifax_business_risk',
+]);
 
 export const CreditProfileTypeSchema = z.enum(['personal', 'business']);
 
@@ -157,6 +164,14 @@ export function validateScoreForType(score: number, scoreType: string): string |
     // which put a 1–100 figure on a 0–300 card.
     case 'intelliscore':
       if (score < 1 || score > 100) return `Intelliscore must be 1–100, got ${score}`;
+      break;
+    // Equifax's own business product. Higher is lower risk, and the scale
+    // starts at 101 rather than 0 — a zero here would not be a bad score, it
+    // would be an impossible one.
+    case 'equifax_business_risk':
+      if (score < 101 || score > 992) {
+        return `Equifax Business Risk Score must be 101–992, got ${score}`;
+      }
       break;
     case 'paydex':
       if (score < 0 || score > 100) return `Paydex score must be 0–100, got ${score}`;

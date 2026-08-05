@@ -36,6 +36,9 @@ export interface CreditFacts {
   sbssPulledAt: Date | null;
   intelliscore: number | null;
   intelliscorePulledAt: Date | null;
+  /** Equifax Business Credit Risk Score, 101–992. */
+  equifaxBusinessRisk: number | null;
+  equifaxBusinessRiskPulledAt: Date | null;
 
   /**
    * Whole months since the business was formed, null when no formation date is
@@ -124,6 +127,7 @@ export async function readCreditFacts(
   const paydex = latest('paydex');
   const sbss = latest('sbss');
   const intelliscore = latest('intelliscore');
+  const equifaxBusinessRisk = latest('equifax_business_risk');
 
   return {
     addressLine1: business.addressLine1,
@@ -138,6 +142,8 @@ export async function readCreditFacts(
     sbssPulledAt: sbss?.pulledAt ?? null,
     intelliscore: intelliscore?.score ?? null,
     intelliscorePulledAt: intelliscore?.pulledAt ?? null,
+    equifaxBusinessRisk: equifaxBusinessRisk?.score ?? null,
+    equifaxBusinessRiskPulledAt: equifaxBusinessRisk?.pulledAt ?? null,
     businessAgeMonths: business.dateOfFormation
       ? monthsSince(business.dateOfFormation, now)
       : null,

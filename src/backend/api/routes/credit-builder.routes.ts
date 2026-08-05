@@ -94,6 +94,12 @@ const SCORE_BANDS: Record<string, { max: number; bands: [number, string][] }> = 
   paydex: { max: 100, bands: [[80, 'Low risk'], [50, 'Medium risk'], [0, 'High risk']] },
   intelliscore: { max: 100, bands: [[76, 'Low risk'], [51, 'Medium risk'], [0, 'High risk']] },
   sbss: { max: 300, bands: [[180, 'Low risk'], [140, 'Medium risk'], [0, 'High risk']] },
+  // Equifax's own business product. Starts at 101, not 0 — the bottom band is
+  // written from there so a real score cannot fall outside every band.
+  equifax_business_risk: {
+    max: 992,
+    bands: [[700, 'Low risk'], [500, 'Medium risk'], [101, 'High risk']],
+  },
 };
 
 function ratingFor(scoreType: string | null, score: number | null): string | null {

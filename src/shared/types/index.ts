@@ -44,7 +44,19 @@ export type Bureau = 'equifax' | 'transunion' | 'experian' | 'dnb';
  * Intelliscore line on the trajectory chart and the "Experian Intelliscore
  * ≥ 60" stacking criterion were all reading a key that was never written.
  */
-export type ScoreType = 'fico' | 'vantage' | 'sbss' | 'paydex' | 'intelliscore';
+export type ScoreType =
+  | 'fico'
+  | 'vantage'
+  | 'sbss'
+  | 'paydex'
+  | 'intelliscore'
+  /**
+   * Equifax Business Credit Risk Score, 101–992. Equifax's own product, and
+   * not SBSS — which is FICO's, runs 0–300, and was what the Equifax business
+   * adapter wrote. Nothing produced this string, so the "Equifax Business
+   * Credit ≥ 500" stacking criterion could not be assessed for any client.
+   */
+  | 'equifax_business_risk';
 export type CreditProfileType = 'personal' | 'business';
 
 // Funding

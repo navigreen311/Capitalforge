@@ -380,6 +380,28 @@ const SEED_PHONES = {
     },
   });
 
+  // Equifax's own business score for the same client, so the "Equifax Business
+  // Credit ≥ 500" criterion has something to assess. Until the Equifax adapter
+  // stopped writing `sbss`, nothing anywhere produced this score and the
+  // criterion could not be satisfied by any client.
+  await prisma.creditProfile.upsert({
+    where: { id: 'seed-cp-006' },
+    update: {},
+    create: {
+      id: 'seed-cp-006',
+      businessId: biz1.id,
+      profileType: 'business',
+      bureau: 'equifax',
+      score: 640,
+      scoreType: 'equifax_business_risk',
+      utilization: dec('0.22'),
+      inquiryCount: 1,
+      derogatoryCount: 0,
+      tradelines: { vendors: 12, avgDaysBeyondTerms: 0 },
+      pulledAt: d('2026-03-01'),
+    },
+  });
+
   // Biz 2: moderate personal, no business file yet
   await prisma.creditProfile.upsert({
     where: { id: 'seed-cp-003' },

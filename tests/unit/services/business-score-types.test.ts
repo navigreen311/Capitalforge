@@ -86,12 +86,16 @@ describe('business pulls carry the bureau’s own product', () => {
     expect(row.scoreType).toBe('intelliscore');
   });
 
-  it('Equifax and TransUnion still write SBSS', async () => {
-    expect((await pull('equifax', 'business')).scoreType).toBe('sbss');
-    vi.clearAllMocks();
-    profileCreate.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
-      Promise.resolve({ id: 'profile-1', createdAt: new Date(), ...data }),
-    );
+  it('Equifax writes its own Business Risk Score', async () => {
+    // Equifax wrote `sbss` too, so nothing produced the score the "Equifax
+    // Business Credit ≥ 500" criterion reads and it could not be assessed for
+    // any client.
+    expect((await pull('equifax', 'business')).scoreType).toBe('equifax_business_risk');
+  });
+
+  it('TransUnion still writes SBSS, so that product keeps a producer', async () => {
+    // Moving Equifax off `sbss` must not leave SBSS with no source: the
+    // SBSS ≥ 140 and SBSS ≥ 175 criteria read it.
     expect((await pull('transunion', 'business')).scoreType).toBe('sbss');
   });
 
