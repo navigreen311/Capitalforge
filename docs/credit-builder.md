@@ -47,17 +47,46 @@ page uses, and `totalSteps`.
 a row numbered 7 would be counted by `completedCount` and never rendered, so
 the progress figure would disagree with the track it describes.
 
-### What a mark is
+### Two kinds of claim
 
-**An advisor's assertion, not an observation.** Nothing in this system verifies
-a DUNS registration, a business address, or a bank account. `completedBy`
-records who made the claim, and `completedAt` when.
+A step is either **derived** or **attested**, and the page must not present
+them identically. "The PAYDEX is 80" and "Sarah confirmed the bank account" are
+different claims, and only one of them has an author.
 
-Two of the six steps do have machine-readable proxies — step 4 against the
-tradeline count and step 5 against the PAYDEX — and both are shown inside the
-step row alongside the mark. They are deliberately not folded together: what an
-advisor asserts and what the bureaus report are different facts, and a client
-can plausibly be in either state without the other.
+| Step | Kind | Complete when |
+|---|---|---|
+| 1 Register DUNS | attested | an advisor says so |
+| 2 Address & phone | derived | `addressLine1`, `city`, `state`, `zip` **and** `phoneNumber` are on the business |
+| 3 Bank account | attested | an advisor says so |
+| 4 Five trade lines | derived | ≥ 5 open `VendorTradeline` rows reporting to D&B |
+| 5 PAYDEX ≥ 80 | derived | the latest `paydex` `CreditProfile` scores 80+ |
+| 6 Applied for cards | derived | ≥ 1 `CardApplication` that has left draft |
+
+**Derived** is recomputed on every read and stored nowhere. It carries a
+`basis` — *"3 of 5 trade lines reporting to D&B"*, *"PAYDEX 80, pulled
+2026-03-01"* — and no author, because nobody marked it. It **can go backwards**:
+close a trade line and step 4 stops being complete, which a stored mark could
+never do. `PUT /steps/:n` on a derived step answers **422 `STEP_IS_DERIVED`**,
+and a stored mark left over from before these rules is ignored — a mark on
+step 5 must not report a PAYDEX the client does not have.
+
+**Attested** is an advisor's assertion, with `completedBy` and `completedAt` on
+the record. Steps 1 and 3 stay attested because nothing here can observe them:
+no column records a DUNS number, nothing verifies one (the D&B adapter
+*generates* a nine-digit number), and no model records a business bank account.
+`AchAuthorization` is the nearest row and it is a debit authorisation naming a
+processor, which answers a different question.
+
+The rules live in `services/credit-builder-steps.service.ts`, kept pure so each
+is testable without a database.
+
+### Why it needed deriving
+
+A client with a PAYDEX of 80 showed the score card ticked and the step-5
+progress bar full at 80/80 — while step 5 sat unchecked and the track read
+**0/6, Overall Progress 0%**. Completion was manual-only, so nothing connected
+the figure on screen to the step describing it. That client now reads 3/6 on
+load, with no one having clicked anything.
 
 ### Why it needed a table
 
@@ -155,7 +184,25 @@ though nothing had been asked for.
   0% would read as a client scoring zero rather than one never scored.
 - **No "Verify DUNS" or "Record account" button.** Both existed and neither had
   a handler. Nothing here verifies a DUNS number — the D&B adapter *generates*
-  one — and no model records a business bank account.
+  one — and no model records a business bank account. Step 1 offers a link to
+  D&B's registration page instead, which goes where it says it goes and claims
+  nothing about having done it.
+- **No derived step claims an author.** A derived step reports data; it does not
+  report that anybody checked it.
+
+## Outbound links
+
+| Where | URL | Checked |
+|---|---|---|
+| Step 1, "Register at D&B" | `https://www.dnb.com/en-us/smb/duns/get-a-duns.html` | 2026-08-05 — 200, no redirect |
+
+D&B has moved this page before: the path this repo previously hardcoded,
+`https://www.dnb.com/duns-number/get-a-duns.html`, now answers 301 to the one
+above. Both the page and `DUNS_REGISTRATION_STEPS` in
+`credit-builder.service.ts` use the current path, and a browser test asserts
+the `href`, `target="_blank"` and `rel="noopener noreferrer"`. Re-check with
+`curl -sIL` rather than assuming; a link that quietly becomes a redirect chain
+is the failure mode here.
 
 ---
 
