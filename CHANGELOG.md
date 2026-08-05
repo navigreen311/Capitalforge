@@ -9,6 +9,50 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **DUNS track progress is recorded per client** — new `credit_builder_steps` table
+  (`businessId` + `stepNumber`, unique), `GET /api/credit-builder/:clientId/steps` and
+  `PUT /api/credit-builder/:clientId/steps/:stepNumber`. The six completion circles on
+  `/credit-builder` were component state: a reload wiped them, they were keyed to no client
+  (marks made against one business stayed on screen after switching to another), and
+  `tier1Unlocked` reads the count — so the "ready for Tier 1 stacking" banner rested partly
+  on checkboxes that belonged to nobody. Each mark records who made it; nothing in this
+  system verifies any of these steps, so it is stored as an advisor's assertion.
+- **Optimizer reads `client_id`** — `/credit-builder` step 6, the graduation banner and
+  milestone alerts have always linked to `/optimizer?client_id=…&from=…`, and the optimizer
+  read none of it. The client is now preselected, the page says which surface it came from,
+  and a client that cannot be resolved is reported rather than silently ignored.
+
+### Fixed
+
+- **Experian business pulls write an Intelliscore, not an SBSS** — every business pull was
+  stored as `scoreType: 'sbss'` whatever bureau produced it. The credit-builder panel's
+  Experian Business card reads `intelliscore`, so nothing could ever fill it — nor the
+  Intelliscore line on the trajectory chart, nor the "Experian Intelliscore ≥ 60" stacking
+  criterion. Experian's product is Intelliscore Plus (1–100); FICO's SBSS is 0–300.
+- **Business scores are stored on their own scale** — the live pull path generated
+  650–800 (a personal-FICO range) and labelled it `sbss`, a 0–300 product, so a pulled
+  profile would have rendered as "730/300". `validateScoreForType` has said SBSS is 0–300
+  the whole time; nothing on that path called it. A test now pulls each bureau 20 times and
+  validates every stored score against its own type.
+- **Milestone alerts can fire** — `checkMilestones` was imported by `/credit-builder` and
+  never called, on a page that renders the alert stack at the top of every view. Now wired,
+  comparing successive readings per client, and null-safe: an unknown figure is not a zero,
+  so reading a score for the first time is not announced as a crossing.
+
+### Removed
+
+- **The inert "Verify DUNS" and "Record account" buttons** on `/credit-builder` steps 1 and
+  3. `handleStepAction` has only ever had branches for steps 4 and 6, so both did nothing in
+  every state. Not rewired: no `dunsNumber` column exists, nothing verifies one (the D&B
+  adapter *generates* a random nine-digit number), and no model records a business bank
+  account.
+- **`VendorDetailDrawer`** — rendered on `/credit-builder` and unreachable: `setSelectedVendor`
+  was only ever called with `null`, because clicking a vendor row expands it in place. Its
+  "track this vendor" action was a no-op even if it had opened. The expanded row carries the
+  same detail plus a working "+ Add to My Tradelines".
+
 ### Planned for v2.0.0-beta.1
 
 - Sanctions screening live API integration (OFAC SDN via Dow Jones / ComplyAdvantage)
