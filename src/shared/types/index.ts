@@ -33,7 +33,18 @@ export type EntityType = 'llc' | 'corporation' | 'sole_proprietor' | 'partnershi
 
 // Credit
 export type Bureau = 'equifax' | 'transunion' | 'experian' | 'dnb';
-export type ScoreType = 'fico' | 'vantage' | 'sbss' | 'paydex';
+/**
+ * The score products this system stores, by the name of the product.
+ *
+ * `intelliscore` is Experian's business score (Intelliscore Plus, 1–100) and
+ * is not the same product as FICO's SBSS (0–300). Every business pull used to
+ * be written as `sbss` whatever bureau produced it, which made the Experian
+ * Business card on /credit-builder permanently unfillable: it reads
+ * `intelliscore`, and nothing in the system emitted that string. The card, the
+ * Intelliscore line on the trajectory chart and the "Experian Intelliscore
+ * ≥ 60" stacking criterion were all reading a key that was never written.
+ */
+export type ScoreType = 'fico' | 'vantage' | 'sbss' | 'paydex' | 'intelliscore';
 export type CreditProfileType = 'personal' | 'business';
 
 // Funding

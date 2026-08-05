@@ -62,11 +62,24 @@ interface BureauPullResult {
 // rather than per-file: isBureauConfigured and isSyntheticMode are imported
 // from there, so there is one answer to "may this system invent a score".
 
+/**
+ * A business score on the scale of the product it claims to be.
+ *
+ * Every business pull here returned a personal-FICO figure — 650 to 800 —
+ * under `scoreType: 'sbss'`, a product that runs 0–300. So a pulled business
+ * profile stored a score its own type could not hold, and the credit-builder
+ * panel rendered it as "730/300". `validateScoreForType` has said SBSS is
+ * 0–300 the whole time; nothing on this path called it.
+ */
+function stubSbssScore(): number {
+  return 100 + Math.floor(Math.random() * 200); // SBSS: 0–300
+}
+
 function stubEquifaxPull(businessId: string, profileType: string): BureauPullResult {
   const base = 650 + Math.floor(Math.random() * 150);
   return {
     bureau: 'equifax',
-    score: base,
+    score: profileType === 'business' ? stubSbssScore() : base,
     scoreType: profileType === 'business' ? 'sbss' : 'fico',
     utilization: parseFloat((Math.random() * 0.6).toFixed(4)),
     inquiryCount: Math.floor(Math.random() * 8),
@@ -87,7 +100,7 @@ function stubTransUnionPull(businessId: string, profileType: string): BureauPull
   const base = 640 + Math.floor(Math.random() * 160);
   return {
     bureau: 'transunion',
-    score: base,
+    score: profileType === 'business' ? stubSbssScore() : base,
     scoreType: profileType === 'business' ? 'sbss' : 'fico',
     utilization: parseFloat((Math.random() * 0.55).toFixed(4)),
     inquiryCount: Math.floor(Math.random() * 7),
@@ -108,8 +121,12 @@ function stubExperianPull(businessId: string, profileType: string): BureauPullRe
   const base = 660 + Math.floor(Math.random() * 140);
   return {
     bureau: 'experian',
-    score: base,
-    scoreType: profileType === 'business' ? 'sbss' : 'fico',
+    // Experian's business product is Intelliscore Plus, 1–100 — not SBSS,
+    // which is FICO's and runs 0–300. Writing it as `sbss` is what left the
+    // Experian Business card unfillable: the panel reads `intelliscore`, and
+    // no code path produced that string.
+    score: profileType === 'business' ? 1 + Math.floor(Math.random() * 100) : base,
+    scoreType: profileType === 'business' ? 'intelliscore' : 'fico',
     utilization: parseFloat((Math.random() * 0.65).toFixed(4)),
     inquiryCount: Math.floor(Math.random() * 9),
     derogatoryCount: Math.floor(Math.random() * 2),

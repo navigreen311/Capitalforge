@@ -208,6 +208,38 @@ e2e regulator inquiries    : ${e2eInquiries.length}`);
 e2e export audit rows      : ${e2eExportAudits.length}`);
   }
 
+  // ── DUNS step marks left by the browser suite ───────────
+  //
+  // /credit-builder records a client's progress through the six-step DUNS
+  // track. The seed writes none of these rows, so every one against a *seeded*
+  // business came from a test or from clicking around — and the seeded-business
+  // sweep above never reaches them.
+  //
+  // The credit-builder spec marks step 1 to prove a mark survives a reload, and
+  // leaves it marked. So the next run opens on a client already showing 1/6,
+  // and `tier1Unlocked` counts a step nobody in this run set — the count feeds
+  // the "ready for Tier 1 stacking" banner, which is the one figure on that
+  // page that should never accumulate residue.
+  //
+  // Deleted rather than reset, unlike the seeded spend purpose and card
+  // benefits below: GET /steps synthesises all six steps as not-completed when
+  // no row exists, so removing a row and unmarking it are the same state.
+  //
+  // Marks on non-seeded businesses are removed with those businesses, and
+  // counted there.
+  const e2eStepMarks = await prisma.creditBuilderStep.findMany({
+    where: { businessId: { startsWith: SEED_PREFIX } },
+    select: { id: true, businessId: true, stepNumber: true, completed: true },
+  });
+
+  if (e2eStepMarks.length > 0) {
+    const marked = e2eStepMarks.filter((s) => s.completed);
+    console.log(`
+e2e DUNS step marks        : ${e2eStepMarks.length} (${marked.length} completed)`);
+    for (const s of marked.slice(0, 5)) console.log(`   drop  ${s.businessId} step ${s.stepNumber}`);
+    if (marked.length > 5) console.log(`   ...and ${marked.length - 5} more completed`);
+  }
+
   // ── Rows the browser suite writes for real ──────────────
   //
   // The form-label sweep clicks "+ New Client" on /clients, which now opens
@@ -291,6 +323,13 @@ e2e workflow rules         : ${e2eWorkflows.length}`);
     })).count);
     note('vendorTradelines', (await prisma.vendorTradeline.deleteMany({ where: { businessId: { in: ids } } })).count);
 
+    // The foreign key cascades, so the business delete below would take these
+    // anyway. Removed explicitly so they appear in the report: a sweep that
+    // deletes silently cannot be checked against what it claimed to do.
+    note('creditBuilderSteps', (await prisma.creditBuilderStep.deleteMany({
+      where: { businessId: { in: ids } },
+    })).count);
+
     const calls = await prisma.voiceCall.findMany({ where: { businessId: { in: ids } }, select: { id: true } });
     const callIds = calls.map((c) => c.id);
     note('callComplianceScans', (await prisma.callComplianceScan.deleteMany({ where: { callId: { in: callIds } } })).count);
@@ -353,6 +392,12 @@ e2e workflow rules         : ${e2eWorkflows.length}`);
   if (e2eExportAudits.length > 0) {
     note('e2eExportAuditRows', (await prisma.auditLog.deleteMany({
       where: { id: { in: e2eExportAudits.map((a) => a.id) } },
+    })).count);
+  }
+
+  if (e2eStepMarks.length > 0) {
+    note('e2eCreditBuilderSteps', (await prisma.creditBuilderStep.deleteMany({
+      where: { id: { in: e2eStepMarks.map((s) => s.id) } },
     })).count);
   }
 

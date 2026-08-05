@@ -141,3 +141,115 @@ test.describe('Credit builder figures', () => {
     });
   });
 });
+
+// ── DUNS track ──────────────────────────────────────────────────────────────
+//
+// The six completion circles were component state. A reload wiped them, and
+// they were keyed to no client, so marks made against one business stayed on
+// screen after switching to another. `tier1Unlocked` reads the count, which
+// made the "ready for Tier 1 stacking" banner rest partly on checkboxes that
+// belonged to nobody and survived nothing.
+
+test.describe('DUNS step completion', () => {
+  async function selectClient(page: import('@playwright/test').Page, name: string) {
+    const box = page.getByRole('combobox', { name: 'Search clients' });
+    await box.click();
+    await box.fill(name);
+    await page.getByText(name).first().click();
+  }
+
+  /** Clears any marks left by an earlier run, so each test starts from none. */
+  async function resetSteps(page: import('@playwright/test').Page, clientName: string) {
+    const token = await page.evaluate(() => localStorage.getItem('cf_access_token'));
+    const clients = (await fetch(`${API}/v1/clients?pageSize=100`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(expectOk)
+      .then((b) => (b as { data: { id: string; businessName: string }[] }).data)) as {
+      id: string;
+      businessName: string;
+    }[];
+    const target = clients.find((c) => c.businessName === clientName);
+    expect(target, `${clientName} is seeded`).toBeTruthy();
+
+    for (let step = 1; step <= 6; step += 1) {
+      await fetch(`${API}/credit-builder/${target!.id}/steps/${step}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed: false }),
+      });
+    }
+    return target!.id;
+  }
+
+  test('does not offer a mark when there is nowhere to record one', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+
+    // With no client chosen there is no business to record a step against. A
+    // circle that ticks and saves nothing is the defect this page carried.
+    const circles = page.getByRole('checkbox');
+    await expect(circles.first()).toBeDisabled({ timeout: 30000 });
+
+    // And no progress figure is asserted for a track nobody has read.
+    await expect(page.getByText('Select a client to see their DUNS progress')).toBeVisible();
+  });
+
+  test('a mark survives a reload', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    await resetSteps(page, CLIENT_WITH_SCORE);
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    await expect(page.getByText('0/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+
+    await page.getByRole('checkbox').first().click();
+    await expect(page.getByText('1/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+
+    // The whole point. This used to come back 0/6.
+    await page.reload();
+    await selectClient(page, CLIENT_WITH_SCORE);
+    await expect(page.getByText('1/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+  });
+
+  test('marks belong to one client and do not follow the picker', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+    await resetSteps(page, CLIENT_WITH_SCORE);
+    await resetSteps(page, CLIENT_WITHOUT_SCORE);
+
+    await selectClient(page, CLIENT_WITH_SCORE);
+    await page.getByRole('checkbox').first().click();
+    await expect(page.getByText('1/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+
+    // Switching client used to carry the marks across, so a business nobody
+    // had touched showed another one's progress.
+    await page.getByRole('button', { name: 'Clear selected client' }).click();
+    await selectClient(page, CLIENT_WITHOUT_SCORE);
+    await expect(page.getByText('0/6 DUNS steps recorded')).toBeVisible({ timeout: 30000 });
+  });
+});
+
+// ── Controls that did nothing ───────────────────────────────────────────────
+
+test.describe('Inert step actions', () => {
+  test('offers no Verify DUNS or Record account button', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+
+    // Both rendered a link-styled affordance and had no handler branch:
+    // `handleStepAction` has only ever handled steps 4 and 6. Nothing in this
+    // system verifies a DUNS number or records a bank account, so there is
+    // nothing to wire them to.
+    await expect(page.getByRole('button', { name: /Verify DUNS/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Record account/ })).toHaveCount(0);
+
+    // The step rows themselves stay — the process still has six steps.
+    await expect(page.getByText('Register DUNS Number')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText('Open Business Bank Account')).toBeVisible();
+
+    // The two that do something are still offered.
+    await expect(page.getByRole('button', { name: /View vendors/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /View eligible cards/ })).toBeVisible();
+  });
+});

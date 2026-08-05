@@ -4,6 +4,8 @@
 // Endpoints:
 //   GET  /api/credit-builder/:clientId/scores             — latest bureau scores
 //   GET  /api/credit-builder/:clientId/score-history      — movement over pulls
+//   GET  /api/credit-builder/:clientId/steps              — DUNS track progress
+//   PUT  /api/credit-builder/:clientId/steps/:stepNumber  — mark a step
 //   GET  /api/credit-builder/:clientId/tradelines         — vendor tradelines
 //   POST /api/credit-builder/:clientId/tradelines         — open a tradeline
 //   POST /api/credit-builder/:clientId/tradeline-disputes — dispute a tradeline
@@ -96,6 +98,15 @@ function rangeFor(scoreType: string | null): string | null {
   return spec ? `0-${spec.max}` : null;
 }
 
+/**
+ * The DUNS registration track is six steps, and the page renders exactly six.
+ *
+ * A step outside this range is rejected rather than stored: a row numbered 7
+ * would be counted by `completedCount` and never rendered, so the progress
+ * figure would disagree with the track it describes.
+ */
+const CREDIT_BUILDER_STEP_COUNT = 6;
+
 const TRADELINE_STATUSES = new Set(['open', 'closed', 'delinquent']);
 
 /** Vendor terms, and the days each allows before a charge is due. */
@@ -187,6 +198,130 @@ creditBuilderRouter.get(
     } catch (error) {
       logger.error('Failed to load credit-builder history', { clientId, tenantId, error });
       err(res, 500, 'CREDIT_BUILDER_HISTORY_FAILED', 'Unable to load score history.');
+    }
+  },
+);
+
+// ── GET /steps ───────────────────────────────────────────────
+
+creditBuilderRouter.get(
+  '/:clientId/steps',
+  async (req: Request, res: Response): Promise<void> => {
+    const clientId = param(req, 'clientId');
+    const tenantId = getTenantId(req);
+
+    try {
+      if (!(await assertClient(clientId, tenantId))) {
+        err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
+        return;
+      }
+
+      const rows = await prisma.creditBuilderStep.findMany({
+        where: { businessId: clientId, tenantId },
+      });
+
+      const byNumber = new Map(rows.map((r) => [r.stepNumber, r]));
+
+      // All six are returned whether or not a row exists. A step nobody has
+      // touched is not completed, and saying so here keeps the caller from
+      // having to decide what a missing row means.
+      const steps = Array.from({ length: CREDIT_BUILDER_STEP_COUNT }, (_, i) => {
+        const stepNumber = i + 1;
+        const row = byNumber.get(stepNumber);
+        return {
+          stepNumber,
+          completed: row?.completed ?? false,
+          completedAt: row?.completedAt?.toISOString() ?? null,
+          completedBy: row?.completedBy ?? null,
+        };
+      });
+
+      ok(
+        res,
+        {
+          clientId,
+          steps,
+          completedCount: steps.filter((s) => s.completed).length,
+          totalSteps: CREDIT_BUILDER_STEP_COUNT,
+        },
+        { total: steps.length },
+      );
+    } catch (error) {
+      logger.error('Failed to load credit-builder steps', { clientId, tenantId, error });
+      err(res, 500, 'CREDIT_BUILDER_STEPS_FAILED', 'Unable to load DUNS track progress.');
+    }
+  },
+);
+
+// ── PUT /steps/:stepNumber ───────────────────────────────────
+
+creditBuilderRouter.put(
+  '/:clientId/steps/:stepNumber',
+  async (req: Request, res: Response): Promise<void> => {
+    const clientId = param(req, 'clientId');
+    const tenantId = getTenantId(req);
+    const stepNumber = Number(param(req, 'stepNumber'));
+    const { completed } = (req.body ?? {}) as Record<string, unknown>;
+
+    if (
+      !Number.isInteger(stepNumber) ||
+      stepNumber < 1 ||
+      stepNumber > CREDIT_BUILDER_STEP_COUNT
+    ) {
+      err(
+        res,
+        422,
+        'VALIDATION_ERROR',
+        `stepNumber must be an integer from 1 to ${CREDIT_BUILDER_STEP_COUNT}.`,
+      );
+      return;
+    }
+
+    if (typeof completed !== 'boolean') {
+      err(res, 422, 'VALIDATION_ERROR', 'completed (boolean) is required.');
+      return;
+    }
+
+    try {
+      if (!(await assertClient(clientId, tenantId))) {
+        err(res, 404, 'CLIENT_NOT_FOUND', `No client found with ID "${clientId}".`);
+        return;
+      }
+
+      // Who marked it, not when the system observed it: these steps are an
+      // advisor's assertion about the world — a DUNS registered, a bank
+      // account opened — and nothing here verifies any of them.
+      const completedBy = completed ? req.tenant?.userId ?? null : null;
+      const completedAt = completed ? new Date() : null;
+
+      const step = await prisma.creditBuilderStep.upsert({
+        where: { businessId_stepNumber: { businessId: clientId, stepNumber } },
+        create: { tenantId, businessId: clientId, stepNumber, completed, completedAt, completedBy },
+        update: { completed, completedAt, completedBy },
+      });
+
+      logger.info('Credit-builder step marked', {
+        clientId,
+        tenantId,
+        stepNumber,
+        completed,
+        completedBy,
+      });
+
+      ok(res, {
+        stepNumber: step.stepNumber,
+        completed: step.completed,
+        completedAt: step.completedAt?.toISOString() ?? null,
+        completedBy: step.completedBy,
+      });
+    } catch (error) {
+      logger.error('Failed to mark credit-builder step', {
+        clientId,
+        tenantId,
+        stepNumber,
+        error,
+      });
+      err(res, 500, 'CREDIT_BUILDER_STEP_UPDATE_FAILED', 'Unable to save the step.');
     }
   },
 );

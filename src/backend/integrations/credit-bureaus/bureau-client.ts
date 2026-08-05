@@ -272,8 +272,12 @@ async function experianPullBusiness(ein: string): Promise<CreditProfile> {
     profileId:       uuidv4(),
     bureau:          'experian',
     profileType:     'business',
-    score:           Math.floor(Math.random() * 100),
-    scoreType:       'sbss',
+    // Intelliscore Plus, 1–100. This returned the same 1–100 figure typed as
+    // `sbss`, a 0–300 product — so the number was Experian's and the label was
+    // FICO's, and the Experian Business card, which reads `intelliscore`,
+    // could never be filled by anything.
+    score:           1 + Math.floor(Math.random() * 100),
+    scoreType:       'intelliscore',
     utilization:     parseFloat((Math.random() * 0.60).toFixed(4)),
     inquiryCount:    Math.floor(Math.random() * 6),
     derogatoryCount: Math.floor(Math.random() * 2),
@@ -326,7 +330,7 @@ async function transunionPullBusiness(ein: string): Promise<CreditProfile> {
     profileId:       uuidv4(),
     bureau:          'transunion',
     profileType:     'business',
-    score:           Math.floor(Math.random() * 100),
+    score:           100 + Math.floor(Math.random() * 200), // SBSS: 0–300
     scoreType:       'sbss',
     utilization:     parseFloat((Math.random() * 0.50).toFixed(4)),
     inquiryCount:    Math.floor(Math.random() * 5),
@@ -384,7 +388,7 @@ async function equifaxPullBusiness(ein: string): Promise<CreditProfile> {
     profileId:       uuidv4(),
     bureau:          'equifax',
     profileType:     'business',
-    score:           Math.floor(Math.random() * 100),
+    score:           100 + Math.floor(Math.random() * 200), // SBSS: 0–300
     scoreType:       'sbss',
     utilization:     parseFloat((Math.random() * 0.55).toFixed(4)),
     inquiryCount:    Math.floor(Math.random() * 5),

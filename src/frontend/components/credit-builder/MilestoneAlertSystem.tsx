@@ -7,22 +7,17 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export interface MilestoneAlert {
-  id: string;
-  type: 'success' | 'info' | 'warning';
-  title: string;
-  message: string;
-  action?: { label: string; url: string };
-}
+// The rule for when a milestone has been reached lives in lib/credit-milestones
+// so it can be tested without rendering. Re-exported here because the page and
+// the barrel already import it from this module.
+export { checkMilestones } from '@/lib/credit-milestones';
+export type { MilestoneAlert, ProgressData } from '@/lib/credit-milestones';
+
+import type { MilestoneAlert } from '@/lib/credit-milestones';
 
 export interface MilestoneAlertSystemProps {
   alerts: MilestoneAlert[];
   onDismiss: (id: string) => void;
-}
-
-export interface ProgressData {
-  paydex: number;
-  tradelineCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,38 +44,6 @@ const alertStyles: Record<MilestoneAlert['type'], { border: string; bg: string; 
     iconColor: 'text-amber-400',
   },
 };
-
-/**
- * Compare previous and current ProgressData and return milestone alerts
- * for any thresholds that were just crossed.
- */
-export function checkMilestones(
-  prev: ProgressData | null,
-  curr: ProgressData,
-): MilestoneAlert[] {
-  const alerts: MilestoneAlert[] = [];
-
-  if (prev && prev.paydex < 80 && curr.paydex >= 80) {
-    alerts.push({
-      id: 'paydex_80',
-      type: 'success',
-      title: 'Paydex Milestone!',
-      message: 'Paydex hit 80 — Tier 1 unlock criteria met.',
-      action: { label: 'Run Optimizer →', url: '/optimizer' },
-    });
-  }
-
-  if (prev && prev.tradelineCount < 5 && curr.tradelineCount >= 5) {
-    alerts.push({
-      id: 'tradelines_5',
-      type: 'success',
-      title: '5 Tradelines!',
-      message: '5+ reporting tradelines — Step 4 complete.',
-    });
-  }
-
-  return alerts;
-}
 
 // ---------------------------------------------------------------------------
 // AlertCard sub-component

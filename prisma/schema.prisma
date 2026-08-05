@@ -227,6 +227,7 @@ model Business {
   vendorTradelines    VendorTradeline[]
   smsMessages         SmsMessage[]
   costCalculations    CostCalculation[]
+  creditBuilderSteps  CreditBuilderStep[]
 
   @@index([tenantId, status])
   @@map("businesses")
@@ -278,7 +279,13 @@ model CreditProfile {
   profileType         String   // personal | business
   bureau              String   // equifax | transunion | experian | dnb
   score               Int?
-  scoreType           String?  // fico | vantage | sbss | paydex
+  /// fico | vantage | sbss | paydex | intelliscore
+  ///
+  /// The name of the product, not a category: `intelliscore` is Experian's
+  /// business score (1–100) and `sbss` is FICO's (0–300). Business pulls were
+  /// written as `sbss` whatever bureau produced them, which made the reader
+  /// for Experian's card unsatisfiable.
+  scoreType           String?
   utilization         Decimal?
   inquiryCount        Int?
   derogatoryCount     Int?
@@ -1512,6 +1519,39 @@ model VendorTradeline {
   @@index([businessId, status])
   @@index([tenantId])
   @@map("vendor_tradelines")
+}
+
+/// A client's progress through the six DUNS-track steps on /credit-builder.
+///
+/// The page held these in component state. Three consequences: a reload wiped
+/// them, they were not keyed to anybody — marks made against one client stayed
+/// on screen after switching to another — and `tier1Unlocked` read the count,
+/// so the "ready for Tier 1 stacking" banner rested partly on three checkboxes
+/// that survived neither a refresh nor a change of client.
+///
+/// Marked by an advisor, not observed by the system: `completedBy` records who
+/// asserted it. Steps 4 and 5 have machine-readable proxies elsewhere (the
+/// tradeline count and the PAYDEX score), and those are shown alongside rather
+/// than folded in — a mark is a claim about the world, and the two must stay
+/// distinguishable.
+model CreditBuilderStep {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  /** 1–6, matching the DUNS registration track on /credit-builder. */
+  stepNumber          Int
+  completed           Boolean  @default(false)
+  completedAt         DateTime?
+  /** User id of whoever marked it. Null for a step that was never completed. */
+  completedBy         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, stepNumber])
+  @@index([tenantId])
+  @@map("credit_builder_steps")
 }
 
 model TradelineDispute {

@@ -880,6 +880,32 @@ export default function OptimizerPage() {
   const [cuForm, setCUForm]       = useState<CUFormState>(INITIAL_CU_FORM);
   const [cuPanelOpen, setCUPanelOpen] = useState(true);
 
+  /**
+   * The client handed over by whichever page linked here.
+   *
+   * /credit-builder's step 6, its graduation banner and its milestone alerts
+   * all navigate to `/optimizer?client_id=…&from=…`, and this page read none
+   * of it — it kept its own `selectedBusinessId` and started empty. So an
+   * advisor who clicked "View eligible cards" for a named client arrived at a
+   * blank form and had to find them again, with nothing on screen indicating
+   * that a selection had been made and dropped.
+   *
+   * Read once from the URL rather than through `useSearchParams`, which forces
+   * this page into a Suspense boundary it does not otherwise need.
+   */
+  const [handoff] = useState<{ clientId: string | null; from: string | null }>(() => {
+    if (typeof window === 'undefined') return { clientId: null, from: null };
+    const params = new URLSearchParams(window.location.search);
+    const clientId = params.get('client_id');
+    return {
+      // A literal "null" or "undefined" in the query string is not an id.
+      clientId: clientId && clientId !== 'null' && clientId !== 'undefined' ? clientId : null,
+      from: params.get('from'),
+    };
+  });
+  /** Set when a handed-over client is not in this advisor's list. */
+  const [handoffUnresolved, setHandoffUnresolved] = useState(false);
+
   // Load clients on mount
   useEffect(() => {
     setClientsLoading(true);
@@ -897,12 +923,26 @@ export default function OptimizerPage() {
         };
       });
     })
-      .then(({ rows }) => setClients(rows))
+      .then(({ rows }) => {
+        setClients(rows);
+
+        if (handoff.clientId === null) return;
+
+        // Only select a client this advisor can actually see. Setting the id
+        // regardless would show "Business selected" for a business absent from
+        // the dropdown beside it, and send it to /optimizer/run to be refused.
+        if (rows.some((r) => r.id === handoff.clientId)) {
+          setForm((f) => ({ ...f, selectedBusinessId: handoff.clientId as string }));
+        } else {
+          setHandoffUnresolved(true);
+        }
+      })
       .catch(() => {
         // The list is optional here; the form still works without it.
+        if (handoff.clientId !== null) setHandoffUnresolved(true);
       })
       .finally(() => setClientsLoading(false));
-  }, []);
+  }, [handoff.clientId]);
 
   const cuEligibility = useMemo<EligibilityResult[]>(() => {
     if (!cuForm.state) return [];
@@ -1173,6 +1213,31 @@ export default function OptimizerPage() {
               {form.selectedBusinessId && (
                 <p className="text-xs text-emerald-600 font-medium">
                   Business selected — optimizer will load profile from database.
+                </p>
+              )}
+              {/* Where the selection came from, when it was not made here. An
+                  advisor arriving from another page should be able to see that
+                  this form is already about somebody. */}
+              {form.selectedBusinessId && handoff.clientId === form.selectedBusinessId && (
+                <p className="text-xs text-gray-500">
+                  Carried over from{' '}
+                  {handoff.from === 'credit-builder'
+                    ? 'the credit builder'
+                    : handoff.from === 'graduation'
+                      ? 'the Tier 1 graduation banner'
+                      : handoff.from === 'milestone'
+                        ? 'a credit-builder milestone'
+                        : 'the previous page'}
+                  .
+                </p>
+              )}
+              {handoffUnresolved && (
+                // Not silently ignored. The link named a client, and this says
+                // plainly that it could not be resolved rather than presenting
+                // an empty form as though nothing had been asked for.
+                <p className="text-xs text-amber-600 font-medium">
+                  The client this link named is not in your list, so nothing was
+                  preselected. Choose one above.
                 </p>
               )}
             </div>

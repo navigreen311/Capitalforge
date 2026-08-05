@@ -2,7 +2,6 @@ export { CreditBuilderClientSelector } from './CreditBuilderClientSelector';
 export type { CBClient } from './CreditBuilderClientSelector';
 export { BusinessCreditScoresPanel } from './BusinessCreditScoresPanel';
 export { TradelineTracker } from './TradelineTracker';
-export { VendorDetailDrawer } from './VendorDetailDrawer';
 export { TradelineSubProgress, PaydexSubProgress } from './StepSubProgress';
 export { EstimatedProgressTimeline } from './EstimatedProgressTimeline';
 export { GraduationBanner } from './GraduationBanner';

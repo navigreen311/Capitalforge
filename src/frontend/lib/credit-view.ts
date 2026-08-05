@@ -252,6 +252,60 @@ export function toTradelineCount(data: unknown): number | null {
   return Array.isArray(record['tradelines']) ? (record['tradelines'] as unknown[]).length : null;
 }
 
+// ── DUNS registration track ─────────────────────────────────────────────────
+
+export interface DunsStepState {
+  stepNumber: number;
+  completed: boolean;
+  completedAt: string | null;
+  /** User id of whoever marked it, when one was recorded. */
+  completedBy: string | null;
+}
+
+/**
+ * A client's DUNS-track progress, from GET /:clientId/steps.
+ *
+ * Null when the response carries no step list — no client is selected, or the
+ * read failed. That is not the same as a client who has completed none, and
+ * the difference matters here more than usual: the count feeds
+ * `tier1Unlocked`, so an unread track must not be able to satisfy a threshold
+ * or to fail one.
+ *
+ * These marks previously lived in component state, keyed to nobody: they
+ * survived neither a refresh nor a change of client, and stayed on screen
+ * after switching to a different business.
+ */
+export function toDunsSteps(data: unknown): DunsStepState[] | null {
+  const root = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  const body = root['data'] && typeof root['data'] === 'object'
+    ? (root['data'] as Record<string, unknown>)
+    : root;
+
+  const rows = Array.isArray(body['steps']) ? (body['steps'] as unknown[]) : null;
+  if (rows === null) return null;
+
+  return rows.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const r = raw as Record<string, unknown>;
+    const stepNumber = typeof r['stepNumber'] === 'number' ? r['stepNumber'] : null;
+    if (stepNumber === null) return [];
+
+    return [
+      {
+        stepNumber,
+        completed: r['completed'] === true,
+        completedAt: typeof r['completedAt'] === 'string' ? r['completedAt'] : null,
+        completedBy: typeof r['completedBy'] === 'string' ? r['completedBy'] : null,
+      },
+    ];
+  });
+}
+
+/** How many steps are marked complete, or null when the track was not read. */
+export function completedStepCount(steps: DunsStepState[] | null): number | null {
+  return steps === null ? null : steps.filter((s) => s.completed).length;
+}
+
 // ── Credit-builder client picker ────────────────────────────────────────────
 
 export interface CreditBuilderClientView {
