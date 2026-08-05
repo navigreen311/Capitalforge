@@ -54,6 +54,24 @@ Every feature or significant change follows this sequence:
   on the old derived key. CI would not have caught it: CI seeds an empty
   database, where the old key still worked. Only seeding the database you just
   changed reaches it. See `docs/backlog/incident-2026-08-03-broken-seed.md`.
+- **Widening a type or a value's range requires checking every consumer that
+  compares it to a threshold.** Not the feature you built — the code downstream
+  that was written when the old range was the only one.
+
+  Giving Equifax business pulls their own product moved that score from `sbss`
+  (0–300) to `equifax_business_risk` (101–992). Three call sites take
+  `Math.max` over a client's business scores; one of them measures the result
+  against SBSS milestones of 50, 80, 140 and 200. An ordinary Equifax score of
+  640 would have cleared every one of them, including *LOC / SBA Bridge ready* —
+  a funding-readiness claim, produced by a rename. Every test passed, because
+  the tests covered the new score type and nothing tested the old comparison
+  against a value that could not previously reach it.
+
+  The check is mechanical: grep for the widened field, and at each site ask
+  what it is compared against and whether the new range can cross that
+  threshold when the old one could not. Same discipline as re-reading a
+  `useCallback`'s dependency array after changing what it closes over — the
+  defect is never in the line you edited.
 
 ### 5. Docs
 - Update `README.md` and add `docs/<feature>.md` (overview, architecture, endpoints, env vars).
