@@ -50,6 +50,9 @@ import {
   setPrismaClient,
   GRADUATION_TRACKS,
   TRACK_THRESHOLDS,
+  businessScore,
+  meetsThreshold,
+  withBusinessScore,
   type GraduationInput,
   type MilestoneGate,
 } from '../../../src/backend/services/client-graduation.service.js';
@@ -75,7 +78,7 @@ const primeInput: GraduationInput = {
   ficoScore:           750,
   businessAgeMonths:   30,
   monthlyRevenue:      20_000,
-  businessScores: { sbss: 150 },
+  businessScores: { sbss: businessScore('sbss', 150) },
   tradelineCount:      8,
   currentUtilization:  0.20,
 };
@@ -85,7 +88,7 @@ const fullStackInput: GraduationInput = {
   ficoScore:           700,
   businessAgeMonths:   14,
   monthlyRevenue:      9_000,
-  businessScores: { sbss: 60 },
+  businessScores: { sbss: businessScore('sbss', 60) },
   tradelineCount:      5,
   currentUtilization:  0.40,
 };
@@ -95,7 +98,7 @@ const starterInput: GraduationInput = {
   ficoScore:           640,
   businessAgeMonths:   8,
   monthlyRevenue:      4_000,
-  businessScores: { sbss: 0 },
+  businessScores: { sbss: businessScore('sbss', 0) },
   tradelineCount:      2,
   currentUtilization:  0.65,
 };
@@ -105,7 +108,7 @@ const builderInput: GraduationInput = {
   ficoScore:           580,
   businessAgeMonths:   2,
   monthlyRevenue:      1_000,
-  businessScores: { sbss: 0 },
+  businessScores: { sbss: businessScore('sbss', 0) },
   tradelineCount:      0,
   currentUtilization:  0.90,
 };
@@ -135,7 +138,7 @@ describe('resolveCurrentTrack', () => {
   });
 
   it('resolves to STARTER_STACK even when business credit is zero (not required at starter)', () => {
-    const input: GraduationInput = { ...starterInput, businessScores: { sbss: 0 } };
+    const input: GraduationInput = { ...starterInput, businessScores: { sbss: businessScore('sbss', 0) } };
     expect(resolveCurrentTrack(input)).toBe(GRADUATION_TRACKS.STARTER_STACK);
   });
 });
@@ -191,7 +194,7 @@ describe('checkTrackEligibility', () => {
     });
 
     it('fails business credit gate when score is below 50', () => {
-      const input: GraduationInput = { ...fullStackInput, businessScores: { sbss: 30 } };
+      const input: GraduationInput = { ...fullStackInput, businessScores: { sbss: businessScore('sbss', 30) } };
       const { eligible, gates } = checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, input);
       expect(eligible).toBe(false);
       // The gate names the product it reads. It was "SBSS/Paydex", which is
@@ -205,7 +208,7 @@ describe('checkTrackEligibility', () => {
     it('reports an absent SBSS as unknown, not as a failure', () => {
       // A client with a strong PAYDEX and no SBSS has not fallen short of an
       // SBSS requirement — nobody has measured them against one.
-      const input: GraduationInput = { ...fullStackInput, businessScores: { paydex: 88 } };
+      const input: GraduationInput = { ...fullStackInput, businessScores: { paydex: businessScore('paydex', 88) } };
       const { eligible, gates } = checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, input);
 
       const bizGate = gates.find((g) => g.criterion === 'Business Credit Score (FICO SBSS)');
@@ -223,8 +226,8 @@ describe('checkTrackEligibility', () => {
     it('does not read a PAYDEX as though it were an SBSS', () => {
       // The whole point. A PAYDEX of 88 used to clear a threshold of 50 that
       // is an SBSS figure, because Math.max flattened both into one number.
-      const withPaydex: GraduationInput = { ...fullStackInput, businessScores: { paydex: 88 } };
-      const withSbss:   GraduationInput = { ...fullStackInput, businessScores: { sbss: 88 } };
+      const withPaydex: GraduationInput = { ...fullStackInput, businessScores: { paydex: businessScore('paydex', 88) } };
+      const withSbss:   GraduationInput = { ...fullStackInput, businessScores: { sbss: businessScore('sbss', 88) } };
 
       expect(checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, withPaydex).eligible).toBe(false);
       expect(checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, withSbss).eligible).toBe(true);
@@ -327,13 +330,13 @@ describe('estimateMonthsToNextTrack — an unmeasured gate has no timeline', () 
     // assessed them against.
     const input: GraduationInput = {
       ...fullStackInput,
-      businessScores: { paydex: 88 },
+      businessScores: { paydex: businessScore('paydex', 88) },
     };
     expect(estimateMonthsToNextTrack(input, GRADUATION_TRACKS.FULL_STACK)).toBeNull();
   });
 
   it('still estimates when the score is on record and short', () => {
-    const input: GraduationInput = { ...fullStackInput, businessScores: { sbss: 20 } };
+    const input: GraduationInput = { ...fullStackInput, businessScores: { sbss: businessScore('sbss', 20) } };
     const months = estimateMonthsToNextTrack(input, GRADUATION_TRACKS.FULL_STACK);
     expect(months).not.toBeNull();
     expect(months).toBeGreaterThan(0);
@@ -556,7 +559,7 @@ describe('buildCreditRoadmap', () => {
     const roadmap = buildCreditRoadmap('biz-001', 'general', builderInput);
     expect(roadmap.currentSbssTarget).not.toBeNull();
     expect(roadmap.currentSbssTarget!.targetScore).toBeGreaterThan(
-      builderInput.businessScores.sbss ?? 0,
+      builderInput.businessScores.sbss?.value ?? 0,
     );
   });
 });
@@ -643,5 +646,69 @@ describe('buildCreditRoadmapForBusiness', () => {
     expect(roadmap.dunsSteps.length).toBeGreaterThan(0);
     expect(roadmap.recommendedVendors.length).toBeGreaterThan(0);
     expect(roadmap.businessId).toBe('biz-cr-001');
+  });
+});
+
+// ── The mistake, made unrepresentable ────────────────────────
+//
+// `@ts-expect-error` fails the build if the error it marks does NOT occur, so
+// these are not documentation — they are the guarantee. `npm run build:backend`
+// compiles this directory, and CI runs it.
+
+describe('a score cannot be compared to another product’s threshold', () => {
+  it('will not flatten a client’s business scores into one number', () => {
+    const scores = withBusinessScore(withBusinessScore({}, 'sbss', 150), 'paydex', 88);
+
+    // The original defect, in the form it was actually written: take the
+    // larger of a client's business scores and compare it to a threshold.
+    // A BusinessScore is not a number, so neither half compiles.
+    // @ts-expect-error — Math.max does not accept BusinessScore
+    const flattened = Math.max(scores.sbss, scores.paydex);
+    expect(flattened).toBeDefined();
+
+    // @ts-expect-error — nor does comparing two products directly
+    const bigger = scores.sbss > scores.paydex;
+    expect(bigger).toBeDefined();
+  });
+
+  it('does not claim to stop every possible flattening', () => {
+    // Honest about the limit. `Object.values` on a mapped type falls through
+    // to TypeScript's `values(o: {}): any[]` overload, so spreading it into
+    // Math.max still compiles — the values are erased to `any` before the
+    // type ever reaches Math.max.
+    //
+    // The guarantee is on the scores themselves, which is where the defect
+    // lived: every site that read them named a product. Nobody reached for
+    // Object.values; they wrote Math.max over a mapped list.
+    const scores = withBusinessScore({}, 'sbss', 150);
+    const erased: unknown[] = Object.values(scores);
+    expect(erased).toHaveLength(1);
+  });
+
+  it('will not compare a PAYDEX against an SBSS requirement', () => {
+    const sbssThreshold = TRACK_THRESHOLDS[GRADUATION_TRACKS.FULL_STACK].businessCredit!;
+    const paydex = businessScore('paydex', 88);
+
+    // Both sides are generic in the same score type, so this is a type error
+    // rather than a plausible-looking `true`.
+    // @ts-expect-error — a PAYDEX is not an SBSS
+    const met = meetsThreshold(sbssThreshold, paydex);
+    expect(met).toBeDefined();
+  });
+
+  it('still compares like with like', () => {
+    const sbssThreshold = TRACK_THRESHOLDS[GRADUATION_TRACKS.FULL_STACK].businessCredit!;
+    expect(meetsThreshold(sbssThreshold, businessScore('sbss', 60))).toBe(true);
+    expect(meetsThreshold(sbssThreshold, businessScore('sbss', 40))).toBe(false);
+  });
+
+  it('keeps a score and its product together', () => {
+    // The key and the score's own scoreType cannot disagree: the record is
+    // mapped by product, and `withBusinessScore` builds the entry from the
+    // same key it files it under.
+    const scores = withBusinessScore({}, 'paydex', 88);
+    expect(scores.paydex?.scoreType).toBe('paydex');
+    expect(scores.paydex?.value).toBe(88);
+    expect(scores.sbss).toBeUndefined();
   });
 });

@@ -9,6 +9,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A business score carries the product it is a score of.** `BusinessScore
+  { scoreType, value }` replaces the bare number, and `meetsThreshold` is
+  generic in the product on both sides — with `NoInfer` on the score, so the
+  check cannot widen to fit whatever it was handed. Comparing a PAYDEX against
+  an SBSS requirement, or taking `Math.max` across a client's business scores,
+  **no longer compiles**. Two `@ts-expect-error` tests assert it, which fail the
+  build if the errors stop occurring.
+
+  `TRACK_THRESHOLDS` uses `satisfies` rather than a type annotation: annotating
+  it widened each `scoreType: 'sbss'` to the whole union, which defeated the
+  generic it exists to enforce.
+
 ### Fixed
 
 - **Seeded `CreditProfile.tradelines` is an array, as the column declares.** It

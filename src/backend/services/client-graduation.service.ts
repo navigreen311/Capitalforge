@@ -52,9 +52,51 @@ export type GraduationTrack = (typeof GRADUATION_TRACKS)[keyof typeof GRADUATION
  * is a number *of*, so nothing stopped a PAYDEX being compared against an SBSS
  * requirement. `scoreType` makes the comparison state its terms.
  */
-export interface ScoreThreshold {
-  scoreType: ScoreType;
+export interface ScoreThreshold<T extends ScoreType = ScoreType> {
+  scoreType: T;
   min:       number;
+}
+
+/**
+ * A score, carrying the product it is a score of.
+ *
+ * The reason it is an object and not a number: `Math.max` over a client's
+ * business scores compiles happily when they are numbers, and that is exactly
+ * how a PAYDEX of 88 came to clear a threshold of 50 that is an SBSS figure.
+ * `Math.max(...Object.values(scores))` is now a type error, because a
+ * `BusinessScore` is not a number and there is no meaningful maximum across
+ * products measured on different scales.
+ *
+ * Reading `.value` is still possible, and should be — but it is a deliberate
+ * act that names one product, not an accident that flattens several.
+ */
+export interface BusinessScore<T extends ScoreType = ScoreType> {
+  readonly scoreType: T;
+  readonly value:     number;
+}
+
+/** Build a score, so the product and the figure travel together from the start. */
+export function businessScore<T extends ScoreType>(scoreType: T, value: number): BusinessScore<T> {
+  return { scoreType, value };
+}
+
+/**
+ * Whether a score clears a threshold.
+ *
+ * Both sides are generic in the same `T`, so comparing a PAYDEX against an
+ * SBSS requirement does not type-check. The rule that used to live in a
+ * comment — and before that, in nobody's head — is now the signature.
+ */
+export function meetsThreshold<T extends ScoreType>(
+  threshold: ScoreThreshold<T>,
+  // `NoInfer` matters here. Without it TypeScript infers `T` from both
+  // arguments and settles on their union, so a PAYDEX against an SBSS
+  // requirement produces `T = 'sbss' | 'paydex'` and compiles — the check
+  // silently widens to fit whatever it was given. The requirement fixes the
+  // product; the score is then checked against it.
+  score: BusinessScore<NoInfer<T>>,
+): boolean {
+  return score.value >= threshold.min;
 }
 
 export interface TrackThresholds {
@@ -73,7 +115,17 @@ export interface TrackThresholds {
   maxUtilization:      number;
 }
 
-export const TRACK_THRESHOLDS: Record<GraduationTrack, TrackThresholds> = {
+/**
+ * `satisfies` rather than a type annotation, deliberately.
+ *
+ * Annotating this `Record<GraduationTrack, TrackThresholds>` widens each
+ * `scoreType: 'sbss'` to the whole ScoreType union, and once the threshold's
+ * product is the union, `meetsThreshold` infers the union too and accepts a
+ * PAYDEX against an SBSS requirement — the exact comparison the generic exists
+ * to reject. `satisfies` checks the shape without erasing the literal, so the
+ * requirement keeps knowing which product it is a requirement for.
+ */
+export const TRACK_THRESHOLDS = {
   [GRADUATION_TRACKS.CREDIT_BUILDER]: {
     minFicoScore:           0,     // entry-level — no FICO gate
     minBusinessAgeMonths:   0,
@@ -106,7 +158,7 @@ export const TRACK_THRESHOLDS: Record<GraduationTrack, TrackThresholds> = {
     minTradelines:          6,
     maxUtilization:         0.30,
   },
-} as const;
+} as const satisfies Record<GraduationTrack, TrackThresholds>;
 
 // ── Track Display Metadata ───────────────────────────────────
 
@@ -200,7 +252,23 @@ export interface RoadmapAction {
  * and SBSS 0–300 — and then compared against thresholds that are SBSS figures.
  * A PAYDEX of 88 cleared a requirement for an SBSS of 50.
  */
-export type BusinessScores = Partial<Record<ScoreType, number>>;
+export type BusinessScores = { readonly [K in ScoreType]?: BusinessScore<K> };
+
+/**
+ * Record a score under its own product key.
+ *
+ * A mapped type keyed by product means the key and the score's own
+ * `scoreType` cannot disagree: `scores.sbss` is a `BusinessScore<'sbss'>` or
+ * nothing. Setting one through this helper keeps that true at the point of
+ * construction rather than trusting every call site to line them up.
+ */
+export function withBusinessScore<T extends ScoreType>(
+  scores: BusinessScores,
+  scoreType: T,
+  value: number,
+): BusinessScores {
+  return { ...scores, [scoreType]: businessScore(scoreType, value) };
+}
 
 export interface GraduationInput {
   ficoScore:           number;
@@ -274,14 +342,16 @@ function scoreLabel(scoreType: ScoreType): string {
  * and "nobody has pulled this client's SBSS" are different sentences, and only
  * the first is about the client.
  */
-function businessCreditGate(
-  threshold: ScoreThreshold,
+function businessCreditGate<T extends ScoreType>(
+  threshold: ScoreThreshold<T>,
   scores: BusinessScores,
 ): MilestoneGate {
   const label = scoreLabel(threshold.scoreType);
-  const actual = scores[threshold.scoreType];
+  // Typed as the threshold's own product: the mapped key guarantees the score
+  // found here is a score of the thing being required.
+  const score = scores[threshold.scoreType] as BusinessScore<T> | undefined;
 
-  if (actual === undefined) {
+  if (score === undefined) {
     return {
       criterion: `Business Credit Score (${label})`,
       required: threshold.min,
@@ -293,14 +363,14 @@ function businessCreditGate(
     };
   }
 
-  const passed = actual >= threshold.min;
+  const passed = meetsThreshold(threshold, score);
   return {
     criterion: `Business Credit Score (${label})`,
     required: threshold.min,
-    actual,
+    actual: score.value,
     status: passed ? 'passed' : 'failed',
     passed,
-    gap: Math.max(0, threshold.min - actual),
+    gap: Math.max(0, threshold.min - score.value),
   };
 }
 
@@ -429,9 +499,9 @@ export function estimateMonthsToNextTrack(
   // not months of building, and projecting one from an absence is how a
   // timeline comes to promise something nobody measured.
   if (t.businessCredit !== null) {
-    const actual = input.businessScores[t.businessCredit.scoreType];
-    if (actual !== undefined && actual < t.businessCredit.min) {
-      const gap = t.businessCredit.min - actual;
+    const score = input.businessScores[t.businessCredit.scoreType];
+    if (score !== undefined && !meetsThreshold(t.businessCredit, score)) {
+      const gap = t.businessCredit.min - score.value;
       maxMonths = Math.max(maxMonths, Math.ceil(gap / 12));
     }
   }
@@ -652,13 +722,15 @@ export async function autoAssessGraduation(
     .filter((p) => p.profileType === 'business')
     .sort((a, b) => b.pulledAt.getTime() - a.pulledAt.getTime());
 
-  const businessScores: BusinessScores = {};
+  let businessScores: BusinessScores = {};
   for (const p of bizProfiles) {
     if (!p.scoreType || p.score === null) continue;
     const scoreType = p.scoreType as ScoreType;
     // Latest wins: the list is newest-first, so the first of each product is
     // the current one.
-    if (businessScores[scoreType] === undefined) businessScores[scoreType] = p.score;
+    if (businessScores[scoreType] === undefined) {
+      businessScores = withBusinessScore(businessScores, scoreType, p.score);
+    }
   }
 
   // Tradeline count from most recent business profile

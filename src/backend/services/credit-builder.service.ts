@@ -16,6 +16,7 @@ import {
   GRADUATION_TRACKS,
   TRACK_THRESHOLDS,
   checkTrackEligibility,
+  withBusinessScore,
   type GraduationInput,
   type BusinessScores,
 } from './client-graduation.service.js';
@@ -413,7 +414,7 @@ export function buildCreditRoadmap(
   // ladder rather than partway up somebody else's.
   const sbss = input.businessScores.sbss;
   const currentSbssTarget =
-    SBSS_SCORE_MILESTONES.find((m) => m.targetScore > (sbss ?? 0)) ?? null;
+    SBSS_SCORE_MILESTONES.find((m) => m.targetScore > (sbss?.value ?? 0)) ?? null;
 
   // Compute estimated total time to stacking unlock
   const estimatedCompletionMonths = unlockStatus.unlocked
@@ -424,7 +425,7 @@ export function buildCreditRoadmap(
     businessId,
     industry,
     unlocked:              unlockStatus.unlocked,
-    currentSbss:           sbss ?? 'none on record',
+    currentSbss:           sbss?.value ?? 'none on record',
     currentSbssTarget:     currentSbssTarget?.label,
   });
 
@@ -486,11 +487,13 @@ export async function buildCreditRoadmapForBusiness(
     .filter((p) => p.profileType === 'business')
     .sort((a, b) => b.pulledAt.getTime() - a.pulledAt.getTime());
 
-  const businessScores: BusinessScores = {};
+  let businessScores: BusinessScores = {};
   for (const p of bizProfiles) {
     if (!p.scoreType || p.score === null) continue;
     const scoreType = p.scoreType as ScoreType;
-    if (businessScores[scoreType] === undefined) businessScores[scoreType] = p.score;
+    if (businessScores[scoreType] === undefined) {
+      businessScores = withBusinessScore(businessScores, scoreType, p.score);
+    }
   }
 
   const latestBizProfile = bizProfiles[0] ?? null;
