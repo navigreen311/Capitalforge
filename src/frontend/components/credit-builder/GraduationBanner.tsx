@@ -28,7 +28,12 @@ export function GraduationBanner({ clientId, clientName, tier, isUnlocked }: Gra
   if (!isUnlocked) return null;
 
   function handleRunOptimizer() {
-    router.push(`/optimizer?client_id=${clientId}&from=graduation`);
+    // `client_id=null` was reachable — the template interpolated whatever
+    // clientId held — and the optimizer now reads this param, so a literal
+    // "null" would arrive as an id and resolve to nothing.
+    router.push(
+      clientId === null ? '/optimizer' : `/optimizer?client_id=${clientId}&from=graduation`,
+    );
   }
 
   return (
