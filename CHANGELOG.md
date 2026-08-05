@@ -9,6 +9,30 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Every track threshold names the score product it reads.** The graduation
+  engine compared a single `businessCreditScore` — `Math.max` over PAYDEX
+  (0–100), Intelliscore (1–100) and SBSS (0–300) — against thresholds that are
+  SBSS figures, so **a PAYDEX of 88 cleared a requirement for an SBSS of 50**.
+  `ScoreThreshold { scoreType, min }` replaces the bare number and
+  `GraduationInput.businessScores` keeps each product apart.
+- **Gates have three outcomes.** `passed | failed | unknown`. A client with no
+  SBSS is unknown on an SBSS gate, not failed — they have not fallen short of a
+  requirement nobody measured them against — and the gate carries what would
+  resolve it. The action roadmap offers *pull the report, same day* for an
+  unknown gate instead of *raise the score by N points, months*. Unknown does
+  not unlock a track.
+- **A track asserting no business-credit requirement emits no gate**, rather
+  than one with a threshold of zero — which a client with no score would pass,
+  manufacturing a cleared requirement out of an absent one.
+- `POST /api/businesses/:id/graduation/assess` takes `businessScores` (per
+  product, each optional) in place of `businessCreditScore`. Omitting a product
+  means it has never been pulled.
+
+  Migration impact is reported by `scripts/track-migration-impact.ts` before
+  applying. See `docs/gaps.md` §1c — including why the development database is
+  too thin to measure it, and that no UI renders these gates yet.
 ### Fixed
 
 - **Tier 2 is reachable.** `sc_006` ("Equifax Business Credit ≥ 500") could not be

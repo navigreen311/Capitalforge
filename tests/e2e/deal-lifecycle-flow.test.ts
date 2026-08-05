@@ -97,7 +97,7 @@ function makeGraduationInput(overrides: Partial<GraduationInput> = {}): Graduati
     ficoScore:           740,
     businessAgeMonths:   36,
     monthlyRevenue:      50_000,
-    businessCreditScore: 80,
+    businessScores: { sbss: 80 },
     tradelineCount:      5,
     currentUtilization:  0.25,
     ...overrides,

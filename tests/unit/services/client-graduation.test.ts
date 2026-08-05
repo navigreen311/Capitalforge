@@ -75,7 +75,7 @@ const primeInput: GraduationInput = {
   ficoScore:           750,
   businessAgeMonths:   30,
   monthlyRevenue:      20_000,
-  businessCreditScore: 150,
+  businessScores: { sbss: 150 },
   tradelineCount:      8,
   currentUtilization:  0.20,
 };
@@ -85,7 +85,7 @@ const fullStackInput: GraduationInput = {
   ficoScore:           700,
   businessAgeMonths:   14,
   monthlyRevenue:      9_000,
-  businessCreditScore: 60,
+  businessScores: { sbss: 60 },
   tradelineCount:      5,
   currentUtilization:  0.40,
 };
@@ -95,7 +95,7 @@ const starterInput: GraduationInput = {
   ficoScore:           640,
   businessAgeMonths:   8,
   monthlyRevenue:      4_000,
-  businessCreditScore: 0,
+  businessScores: { sbss: 0 },
   tradelineCount:      2,
   currentUtilization:  0.65,
 };
@@ -105,7 +105,7 @@ const builderInput: GraduationInput = {
   ficoScore:           580,
   businessAgeMonths:   2,
   monthlyRevenue:      1_000,
-  businessCreditScore: 0,
+  businessScores: { sbss: 0 },
   tradelineCount:      0,
   currentUtilization:  0.90,
 };
@@ -135,7 +135,7 @@ describe('resolveCurrentTrack', () => {
   });
 
   it('resolves to STARTER_STACK even when business credit is zero (not required at starter)', () => {
-    const input: GraduationInput = { ...starterInput, businessCreditScore: 0 };
+    const input: GraduationInput = { ...starterInput, businessScores: { sbss: 0 } };
     expect(resolveCurrentTrack(input)).toBe(GRADUATION_TRACKS.STARTER_STACK);
   });
 });
@@ -191,12 +191,43 @@ describe('checkTrackEligibility', () => {
     });
 
     it('fails business credit gate when score is below 50', () => {
-      const input: GraduationInput = { ...fullStackInput, businessCreditScore: 30 };
+      const input: GraduationInput = { ...fullStackInput, businessScores: { sbss: 30 } };
       const { eligible, gates } = checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, input);
       expect(eligible).toBe(false);
-      const bizGate = gates.find((g) => g.criterion === 'Business Credit Score (SBSS/Paydex)');
+      // The gate names the product it reads. It was "SBSS/Paydex", which is
+      // the defect in a label: two products on two scales, one threshold.
+      const bizGate = gates.find((g) => g.criterion === 'Business Credit Score (FICO SBSS)');
+      expect(bizGate?.status).toBe('failed');
       expect(bizGate?.passed).toBe(false);
       expect(bizGate?.gap).toBe(20);
+    });
+
+    it('reports an absent SBSS as unknown, not as a failure', () => {
+      // A client with a strong PAYDEX and no SBSS has not fallen short of an
+      // SBSS requirement — nobody has measured them against one.
+      const input: GraduationInput = { ...fullStackInput, businessScores: { paydex: 88 } };
+      const { eligible, gates } = checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, input);
+
+      const bizGate = gates.find((g) => g.criterion === 'Business Credit Score (FICO SBSS)');
+      expect(bizGate?.status).toBe('unknown');
+      expect(bizGate?.actual).toBeNull();
+      expect(bizGate?.gap).toBeNull();
+      expect(bizGate?.resolution).toMatch(/Pull a FICO SBSS report/);
+
+      // Unknown still does not unlock the track: a track asserts the client
+      // clears every requirement.
+      expect(eligible).toBe(false);
+      expect(bizGate?.passed).toBe(false);
+    });
+
+    it('does not read a PAYDEX as though it were an SBSS', () => {
+      // The whole point. A PAYDEX of 88 used to clear a threshold of 50 that
+      // is an SBSS figure, because Math.max flattened both into one number.
+      const withPaydex: GraduationInput = { ...fullStackInput, businessScores: { paydex: 88 } };
+      const withSbss:   GraduationInput = { ...fullStackInput, businessScores: { sbss: 88 } };
+
+      expect(checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, withPaydex).eligible).toBe(false);
+      expect(checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, withSbss).eligible).toBe(true);
     });
   });
 
@@ -224,10 +255,17 @@ describe('checkTrackEligibility', () => {
     });
   });
 
-  it('always returns exactly 6 gates for every track', () => {
+  it('returns a gate for every requirement the track actually asserts', () => {
+    // Was "always exactly 6". Credit Builder and Starter Stack assert no
+    // business-credit requirement, and a gate reporting "0 required, passed"
+    // would imply one exists and that the client cleared it. No requirement,
+    // no gate.
+    const withBusinessCredit = [GRADUATION_TRACKS.FULL_STACK, GRADUATION_TRACKS.LOC_SBA_BRIDGE];
+
     for (const track of Object.values(GRADUATION_TRACKS)) {
       const { gates } = checkTrackEligibility(track, builderInput);
-      expect(gates).toHaveLength(6);
+      const expected = withBusinessCredit.includes(track as never) ? 6 : 5;
+      expect(gates, `${track} gate count`).toHaveLength(expected);
     }
   });
 });
@@ -497,7 +535,7 @@ describe('buildCreditRoadmap', () => {
     const roadmap = buildCreditRoadmap('biz-001', 'general', builderInput);
     expect(roadmap.currentSbssTarget).not.toBeNull();
     expect(roadmap.currentSbssTarget!.targetScore).toBeGreaterThan(
-      builderInput.businessCreditScore,
+      builderInput.businessScores.sbss ?? 0,
     );
   });
 });

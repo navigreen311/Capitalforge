@@ -17,7 +17,9 @@ import {
   TRACK_THRESHOLDS,
   checkTrackEligibility,
   type GraduationInput,
+  type BusinessScores,
 } from './client-graduation.service.js';
+import type { ScoreType } from '@shared/types/index.js';
 
 // ── Prisma singleton ─────────────────────────────────────────
 
@@ -402,9 +404,16 @@ export function buildCreditRoadmap(
     (v) => v.industries.length === 0 || v.industries.includes(normalizedIndustry),
   );
 
-  // Find the current SBSS milestone target
+  // The next SBSS milestone, measured against an SBSS.
+  //
+  // This read a `businessCreditScore` that was the max of whatever business
+  // products the client held, so a PAYDEX of 88 selected the milestone above
+  // 88 on a 0-300 SBSS scale. With no SBSS on record there is no milestone to
+  // be "next": the first one is, because the client is at the start of that
+  // ladder rather than partway up somebody else's.
+  const sbss = input.businessScores.sbss;
   const currentSbssTarget =
-    SBSS_SCORE_MILESTONES.find((m) => m.targetScore > input.businessCreditScore) ?? null;
+    SBSS_SCORE_MILESTONES.find((m) => m.targetScore > (sbss ?? 0)) ?? null;
 
   // Compute estimated total time to stacking unlock
   const estimatedCompletionMonths = unlockStatus.unlocked
@@ -415,7 +424,7 @@ export function buildCreditRoadmap(
     businessId,
     industry,
     unlocked:              unlockStatus.unlocked,
-    currentBizCreditScore: input.businessCreditScore,
+    currentSbss:           sbss ?? 'none on record',
     currentSbssTarget:     currentSbssTarget?.label,
   });
 
@@ -462,25 +471,27 @@ export async function buildCreditRoadmapForBusiness(
     ? Math.max(...personalProfiles.map((p) => p.score ?? 0))
     : 0;
 
-  // `equifax_business_risk` is excluded deliberately, and this is the narrow
-  // fix rather than the right one.
+  // The latest score of each business product, kept apart rather than reduced
+  // to one number. `Math.max` over PAYDEX 0–100, Intelliscore 1–100 and SBSS
+  // 0–300 produced a figure that was then measured against SBSS milestones —
+  // arithmetic across incompatible units, and no comparison downstream could
+  // tell which product its number came from.
   //
-  // `businessCreditScore` is measured against SBSS_SCORE_MILESTONES — 50, 80,
-  // 140, 200 — and this max already compares products on different scales:
-  // PAYDEX 0–100, Intelliscore 1–100, SBSS 0–300. Adding Equifax's 101–992
-  // would make a routine 640 clear every SBSS milestone including the LOC/SBA
-  // one, turning a bounded wrongness into an unbounded one.
-  //
-  // Excluding it keeps this figure exactly as it behaved before Equifax got
-  // its own product. The scale-mixing underneath is docs/gaps.md 1c, and it
-  // needs a decision about what a business credit score means when a client
-  // holds several incommensurable ones — not a filter.
-  const bizProfiles = business.creditProfiles.filter(
-    (p) => p.profileType === 'business' && p.scoreType !== 'equifax_business_risk',
-  );
-  const businessCreditScore = bizProfiles.length > 0
-    ? Math.max(...bizProfiles.map((p) => p.score ?? 0))
-    : 0;
+  // This supersedes the narrow fix that preceded it, which had to exclude
+  // Equifax's 101–992 score from that max because a routine 640 would
+  // otherwise have cleared every SBSS milestone including LOC/SBA Bridge.
+  // Nothing is flattened now, so there is no max to corrupt and no exclusion
+  // to maintain: each product is kept under its own name.
+  const bizProfiles = business.creditProfiles
+    .filter((p) => p.profileType === 'business')
+    .sort((a, b) => b.pulledAt.getTime() - a.pulledAt.getTime());
+
+  const businessScores: BusinessScores = {};
+  for (const p of bizProfiles) {
+    if (!p.scoreType || p.score === null) continue;
+    const scoreType = p.scoreType as ScoreType;
+    if (businessScores[scoreType] === undefined) businessScores[scoreType] = p.score;
+  }
 
   const latestBizProfile = bizProfiles[0] ?? null;
   const tradelines = latestBizProfile?.tradelines as Record<string, unknown>[] | null;
@@ -499,7 +510,7 @@ export async function buildCreditRoadmapForBusiness(
     ficoScore,
     businessAgeMonths:   ageMonths,
     monthlyRevenue,
-    businessCreditScore,
+    businessScores,
     tradelineCount,
     currentUtilization,
   };
