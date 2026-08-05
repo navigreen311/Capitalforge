@@ -29,6 +29,91 @@ env:
 
 jobs:
   # ─────────────────────────────────────────────────────────────
+  # Job 0: Detect a documentation-only change
+  #
+  # The browser suite takes about 23 minutes. A pull request that only
+  # edits docs/ was paying that in full, so this decides whether the
+  # e2e-tests job below has anything to test.
+  #
+  # Two design choices carry the safety, and both are deliberate:
+  #
+  # 1. This is a DENY-list, never an allow-list. `paths-ignore` style
+  #    reasoning fails safe: a path nobody anticipated — a new top-level
+  #    package, a new service directory — does not match the docs pattern
+  #    and therefore runs the suite. The inverse (`paths: ['src/**']`)
+  #    fails OPEN: anything outside the list is skipped silently, which
+  #    is how a real code change gets no browser coverage.
+  #
+  # 2. This is a job-level `if:`, not a workflow-level `paths-ignore`.
+  #    A workflow filtered at the top never starts, so its checks never
+  #    report. `master` had NO branch protection when this was written
+  #    (verified 2026-08-05), but the moment somebody enables it, a
+  #    required "Browser Tests" check that never reports leaves every
+  #    docs PR stuck on "Expected — waiting for status" forever. A job
+  #    skipped by `if:` reports as skipped, which branch protection
+  #    accepts. Whoever turns protection on should not have to
+  #    rediscover this: it already works, and this is why.
+  #
+  # Every ambiguity runs the suite — push events carry no PR context, and
+  # an empty or failed diff tells us nothing.
+  #
+  # HONEST LIMITATION: this trusts that a change touching only docs/
+  # cannot affect runtime behaviour. Nothing under src/ or tests/ reads a
+  # file from docs/ today (checked 2026-08-05). If that ever changes,
+  # this filter becomes wrong silently — nothing here would catch it.
+  # ─────────────────────────────────────────────────────────────
+  changes:
+    name: Detect docs-only change
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.check.outputs.docs_only }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare changed paths
+        id: check
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          # No PR context (push to master), so run everything.
+          if [ -z "$BASE" ] || [ -z "$HEAD" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "No pull-request context — running the full suite."
+            exit 0
+          fi
+
+          if ! FILES=$(git diff --name-only "$BASE" "$HEAD"); then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "Could not diff — running the full suite."
+            exit 0
+          fi
+
+          if [ -z "$FILES" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "Empty diff — running the full suite."
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$FILES"
+
+          # One path outside docs/ or a ROOT-level .md is enough to run.
+          # Deliberately `[^/]+\.md$` and not `**/*.md`: a markdown file
+          # under src/ or tests/ may be a fixture something reads.
+          if echo "$FILES" | grep -qvE '^(docs/|[^/]+\.md$)'; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "Code paths changed — running the full suite."
+          else
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "Documentation only — the browser suite will be skipped."
+          fi
+
+  # ─────────────────────────────────────────────────────────────
   # Job 1: Lint & Type Check
   # Runs without any service containers — fast feedback on
   # code quality before heavier test jobs run.
@@ -173,7 +258,13 @@ jobs:
   e2e-tests:
     name: Browser Tests
     runs-on: ubuntu-latest
-    needs: lint-and-typecheck
+    needs:
+      - lint-and-typecheck
+      - changes
+    # Skipped only when every changed path is docs/ or a root-level .md.
+    # See the `changes` job for why this is a job-level condition rather
+    # than a workflow-level paths-ignore.
+    if: needs.changes.outputs.docs_only != 'true'
     # The suite takes about eight minutes locally; the first request to each
     # route also pays for a dev-server compile, which global setup does up
     # front. This is a ceiling, not an expectation.
@@ -287,6 +378,12 @@ jobs:
       - unit-tests
       - integration-tests
       - e2e-tests
+    # Required because `needs` includes e2e-tests, which is skipped on a
+    # docs-only change — and GitHub skips a job whose dependency was
+    # skipped. Without this, filtering the browser suite would silently
+    # take the build with it. Still fails if any dependency actually
+    # failed; `!cancelled()` keeps a skipped dependency from counting.
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
 
     steps:
       - name: Checkout repository
