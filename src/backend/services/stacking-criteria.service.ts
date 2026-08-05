@@ -59,6 +59,8 @@ export const TIER_1_TRADELINES = 5;
 export const TIER_1_PAYDEX = 80;
 export const TIER_2_SBSS = 140;
 export const TIER_2_INTELLISCORE = 60;
+/** On the Equifax Business Credit Risk scale, 101–992. */
+export const TIER_2_EQUIFAX_RISK = 500;
 export const TIER_3_BUSINESS_AGE_MONTHS = 24;
 export const TIER_3_SBSS = 175;
 
@@ -156,22 +158,18 @@ export function assessStackingCriteria(
     ...assessScore(facts.intelliscore, TIER_2_INTELLISCORE, 'Intelliscore'),
   });
 
-  // ── sc_006 — the one nothing can answer ──
+  // ── sc_006 — Equifax's own business product ──
   //
-  // No pull path produces an Equifax business risk score. The Equifax business
-  // adapter writes an SBSS, which is FICO's product on a different scale, so
-  // there is no figure to compare against 500 — for this client or any other.
-  // Reported as unassessable rather than not met: the client has not failed
-  // anything.
+  // Unassessable until the Equifax business adapter stopped writing `sbss`:
+  // nothing produced the score this reads, so it could not be satisfied by any
+  // client and said so rather than reporting a failure. The adapter now writes
+  // its own Business Credit Risk Score, 101–992.
   criteria.push({
     id: 'sc_006',
     label: 'Equifax Business Credit ≥ 500',
     description: 'Equifax Business Risk Score above 500.',
     requiredForTier: 2,
-    status: 'unassessable',
-    basis:
-      'No Equifax business risk score is produced anywhere in this system — '
-      + 'the Equifax business pull writes an SBSS. Nothing to assess, for any client.',
+    ...assessScore(facts.equifaxBusinessRisk, TIER_2_EQUIFAX_RISK, 'Equifax Business Risk'),
   });
 
   // ── sc_007 — two years of trading ──

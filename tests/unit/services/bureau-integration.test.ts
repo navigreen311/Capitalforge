@@ -172,19 +172,28 @@ describe('BureauClient.pullBusinessCredit', () => {
     client._resetRateBuckets();
   });
 
-  it.each(['transunion', 'equifax'] as Bureau[])(
-    'returns a normalised business CreditProfile for %s (SBSS)',
-    async (bureau) => {
-      const result = await client.pullBusinessCredit(bureau, '12-3456789');
+  it('returns a normalised business CreditProfile for transunion (SBSS)', async () => {
+    const result = await client.pullBusinessCredit('transunion', '12-3456789');
 
-      expect(result.bureau).toBe(bureau);
-      expect(result.ein).toBe('12-3456789');
-      expect(result.profile.profileType).toBe('business');
-      expect(result.profile.scoreType).toBe('sbss');
-      expect(result.profile.score).toBeGreaterThanOrEqual(0);
-      expect(result.profile.score).toBeLessThanOrEqual(300); // SBSS 0–300
-    },
-  );
+    expect(result.bureau).toBe('transunion');
+    expect(result.ein).toBe('12-3456789');
+    expect(result.profile.profileType).toBe('business');
+    expect(result.profile.scoreType).toBe('sbss');
+    expect(result.profile.score).toBeGreaterThanOrEqual(0);
+    expect(result.profile.score).toBeLessThanOrEqual(300); // SBSS 0–300
+  });
+
+  it('returns an Equifax Business Risk Score, not an SBSS', async () => {
+    // Equifax was grouped with TransUnion here, so both wrote `sbss` — FICO's
+    // product. Nothing then produced Equifax's own score, and the "Equifax
+    // Business Credit ≥ 500" stacking criterion could not be assessed for any
+    // client. SBSS keeps its producer above.
+    const result = await client.pullBusinessCredit('equifax', '12-3456789');
+
+    expect(result.profile.scoreType).toBe('equifax_business_risk');
+    expect(result.profile.score).toBeGreaterThanOrEqual(101);
+    expect(result.profile.score).toBeLessThanOrEqual(992); // 101–992
+  });
 
   it('returns an Experian Intelliscore, not an SBSS', async () => {
     // Experian was in the list above, so all three business bureaus wrote

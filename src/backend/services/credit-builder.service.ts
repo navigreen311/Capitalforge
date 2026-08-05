@@ -462,8 +462,21 @@ export async function buildCreditRoadmapForBusiness(
     ? Math.max(...personalProfiles.map((p) => p.score ?? 0))
     : 0;
 
+  // `equifax_business_risk` is excluded deliberately, and this is the narrow
+  // fix rather than the right one.
+  //
+  // `businessCreditScore` is measured against SBSS_SCORE_MILESTONES — 50, 80,
+  // 140, 200 — and this max already compares products on different scales:
+  // PAYDEX 0–100, Intelliscore 1–100, SBSS 0–300. Adding Equifax's 101–992
+  // would make a routine 640 clear every SBSS milestone including the LOC/SBA
+  // one, turning a bounded wrongness into an unbounded one.
+  //
+  // Excluding it keeps this figure exactly as it behaved before Equifax got
+  // its own product. The scale-mixing underneath is docs/gaps.md 1c, and it
+  // needs a decision about what a business credit score means when a client
+  // holds several incommensurable ones — not a filter.
   const bizProfiles = business.creditProfiles.filter(
-    (p) => p.profileType === 'business',
+    (p) => p.profileType === 'business' && p.scoreType !== 'equifax_business_risk',
   );
   const businessCreditScore = bizProfiles.length > 0
     ? Math.max(...bizProfiles.map((p) => p.score ?? 0))

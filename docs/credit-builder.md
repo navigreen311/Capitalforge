@@ -123,7 +123,7 @@ and `stacking-criteria.service.ts` both consume the result and are pure.
 | `sc_003` PAYDEX ≥ 80 | 1 | same score as step 5 |
 | `sc_004` SBSS ≥ 140 | 2 | latest `sbss` profile |
 | `sc_005` Intelliscore ≥ 60 | 2 | latest `intelliscore` profile |
-| `sc_006` Equifax ≥ 500 | 2 | **nothing — unassessable** |
+| `sc_006` Equifax ≥ 500 | 2 | latest `equifax_business_risk` profile |
 | `sc_007` 2+ years | 3 | `Business.dateOfFormation` |
 | `sc_008` SBSS ≥ 175 | 3 | latest `sbss` profile |
 
@@ -145,20 +145,34 @@ and its basis says which half is missing.
 
 A tier unlocks only when **every** criterion in it is met — an unknown or an
 unassessable one leaves it locked, because a tier is a statement that the client
-clears every requirement and "we did not check" is not clearing it. Tier 2 is
-therefore unreachable today, blocked by `sc_006`. The panel names what each tier
-is waiting on rather than only counting.
+clears every requirement and "we did not check" is not clearing it. The panel
+names what each tier is waiting on rather than only counting.
+
+`unassessable` currently applies to nothing: every score the eight criteria read
+has a producer. It is kept because the state is real — the moment a criterion is
+written against a product no adapter emits, that is what it must report, and
+`sc_006` spent its whole life in exactly that state.
 
 ## Score types, by product
 
 Each card reads one product, by name. The names are not interchangeable and
 neither are the scales:
 
-| Card | `scoreType` | Scale | Written by |
-|---|---|---|---|
-| D&B PAYDEX | `paydex` | 0–100 | D&B business pull |
-| Experian Business | `intelliscore` | 1–100 | Experian business pull |
-| FICO SBSS | `sbss` | 0–300 | Equifax, TransUnion business pulls |
+Every business product has exactly one producer, and each is the product that
+bureau actually sells:
+
+| Product | `scoreType` | Scale | Written by | Read by |
+|---|---|---|---|---|
+| D&B PAYDEX | `paydex` | 0–100 | D&B | score card, step 5, `sc_003` |
+| Experian Intelliscore Plus | `intelliscore` | 1–100 | Experian | score card, `sc_005` |
+| FICO SBSS | `sbss` | 0–300 | TransUnion | score card, `sc_004`, `sc_008` |
+| Equifax Business Credit Risk | `equifax_business_risk` | 101–992 | Equifax | `sc_006` |
+
+Both corrections came from the same defect: a bureau adapter labelling its
+output with another company's product name. Experian wrote `sbss` until an
+Intelliscore card could never be filled; Equifax wrote `sbss` until an Equifax
+criterion could never be assessed. When adding a bureau, the check is whether
+anything reads what it writes.
 
 Until 2026-08-04 every business pull was written as `sbss` whatever bureau
 produced it, and with a score in the personal-FICO range. So the Experian card

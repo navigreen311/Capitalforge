@@ -373,16 +373,20 @@ test.describe('Stacking unlock criteria', () => {
     await expect(page.getByText('Not measured').first()).toBeVisible();
   });
 
-  test('marks the Equifax criterion unassessable, for every client', async ({
+  test('assesses the Equifax criterion against Equifax’s own score', async ({
     signedInPage: page,
   }) => {
     await page.goto('/credit-builder');
     await selectClient(page, CLIENT_WITH_SCORE);
 
-    // No pull path produces an Equifax business risk score — the Equifax
-    // business adapter writes an SBSS. Nothing to assess, for anybody.
-    await expect(page.getByText('Cannot assess')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText(/No Equifax business risk score is produced/)).toBeVisible();
+    // This read "Cannot assess" for every client: the Equifax business adapter
+    // wrote an SBSS, so nothing produced the score the criterion reads. It now
+    // writes its own Business Credit Risk Score, 101–992.
+    await expect(page.getByText('Equifax Business Risk 640, needs 500')).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.getByText('Cannot assess')).toHaveCount(0);
+    await expect(page.getByText(/No Equifax business risk score is produced/)).toHaveCount(0);
   });
 
   test('assesses nothing until a client is chosen', async ({ signedInPage: page }) => {

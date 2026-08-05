@@ -51,6 +51,9 @@ const SCORE_MAX: Record<string, number> = {
   sbss: 300,
   paydex: 100,
   intelliscore: 100,
+  // Equifax's business product runs 101–992, so a bar drawn against 100 would
+  // peg every real score at full.
+  equifax_business_risk: 992,
 };
 
 export function maxScoreFor(scoreType: string | null | undefined): number {
