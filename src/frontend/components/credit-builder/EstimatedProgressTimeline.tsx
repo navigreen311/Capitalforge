@@ -271,7 +271,12 @@ const COACHING_BY_TIER: Record<number, CoachingItem[]> = {
     {
       id: 'c2-2',
       title: 'Pull your Experian Business report',
-      description: 'Your Experian Intelliscore needs to reach 60+. Pull a free report to check for errors and verify all tradelines are reporting correctly.',
+      // This said "Pull a free report". Experian does not give a business its
+      // own Intelliscore Plus for free — it is ~$49.95 one-time or ~$199/yr
+      // (verified 2026-08-05, docs/product/business-credit-scores.md). An
+      // advisor reading this told the client something they would find untrue
+      // at the paywall, which is worse than saying nothing.
+      description: 'Your Experian Intelliscore needs to reach 60+. A report with Intelliscore Plus costs about $49.95 one-time, or about $199/year for monitoring — tell the client to expect a charge. It is usually worth it: correcting bad data on the file moves the score faster than building new tradelines.',
       actionLabel: 'Check Experian',
       actionUrl: 'https://www.experian.com/small-business/business-credit-report.jsp',
     },
