@@ -40,29 +40,77 @@ export interface StackingCriterion {
   basis: string;
 }
 
+/**
+ * How much of a tier this system can assess at all — a fact about the tier,
+ * not about any client.
+ *
+ * `narrow` says the tier lost requirements because they could not be measured,
+ * so a full house of ticks covers less ground than it appears to. Tier 3 is
+ * the case: its credit-strength gate required a FICO SBSS, which a lender
+ * computes at application and no client can obtain.
+ *
+ * Deliberately declared rather than inferred from the criterion count. It is a
+ * statement about what was removed and why, and nothing in the data records
+ * that.
+ */
+export type TierCoverage = 'full' | 'narrow';
+
 export interface TierAssessment {
   tier: 1 | 2 | 3;
   criteria: StackingCriterion[];
   met: number;
   total: number;
   /**
+   * Broken out rather than left to `total - met`, because that subtraction is
+   * where the provenance goes missing. "2 of 4 met" is the same fraction
+   * whether the other two fell short or were never measurable, and those are
+   * different conversations with the client.
+   */
+  notMet: number;
+  notYetMeasured: number;
+  cannotAssess: number;
+  /**
    * Unlocked only when every criterion in the tier is met. An unknown or an
    * unassessable one leaves it locked: a tier is a statement that the client
    * clears every requirement, and "we did not check" is not clearing it.
    */
   unlocked: boolean;
+  /**
+   * Never render a narrow tier as complete, however its criteria land. A green
+   * card for a tier that went green by having requirements deleted is the same
+   * defect as a count that hides what produced it — in the channel a reader
+   * takes in first.
+   */
+  coverage: TierCoverage;
+  coverageNote: string | null;
   /** Why it is not unlocked, when it is not. */
   blockedBy: string[];
 }
 
 export const TIER_1_TRADELINES = 5;
 export const TIER_1_PAYDEX = 80;
-export const TIER_2_SBSS = 140;
 export const TIER_2_INTELLISCORE = 60;
 /** On the Equifax Business Credit Risk scale, 101–992. */
 export const TIER_2_EQUIFAX_RISK = 500;
 export const TIER_3_BUSINESS_AGE_MONTHS = 24;
-export const TIER_3_SBSS = 175;
+
+/**
+ * What this system can and cannot assess per tier, in the words an advisor
+ * reads. Null where the tier's requirements are all measurable.
+ */
+const TIER_COVERAGE: Record<1 | 2 | 3, { coverage: TierCoverage; note: string | null }> = {
+  1: { coverage: 'full', note: null },
+  2: { coverage: 'full', note: null },
+  3: {
+    coverage: 'narrow',
+    note:
+      'Business age is the only Tier 3 requirement this system can assess. The '
+      + 'credit-strength gate was removed on 2026-08-05: it required a FICO SBSS, '
+      + 'which a lender computes at application and no client can obtain, at a '
+      + 'threshold the SBA retired. Meeting this tier is not evidence of credit '
+      + 'strength — nothing here measures it.',
+  },
+};
 
 /**
  * Assess a score against a threshold.
@@ -136,14 +184,23 @@ export function assessStackingCriteria(
     ...paydex,
   });
 
-  // ── sc_004 — SBSS at the SBA pre-screen threshold ──
-  criteria.push({
-    id: 'sc_004',
-    label: 'SBSS ≥ 140',
-    description: 'FICO SBSS score at or above SBA pre-screen threshold.',
-    requiredForTier: 2,
-    ...assessScore(facts.sbss, TIER_2_SBSS, 'SBSS'),
-  });
+  // sc_004 was "SBSS ≥ 140 — at or above SBA pre-screen threshold", gating
+  // Tier 2. Removed 2026-08-05, for two independent reasons either of which
+  // would have been sufficient:
+  //
+  //  - No client can obtain an SBSS. FICO computes it when a lender requests
+  //    it, from an application. A gate nobody can clear by any action is not a
+  //    requirement, it is a wall.
+  //  - The threshold had not existed for years. 140 became 155 in Oct 2020 and
+  //    165 in Jun 2025, and the SBA retired the pre-screen entirely on
+  //    2026-03-01 (Procedural Notices 5000-875701 and 5000-876777).
+  //
+  // A query on 2026-08-05 found zero rows of scoreType 'sbss' in the database,
+  // so this criterion had never been assessed for any client since it was
+  // written. Tier 2 keeps Intelliscore and Equifax Business Risk, both of
+  // which measure credit strength and both of which a client can obtain.
+  //
+  // See docs/product/business-credit-scores.md.
 
   // ── sc_005 — Experian's business score ──
   //
@@ -190,14 +247,15 @@ export function assessStackingCriteria(
         : `${facts.businessAgeMonths} months since formation, needs ${TIER_3_BUSINESS_AGE_MONTHS}`,
   });
 
-  // ── sc_008 — SBSS at the Tier 3 unlock ──
-  criteria.push({
-    id: 'sc_008',
-    label: 'SBSS ≥ 175',
-    description: 'FICO SBSS at Tier 3 stacking unlock threshold.',
-    requiredForTier: 3,
-    ...assessScore(facts.sbss, TIER_3_SBSS, 'SBSS'),
-  });
+  // sc_008 was "SBSS ≥ 175", gating Tier 3. Removed 2026-08-05 for the same
+  // reasons as sc_004, and with less standing: 175 had no SBA basis at all —
+  // it was neither 140, 155 nor 165, and no source for it was found.
+  //
+  // Removing it leaves Tier 3 with one assessable requirement, which is why
+  // TIER_COVERAGE marks the tier narrow. That is stated on the page rather
+  // than padded out with placeholder criteria: the tier really does assess one
+  // thing, and pretending otherwise would be the same dishonesty pointed the
+  // other way.
 
   return criteria;
 }
@@ -206,14 +264,21 @@ export function assessStackingCriteria(
 export function assessTiers(criteria: StackingCriterion[]): TierAssessment[] {
   return ([1, 2, 3] as const).map((tier) => {
     const forTier = criteria.filter((c) => c.requiredForTier === tier);
-    const met = forTier.filter((c) => c.status === 'met').length;
+    const count = (s: CriterionStatus) => forTier.filter((c) => c.status === s).length;
+    const met = count('met');
+    const { coverage, note } = TIER_COVERAGE[tier];
 
     return {
       tier,
       criteria: forTier,
       met,
       total: forTier.length,
+      notMet: count('not_met'),
+      notYetMeasured: count('unknown'),
+      cannotAssess: count('unassessable'),
       unlocked: forTier.length > 0 && met === forTier.length,
+      coverage,
+      coverageNote: note,
       // Named, not counted. "2 of 3" does not tell an advisor whether the
       // third is something the client can act on.
       blockedBy: forTier.filter((c) => c.status !== 'met').map((c) => c.label),

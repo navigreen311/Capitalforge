@@ -481,6 +481,38 @@ not periodically measured and cannot be observed by the client at all.
 for every client since they were written, and the milestone panel has never
 measured anything.
 
+### An untested guard, left in place deliberately
+
+`estimateMonthsToNextTrack` returns **null rather than 0** when a track
+requires a business-credit score the client has never been measured on. Zero
+means "nothing left to close"; an unmeasured gate has closed nothing. The
+defect it was written for was real — a client cleared every measurable Full
+Stack gate with no SBSS on record and the panel offered *"Estimated 0 months
+at the current rate."*
+
+**That guard is now unreachable.** It fires only when a track declares a
+business-credit threshold, and none does since the SBSS gates were removed on
+2026-08-05. No input can reach it, so nothing exercises it.
+
+It is kept, not deleted, because the day a track declares a threshold again the
+defect returns without it. But an untested guard is a guard on its way out:
+nothing fails when someone simplifies it away, and the comment explaining it
+will read like archaeology to whoever finds it.
+
+**What would fix this properly:** a seam that lets a caller pass thresholds
+into `estimateMonthsToNextTrack` rather than reading `TRACK_THRESHOLDS`
+directly, so the rule can be exercised without a track having to declare a
+requirement on an unobtainable product. Two sibling guards lost their only
+exercise in the same change and were rescued that way — `businessCreditGate`
+was exported and tested directly, and the compile-time proof that a PAYDEX
+cannot be compared against an SBSS requirement now declares its own threshold
+instead of borrowing one from a track. This is the third, and the only one
+still uncovered.
+
+**Cost.** *Small — a parameter and a test.* Recorded here rather than in a code
+comment alone, because the comment is only read by someone already editing the
+function, and the point is to reach someone planning work before that.
+
 ### Also recorded there
 
 - `EstimatedProgressTimeline.tsx` `c2-2` told advisors the Experian report was

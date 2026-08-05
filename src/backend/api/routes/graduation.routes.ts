@@ -147,6 +147,10 @@ graduationRouter.get(
           currentTrackLabel:        currentMeta.label,
           currentTrackDescription:  currentMeta.description,
           currentTrackCreditRange:  currentMeta.targetCreditRange,
+          // What this track can and cannot assess. Without it the page can
+          // only report that a client qualified, not what qualifying covers.
+          currentTrackCoverage:     assessment.currentTrackCoverage,
+          currentTrackCoverageNote: assessment.currentTrackCoverageNote,
           nextTrack:                assessment.nextTrack,
           nextTrackLabel:           nextMeta?.label ?? null,
           nextTrackEligible:        assessment.nextTrackEligible,

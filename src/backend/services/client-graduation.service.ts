@@ -166,7 +166,18 @@ export const TRACK_THRESHOLDS = {
     minFicoScore:           680,
     minBusinessAgeMonths:   12,
     minMonthlyRevenue:      8_000,
-    businessCredit:         { scoreType: 'sbss', min: 50 },
+    // Was { scoreType: 'sbss', min: 50 }. Removed 2026-08-05: FICO computes
+    // SBSS when a lender requests it, so no client could ever clear this by
+    // any action, and zero rows of that score type have ever existed here.
+    //
+    // Null, not a smaller number and not a substitute product. A threshold on
+    // Intelliscore would need a figure nobody can source, and inventing one is
+    // exactly how 140 survived two revisions and a retirement.
+    //
+    // NOTE: this track now asserts no business-credit requirement at all. It
+    // is easier to reach than it was this morning, and that is a real change
+    // in meaning rather than a tidy-up.
+    businessCredit:         null,
     minTradelines:          4,
     maxUtilization:         0.50,
   },
@@ -174,7 +185,10 @@ export const TRACK_THRESHOLDS = {
     minFicoScore:           720,
     minBusinessAgeMonths:   24,
     minMonthlyRevenue:      15_000,
-    businessCredit:         { scoreType: 'sbss', min: 100 },
+    // Was { scoreType: 'sbss', min: 100 } — same removal, same reasoning, and
+    // the same consequence: the highest track no longer tests business credit.
+    // Tradelines, revenue, age, personal FICO and utilisation still gate it.
+    businessCredit:         null,
     minTradelines:          6,
     maxUtilization:         0.30,
   },
@@ -239,10 +253,54 @@ export interface MilestoneGate {
 
 // ── Graduation Assessment ────────────────────────────────────
 
+/**
+ * How much of a track this system can assess — a fact about the track, not
+ * about the client.
+ *
+ * `narrow` means the track **lost** a requirement it used to assert, so
+ * qualifying for it covers less ground than it did. That is different from a
+ * track which never asserted one: Credit Builder and Starter Stack have always
+ * carried `businessCredit: null` on purpose, because business credit is not
+ * expected at entry. Full Stack and LOC/SBA Bridge did assert it, and no
+ * longer do.
+ *
+ * The distinction matters because a track is a funding-readiness claim an
+ * advisor acts on. "Ready for institutional credit" arrived at by deleting a
+ * requirement is a stronger statement than the evidence now supports.
+ */
+export type TrackCoverage = 'full' | 'narrow';
+
+export const TRACK_COVERAGE: Record<GraduationTrack, { coverage: TrackCoverage; note: string | null }> = {
+  [GRADUATION_TRACKS.CREDIT_BUILDER]: { coverage: 'full', note: null },
+  [GRADUATION_TRACKS.STARTER_STACK]: { coverage: 'full', note: null },
+  [GRADUATION_TRACKS.FULL_STACK]: {
+    coverage: 'narrow',
+    note:
+      'This track no longer tests business credit. Its requirement was a FICO '
+      + 'SBSS of 50, removed on 2026-08-05: a lender computes SBSS at '
+      + 'application, so no client could clear it by any action, and no client '
+      + 'here has ever had one. Personal FICO, business age, revenue, '
+      + 'tradelines and utilisation are still assessed.',
+  },
+  [GRADUATION_TRACKS.LOC_SBA_BRIDGE]: {
+    coverage: 'narrow',
+    note:
+      'This track no longer tests business credit. Its requirement was a FICO '
+      + 'SBSS of 100, removed on 2026-08-05 for the same reason: a lender '
+      + 'computes SBSS at application, and no client here has ever had one. '
+      + 'Personal FICO, business age, revenue, tradelines and utilisation are '
+      + 'still assessed — but reaching this track is not evidence of business '
+      + 'credit strength, because nothing here measures it.',
+  },
+};
+
 export interface GraduationAssessment {
   businessId:       string;
   currentTrack:     GraduationTrack;
   nextTrack:        GraduationTrack | null;
+  /** Coverage of `currentTrack`. See TRACK_COVERAGE. */
+  currentTrackCoverage: TrackCoverage;
+  currentTrackCoverageNote: string | null;
   currentTrackMet:  boolean;
   nextTrackEligible: boolean;
   milestoneGates:   MilestoneGate[];
@@ -380,7 +438,18 @@ function scoreLabel(scoreType: ScoreType): string {
  * and "nobody has pulled this client's SBSS" are different sentences, and only
  * the first is about the client.
  */
-function businessCreditGate<T extends ScoreType>(
+/**
+ * Exported for its own tests, not because anything else calls it.
+ *
+ * No track declares a business-credit threshold since the SBSS gates were
+ * removed on 2026-08-05, so this function is currently unreachable through
+ * `checkTrackEligibility`. The rules it encodes are still the rules — an
+ * absent score is `unknown` rather than `failed`, and the resolution names
+ * whether anybody can obtain the product — and they have to keep being
+ * provable through a period when no track happens to use them, or they will
+ * quietly stop being true before the next track needs them.
+ */
+export function businessCreditGate<T extends ScoreType>(
   threshold: ScoreThreshold<T>,
   scores: BusinessScores,
 ): MilestoneGate {
@@ -421,7 +490,14 @@ export function checkTrackEligibility(
   track: GraduationTrack,
   input: GraduationInput,
 ): { eligible: boolean; gates: MilestoneGate[] } {
-  const t = TRACK_THRESHOLDS[track];
+  // Annotated, not inferred. TRACK_THRESHOLDS keeps its literal types at the
+  // declaration site — that is what makes the scoreType/threshold pairing a
+  // compile error rather than a plausible `true`. But every track's
+  // businessCredit is currently null, so the inferred literal type of this
+  // local is `null`, and TypeScript narrows the non-null branches below to
+  // `never`. Widening here keeps the code that reads a threshold reachable and
+  // compiling, ready for the first track that declares one again.
+  const t: TrackThresholds = TRACK_THRESHOLDS[track];
   const gates: MilestoneGate[] = [];
 
   // FICO gate
@@ -499,7 +575,7 @@ export function estimateMonthsToNextTrack(
   input:     GraduationInput,
   nextTrack: GraduationTrack,
 ): number | null {
-  const t = TRACK_THRESHOLDS[nextTrack];
+  const t: TrackThresholds = TRACK_THRESHOLDS[nextTrack];
   let maxMonths = 0;
 
   // FICO improvement: ~5–8 pts/month with consistent on-time payments
@@ -572,7 +648,7 @@ export function buildActionRoadmap(
   failingGates: MilestoneGate[],
   nextTrack:   GraduationTrack,
 ): RoadmapAction[] {
-  const t = TRACK_THRESHOLDS[nextTrack];
+  const t: TrackThresholds = TRACK_THRESHOLDS[nextTrack];
   const actions: RoadmapAction[] = [];
   let priority = 1;
 
@@ -709,6 +785,8 @@ export function assessGraduation(
     businessId,
     currentTrack,
     nextTrack,
+    currentTrackCoverage: TRACK_COVERAGE[currentTrack].coverage,
+    currentTrackCoverageNote: TRACK_COVERAGE[currentTrack].note,
     currentTrackMet,
     nextTrackEligible,
     milestoneGates,

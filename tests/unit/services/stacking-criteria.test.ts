@@ -71,7 +71,9 @@ describe('a client with nothing on file', () => {
 
     // The scores were never pulled. "Unknown" is the honest answer, and
     // `null >= 140` being false in JavaScript is not a reason to say "not met".
-    for (const id of ['sc_003', 'sc_004', 'sc_005', 'sc_007', 'sc_008']) {
+    // sc_004 and sc_008 were here until the SBSS gates were removed on
+    // 2026-08-05. They were the two that had never been assessable for anyone.
+    for (const id of ['sc_003', 'sc_005', 'sc_007']) {
       expect(criteria.find((c) => c.id === id)!.status, id).toBe('unknown');
     }
   });
@@ -115,10 +117,24 @@ describe('thresholds', () => {
     expect(criterion({ ...STRONG, paydex: 80 }, 'sc_003').status).toBe('met');
   });
 
-  it('sc_004 and sc_008 read the same SBSS at different thresholds', () => {
-    const mid = { ...STRONG, sbss: 150 };
-    expect(criterion(mid, 'sc_004').status).toBe('met');
-    expect(criterion(mid, 'sc_008').status).toBe('not_met');
+  it('no longer gates any tier on a score nobody can obtain', () => {
+    // This asserted that sc_004 and sc_008 read the same SBSS at 140 and 175.
+    // Both are gone (2026-08-05): FICO computes SBSS when a lender requests
+    // it, so no client could clear either by any action, and the thresholds
+    // were stale — 140 had been superseded twice and the SBA retired the
+    // requirement entirely, while 175 had no source at all.
+    //
+    // Pinned as an absence rather than deleted, so re-adding a gate on an
+    // unobtainable product has to argue with a test rather than slip in.
+    const withSbss = { ...STRONG, sbss: 150 };
+    const ids = assessStackingCriteria(withSbss, true).map((c) => c.id);
+
+    expect(ids).not.toContain('sc_004');
+    expect(ids).not.toContain('sc_008');
+    expect(
+      assessStackingCriteria(withSbss, true).some((c) => /SBSS/i.test(c.label)),
+      'no criterion should gate on SBSS',
+    ).toBe(false);
   });
 
   it('sc_005 reads Experian’s own product', () => {
@@ -161,8 +177,47 @@ describe('sc_006 — Equifax’s own business product', () => {
   it('no longer leaves Tier 2 permanently locked', () => {
     const tier2 = assessTiers(assessStackingCriteria(STRONG, true)).find((t) => t.tier === 2)!;
     expect(tier2.unlocked).toBe(true);
-    expect(tier2.met).toBe(3);
+    // Two, not three: sc_004 (SBSS ≥ 140) left on 2026-08-05. Both survivors
+    // measure credit strength and both are obtainable, so Tier 2 keeps full
+    // coverage — unlike Tier 3.
+    expect(tier2.met).toBe(2);
+    expect(tier2.coverage).toBe('full');
     expect(tier2.blockedBy).toEqual([]);
+  });
+
+  it('marks Tier 3 narrow, and says so however its one criterion lands', () => {
+    // The count is honest and still misleading on its own: "1 of 1 met" reads
+    // as a fully assessed tier rather than one with a single requirement left
+    // standing after the rest were removed as unmeasurable. Coverage is a
+    // fact about the tier, so it holds whether the client passes or not.
+    const passing = assessTiers(assessStackingCriteria(STRONG, true)).find((t) => t.tier === 3)!;
+    expect(passing.total).toBe(1);
+    expect(passing.met).toBe(1);
+    expect(passing.unlocked).toBe(true);
+    expect(passing.coverage).toBe('narrow');
+    expect(passing.coverageNote).toMatch(/not evidence of credit strength/i);
+
+    const failing = assessTiers(
+      assessStackingCriteria({ ...STRONG, businessAgeMonths: 6 }, true),
+    ).find((t) => t.tier === 3)!;
+    expect(failing.unlocked).toBe(false);
+    expect(failing.coverage).toBe('narrow');
+    expect(failing.coverageNote).toBe(passing.coverageNote);
+  });
+
+  it('counts unmeasured criteria separately from failed ones', () => {
+    // The defect this prevents: "2 of 4 met" is the same fraction whether the
+    // other two fell short or were never measurable, and only one of those is
+    // the client's problem.
+    const tiers = assessTiers(
+      assessStackingCriteria({ ...STRONG, intelliscore: null, equifaxBusinessRisk: 400 }, true),
+    );
+    const tier2 = tiers.find((t) => t.tier === 2)!;
+
+    expect(tier2.notYetMeasured).toBe(1);
+    expect(tier2.notMet).toBe(1);
+    expect(tier2.met).toBe(0);
+    expect(tier2.notYetMeasured + tier2.notMet + tier2.met + tier2.cannotAssess).toBe(tier2.total);
   });
 
   it('still locks the tier when the score has not been pulled', () => {

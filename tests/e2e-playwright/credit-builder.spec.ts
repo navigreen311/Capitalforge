@@ -395,14 +395,20 @@ test.describe('Stacking unlock criteria', () => {
     signedInPage: page,
   }) => {
     await page.goto('/credit-builder');
-    await selectClient(page, CLIENT_WITH_SCORE);
+    // Was CLIENT_WITH_SCORE asserting "No SBSS on record for this client".
+    // The two SBSS criteria were removed on 2026-08-05, so that basis line no
+    // longer exists for anybody. The property it proved does not depend on
+    // SBSS: this client has no PAYDEX, and "not measured" must not render as
+    // a failed threshold.
+    await selectClient(page, CLIENT_WITHOUT_SCORE);
 
-    // This client has no SBSS. "Not measured" and "Not yet" are different
-    // claims, and only one of them is about the client.
-    await expect(page.getByText('No SBSS on record for this client').first()).toBeVisible({
+    await expect(page.getByText('No PAYDEX on record for this client').first()).toBeVisible({
       timeout: 30000,
     });
     await expect(page.getByText('Not measured').first()).toBeVisible();
+
+    // And nothing on the page gates on a score nobody can obtain.
+    await expect(page.getByText(/SBSS ≥ \d+/)).toHaveCount(0);
   });
 
   test('assesses the Equifax criterion against Equifax’s own score', async ({
@@ -507,14 +513,48 @@ test.describe('Programme track', () => {
     await expect(page.getByRole('heading', { name: 'Programme Track' })).toBeVisible({
       timeout: 30000,
     });
-    // This client clears every measurable gate for Full Stack. Before the
-    // seed carried real trade-line arrays they were pinned to Credit Builder
-    // by a count that read 0 off a summary object.
-    await expect(page.getByText('To reach Full Stack')).toBeVisible();
+
+    // This client used to be short of Full Stack, held there by a
+    // business-credit gate requiring an SBSS nobody has ever had. Removing
+    // that gate on 2026-08-05 moved them two tracks, to the highest one —
+    // they did nothing; a requirement was deleted.
+    //
+    // So the panel must not read as a clean qualification. LOC / SBA Bridge
+    // is "bridge to institutional credit", and arriving there by subtraction
+    // is exactly the claim this page should not make quietly.
+    await expect(page.getByText('Narrow assessment').first()).toBeVisible();
+    await expect(page.getByText(/no longer tests business credit/i).first()).toBeVisible();
+
+    // The terminal line is qualified rather than an endorsement.
+    await expect(
+      page.getByText(/clears everything this system assesses/i).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/not a judgement that the client is ready for institutional credit/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText('This client is on the highest track. There is no next one to qualify for.'),
+    ).toHaveCount(0);
+  });
+
+  test('still shows what the next track waits on, for a client below the top', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITHOUT_SCORE);
+
+    await expect(page.getByRole('heading', { name: 'Programme Track' })).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.getByText('To reach Starter Stack')).toBeVisible();
 
     // The gates themselves, with the figure each one read.
     await expect(page.getByText('Personal FICO Score')).toBeVisible();
     await expect(page.getByText('Active Positive Tradelines')).toBeVisible();
+
+    // Starter Stack never asserted business credit, so it is not narrow —
+    // this distinguishes "lost a requirement" from "never had one".
+    await expect(page.getByText(/no longer tests business credit/i)).toHaveCount(0);
   });
 
   test('lists all four tracks and marks the current one', async ({ signedInPage: page }) => {
@@ -529,34 +569,28 @@ test.describe('Programme track', () => {
 
   test('names the next action rather than only the shortfall', async ({ signedInPage: page }) => {
     await page.goto('/credit-builder');
-    await selectClient(page, CLIENT_WITH_SCORE);
+    // Was CLIENT_WITH_SCORE, whose only outstanding gate was an SBSS. That
+    // gate is gone and this client is now on the highest track with no
+    // failing gates, so there is no roadmap to assert against. The property
+    // — a roadmap names an action, not just a shortfall — is unchanged, and
+    // this client has real gaps to close.
+    await selectClient(page, CLIENT_WITHOUT_SCORE);
 
-    // The roadmap the engine produces, which nothing rendered before.
     await expect(page.getByRole('heading', { name: 'Next actions' })).toBeVisible({
       timeout: 30000,
     });
 
-    // The action for an unmeasured requirement is to measure it — unless
-    // nobody can. This used to assert /Pull a FICO SBSS report/ and "Same
-    // day", and the page said both. Neither is true of SBSS: FICO calculates
-    // it when a lender requests it, so there is no report to buy this
-    // afternoon and no errand an advisor can run. "Same day" was the worse
-    // half — it put a deadline on work that cannot be done at all.
-    await expect(page.getByText(/nobody here can obtain one/i).first()).toBeVisible();
-    await expect(page.getByText('Not obtainable on demand').first()).toBeVisible();
+    // Every action states something to do, with a timeline beside it.
+    const roadmap = page.locator('section').filter({
+      has: page.getByRole('heading', { name: 'Programme Track' }),
+    });
+    await expect(roadmap.getByRole('listitem').first()).toBeVisible();
+
+    // Nothing tells an advisor to obtain a score nobody can obtain. The page
+    // used to emit "Pull a FICO SBSS report for this client" with a timeline
+    // of "Same day" — an errand that does not exist, with a deadline on it.
     await expect(page.getByText(/Pull a FICO SBSS report/)).toHaveCount(0);
-
-    // Still framed as unmeasured rather than as a shortfall.
-    await expect(page.getByText(/not a shortfall/i).first()).toBeVisible();
-
-    // And no timeline is invented from an absence. This read "Estimated 0
-    // months at the current rate" until the estimator returned null for an
-    // unmeasured gate — 0 means "nothing left to close", which is the
-    // opposite of what is true here.
-    await expect(
-      page.getByText('No timeline is projected while a requirement is unmeasured.'),
-    ).toBeVisible();
-    await expect(page.getByText(/Estimated 0 months/)).toHaveCount(0);
+    await expect(page.getByText('Same day', { exact: true })).toHaveCount(0);
   });
 
   test('assesses nothing until a client is chosen', async ({ signedInPage: page }) => {
@@ -573,7 +607,10 @@ test.describe('Programme track', () => {
     signedInPage: page,
   }) => {
     await page.goto('/credit-builder');
-    await selectClient(page, CLIENT_WITH_SCORE);
+    // CLIENT_WITH_SCORE now sits on the highest track with no gates to
+    // examine, since the SBSS gate that held them below it was removed.
+    // This client still has gates in every state.
+    await selectClient(page, CLIENT_WITHOUT_SCORE);
     await expect(page.getByRole('heading', { name: 'Programme Track' })).toBeVisible({
       timeout: 30000,
     });

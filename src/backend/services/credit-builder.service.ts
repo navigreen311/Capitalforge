@@ -391,7 +391,8 @@ export interface CreditBuilderRoadmap {
   sbssMilestones:         SbssScoreMilestone[];
   currentSbssTarget:      SbssScoreMilestone | null;
   stackingUnlockStatus:   StackingUnlockStatus;
-  estimatedCompletionMonths: number;
+  /** Null when no milestone can be identified to estimate from. */
+  estimatedCompletionMonths: number | null;
   generatedAt:            Date;
 }
 
@@ -418,14 +419,31 @@ export function buildCreditRoadmap(
   // 88 on a 0-300 SBSS scale. With no SBSS on record there is no milestone to
   // be "next": the first one is, because the client is at the start of that
   // ladder rather than partway up somebody else's.
+  // `?? 0` treated "no SBSS on record" as an SBSS of 0 and picked the bottom
+  // rung. That reads as a statement about the client — they are at the start
+  // of this ladder — when the truth is that nobody has measured them against
+  // it, and nobody can: FICO computes SBSS when a lender requests it. There is
+  // no next milestone for a score that does not exist and cannot be obtained.
   const sbss = input.businessScores.sbss;
   const currentSbssTarget =
-    SBSS_SCORE_MILESTONES.find((m) => m.targetScore > (sbss?.value ?? 0)) ?? null;
+    sbss === undefined
+      ? null
+      : SBSS_SCORE_MILESTONES.find((m) => m.targetScore > sbss.value) ?? null;
 
-  // Compute estimated total time to stacking unlock
+  // Estimated time to stacking unlock, or null when there is nothing to
+  // estimate from.
+  //
+  // This was `currentSbssTarget?.estimatedMonths ?? 6`. The 6 came from
+  // nowhere: it was the number returned for every client whose next milestone
+  // could not be identified, which — since no client has ever had an SBSS —
+  // was all of them. A locked client got "about 6 months" as a fact about
+  // their file, derived from an absence.
+  //
+  // Same shape as estimateMonthsToNextTrack returning 0 for an unmeasured
+  // gate. An estimate with no input is not a conservative estimate.
   const estimatedCompletionMonths = unlockStatus.unlocked
     ? 0
-    : currentSbssTarget?.estimatedMonths ?? 6;
+    : currentSbssTarget?.estimatedMonths ?? null;
 
   logger.info('[CreditBuilderService] Roadmap generated', {
     businessId,

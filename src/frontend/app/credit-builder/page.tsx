@@ -224,7 +224,11 @@ const SBSS_MILESTONES: SbssMilestone[] = [
 // facts the DUNS steps derive from — sc_002 and step 4 are the same question
 // about trade lines, sc_003 and step 5 the same question about PAYDEX, and
 // reading them from two places is how two figures on one page come to disagree.
-const STACKING_CRITERIA_COUNT = 8;
+// Six since 2026-08-05. sc_004 (SBSS ≥ 140) and sc_008 (SBSS ≥ 175) were
+// removed: FICO computes SBSS when a lender requests it, so no client could
+// clear either by any action, and zero rows of that score type have ever
+// existed here. Neither had been assessed for anybody since they were written.
+const STACKING_CRITERIA_COUNT = 6;
 
 // Scores placeholder
 
@@ -498,9 +502,24 @@ export default function CreditBuilderPage() {
                 : 'Select a client to see their DUNS progress'
               : `${completedCount}/${DUNS_STEPS.length} DUNS steps recorded`}{' '}
             ·{' '}
+            {/* The fraction alone hides what produced it: "4/6 met" reads the
+                same whether the other two fell short or could never be
+                measured. Anything unmeasured is named beside the count, and
+                "not yet measured" stays separate from "cannot be assessed" —
+                the first is an errand, the second is a standing fact. */}
             {assessedCriteria === null
               ? `${STACKING_CRITERIA_COUNT} stacking criteria, not assessed`
-              : `${assessedCriteria.filter((c) => c.status === 'met').length}/${assessedCriteria.length} stacking criteria met`}
+              : [
+                  `${assessedCriteria.filter((c) => c.status === 'met').length}/${assessedCriteria.length} stacking criteria met`,
+                  assessedCriteria.filter((c) => c.status === 'unknown').length > 0
+                    ? `${assessedCriteria.filter((c) => c.status === 'unknown').length} not yet measured`
+                    : null,
+                  assessedCriteria.filter((c) => c.status === 'unassessable').length > 0
+                    ? `${assessedCriteria.filter((c) => c.status === 'unassessable').length} cannot be assessed`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
             {selectedClient && <span className="text-yellow-400"> — {selectedClient.legal_name}</span>}
           </p>
         </div>

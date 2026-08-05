@@ -33,6 +33,13 @@ interface TierEstimate {
   label: string;
   estimatedDays: number | null;
   criteria: CriterionStatus[];
+  /**
+   * How much of this tier can be assessed at all — a fact about the tier, not
+   * about the client. A narrow tier lost requirements that could not be
+   * measured, so every criterion met covers less ground than it looks like.
+   */
+  coverage: 'full' | 'narrow';
+  coverageNote: string | null;
 }
 
 interface CriterionStatus {
@@ -50,7 +57,6 @@ const PAYDEX_PTS_PER_MONTH = 3;
 const TRADELINE_TARGET = 5;
 const DAYS_PER_TRADELINE = 14;
 const EXPERIAN_TARGET = 60;
-const SBSS_TARGET = 175;
 const BUSINESS_AGE_TARGET_MONTHS = 24;
 
 // ---------------------------------------------------------------------------
@@ -113,7 +119,7 @@ function computeTier1(paydex: number | null, tradelineCount: number | null): Tie
 
   if (paydexMet && tradelineMet) estimatedDays = 0;
 
-  return { tier: 1, label: 'Tier 1 Unlock', estimatedDays, criteria };
+  return { tier: 1, label: 'Tier 1 Unlock', estimatedDays, criteria, coverage: 'full', coverageNote: null };
 }
 
 function computeTier2(experianBusiness: number | null): TierEstimate {
@@ -140,30 +146,28 @@ function computeTier2(experianBusiness: number | null): TierEstimate {
     estimatedDays = Math.ceil((gap / 2) * 30);
   }
 
-  return { tier: 2, label: 'Tier 2 Unlock', estimatedDays, criteria };
+  return { tier: 2, label: 'Tier 2 Unlock', estimatedDays, criteria, coverage: 'full', coverageNote: null };
 }
 
-function computeTier3(sbss: number | null, businessAgeMonths: number | null): TierEstimate {
+function computeTier3(businessAgeMonths: number | null): TierEstimate {
   // The age was once a constant 36 months — three years, for every client,
   // which cleared the two-year threshold and reported "Already met" to all of
   // them. It is now read from the client's formation date.
   // Unknown now stays unknown: the criterion is unmet rather than satisfied,
   // and no date is projected from it.
+  //
+  // The SBSS criterion is gone (2026-08-05). It required 175 on a score FICO
+  // computes when a lender asks — a number no client has ever had here, at a
+  // threshold with no SBA basis — and this function projected progress toward
+  // it at "~3 pts/mo", inventing a trajectory for a score that is not
+  // periodically measured and cannot be observed at all.
+  //
+  // That leaves one criterion, which is why the tier is marked narrow rather
+  // than padded back out. See TIER_COVERAGE in stacking-criteria.service.ts.
   const ageKnown = businessAgeMonths !== null;
   const ageMet = ageKnown && businessAgeMonths >= BUSINESS_AGE_TARGET_MONTHS;
-  const sbssMet = sbss !== null && sbss >= SBSS_TARGET;
 
   const ageMonthsRemaining = !ageKnown || ageMet ? 0 : BUSINESS_AGE_TARGET_MONTHS - businessAgeMonths;
-  const ageDaysRemaining = ageKnown ? ageMonthsRemaining * 30 : null;
-
-  // SBSS growth: rough ~3 pts/month with active tradeline building
-  let sbssDays: number | null = null;
-  if (sbssMet) {
-    sbssDays = 0;
-  } else if (sbss !== null) {
-    const gap = SBSS_TARGET - sbss;
-    sbssDays = Math.ceil((gap / 3) * 30);
-  }
 
   const criteria: CriterionStatus[] = [
     {
@@ -175,32 +179,23 @@ function computeTier3(sbss: number | null, businessAgeMonths: number | null): Ti
           ? 'Already met'
           : `${ageMonthsRemaining} months remaining`,
     },
-    {
-      label: `SBSS ${SBSS_TARGET}+`,
-      met: sbssMet,
-      detail: sbssMet
-        ? 'Already met'
-        : sbss !== null
-          ? `${SBSS_TARGET - sbss} pts needed at ~3 pts/mo`
-          : 'No SBSS score yet',
-    },
   ];
 
-  // With the formation date unknown there is no floor on how long Tier 3
-  // takes, so no date is offered at all rather than one computed from the
-  // SBSS gap alone — that would read as a deadline the age might not meet.
-  let estimatedDays: number | null = null;
-  if (!ageKnown || ageDaysRemaining === null) {
-    estimatedDays = null;
-  } else if (ageMet && sbssMet) {
-    estimatedDays = 0;
-  } else if (sbssDays !== null) {
-    estimatedDays = Math.max(ageDaysRemaining, sbssDays);
-  } else {
-    estimatedDays = ageDaysRemaining > 0 ? ageDaysRemaining : null;
-  }
+  const estimatedDays = !ageKnown ? null : ageMet ? 0 : ageMonthsRemaining * 30;
 
-  return { tier: 3, label: 'Tier 3 Unlock', estimatedDays, criteria };
+  return {
+    tier: 3,
+    label: 'Tier 3 Unlock',
+    estimatedDays,
+    criteria,
+    coverage: 'narrow',
+    coverageNote:
+      'Business age is the only Tier 3 requirement this system can assess. The '
+      + 'credit-strength gate was removed on 2026-08-05: it required a FICO SBSS, '
+      + 'which a lender computes at application and no client can obtain, at a '
+      + 'threshold the SBA retired. Meeting this tier is not evidence of credit '
+      + 'strength — nothing here measures it.',
+  };
 }
 
 function formatDays(days: number): string {
@@ -371,12 +366,25 @@ function CoachingCards({ tier }: { tier: number }) {
 
 function TierRow({ estimate }: { estimate: TierEstimate }) {
   const allMet = estimate.criteria.every((c) => c.met);
+  const narrow = estimate.coverage === 'narrow';
+
+  // A narrow tier never goes green, however its criteria land.
+  //
+  // Tier 3 met one requirement this morning out of two. It meets one out of
+  // one this afternoon, because the other was deleted as unmeasurable — and
+  // on the old rule that turns the card green and stamps it UNLOCKED. The
+  // client did nothing. Colour is the first thing read on this page and the
+  // last thing questioned, so no amount of accurate text underneath repairs a
+  // card that says "done" more loudly than the words say "partly".
+  const complete = allMet && !narrow;
 
   return (
     <div className={`rounded-lg border p-4 transition-colors ${
-      allMet
+      complete
         ? 'border-green-800 bg-green-900/20'
-        : 'border-gray-800 bg-gray-900/50'
+        : allMet && narrow
+          ? 'border-amber-800/60 bg-amber-900/10'
+          : 'border-gray-800 bg-gray-900/50'
     }`}>
       {/* Header row */}
       <div className="flex items-center justify-between mb-3">
@@ -385,11 +393,20 @@ function TierRow({ estimate }: { estimate: TierEstimate }) {
             Tier {estimate.tier}
           </span>
           <h3 className="text-sm font-semibold text-gray-200">{estimate.label}</h3>
+          {narrow && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded border border-amber-700/60 bg-amber-900/20 text-amber-300">
+              Narrow assessment
+            </span>
+          )}
         </div>
         <div className="text-right">
-          {allMet ? (
+          {complete ? (
             <span className="text-xs bg-green-900 text-green-300 border border-green-700 px-2 py-0.5 rounded font-semibold">
               UNLOCKED
+            </span>
+          ) : allMet && narrow ? (
+            <span className="text-xs bg-amber-900/40 text-amber-300 border border-amber-700/60 px-2 py-0.5 rounded font-semibold">
+              MET ON WHAT WE ASSESS
             </span>
           ) : estimate.estimatedDays !== null ? (
             <div>
@@ -421,6 +438,15 @@ function TierRow({ estimate }: { estimate: TierEstimate }) {
         ))}
       </div>
 
+      {/* What this tier does not assess. Stated whether or not the criteria
+          are met, because a narrow tier is narrow either way — it is a fact
+          about our measurement, not about how the client is doing. */}
+      {estimate.coverageNote && (
+        <p className="mt-3 pt-3 border-t border-amber-900/30 text-xs leading-relaxed text-amber-200/70">
+          {estimate.coverageNote}
+        </p>
+      )}
+
       {/* Coaching Cards */}
       <CoachingCards tier={estimate.tier} />
     </div>
@@ -440,7 +466,7 @@ export function EstimatedProgressTimeline({
 }: EstimatedProgressTimelineProps) {
   const tier1 = computeTier1(paydex, tradelineCount);
   const tier2 = computeTier2(experianBusiness);
-  const tier3 = computeTier3(sbss, businessAgeMonths);
+  const tier3 = computeTier3(businessAgeMonths);
 
   const paydexDays = computePaydexDays(paydex);
   const hasPaydex = paydex !== null;

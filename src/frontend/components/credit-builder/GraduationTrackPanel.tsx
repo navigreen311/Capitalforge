@@ -115,8 +115,19 @@ export function GraduationTrackPanel({
       <div className="mb-1 flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-gray-200">Programme Track</h2>
         {status && (
-          <span className="rounded border border-[#C9A84C]/40 bg-[#C9A84C]/10 px-2 py-0.5 text-xs font-bold text-[#C9A84C]">
-            {status.currentTrackLabel}
+          <span className="flex items-center gap-2">
+            <span className="rounded border border-[#C9A84C]/40 bg-[#C9A84C]/10 px-2 py-0.5 text-xs font-bold text-[#C9A84C]">
+              {status.currentTrackLabel}
+            </span>
+            {/* A track is a funding-readiness claim an advisor acts on, so a
+                track that lost a requirement must not read as a clean
+                qualification. Amber beside the label, not a footnote below
+                it — the badge is what gets read. */}
+            {status.currentTrackCoverage === 'narrow' && (
+              <span className="rounded border border-amber-700/60 bg-amber-900/20 px-2 py-0.5 text-xs font-semibold text-amber-300">
+                Narrow assessment
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -137,6 +148,14 @@ export function GraduationTrackPanel({
       ) : (
         <>
           <p className="mb-4 text-xs text-gray-400">{status.currentTrackDescription}</p>
+
+          {/* What qualifying for this track does not cover. Shown whether or
+              not the client clears it: coverage is a fact about the track. */}
+          {status.currentTrackCoverageNote && (
+            <p className="mb-4 rounded-lg border border-amber-900/40 bg-amber-900/10 px-3 py-2 text-xs leading-relaxed text-amber-200/80">
+              {status.currentTrackCoverageNote}
+            </p>
+          )}
 
           {/* ── Progression ─────────────────────────────────── */}
           <ol className="mb-5 space-y-1.5">
@@ -162,9 +181,26 @@ export function GraduationTrackPanel({
 
           {/* ── Gates on the next track ─────────────────────── */}
           {status.nextTrackLabel === null ? (
-            <p className="text-xs text-gray-400">
-              This client is on the highest track. There is no next one to qualify for.
-            </p>
+            // "On the highest track, no next one to qualify for" reads as a
+            // terminal endorsement — the client has arrived. On a narrow
+            // track that is a stronger claim than the evidence supports, and
+            // it is the sentence an advisor quotes. It says what was actually
+            // established: everything this system assesses, and no more.
+            status.currentTrackCoverage === 'narrow' ? (
+              <p className="text-xs leading-relaxed text-amber-200/80">
+                This client clears everything this system assesses, and there is no
+                further track to qualify for.{' '}
+                <span className="font-semibold">
+                  Business credit is not among the things assessed
+                </span>{' '}
+                — treat this as the top of what is measured here, not a judgement
+                that the client is ready for institutional credit.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400">
+                This client is on the highest track. There is no next one to qualify for.
+              </p>
+            )
           ) : (
             <div>
               <div className="mb-2 flex items-center justify-between gap-2">
