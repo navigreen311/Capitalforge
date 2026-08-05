@@ -23,6 +23,10 @@ module.exports = [
       'dist/**',
       'coverage/**',
       'src/frontend/.next/**',
+      // The production server's own build output. Matched by name like .next
+      // above, so a new dist directory has to be added here as well — leaving
+      // it out puts several thousand generated files through the linter.
+      'src/frontend/.next-prod/**',
       'prisma/migrations/**',
       '**/*.d.ts',
       // Generated Prisma client output, if ever emitted in-tree

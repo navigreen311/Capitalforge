@@ -275,11 +275,20 @@ See [`docs/all-modules.md`](docs/all-modules.md) for the complete module registr
 > because the Dockerfile copies `src/frontend/.next/standalone` and CI archives
 > that path by name.
 >
-> One side effect to leave alone: a build with `NEXT_DIST_DIR` set makes Next
-> rewrite `src/frontend/tsconfig.json`, reformatting it and adding
-> `.next-prod/types/**/*.ts` to `include`. Next manages that file itself. Revert
-> it (`git checkout -- src/frontend/tsconfig.json`) rather than committing the
-> churn.
+> **Two side effects to leave alone.** A build with `NEXT_DIST_DIR` set makes
+> Next rewrite two files it manages itself:
+>
+> - `src/frontend/tsconfig.json` — reformatted, with `.next-prod/types/**/*.ts`
+>   added to `include`. Harmless but noisy.
+> - `src/frontend/next-env.d.ts` — its `reference path` repointed from
+>   `./.next/types/routes.d.ts` to `./.next-prod/…`. **Committing this one
+>   breaks the default build for everyone else, including CI.**
+>
+> Revert both rather than committing the churn:
+>
+> ```sh
+> git checkout -- src/frontend/tsconfig.json src/frontend/next-env.d.ts
+> ```
 | `npm run lint` | Run ESLint |
 | `npm run lint:fix` | Run ESLint with auto-fix |
 | `npm run format` | Run Prettier formatter |
