@@ -87,9 +87,17 @@ interface ScoreCardProps {
 
 function ScoreCard({ title, score, maxScore, pullDate, obtainability, target, targetLabel, thresholds }: ScoreCardProps) {
   const state = scoreCardState(score, obtainability);
-  const hasScore = state === 'measured';
   const obtainable = showsProgressToward(obtainability);
-  const pct = score !== null ? Math.min((score / maxScore) * 100, 100) : 0;
+
+  // `score !== null`, not `state === 'measured'`, even though the two are
+  // equivalent by construction. TypeScript narrows `score` from the first and
+  // cannot from the second, so deriving it via `state` left every later use of
+  // `score` typed `number | null`. Root `tsc --noEmit` passed; the Next build,
+  // which type-checks the frontend with its own config, failed on
+  // `score >= target`. Equivalent-by-construction is not equivalent to the
+  // compiler.
+  const hasScore = score !== null;
+  const pct = hasScore ? Math.min((score / maxScore) * 100, 100) : 0;
   const hasTarget = target !== undefined && targetLabel !== undefined;
   const meetsTarget = hasScore && hasTarget && score >= target;
   const ptsNeeded = hasScore && hasTarget && !meetsTarget ? target - score : 0;
@@ -128,7 +136,7 @@ function ScoreCard({ title, score, maxScore, pullDate, obtainability, target, ta
               {scoreLabel(score, thresholds)}
             </p>
           </>
-        ) : obtainable ? (
+        ) : state === 'awaiting_pull' ? (
           <>
             <p className="text-4xl font-bold text-gray-600 leading-none">&mdash;</p>
             <p className="text-sm text-gray-600 mt-1">Not yet pulled</p>
