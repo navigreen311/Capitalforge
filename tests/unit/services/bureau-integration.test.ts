@@ -172,7 +172,7 @@ describe('BureauClient.pullBusinessCredit', () => {
     client._resetRateBuckets();
   });
 
-  it.each(['experian', 'transunion', 'equifax'] as Bureau[])(
+  it.each(['transunion', 'equifax'] as Bureau[])(
     'returns a normalised business CreditProfile for %s (SBSS)',
     async (bureau) => {
       const result = await client.pullBusinessCredit(bureau, '12-3456789');
@@ -185,6 +185,18 @@ describe('BureauClient.pullBusinessCredit', () => {
       expect(result.profile.score).toBeLessThanOrEqual(300); // SBSS 0–300
     },
   );
+
+  it('returns an Experian Intelliscore, not an SBSS', async () => {
+    // Experian was in the list above, so all three business bureaus wrote
+    // `sbss` — FICO's product, on a 0–300 scale — for a figure Experian
+    // generates 1–100. The credit-builder panel's Experian Business card reads
+    // `intelliscore` and could therefore never be filled by anything.
+    const result = await client.pullBusinessCredit('experian', '12-3456789');
+
+    expect(result.profile.scoreType).toBe('intelliscore');
+    expect(result.profile.score).toBeGreaterThanOrEqual(1);
+    expect(result.profile.score).toBeLessThanOrEqual(100); // Intelliscore 1–100
+  });
 
   it('returns a D&B Paydex profile with score 0–100 and dunsNumber', async () => {
     client._resetRateBuckets();

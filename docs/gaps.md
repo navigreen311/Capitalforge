@@ -110,6 +110,43 @@ consolidation work has a fixed order: there are three velocity implementations,
 this was the only one that was wrong, and merging before fixing it risked making
 it the survivor.
 
+## 1c. One figure compares three scales — open
+
+Recorded 2026-08-04, while giving each bureau's business score its own product
+name. Deliberately **not** fixed in that change, because the fix has a
+behavioural consequence that needs deciding rather than assuming.
+
+`client-graduation.service.ts` computes a single `businessCreditScore` as the
+`Math.max` of every business profile a client holds. Those profiles are now
+three different products on three different scales:
+
+| Product | Bureau | Scale |
+|---|---|---|
+| SBSS | Equifax, TransUnion | 0–300 |
+| Intelliscore | Experian | 1–100 |
+| PAYDEX | D&B | 0–100 |
+
+The result is then measured against the SBSS milestone thresholds — 50, 80,
+140, 200. So **a PAYDEX of 88 is read as an SBSS of 88**, and a client with an
+excellent payment record is reported as approaching the SBA pre-screening
+threshold on a score nobody has ever pulled for them.
+
+This predates the renaming: the max already mixed PAYDEX with SBSS. What the
+renaming changes is that the mixing is now visible in the filter.
+
+**Why it was left.** The figure feeds `checkTrackEligibility`, so narrowing it
+to SBSS alone would move every client whose only business score is a PAYDEX
+from whatever track that 88 currently buys them to a `businessCreditScore` of
+0. That is probably correct and is certainly more honest, but it is a change to
+who is eligible for what, and it should be made deliberately rather than as a
+side effect of a rename.
+
+**Cost.** *Product decision, then small.* Decide what a business credit score
+means when a client holds several incommensurable ones — the likely answer is
+that each threshold names the product it applies to — and the code follows.
+
+---
+
 ## 2. Figures that are absent rather than zero
 
 These endpoints answer normally. Individual figures come back `null` with the

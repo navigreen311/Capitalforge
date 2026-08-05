@@ -9,7 +9,7 @@ import { z } from 'zod';
 
 export const BureauSchema = z.enum(['equifax', 'transunion', 'experian', 'dnb']);
 
-export const ScoreTypeSchema = z.enum(['fico', 'vantage', 'sbss', 'paydex']);
+export const ScoreTypeSchema = z.enum(['fico', 'vantage', 'sbss', 'paydex', 'intelliscore']);
 
 export const CreditProfileTypeSchema = z.enum(['personal', 'business']);
 
@@ -151,6 +151,12 @@ export function validateScoreForType(score: number, scoreType: string): string |
       break;
     case 'sbss':
       if (score < 0 || score > 300) return `SBSS score must be 0–300, got ${score}`;
+      break;
+    // Experian's business score, a different product on a different scale from
+    // SBSS. Every business pull was written as `sbss` regardless of bureau,
+    // which put a 1–100 figure on a 0–300 card.
+    case 'intelliscore':
+      if (score < 1 || score > 100) return `Intelliscore must be 1–100, got ${score}`;
       break;
     case 'paydex':
       if (score < 0 || score > 100) return `Paydex score must be 0–100, got ${score}`;

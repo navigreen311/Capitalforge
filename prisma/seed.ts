@@ -342,6 +342,28 @@ const SEED_PHONES = {
     },
   });
 
+  // Experian's business score for the same client. Its own product name and
+  // its own scale: the Experian Business card reads `intelliscore`, and until
+  // business pulls stopped being written as `sbss` there was nothing in any
+  // database anywhere that could fill it.
+  await prisma.creditProfile.upsert({
+    where: { id: 'seed-cp-005' },
+    update: {},
+    create: {
+      id: 'seed-cp-005',
+      businessId: biz1.id,
+      profileType: 'business',
+      bureau: 'experian',
+      score: 64,
+      scoreType: 'intelliscore',
+      utilization: dec('0.22'),
+      inquiryCount: 1,
+      derogatoryCount: 0,
+      tradelines: { vendors: 12, avgDaysBeyondTerms: 0 },
+      pulledAt: d('2026-03-01'),
+    },
+  });
+
   // Biz 2: moderate personal, no business file yet
   await prisma.creditProfile.upsert({
     where: { id: 'seed-cp-003' },

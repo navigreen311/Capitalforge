@@ -487,9 +487,23 @@ export async function autoAssessGraduation(
     ? Math.max(...personalProfiles.map((p) => p.score ?? 0))
     : 0;
 
-  // Extract best business credit score (SBSS or Paydex)
+  // Extract best business credit score (SBSS, Intelliscore or Paydex).
+  //
+  // `intelliscore` is listed because Experian business pulls now carry their
+  // own product name rather than being written as SBSS; without it those
+  // profiles would stop counting here, which would be a behaviour change
+  // smuggled in by a renaming.
+  //
+  // KNOWN, and older than this list: the `Math.max` below compares three
+  // different scales — SBSS 0–300, Intelliscore 1–100, PAYDEX 0–100 — and the
+  // result is measured against SBSS milestone thresholds. A PAYDEX of 88 is
+  // read as an SBSS of 88. Not corrected here because the figure feeds track
+  // eligibility, and narrowing it would silently demote every client whose
+  // only business score is a PAYDEX. Recorded in docs/gaps.md.
   const bizProfiles = business.creditProfiles.filter(
-    (p) => p.profileType === 'business' && (p.scoreType === 'sbss' || p.scoreType === 'paydex'),
+    (p) =>
+      p.profileType === 'business' &&
+      (p.scoreType === 'sbss' || p.scoreType === 'intelliscore' || p.scoreType === 'paydex'),
   );
   const businessCreditScore = bizProfiles.length > 0
     ? Math.max(...bizProfiles.map((p) => p.score ?? 0))
