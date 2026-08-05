@@ -68,6 +68,18 @@ export interface EligibilityContext {
   state?: string;
 }
 
+/**
+ * The rule type the cross-issuer velocity check dispatches on — Chase 5/24 and
+ * its relatives.
+ *
+ * Exported and shared because `buildCaveats` has to describe exactly the rule
+ * `evaluateRule` applied. An earlier draft matched `'velocity'`, which is not a
+ * rule type this engine has ever emitted, so the caveat never fired — and its
+ * tests passed, because they asserted the same wrong string. Two copies of a
+ * dispatch key is two chances to be wrong about which one is real.
+ */
+export const CROSS_ISSUER_VELOCITY_RULE = 'velocity_max_apps_per_period';
+
 /** Result of evaluating a single rule. */
 export interface RuleViolation {
   ruleId: string;
@@ -142,7 +154,7 @@ export function buildCaveats(
   // is the same discriminator `checkVelocity` uses to pick this counter, so
   // the caveat cannot describe a rule the evaluator did not apply.
   const hasCrossIssuerVelocity = rules.some(
-    (r) => r.ruleType === 'velocity' && (r.periodDays ?? 0) >= 365,
+    (r) => r.ruleType === CROSS_ISSUER_VELOCITY_RULE && (r.periodDays ?? 0) >= 365,
   );
 
   if (hasCrossIssuerVelocity) {
@@ -250,7 +262,7 @@ export class IssuerRulesEngine {
     const severity = rule.severity as 'hard' | 'soft';
 
     switch (rule.ruleType) {
-      case 'velocity_max_apps_per_period':
+      case CROSS_ISSUER_VELOCITY_RULE:
         return this.checkVelocity(rule, context, severity);
 
       case 'velocity_cooldown_days':
