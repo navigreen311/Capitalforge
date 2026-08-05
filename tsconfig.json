@@ -39,7 +39,15 @@
     "src/backend/**/*.ts",
     "src/shared/**/*.ts",
     "tests/**/*.ts",
-    "prisma/**/*.ts"
+    "prisma/**/*.ts",
+    // Added 2026-08-05. These import from src/backend and drift with it, and
+    // nothing noticed: track-migration-impact.ts read
+    // `TrackThresholds.minBusinessCreditScore` for weeks after that field was
+    // replaced by `businessCredit`. Undefined compared against a number is
+    // always false, so every client resolved to Credit Builder and the script
+    // reported a migration that was pure artefact — while gaps.md cited its
+    // numbers as the reason to trust the change.
+    "scripts/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", ".next", "src/frontend"]
 }

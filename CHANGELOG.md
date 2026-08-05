@@ -140,9 +140,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   product, each optional) in place of `businessCreditScore`. Omitting a product
   means it has never been pulled.
 
-  Migration impact is reported by `scripts/track-migration-impact.ts` before
-  applying. See `docs/gaps.md` §1c — including why the development database is
-  too thin to measure it, and that no UI renders these gates yet.
+  Migration impact was reported by `scripts/track-migration-impact.ts` before
+  applying. **That script was deleted on 2026-08-05 and its numbers should not
+  be cited.** It reimplemented the gate rather than calling it, and drifted:
+  it read `minBusinessCreditScore` and `businessCreditScore`, the two fields
+  this entry replaced, so every client resolved to Credit Builder and the
+  migration it reported was an artefact. `scripts/**` was outside the tsconfig
+  `include`, so nothing failed. See `docs/gaps.md` §1c.
 ### Fixed
 
 - **Tier 2 is reachable.** `sc_006` ("Equifax Business Credit ≥ 500") could not be
