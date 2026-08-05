@@ -1006,9 +1006,9 @@ complianceRouter.patch(
 // what it does — and it now performs the same real sweep, reporting its own
 // summary shape from actual rows.
 //
-// `resolved` is null rather than a number. The sweep writes a new check row
-// each time; nothing marks an earlier one resolved, so a count of resolutions
-// would be invented in exactly the way the rest of this was.
+// `resolved` is a real count now. A check coming back below the level that
+// raised a finding closes it, and that happens in the service — so every path
+// that runs a check resolves what it cleared, not only this endpoint.
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.post(
   '/compliance/run-checks',
@@ -1030,13 +1030,17 @@ complianceRouter.post(
       const checkTypes = ['udap', 'kyb', 'aml'] as const;
       const ranTypes = new Set<string>();
       let checksRun = 0;
+      let resolved = 0;
 
       for (const biz of businesses) {
         for (const checkType of checkTypes) {
           try {
-            await service.runComplianceCheck({ businessId: biz.id, tenantId, checkType });
+            const result = await service.runComplianceCheck({ businessId: biz.id, tenantId, checkType });
             ranTypes.add(checkType);
             checksRun++;
+            // Real closures, counted as they happen: a check coming back clean
+            // closes the findings its predecessors raised.
+            resolved += result.resolvedFindings;
           } catch (error) {
             // One business failing a check does not invalidate the sweep, but
             // it must not be counted as one that ran either.
@@ -1062,9 +1066,11 @@ complianceRouter.post(
 
       const responseData = {
         new_issues: newIssues,
-        // Not a number: nothing marks an earlier check resolved, so there is
-        // no resolution count to report.
-        resolved: null as number | null,
+        // Findings this sweep closed — earlier high or critical checks whose
+        // re-run came back below the level that raised them. This was null
+        // because nothing wrote `resolvedAt`: the column existed, was read in
+        // three places, and no code path ever set it.
+        resolved,
         total_checked: after - before,
         checks_run: checksRun,
         businesses_checked: businesses.length,
