@@ -51,10 +51,12 @@ import {
   GRADUATION_TRACKS,
   TRACK_THRESHOLDS,
   businessScore,
+  businessCreditGate,
   meetsThreshold,
   withBusinessScore,
   type GraduationInput,
   type MilestoneGate,
+  type ScoreThreshold,
 } from '../../../src/backend/services/client-graduation.service.js';
 
 import {
@@ -72,6 +74,24 @@ import { eventBus } from '../../../src/backend/events/event-bus.js';
 import { PrismaClient } from '@prisma/client';
 
 // ── Test Fixtures ─────────────────────────────────────────────
+
+/**
+ * A business-credit threshold, declared here rather than read from
+ * TRACK_THRESHOLDS.
+ *
+ * Every track declared one until the SBSS gates were removed on 2026-08-05;
+ * none does now. The rules being proven belong to `meetsThreshold` and
+ * `businessCreditGate`, not to any track, and they have to stay provable
+ * through a period when no track happens to use them.
+ *
+ * Annotated `ScoreThreshold<'sbss'>` rather than `as const`. The `as const`
+ * form was tried first and silently broke the guarantee — the readonly
+ * literal did not bind `T`, so `meetsThreshold` accepted a PAYDEX and the
+ * directive marking that error went unused. `tsc` reported the unused
+ * directive; the test suite was green throughout. That is the only reason it
+ * was caught.
+ */
+const SBSS_THRESHOLD: ScoreThreshold<'sbss'> = { scoreType: 'sbss', min: 50 };
 
 /** Fully qualifies for LOC/SBA Bridge (highest track) */
 const primeInput: GraduationInput = {
@@ -193,55 +213,92 @@ describe('checkTrackEligibility', () => {
       expect(eligible).toBe(true);
     });
 
-    it('fails business credit gate when score is below 50', () => {
+    it('no longer gates on a score nobody can obtain', () => {
+      // Three tests lived here: a below-threshold SBSS failing the gate, an
+      // absent SBSS reporting unknown, and a PAYDEX not being read as an SBSS.
+      // All three exercised { scoreType: 'sbss', min: 50 }, removed on
+      // 2026-08-05 — FICO computes SBSS when a lender requests it, so no
+      // client could clear it by any action, and zero rows of that score type
+      // have ever existed here.
+      //
+      // The rules they proved did not go away; they moved to businessCreditGate
+      // below, which is where they can be exercised without a track having to
+      // declare a threshold on an unobtainable product.
+      //
+      // Pinned as an absence so re-adding such a gate argues with a test.
       const input: GraduationInput = { ...fullStackInput, businessScores: { sbss: businessScore('sbss', 30) } };
-      const { eligible, gates } = checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, input);
-      expect(eligible).toBe(false);
-      // The gate names the product it reads. It was "SBSS/Paydex", which is
-      // the defect in a label: two products on two scales, one threshold.
-      const bizGate = gates.find((g) => g.criterion === 'Business Credit Score (FICO SBSS)');
-      expect(bizGate?.status).toBe('failed');
-      expect(bizGate?.passed).toBe(false);
-      expect(bizGate?.gap).toBe(20);
+      const { gates } = checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, input);
+
+      expect(gates.some((g) => g.criterion.startsWith('Business Credit Score'))).toBe(false);
+      // And a low SBSS no longer blocks a client who clears everything else.
+      expect(checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, input).eligible).toBe(true);
+    });
+  });
+
+  // The business-credit gate is currently unreachable through
+  // checkTrackEligibility, because no track declares a threshold. Its rules
+  // are still the rules, and a rule that stops being exercised stops being
+  // true shortly afterwards — so they are proven directly.
+  describe('businessCreditGate — the rules outlive the tracks that used them', () => {
+    it('reports an absent score as unknown, not as a failure', () => {
+      const gate = businessCreditGate(SBSS_THRESHOLD, {});
+
+      expect(gate.status).toBe('unknown');
+      expect(gate.actual).toBeNull();
+      expect(gate.gap).toBeNull();
+      // Unknown never passes: a track asserts the client clears every
+      // requirement, and "we did not check" is not clearing it.
+      expect(gate.passed).toBe(false);
     });
 
-    it('reports an absent SBSS as unknown, not as a failure', () => {
-      // A client with a strong PAYDEX and no SBSS has not fallen short of an
-      // SBSS requirement — nobody has measured them against one.
-      const input: GraduationInput = { ...fullStackInput, businessScores: { paydex: businessScore('paydex', 88) } };
-      const { eligible, gates } = checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, input);
+    it('says nobody can obtain a lender-computed score, rather than to pull it', () => {
+      const gate = businessCreditGate(SBSS_THRESHOLD, {});
 
-      const bizGate = gates.find((g) => g.criterion === 'Business Credit Score (FICO SBSS)');
-      expect(bizGate?.status).toBe('unknown');
-      expect(bizGate?.actual).toBeNull();
-      expect(bizGate?.gap).toBeNull();
-
-      // This used to assert /Pull a FICO SBSS report/, and the engine said
-      // exactly that. Nobody can: SBSS is calculated by FICO when a lender
-      // requests it, from an application that does not exist yet. The
-      // resolution for an unmeasured requirement has to distinguish "buy the
-      // report" from "there is no report to buy", because the first is an
-      // errand and the second is a different conversation entirely.
-      expect(bizGate?.resolution).not.toMatch(/Pull a/i);
-      expect(bizGate?.resolution).toMatch(/nobody here can obtain one/i);
-      expect(bizGate?.resolution).toMatch(/when a lender requests it/i);
-      // Still not a shortfall — that distinction is unchanged.
-      expect(bizGate?.resolution).toMatch(/not a shortfall/i);
-
-      // Unknown still does not unlock the track: a track asserts the client
-      // clears every requirement.
-      expect(eligible).toBe(false);
-      expect(bizGate?.passed).toBe(false);
+      // This engine used to emit "Pull a FICO SBSS report for this client".
+      // Nobody can: FICO calculates it when a lender requests it.
+      expect(gate.resolution).not.toMatch(/Pull a/i);
+      expect(gate.resolution).toMatch(/nobody here can obtain one/i);
+      expect(gate.resolution).toMatch(/not a shortfall/i);
     });
 
-    it('does not read a PAYDEX as though it were an SBSS', () => {
-      // The whole point. A PAYDEX of 88 used to clear a threshold of 50 that
-      // is an SBSS figure, because Math.max flattened both into one number.
-      const withPaydex: GraduationInput = { ...fullStackInput, businessScores: { paydex: businessScore('paydex', 88) } };
-      const withSbss:   GraduationInput = { ...fullStackInput, businessScores: { sbss: businessScore('sbss', 88) } };
+    it('still tells an advisor to pull a report they can actually buy', () => {
+      // The contrast that makes the rule a distinction rather than a blanket
+      // rewording. Intelliscore is about $49.95 from Experian.
+      const gate = businessCreditGate({ scoreType: 'intelliscore', min: 60 } as const, {});
 
-      expect(checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, withPaydex).eligible).toBe(false);
-      expect(checkTrackEligibility(GRADUATION_TRACKS.FULL_STACK, withSbss).eligible).toBe(true);
+      expect(gate.status).toBe('unknown');
+      expect(gate.resolution).toMatch(/Pull a/i);
+      expect(gate.resolution).toMatch(/not a shortfall/i);
+    });
+
+    it('measures a score that is on record', () => {
+      const short = businessCreditGate(
+        { scoreType: 'sbss', min: 50 } as const,
+        withBusinessScore({}, 'sbss', 30),
+      );
+      expect(short.status).toBe('failed');
+      expect(short.gap).toBe(20);
+      expect(short.passed).toBe(false);
+
+      const clear = businessCreditGate(
+        { scoreType: 'sbss', min: 50 } as const,
+        withBusinessScore({}, 'sbss', 60),
+      );
+      expect(clear.status).toBe('passed');
+      expect(clear.passed).toBe(true);
+    });
+
+    it('does not read a PAYDEX as though it were the required product', () => {
+      // The original defect: Math.max flattened every business score into one
+      // number, so a PAYDEX of 88 cleared a threshold of 50 that is an SBSS
+      // figure. The gate reads only the product its threshold names.
+      const gate = businessCreditGate(
+        { scoreType: 'sbss', min: 50 } as const,
+        withBusinessScore({}, 'paydex', 88),
+      );
+
+      expect(gate.status).toBe('unknown');
+      expect(gate.passed).toBe(false);
     });
   });
 
@@ -270,16 +327,22 @@ describe('checkTrackEligibility', () => {
   });
 
   it('returns a gate for every requirement the track actually asserts', () => {
-    // Was "always exactly 6". Credit Builder and Starter Stack assert no
-    // business-credit requirement, and a gate reporting "0 required, passed"
-    // would imply one exists and that the client cleared it. No requirement,
-    // no gate.
-    const withBusinessCredit = [GRADUATION_TRACKS.FULL_STACK, GRADUATION_TRACKS.LOC_SBA_BRIDGE];
-
+    // Was "always exactly 6", then 6 for the two tracks asserting business
+    // credit and 5 for the rest — because a gate reporting "0 required,
+    // passed" would imply a requirement exists and that the client cleared it.
+    //
+    // Five everywhere since 2026-08-05: the two business-credit thresholds
+    // were both SBSS, and no track declares one now. Worth stating plainly
+    // rather than adjusting a number quietly — Full Stack and LOC/SBA Bridge
+    // assert nothing about business credit today, which is a real change in
+    // what those tracks mean and not a tidy-up.
     for (const track of Object.values(GRADUATION_TRACKS)) {
       const { gates } = checkTrackEligibility(track, builderInput);
-      const expected = withBusinessCredit.includes(track as never) ? 6 : 5;
-      expect(gates, `${track} gate count`).toHaveLength(expected);
+      expect(gates, `${track} gate count`).toHaveLength(5);
+      expect(
+        gates.some((g) => g.criterion.startsWith('Business Credit Score')),
+        `${track} should assert no business-credit gate`,
+      ).toBe(false);
     }
   });
 });
@@ -334,20 +397,42 @@ describe('estimateMonthsToNextTrack', () => {
 // ── buildActionRoadmap ────────────────────────────────────────
 
 describe('estimateMonthsToNextTrack — an unmeasured gate has no timeline', () => {
-  it('returns null rather than zero when the required score was never pulled', () => {
-    // Zero means "nothing left to close". A client who clears every measurable
-    // gate for Full Stack but has no SBSS on record has closed nothing — and
-    // reporting 0 would tell an advisor they are ready for a track nobody has
-    // assessed them against.
+  // ⚠ The null-not-zero guard in this function is currently UNREACHABLE.
+  //
+  // It fires only when a track declares a business-credit threshold and the
+  // client has no score of that product. Both thresholds were SBSS and both
+  // were removed on 2026-08-05, so no input can reach it today.
+  //
+  // The guard is kept, and this note is the reason: it exists because a client
+  // who cleared every measurable Full Stack gate with no SBSS on record was
+  // told "Estimated 0 months at the current rate" — zero means "nothing left
+  // to close", and nothing had been closed. The day a track declares a
+  // threshold again, that defect returns without it.
+  //
+  // Two other guards lost their only exercise in the same change: the
+  // compile-time proof that a PAYDEX cannot be compared against an SBSS
+  // requirement, and businessCreditGate's unknown-not-failed rule. Both were
+  // rescued by testing them directly rather than through a track. This one
+  // cannot be, without a seam to inject thresholds — recorded rather than
+  // quietly dropped, because an untested guard is a guard on its way out.
+  //
+  // (Do not begin a wrapped comment line with the ts-expect-error directive
+  // name. An earlier draft of this note did, and TypeScript read the prose as
+  // a real directive on the following line.)
+
+  it('estimates zero when every gate a track asserts is met', () => {
+    // Honest today: Full Stack asserts nothing about business credit, so a
+    // client meeting the rest has genuinely nothing left to close.
     const input: GraduationInput = {
       ...fullStackInput,
       businessScores: { paydex: businessScore('paydex', 88) },
     };
-    expect(estimateMonthsToNextTrack(input, GRADUATION_TRACKS.FULL_STACK)).toBeNull();
+    expect(estimateMonthsToNextTrack(input, GRADUATION_TRACKS.FULL_STACK)).toBe(0);
   });
 
-  it('still estimates when the score is on record and short', () => {
-    const input: GraduationInput = { ...fullStackInput, businessScores: { sbss: businessScore('sbss', 20) } };
+  it('still projects months from the gates that remain', () => {
+    // Tradelines short by two, so there is a real gap to project from.
+    const input: GraduationInput = { ...fullStackInput, tradelineCount: 2 };
     const months = estimateMonthsToNextTrack(input, GRADUATION_TRACKS.FULL_STACK);
     expect(months).not.toBeNull();
     expect(months).toBeGreaterThan(0);
@@ -696,21 +781,41 @@ describe('a score cannot be compared to another product’s threshold', () => {
     expect(erased).toHaveLength(1);
   });
 
+  // These two took their threshold from FULL_STACK, which declared
+  // { scoreType: 'sbss', min: 50 } until the SBSS gates were removed on
+  // 2026-08-05. No track declares a business-credit requirement now, so
+  // sourcing one from TRACK_THRESHOLDS yields null and the guarantee has
+  // nothing to demonstrate — the @ts-expect-error below went unused, which is
+  // itself how a type-level guarantee quietly stops guaranteeing anything.
+  //
+  // Declared locally instead. The rule being proven is a property of
+  // meetsThreshold, not of any particular track, and it must keep being
+  // provable through a period when no track happens to use it. Inventing a
+  // track threshold to keep the test alive would have been padding of exactly
+  // the kind this change removed.
+  // Annotated `ScoreThreshold<'sbss'>`, not `as const`.
+  //
+  // `as const` was the first attempt and it silently broke the guarantee: the
+  // readonly literal did not bind T to 'sbss' the way TRACK_THRESHOLDS' entry
+  // had, so meetsThreshold accepted a PAYDEX and the @ts-expect-error below
+  // went unused. tsc reported the unused directive, which is the only reason
+  // it was caught — the suite was green. That is the mechanism working, and a
+  // reminder that a type-level guarantee needs its own regression test as much
+  // as any runtime rule.
+
   it('will not compare a PAYDEX against an SBSS requirement', () => {
-    const sbssThreshold = TRACK_THRESHOLDS[GRADUATION_TRACKS.FULL_STACK].businessCredit!;
     const paydex = businessScore('paydex', 88);
 
     // Both sides are generic in the same score type, so this is a type error
     // rather than a plausible-looking `true`.
     // @ts-expect-error — a PAYDEX is not an SBSS
-    const met = meetsThreshold(sbssThreshold, paydex);
+    const met = meetsThreshold(SBSS_THRESHOLD, paydex);
     expect(met).toBeDefined();
   });
 
   it('still compares like with like', () => {
-    const sbssThreshold = TRACK_THRESHOLDS[GRADUATION_TRACKS.FULL_STACK].businessCredit!;
-    expect(meetsThreshold(sbssThreshold, businessScore('sbss', 60))).toBe(true);
-    expect(meetsThreshold(sbssThreshold, businessScore('sbss', 40))).toBe(false);
+    expect(meetsThreshold(SBSS_THRESHOLD, businessScore('sbss', 60))).toBe(true);
+    expect(meetsThreshold(SBSS_THRESHOLD, businessScore('sbss', 40))).toBe(false);
   });
 
   it('keeps a score and its product together', () => {

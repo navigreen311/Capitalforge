@@ -50,6 +50,13 @@ export interface GraduationStatusView {
   currentTrackLabel: string;
   currentTrackDescription: string;
   currentTrackCreditRange: string;
+  /**
+   * Whether this track still asserts everything it used to. `narrow` means a
+   * requirement was removed as unmeasurable, so qualifying covers less ground
+   * than it appears to — see TRACK_COVERAGE in client-graduation.service.
+   */
+  currentTrackCoverage: 'full' | 'narrow';
+  currentTrackCoverageNote: string | null;
   nextTrackLabel: string | null;
   nextTrackEligible: boolean;
   gates: GraduationGateView[];
@@ -152,6 +159,12 @@ export function toGraduationStatus(data: unknown): GraduationStatusView | null {
     currentTrackLabel: d['currentTrackLabel'] as string,
     currentTrackDescription: str(d['currentTrackDescription']),
     currentTrackCreditRange: str(d['currentTrackCreditRange']),
+    // Defaults to 'full' when the field is absent, which is the safe
+    // direction: an older response simply renders as it always did rather
+    // than claiming a narrowness it knows nothing about.
+    currentTrackCoverage: d['currentTrackCoverage'] === 'narrow' ? 'narrow' : 'full',
+    currentTrackCoverageNote:
+      typeof d['currentTrackCoverageNote'] === 'string' ? d['currentTrackCoverageNote'] : null,
     nextTrackLabel: typeof d['nextTrackLabel'] === 'string' ? d['nextTrackLabel'] : null,
     nextTrackEligible: d['nextTrackEligible'] === true,
     gates,
