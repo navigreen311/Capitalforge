@@ -499,7 +499,13 @@ export async function autoAssessGraduation(
   // result is measured against SBSS milestone thresholds. A PAYDEX of 88 is
   // read as an SBSS of 88. Not corrected here because the figure feeds track
   // eligibility, and narrowing it would silently demote every client whose
-  // only business score is a PAYDEX. Recorded in docs/gaps.md.
+  // only business score is a PAYDEX. Recorded in docs/gaps.md 1c.
+  //
+  // `equifax_business_risk` is absent from this allowlist on purpose. It runs
+  // 101–992, so including it would let a routine Equifax score clear every
+  // threshold here. A client whose only business score is an Equifax one now
+  // contributes nothing rather than contributing a number that means something
+  // else — which is the same trade the list already makes, made visible.
   const bizProfiles = business.creditProfiles.filter(
     (p) =>
       p.profileType === 'business' &&
