@@ -334,13 +334,23 @@ as active across the whole window, including days it was closed — its current
 status is not terminal, so the headline counts it, and a line disagreeing with
 the number printed above it would be worse than one imprecise about its past.
 
-**Surfaced while doing it, and left alone: `cancelled` counts as active.** The
-headline is `NOT IN (approved, declined)`, so a cancelled application appears in
-"active applications" on the dashboard; `rewards.routes.ts` sets that status.
-Whether it should is a product question — it is plainly not *active* in the
-English sense, but changing it moves a number on the main dashboard, which is
-not a decision to take while fixing a sparkline. The series matches the headline
-either way; fix them together or not at all.
+**Surfaced while doing it, and then fixed together: `cancelled` counted as
+active.** The headline was `NOT IN (approved, declined)`, so a cancelled card
+appeared in "active applications" on the dashboard.
+
+The root of it was not the query. **`cancelled` was not in the
+`ApplicationStatus` union** — `rewards.routes.ts` had been writing a status
+nothing declared, so no list enumerating statuses could have included it, and
+the two count queries and the series each carried their own literal that
+therefore missed it in the same way.
+
+Fixed at the root: the status is declared, `CLOSED_APPLICATION_STATUSES` is one
+exported list all three read, and the transition table keyed by that union
+gained its missing terminal entry — which the compiler demanded the moment the
+union was complete. A `cancelledAt` column records *when*, because a
+cancellation closes an application but is not a decision, and without a time a
+cancelled card could not be placed in history at all. The dashboard's headline
+figure drops any cancelled cards it was counting.
 
 ---
 

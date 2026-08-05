@@ -344,6 +344,10 @@ model CardApplication {
   consentCapturedAt   DateTime?
   submittedAt         DateTime?
   decidedAt           DateTime?
+  /// When the card was cancelled, which is not a decision on the application.
+  /// Without it a cancelled card could not be placed in time, so the
+  /// active-applications history had to drop it entirely.
+  cancelledAt         DateTime?
   declineReason       String?
   adverseActionNotice Json?
   createdAt           DateTime @default(now())

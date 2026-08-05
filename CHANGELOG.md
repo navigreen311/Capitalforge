@@ -11,6 +11,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`cancelled` no longer counts as an active application.** The dashboard's
+  headline "applications" figure was `status NOT IN (approved, declined)`, so
+  cancelled cards were counted among the active ones. The root was not the
+  query: **`cancelled` was not in the `ApplicationStatus` union**, though
+  `rewards.routes.ts` has been writing it — so nothing enumerating statuses
+  could have known it existed, and the two count queries and the sparkline each
+  carried their own literal that missed it identically. The status is now
+  declared, `CLOSED_APPLICATION_STATUSES` is one list all three read, and the
+  transition table keyed by that union gained the terminal entry the compiler
+  demanded once the union was complete. A `cancelledAt` column records when —
+  a cancellation closes an application but is not a decision, and without a
+  time a cancelled card cannot be placed in history.
 - **Compliance findings can be resolved.** `ComplianceCheck.resolvedAt` existed
   and was read in three places — the overview's `openFindings`, the sweep's
   `resolved` count, and the per-check display — and **no code path ever wrote

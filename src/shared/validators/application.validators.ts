@@ -17,6 +17,10 @@ const applicationStatusSchema = z.enum([
   'approved',
   'declined',
   'reconsideration',
+  // Written by the card-cancellation endpoint. Absent here, the transition
+  // table keyed by this enum had no entry for it and no query enumerating
+  // statuses could see it.
+  'cancelled',
 ]);
 
 // ── Create application ────────────────────────────────────────
@@ -81,6 +85,12 @@ export const VALID_TRANSITIONS: Record<
   approved: [],                                   // terminal
   declined: ['reconsideration'],
   reconsideration: ['submitted', 'declined'],     // resubmit or close
+  // Terminal, and reachable only through the card-cancellation endpoint —
+  // which writes the status directly rather than transitioning through here.
+  // Listed so the table covers every status the union declares: it was keyed
+  // by that union and 'cancelled' was missing from both, which is how a status
+  // the system writes came to be one nothing could reason about.
+  cancelled: [],
 };
 
 /**

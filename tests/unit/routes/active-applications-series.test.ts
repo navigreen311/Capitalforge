@@ -17,6 +17,7 @@ import {
   activeApplicationsByDay,
   type ApplicationLifespan,
 } from '../../../src/backend/api/routes/dashboard-kpi.routes';
+import { CLOSED_APPLICATION_STATUSES } from '../../../src/shared/types/index';
 
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
@@ -32,15 +33,17 @@ const app = (
   createdAt: string,
   decidedAt: string | null,
   status: string,
+  cancelledAt: string | null = null,
 ): ApplicationLifespan => ({
   createdAt: day(createdAt),
   decidedAt: decidedAt === null ? null : day(decidedAt),
+  cancelledAt: cancelledAt === null ? null : day(cancelledAt),
   status,
 });
 
-/** What the headline counts: everything not yet decided. */
+/** What the headline counts: everything still open. */
 const liveActiveCount = (apps: ApplicationLifespan[]) =>
-  apps.filter((a) => a.status !== 'approved' && a.status !== 'declined').length;
+  apps.filter((a) => !CLOSED_APPLICATION_STATUSES.includes(a.status as never)).length;
 
 describe('activeApplicationsByDay', () => {
   it('counts an open application from the end of the day it was created', () => {
@@ -78,14 +81,26 @@ describe('activeApplicationsByDay', () => {
     expect(series[series.length - 1]).toBe(liveActiveCount(apps));
   });
 
-  it('counts a cancelled application as active, because the headline does', () => {
-    // `status NOT IN (approved, declined)` includes 'cancelled', so the
-    // headline counts it. The series has to agree or the line contradicts the
-    // figure above it. Whether cancelled *should* count is a separate
-    // question — see docs/gaps.md.
+  it('counts a cancelled application until the day it was cancelled', () => {
+    // `cancelled` used to fall through `NOT IN (approved, declined)` and be
+    // counted as active — on the dashboard headline as well as here — because
+    // the status was not in the ApplicationStatus union and no list of closed
+    // statuses mentioned it. It closes an application, and `cancelledAt` says
+    // when, so it behaves exactly like a decision.
+    const apps = [app('2026-03-01', null, 'cancelled', '2026-03-03')];
+    const series = activeApplicationsByDay(apps, BOUNDARIES);
+    expect(series).toEqual([1, 1, 0, 0]);
+    expect(series[series.length - 1]).toBe(liveActiveCount(apps));
+  });
+
+  it('excludes a cancelled application that predates the timestamp', () => {
+    // Rows cancelled before `cancelledAt` existed carry no time, so they
+    // cannot be placed — the same rule as a decided application with no
+    // decision date. The headline excludes them too, so the last point still
+    // agrees. No such row exists today.
     const apps = [app('2026-03-01', null, 'cancelled')];
     const series = activeApplicationsByDay(apps, BOUNDARIES);
-    expect(series).toEqual([1, 1, 1, 1]);
+    expect(series).toEqual([0, 0, 0, 0]);
     expect(series[series.length - 1]).toBe(liveActiveCount(apps));
   });
 

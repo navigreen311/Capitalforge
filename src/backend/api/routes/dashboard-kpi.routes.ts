@@ -9,6 +9,7 @@ import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '@shared/types/index.js';
+import { CLOSED_APPLICATION_STATUSES } from '@shared/types/index.js';
 
 // ── Lazy PrismaClient singleton ─────────────────────────────────────────────
 
@@ -67,11 +68,19 @@ function cumulativeByDay(
 export interface ApplicationLifespan {
   createdAt: Date;
   decidedAt: Date | null;
+  cancelledAt: Date | null;
   status: string;
 }
 
-/** The statuses that take an application out of the active set. */
-const TERMINAL_STATUSES = new Set(['approved', 'declined']);
+/**
+ * The statuses that take an application out of the active set.
+ *
+ * Read from the shared list rather than a literal here. Both count queries
+ * above carried their own copy, and `cancelled` was missing from every one of
+ * them — a status the ApplicationStatus union did not declare either, so
+ * nothing enumerating it had any way to know it existed.
+ */
+const TERMINAL_STATUSES = new Set<string>(CLOSED_APPLICATION_STATUSES);
 
 /**
  * How many applications were open at the end of each day.
@@ -111,9 +120,13 @@ export function activeApplicationsByDay(
 
         const terminal = TERMINAL_STATUSES.has(a.status);
         if (!terminal) return true;
-        if (a.decidedAt === null) return false;
 
-        return a.decidedAt >= edge;
+        // A decision closes an application; a cancellation closes it too, and
+        // is not a decision — hence two columns rather than one overloaded.
+        const closedAt = a.decidedAt ?? a.cancelledAt;
+        if (closedAt === null) return false;
+
+        return closedAt >= edge;
       }).length,
   );
 }
@@ -179,7 +192,7 @@ dashboardKpiRouter.get(
         db.cardApplication.count({
           where: {
             business: { tenantId },
-            status: { notIn: ['approved', 'declined'] },
+            status: { notIn: [...CLOSED_APPLICATION_STATUSES] },
           },
         }),
 
@@ -223,7 +236,7 @@ dashboardKpiRouter.get(
         db.cardApplication.count({
           where: {
             business: { tenantId },
-            status: { notIn: ['approved', 'declined'] },
+            status: { notIn: [...CLOSED_APPLICATION_STATUSES] },
             createdAt: { lt: thirtyDaysAgo },
           },
         }),
@@ -305,7 +318,7 @@ dashboardKpiRouter.get(
         // needs the ones that have since been decided.
         db.cardApplication.findMany({
           where: { business: { tenantId } },
-          select: { createdAt: true, decidedAt: true, status: true },
+          select: { createdAt: true, decidedAt: true, cancelledAt: true, status: true },
         }),
       ]);
 
