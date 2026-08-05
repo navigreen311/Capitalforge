@@ -41,6 +41,7 @@ import {
   GRADUATION_TRACKS,
   TRACK_THRESHOLDS,
   checkTrackEligibility,
+  businessScore,
   type GraduationInput,
   setPrismaClient as setGraduationPrisma,
 } from '../../src/backend/services/client-graduation.service.js';
@@ -97,7 +98,7 @@ function makeGraduationInput(overrides: Partial<GraduationInput> = {}): Graduati
     ficoScore:           740,
     businessAgeMonths:   36,
     monthlyRevenue:      50_000,
-    businessScores: { sbss: 80 },
+    businessScores: { sbss: businessScore('sbss', 80) },
     tradelineCount:      5,
     currentUtilization:  0.25,
     ...overrides,

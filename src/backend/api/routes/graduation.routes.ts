@@ -25,7 +25,10 @@ import {
   getGraduationStatus,
   GRADUATION_TRACKS,
   TRACK_METADATA,
+  businessScore,
+  withBusinessScore,
   type GraduationInput,
+  type BusinessScores,
 } from '../../services/client-graduation.service.js';
 import {
   buildCreditRoadmapForBusiness,
@@ -35,6 +38,7 @@ import {
 } from '../../services/credit-builder.service.js';
 import type { ApiResponse } from '@shared/types/index.js';
 import logger from '../../config/logger.js';
+import type { ScoreType } from '@shared/types/index.js';
 
 // ── Router ────────────────────────────────────────────────────
 
@@ -183,7 +187,19 @@ graduationRouter.post(
       return;
     }
 
-    const input: GraduationInput = parsed.data;
+    // The wire carries plain numbers per product; the engine takes scores that
+    // know which product they are. Converting here is the one place the two
+    // representations meet, and it cannot mislabel a score: each key builds a
+    // BusinessScore of that same key.
+    const { businessScores: wireScores, ...rest } = parsed.data;
+    let businessScores: BusinessScores = {};
+    for (const [scoreType, value] of Object.entries(wireScores)) {
+      if (typeof value === 'number') {
+        businessScores = withBusinessScore(businessScores, scoreType as ScoreType, value);
+      }
+    }
+
+    const input: GraduationInput = { ...rest, businessScores };
 
     try {
       const assessment = assessGraduation(businessId, input);
@@ -283,7 +299,7 @@ graduationRouter.post(
         monthlyRevenue:      monthlyRevenue ?? 0,
         // This endpoint's query parameter is explicitly an SBSS, so it is
         // supplied as one rather than as an unlabelled business score.
-        businessScores:      { sbss: sbssScore },
+        businessScores:      { sbss: businessScore('sbss', sbssScore) },
         tradelineCount:      tradelineCount ?? 0,
         currentUtilization:  currentUtilization ?? 0,
       };

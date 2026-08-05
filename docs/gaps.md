@@ -125,6 +125,18 @@ comparison could notice: a number cannot say which product it is a number of.
 Arithmetic on incompatible units, one scale further along than `rewardsRate`
 storing both 2 and 0.02.
 
+**Made unrepresentable 2026-08-05.** A business score is now a
+`BusinessScore { scoreType, value }` rather than a bare number, and
+`meetsThreshold` is generic in the product on both sides with `NoInfer` on the
+score, so comparing a PAYDEX against an SBSS requirement **does not compile**.
+Two `@ts-expect-error` tests assert exactly that: the directive fails the build
+if the error it marks stops occurring, and CI compiles the test directory.
+
+One limit, stated rather than glossed: `Object.values(scores)` still erases to
+`any[]` through TypeScript's own overload, so spreading it into `Math.max`
+compiles. The guarantee is on the scores themselves, which is where the defect
+lived — every site that read them named a product.
+
 **The fix — every threshold names its product.** `ScoreThreshold { scoreType,
 min }` replaces the bare number, and `GraduationInput.businessScores` keeps each
 product apart instead of flattening them. A threshold reads the product it
