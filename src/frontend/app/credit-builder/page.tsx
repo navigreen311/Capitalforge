@@ -16,6 +16,8 @@ import {
   toScoreHistoryPoints,
   toDunsSteps,
   completedStepCount,
+  toStackingCriteria,
+  toBusinessAgeMonths,
 } from '@/lib/credit-view';
 import { loadJson, toLoadError } from '@/lib/load-json';
 import { useToast } from '@/components/global/ToastProvider';
@@ -123,13 +125,6 @@ interface SbssMilestone {
   achieved: boolean | null;
 }
 
-interface StackingCriteria {
-  id: string;
-  label: string;
-  description: string;
-  status: 'unknown' | 'in_progress' | 'not_started' | 'blocked';
-  requiredForTier: number;
-}
 
 interface MilestoneAlert {
   id: string;
@@ -197,19 +192,15 @@ const SBSS_MILESTONES: SbssMilestone[] = [
   { id: 4, title: 'Tier 3 Stacking Unlock', target: '≥ 175', description: 'Internal threshold to unlock Tier 3 credit card stacking strategy.', currentValue: null, targetValue: 175, unit: 'pts', achieved: null },
 ];
 
-// What a client has to satisfy at each tier. Reference, not assessment:
-// these came with a status each — met, in progress, not started — which is
-// a judgment about a specific client's credit profile, made by nobody.
-const STACKING_CRITERIA: StackingCriteria[] = [
-  { id: 'sc_001', label: 'DUNS Registered & Active', description: 'D-U-N-S Number registered and at least 1 D&B tradeline reporting.', status: 'unknown', requiredForTier: 1 },
-  { id: 'sc_002', label: '5+ Net-30 Trade Lines', description: 'Minimum 5 open trade lines with positive payment history.', status: 'unknown', requiredForTier: 1 },
-  { id: 'sc_003', label: 'Paydex Score ≥ 80', description: 'D&B Paydex at or above 80 (on-time payment average).', status: 'unknown', requiredForTier: 1 },
-  { id: 'sc_004', label: 'SBSS ≥ 140', description: 'FICO SBSS score at or above SBA pre-screen threshold.', status: 'unknown', requiredForTier: 2 },
-  { id: 'sc_005', label: 'Experian Intelliscore ≥ 60', description: 'Experian Business Intelliscore in good standing.', status: 'unknown', requiredForTier: 2 },
-  { id: 'sc_006', label: 'Equifax Business Credit ≥ 500', description: 'Equifax Business Risk Score above 500.', status: 'unknown', requiredForTier: 2 },
-  { id: 'sc_007', label: '2+ Years Business Age', description: 'Business entity must show 2+ years on credit reports.', status: 'unknown', requiredForTier: 3 },
-  { id: 'sc_008', label: 'SBSS ≥ 175', description: 'FICO SBSS at Tier 3 stacking unlock threshold.', status: 'unknown', requiredForTier: 3 },
-];
+// The eight criteria were held here as literals with a hardcoded status of
+// "unknown" and `allMet = false` beside them, so this panel reported "8
+// stacking criteria, none assessed" to every client since it was written.
+//
+// They now come assessed from GET /:clientId/stacking-criteria, from the same
+// facts the DUNS steps derive from — sc_002 and step 4 are the same question
+// about trade lines, sc_003 and step 5 the same question about PAYDEX, and
+// reading them from two places is how two figures on one page come to disagree.
+const STACKING_CRITERIA_COUNT = 8;
 
 // Scores placeholder
 
@@ -229,21 +220,29 @@ function tierBadge(tier: number): string {
   return 'bg-orange-900 text-orange-300 border-orange-700';
 }
 
+/**
+ * Four states, styled to be told apart at a glance.
+ *
+ * `unknown` and `unassessable` deliberately do not borrow the failure colour:
+ * neither says the client fell short of anything. "Nobody has pulled that
+ * score" and "this system produces no such score" are facts about us, not
+ * about them.
+ */
 function criteriaStatusBadge(status: string): { cls: string; label: string } {
   const map: Record<string, { cls: string; label: string }> = {
     met: { cls: 'bg-green-900 text-green-300 border-green-700', label: 'Met' },
-    in_progress: { cls: 'bg-yellow-900 text-yellow-300 border-yellow-700', label: 'In Progress' },
-    not_started: { cls: 'bg-gray-800 text-gray-500 border-gray-700', label: 'Not Started' },
-    blocked: { cls: 'bg-red-900 text-red-300 border-red-700', label: 'Blocked' },
+    not_met: { cls: 'bg-yellow-900 text-yellow-300 border-yellow-700', label: 'Not yet' },
+    unknown: { cls: 'bg-gray-800 text-gray-400 border-gray-700', label: 'Not measured' },
+    unassessable: { cls: 'bg-gray-800 text-gray-500 border-gray-700', label: 'Cannot assess' },
   };
-  return map[status] ?? map.not_started;
+  return map[status] ?? map.unknown;
 }
 
 function criteriaIcon(status: string): string {
   if (status === 'met') return '✓';
-  if (status === 'in_progress') return '◑';
-  if (status === 'blocked') return '✗';
-  return '○';
+  if (status === 'not_met') return '◑';
+  if (status === 'unassessable') return '–';
+  return '?';
 }
 
 function formatDate(iso: string): string {
@@ -288,6 +287,10 @@ export default function CreditBuilderPage() {
   const { data: stepsRaw, refetch: refetchSteps } = useAuthFetch<unknown>(
     `/api/credit-builder/${selectedClient?.id}/steps`,
   );
+  // Assessed against the same facts the steps derive from.
+  const { data: criteriaRaw, refetch: refetchCriteria } = useAuthFetch<unknown>(
+    `/api/credit-builder/${selectedClient?.id}/stacking-criteria`,
+  );
 
   // The picker's clients. It held eight literals under ids cb_001 to cb_008,
   // so selecting one sent every request above to a business that does not
@@ -304,6 +307,13 @@ export default function CreditBuilderPage() {
   const tradelineCount = useMemo(() => toTradelineCount(tradelinesRaw), [tradelinesRaw]);
   const scoreHistory = useMemo(() => toScoreHistoryPoints(historyRaw), [historyRaw]);
   const stepState = useMemo(() => toDunsSteps(stepsRaw), [stepsRaw]);
+  const tierAssessments = useMemo(() => toStackingCriteria(criteriaRaw), [criteriaRaw]);
+  const businessAgeMonths = useMemo(() => toBusinessAgeMonths(criteriaRaw), [criteriaRaw]);
+
+  const assessedCriteria = useMemo(
+    () => tierAssessments?.flatMap((t) => t.criteria) ?? null,
+    [tierAssessments],
+  );
 
   /** Reference steps joined to this client's marks. */
   const dunsSteps = useMemo(
@@ -358,7 +368,10 @@ export default function CreditBuilderPage() {
           method: 'PUT',
           body: { completed: next },
         });
-        await refetchSteps();
+        // Both, because criterion sc_001 reads step 1's attestation: marking
+        // the DUNS registration and leaving the criteria panel showing the
+        // previous answer would put two states of one fact on screen at once.
+        await Promise.all([refetchSteps(), refetchCriteria()]);
       } catch (error) {
         const info = toLoadError(error);
         toast.error(
@@ -370,7 +383,7 @@ export default function CreditBuilderPage() {
         setSavingStep(null);
       }
     },
-    [selectedClient, refetchSteps, toast],
+    [selectedClient, refetchSteps, refetchCriteria, toast],
   );
 
   const handleStepAction = useCallback((step: DunsStep) => {
@@ -421,8 +434,6 @@ export default function CreditBuilderPage() {
     return matchTier && matchBureau && matchSearch;
   });
 
-  const criteriaByTier = (tier: number) => STACKING_CRITERIA.filter((c) => c.requiredForTier === tier);
-
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-8">
 
@@ -456,7 +467,10 @@ export default function CreditBuilderPage() {
                 ? 'DUNS progress not read'
                 : 'Select a client to see their DUNS progress'
               : `${completedCount}/${DUNS_STEPS.length} DUNS steps recorded`}{' '}
-            · {STACKING_CRITERIA.length} stacking criteria, none assessed
+            ·{' '}
+            {assessedCriteria === null
+              ? `${STACKING_CRITERIA_COUNT} stacking criteria, not assessed`
+              : `${assessedCriteria.filter((c) => c.status === 'met').length}/${assessedCriteria.length} stacking criteria met`}
             {selectedClient && <span className="text-yellow-400"> — {selectedClient.legal_name}</span>}
           </p>
         </div>
@@ -783,30 +797,54 @@ export default function CreditBuilderPage() {
         {/* Stacking Unlock Criteria */}
         <section className="rounded-xl border border-gray-800 bg-gray-900/40 p-5">
           <h2 className="text-base font-semibold text-gray-200 mb-1">Stacking Unlock Criteria</h2>
-          <p className="text-xs text-gray-500 mb-5">Requirements to unlock each credit stacking tier</p>
-          {[1, 2, 3].map((tier) => {
-            const items = criteriaByTier(tier);
-            // Nothing is assessed against these, so no tier is unlocked and
-            // none is shown as short either.
-            const allMet = false;
-            return (
-              <div key={tier} className="mb-5 last:mb-0">
+          <p className="text-xs text-gray-500 mb-5">
+            Requirements to unlock each credit stacking tier · assessed from the same data
+            as the DUNS track above
+          </p>
+
+          {tierAssessments === null ? (
+            // Not read is not "none met". This panel used to state that no
+            // criterion was satisfied whether or not anything had been asked.
+            <p className="text-xs text-gray-500">
+              {selectedClient
+                ? 'These could not be assessed for this client.'
+                : 'Select a client to assess these against their credit file.'}
+            </p>
+          ) : (
+            tierAssessments.map((t) => (
+              <div key={t.tier} className="mb-5 last:mb-0">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded border ${tierBadge(tier)}`}>Tier {tier}</span>
-                    <span className="text-xs font-semibold text-gray-400">{`${items.length} criteria — not assessed`}</span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded border ${tierBadge(t.tier)}`}>Tier {t.tier}</span>
+                    <span className="text-xs font-semibold text-gray-400">
+                      {t.met} of {t.total} met
+                    </span>
                   </div>
-                  {allMet && <span className="text-xs bg-green-900 text-green-300 border border-green-700 px-2 py-0.5 rounded">UNLOCKED</span>}
+                  {t.unlocked && (
+                    <span className="text-xs bg-green-900 text-green-300 border border-green-700 px-2 py-0.5 rounded">
+                      UNLOCKED
+                    </span>
+                  )}
                 </div>
                 <div className="space-y-2 pl-1">
-                  {items.map((c) => {
+                  {t.criteria.map((c) => {
                     const { cls, label } = criteriaStatusBadge(c.status);
                     return (
-                      <div key={c.id} className={`flex items-start gap-3 p-2.5 rounded-lg border border-gray-800 bg-gray-900/40`}>
-                        <span className={`mt-0.5 text-sm font-bold flex-shrink-0 w-4 text-center text-gray-600`}>{criteriaIcon(c.status)}</span>
+                      <div key={c.id} className="flex items-start gap-3 p-2.5 rounded-lg border border-gray-800 bg-gray-900/40">
+                        <span className={`mt-0.5 text-sm font-bold flex-shrink-0 w-4 text-center ${c.status === 'met' ? 'text-green-400' : 'text-gray-600'}`}>
+                          {criteriaIcon(c.status)}
+                        </span>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-xs font-semibold text-gray-300`}>{c.label}</p>
+                          <p className="text-xs font-semibold text-gray-300">{c.label}</p>
                           <p className="text-xs text-gray-600 mt-0.5">{c.description}</p>
+                          {/* What was read, or why it could not be. A status
+                              with no figure behind it is the state this panel
+                              was in for its whole life. */}
+                          {c.basis && (
+                            <p className={`text-xs mt-1 ${c.status === 'met' ? 'text-green-500' : 'text-gray-400'}`}>
+                              {c.basis}
+                            </p>
+                          )}
                         </div>
                         <span className={`text-xs px-1.5 py-0.5 rounded border flex-shrink-0 ${cls}`}>{label}</span>
                       </div>
@@ -814,8 +852,8 @@ export default function CreditBuilderPage() {
                   })}
                 </div>
               </div>
-            );
-          })}
+            ))
+          )}
         </section>
       </div>
 
@@ -823,15 +861,21 @@ export default function CreditBuilderPage() {
       {/* Every one of these was coerced with `?? 0` before being passed in,
           and the component already accepts null and handles it. A Paydex of 0
           is a score, not an absence, and the timeline turned three absences
-          into a projected unlock date. businessAgeMonths was the constant 36
-          — three years for every client, clearing the two-year threshold for
-          all of them — and nothing in this system records a formation date. */}
+          into a projected unlock date.
+
+          businessAgeMonths was the constant 36 — three years for every client,
+          clearing the two-year threshold for all of them — and was then set to
+          null on the belief that nothing recorded a formation date. It does:
+          `Business.dateOfFormation` exists and is populated, and it now
+          arrives with the criteria assessed from it. Passing null here while
+          the criterion above read "88 months since formation" put both claims
+          on one page. */}
       <EstimatedProgressTimeline
         paydex={scores.paydex}
         tradelineCount={tradelineCount}
         experianBusiness={scores.experianBusiness}
         sbss={scores.sbss}
-        businessAgeMonths={null}
+        businessAgeMonths={businessAgeMonths}
       />
 
       {/* VendorDetailDrawer was rendered here and could never open:

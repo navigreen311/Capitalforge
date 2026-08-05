@@ -11,6 +11,32 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The 8 stacking criteria are assessed**, from the same facts the DUNS steps
+  derive from. `GET /api/credit-builder/:clientId/stacking-criteria` returns
+  each with a status and the figure behind it; `credit-facts.ts` reads a
+  client's data once and both the step derivations and the criteria consume it,
+  so `sc_002`/step 4 and `sc_003`/step 5 — the same two questions asked twice —
+  cannot drift. The panel had reported "8 stacking criteria, none assessed" to
+  every client since it was written, from a hardcoded status and an
+  `allMet = false` beside it.
+- **Four statuses, not two.** *Met*, *not yet*, *not measured* (that score has
+  never been pulled for this client) and *cannot assess* (nothing in this system
+  produces that figure, for anybody). `sc_006` is the last kind: no pull path
+  produces an Equifax business risk score, so it is reported as unassessable
+  rather than as a threshold the client failed. A tier unlocks only when every
+  criterion in it is met, so Tier 2 is unreachable and says why.
+
+### Fixed
+
+- **Business age is read from the formation date that was there all along.**
+  `Business.dateOfFormation` exists and is populated; the page passed `null` to
+  the progress timeline, which rendered "Formation date not recorded" for every
+  client — while the criterion beside it would now count the months. Both read
+  the same figure. `docs/gaps.md` listed this as a missing column and was
+  wrong; the row is struck with the correction.
+
+### Added
+
 - **DUNS steps 2, 4, 5 and 6 are derived from the client's data.** A client with
   a PAYDEX of 80 showed the score card ticked and the step-5 bar full at 80/80,
   while the step itself sat unchecked and the track read 0/6 with Overall

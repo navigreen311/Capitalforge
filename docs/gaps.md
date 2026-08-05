@@ -159,7 +159,7 @@ reason stated, because a zero would be a claim.
 | `topPerformingSegments` (portfolio benchmarks) | Businesses carry an `industry`, but no application volume is attributed to a segment. | **Query work only** — this one is close. Attribute applications to the business industry and it computes. |
 | `resolved` (compliance sweep) | The sweep writes a new check row; nothing marks an earlier one resolved. | **Product.** Needs a resolution model for checks. |
 | `applications` sparkline (dashboard KPIs) | "Active" is a current status with nothing on the row recording what it was before. | **Column or table.** A status-history row per application would make every trend on this page derivable. |
-| `businessAgeMonths` (credit builder) | No formation date is recorded for a business. | **Column** on `Business`. Small, and it unblocks the Tier 3 criterion. |
+| ~~`businessAgeMonths` (credit builder)~~ | ~~No formation date is recorded for a business.~~ **This was wrong.** `Business.dateOfFormation` exists (`schema.prisma:171`) and is populated for every seeded business. Nothing surfaced it: the credit-builder page passed `null` to the progress timeline, which rendered "Formation date not recorded". | **Done 2026-08-05.** No column was needed. The age is computed in `credit-facts.ts` and reaches both the Tier 3 criterion and the timeline. |
 | `estimatedUnusedValue` (card benefits) | Null only when no unused benefit carries a value — this is working as intended. | **None.** |
 | Compliance score, when no checks have run | A score of 100 from an empty check table is a clean bill of health derived from never having looked. | **None.** |
 
@@ -238,12 +238,13 @@ does not have to wonder whether something is broken:
 
 ## What I would do first
 
-**The two columns in section 2.** `Business.foundedDate` unblocks the Tier 3
-business-age criterion on the credit builder, which currently reports
-"formation date not recorded" to every client. A delinquency status on
-`CardApplication` unblocks the portfolio delinquency rate. Both are single
-fields with obvious owners, and both are currently the only thing standing
-between an existing page and a real number.
+**~~The two columns in section 2.~~ One column, now.** The business-age half of
+this recommendation was based on a column that already existed — see the struck
+row in section 2, and the correction in section 3, which is the same mistake:
+a claim about the schema written without checking the schema. A delinquency
+status on `CardApplication` is still a real single field with an obvious owner,
+and still the only thing standing between the portfolio benchmarks and a real
+delinquency rate.
 
 **Then the application status history.** One table — a row per status change on
 a card application — turns the dashboard's `applications` sparkline from null
