@@ -810,7 +810,13 @@ describe('CreditOptimizerService.generateActions', () => {
     expect(dnbAction).toBeUndefined();
   });
 
-  it('generates SBSS improvement action when SBSS < 160', () => {
+  // These two encoded a 160 cutoff: guidance below it, silence above it, and
+  // an impact of `160 - score`. The SBA retired the SBSS prescreen for 7(a)
+  // Small Loans on 2026-03-01, so there is no floor to be under or over, and
+  // 160 was never one of the SBA's numbers in any case — the sequence was 140,
+  // 155, 165, then none. See docs/product/business-credit-scores.md.
+
+  it('offers SBSS guidance whenever a score is on record, with no impact figure', () => {
     const profiles = [
       makeProfile({ bureau: 'experian', scoreType: 'sbss', score: 140 }),
     ];
@@ -819,17 +825,32 @@ describe('CreditOptimizerService.generateActions', () => {
 
     expect(sbssAction).toBeDefined();
     expect(sbssAction?.title).toMatch(/SBSS/i);
-    expect(sbssAction?.estimatedScoreImpact).toBeGreaterThan(0);
+    // Null, not zero: no threshold to close a gap against means no number to
+    // give, and a 0 would claim the advice does not help.
+    expect(sbssAction?.estimatedScoreImpact).toBeNull();
   });
 
-  it('does not generate SBSS action when SBSS >= 160', () => {
+  it('still offers SBSS guidance above the retired threshold', () => {
     const profiles = [
       makeProfile({ bureau: 'experian', scoreType: 'sbss', score: 175 }),
     ];
     const actions = optimizer.generateActions(profiles, 0.2, 1);
     const sbssAction = actions.find((a) => a.category === 'score_mix');
 
-    expect(sbssAction).toBeUndefined();
+    // Used to go silent here, on the reasoning that 175 cleared the bar.
+    // There is no bar; lenders apply their own models, which vary.
+    expect(sbssAction).toBeDefined();
+  });
+
+  it('offers no SBSS guidance when the only SBSS row has no score', () => {
+    // `p.score ?? 0` used to read this as an SBSS of 0 — the worst possible
+    // reading of a client nobody has measured — and quote that 0 back.
+    const profiles = [
+      makeProfile({ bureau: 'experian', scoreType: 'sbss', score: null }),
+    ];
+    const actions = optimizer.generateActions(profiles, 0.2, 1);
+
+    expect(actions.find((a) => a.category === 'score_mix')).toBeUndefined();
   });
 
   it('generates derogatory action when derogatoryCount > 0', () => {

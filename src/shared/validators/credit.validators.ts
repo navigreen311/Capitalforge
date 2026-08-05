@@ -115,7 +115,18 @@ export const OptimizationActionSchema = z.object({
   ]),
   title: z.string().min(1),
   description: z.string().min(1),
-  estimatedScoreImpact: z.number().int(),       // points, can be negative
+  /**
+   * Points, and it can be negative — or null when no impact is estimable.
+   *
+   * Widened for the SBSS action, which used to quote `160 - score` against a
+   * threshold the SBA retired on 2026-03-01. With no floor to close a gap
+   * against there is no number to give, and a 0 would say "this will not help"
+   * rather than "we cannot say how much". Consumers checked when this widened:
+   * `credit-intelligence.service.ts` (writes a literal 0), and the optimizer's
+   * own actions, which all still supply a number. No frontend surface reads
+   * it, and nothing compares it to a threshold.
+   */
+  estimatedScoreImpact: z.number().int().nullable(),
   estimatedTimeframeDays: z.number().int().min(0),
   actionable: z.boolean(),
   metadata: z.record(z.unknown()).optional(),

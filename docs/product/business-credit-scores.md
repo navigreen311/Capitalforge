@@ -235,21 +235,59 @@ can.
 
 ---
 
+## Standing pattern: an uncited threshold gets marked, not removed
+
+When a number in this system turns out to have no source behind it, **mark it
+unverified in place. Do not delete it, and do not replace it with a better
+guess.**
+
+Deleting destroys the question. A threshold that quietly disappears takes with
+it the fact that somebody once thought it mattered, and the next person to need
+one starts from nothing — or worse, invents a replacement.
+
+Asserting is how 140 got there. Some number was written down, it looked
+authoritative because it was in the code, and it survived two official
+revisions and an outright retirement without anyone re-checking it.
+
+Marked-unverified keeps both halves: the reader sees the figure *and* sees that
+nobody has stood behind it. It is also the only one of the three that can be
+resolved later by someone who knows the answer.
+
+Applied so far to the Preferred Lender Program's **160** — the programme is
+real, the figure has no source I could find on 2026-08-05, and it now says so
+on the page rather than reading as fact.
+
+The same logic is why unassessable and not-met are separate states in the
+stacking criteria: a claim about the world and a claim about our knowledge of
+it must not render identically.
+
+---
+
 ## Known defects this document identifies
 
-Recorded here so they are not lost; none is fixed as of 2026-08-05.
+Recorded here so they are not lost. Items marked **fixed** were corrected after
+this document was first written.
 
-| Where | Problem |
-|---|---|
-| `EstimatedProgressTimeline.tsx` coaching `c2-2` | Says "pull a **free** report" for Experian. It costs ~$49.95. **Instructs an advisor to tell a client something untrue.** |
-| `stacking-criteria.service.ts` `sc_004` | Gates Tier 2 on **SBSS ≥ 140** — two official revisions stale (155, then 165) on a requirement that no longer exists. |
-| `stacking-criteria.service.ts` `sc_008` | Gates Tier 3 on **SBSS ≥ 175**. No SBA basis found for this number. |
-| `page.tsx` SBSS milestone 2 | *"Minimum SBSS to pass SBA automated pre-screening (7a/504)"* — 140 is stale, and **504 is wrong**; the prescreen was 7(a) Small Loans only. |
-| `EstimatedProgressTimeline.tsx` coaching `c3-1` | *"Schedule credit review at SBSS 160"* — a third inconsistent threshold, and it tells a client to wait for a number they cannot see. |
-| `BusinessCreditScoresPanel.tsx` | Renders **"Not yet pulled"** for SBSS, implying a retrievable record and an omission by the advisor. Neither is true. |
+| Where | Problem | Status |
+|---|---|---|
+| `EstimatedProgressTimeline.tsx` coaching `c2-2` | Says "pull a **free** report" for Experian. It costs ~$49.95. **Instructs an advisor to tell a client something untrue.** | **Fixed** 2026-08-05 |
+| `page.tsx` SBSS milestone 2 | *"Minimum SBSS to pass SBA automated pre-screening (7a/504)"* — 140 is stale, and **504 is wrong**; the prescreen was 7(a) Small Loans only. | **Fixed** 2026-08-05 |
+| `EstimatedProgressTimeline.tsx` coaching `c3-1` | *"Schedule credit review at SBSS 160"* — a third inconsistent threshold, telling a client to wait for a number they cannot see. | **Fixed** 2026-08-05 |
+| `credit-builder.service.ts` roadmap | *"SBA Express loan pre-qualification"* at SBSS 140 and *"SBA 7(a) loan ($500K–$5M)"* at 200. Express sat outside the prescreen; it never touched loans above $350K. | **Fixed** 2026-08-05 |
+| `credit-optimizer.ts` | Titled itself *"SBA Threshold: 155"*, tested against 160, reported impact `160 - score`. Also read a null-score row as an SBSS of **0**. | **Fixed** 2026-08-05 |
+| `stacking-criteria.service.ts` `sc_004` | Gates Tier 2 on **SBSS ≥ 140** — two official revisions stale on a requirement that no longer exists. | Open |
+| `stacking-criteria.service.ts` `sc_008` | Gates Tier 3 on **SBSS ≥ 175**. No SBA basis found for this number. | Open |
+| `BusinessCreditScoresPanel.tsx` | Renders **"Not yet pulled"** for SBSS, implying a retrievable record and an omission by the advisor. Neither is true. | Open |
 
-Three different SBSS thresholds — 140, 160, 175 — appear on one page. None
-matches any current SBA figure.
+**The 504 error was a sample, not the population.** It was the only visible
+instance — on the page, in front of an advisor. Checking it surfaced two more
+of exactly the same kind in a roadmap ladder nobody had opened. Three
+occurrences of one mistake: attaching an SBA product to an SBSS number that
+never gated it.
+
+Nine sites carry an SBSS threshold, and four different numbers — 140, 155, 160,
+175 — were quoted as the SBA's. None matches any current SBA figure, because
+there is no longer a current SBA figure.
 
 ---
 

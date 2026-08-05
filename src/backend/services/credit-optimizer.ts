@@ -223,26 +223,54 @@ export class CreditOptimizerService {
 
     // ── 6. FICO SBSS tracking ─────────────────────────────────
 
-    const sbssProfiles = profiles.filter((p) => p.scoreType === 'sbss');
-    const highestSbss = sbssProfiles.length > 0
-      ? Math.max(...sbssProfiles.map((p) => p.score ?? 0))
-      : null;
+    // A pull with no score is not a score of zero.
+    //
+    // `p.score ?? 0` put an unscored profile into the max as a 0. One SBSS row
+    // with a null score therefore read as "this client's SBSS is 0", which on
+    // a 0–300 scale is the worst possible reading of a client nobody has
+    // measured — and it then drove a recommendation quoting that 0 back at the
+    // advisor. Rows without a score are dropped instead, and a client with no
+    // scored row stays null.
+    const sbssScores = profiles
+      .filter((p) => p.scoreType === 'sbss')
+      .map((p) => p.score)
+      .filter((s): s is number => s !== null && s !== undefined);
+    const highestSbss = sbssScores.length > 0 ? Math.max(...sbssScores) : null;
 
-    if (highestSbss !== null && highestSbss < 160) {
-      // SBA loans generally require 155+ SBSS
+    // There is no SBA minimum to advise toward any more.
+    //
+    // This said "SBA 7(a) loans require a minimum of 155" and titled itself
+    // "SBA Threshold: 155", while testing against 160 and reporting an impact
+    // of `160 - score`. Three numbers for one threshold, and the requirement
+    // behind all three was retired on 2026-03-01 for 7(a) Small Loans of
+    // $350,000 and under — SBA Procedural Notices 5000-875701 (2026-01-16) and
+    // 5000-876777 (2026-02-20), the second being operative.
+    //
+    // The advice that remains is about the inputs, which is all a client could
+    // ever act on: SBSS is computed by a lender at application and cannot be
+    // pulled on demand. Lenders still use SBSS by choice with their own
+    // models, so this stays as guidance — it just no longer names a floor that
+    // does not exist. See docs/product/business-credit-scores.md.
+    if (highestSbss !== null) {
       actions.push({
         priority: priority++,
         category: 'score_mix',
-        title: `Improve FICO SBSS Score (Current: ${highestSbss} — SBA Threshold: 155)`,
+        title: `Strengthen the inputs behind FICO SBSS (last observed: ${highestSbss})`,
         description:
-          `Your FICO SBSS score is ${highestSbss}. SBA 7(a) loans require a minimum of 155. ` +
-          'The SBSS incorporates personal credit, business credit, and financial data. ' +
-          'Reducing personal utilization, paying all business accounts on time, and building ' +
-          'D&B/Experian Business tradelines are the most direct levers.',
-        estimatedScoreImpact: 160 - highestSbss,
+          `The last SBSS on record for this client is ${highestSbss}. There is no longer an SBA `
+          + 'minimum: the prescreen for 7(a) Small Loans of $350K and under was retired on '
+          + '2026-03-01, and lenders now apply their own models, which vary. SBSS is computed by '
+          + 'a lender at application from the owners\' personal credit, business bureau data, '
+          + 'financials and the application itself — it cannot be pulled on demand, so coach the '
+          + 'inputs: reduce personal utilisation, pay all business accounts on time, and build '
+          + 'D&B and Experian Business tradelines.',
+        // No estimable impact: there is no threshold to close a gap against,
+        // and the levers named here move the inputs rather than the score by
+        // a knowable number of points.
+        estimatedScoreImpact: null,
         estimatedTimeframeDays: 120,
         actionable: true,
-        metadata: { currentSbss: highestSbss, targetSbss: 160 },
+        metadata: { currentSbss: highestSbss },
       });
     }
 

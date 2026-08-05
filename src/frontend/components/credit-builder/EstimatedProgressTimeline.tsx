@@ -289,9 +289,13 @@ const COACHING_BY_TIER: Record<number, CoachingItem[]> = {
   3: [
     {
       id: 'c3-1',
-      title: 'Schedule credit review at SBSS 160',
-      description: 'When your SBSS hits 160, schedule a review with your lender to discuss SBA Preferred Lender Program eligibility and expedited processing.',
-      actionLabel: 'Set Reminder',
+      // Was "Schedule credit review at SBSS 160" — telling a client to wait
+      // for a number they cannot observe. SBSS is computed by a lender at
+      // application; nobody can watch it "hit" anything. 160 was also a third
+      // inconsistent threshold on this page, alongside 140 and 175, and the
+      // SBA sequence was 140, 155, 165, then retired on 2026-03-01.
+      title: 'Talk to a lender rather than waiting on a score',
+      description: 'There is no SBSS to watch: it is calculated when a lender requests it, from the owners\' personal credit, business bureau data, financials and the application. The SBA retired its pre-screen minimum on 2026-03-01 and lenders now use their own models. Ask the loan officer what they score on, and what they pulled.',
     },
     {
       id: 'c3-2',
