@@ -382,13 +382,52 @@ export const documentsApi = {
   get: (id: string) =>
     request('GET', `/documents/${id}`),
 
-  upload: (formData: FormData) =>
-    // Omit Content-Type so browser sets multipart/form-data boundary automatically
-    fetch(`${BASE_URL}/documents/upload`, {
-      method: 'POST',
-      body: formData,
-      headers: { Authorization: `Bearer ${getAuthToken() ?? ''}` },
-    }).then((r) => r.json()),
+  /**
+   * Upload, with the refresh `request()` gives every other call here.
+   *
+   * This has to bypass `request()` — it must omit Content-Type so the browser
+   * sets the multipart boundary — and in bypassing it, it lost two things
+   * `request()` does for everyone else: refresh-and-retry on 401, and treating
+   * a non-2xx as an error. It sent whatever token was in storage and handed
+   * the parsed body back regardless, so an access token that aged out mid-page
+   * returned the 401 envelope to the caller as though it were a result.
+   *
+   * Headers are rebuilt on the retry so it carries the refreshed token rather
+   * than repeating the 401 — the same ordering mistake `fetch-all-pages`
+   * documents.
+   *
+   * No caller today: this is exported surface, and the next person to reach
+   * for it should get the same guarantees as `documentsApi.get`.
+   */
+  upload: async (formData: FormData) => {
+    const send = (): Promise<Response> =>
+      fetch(`${BASE_URL}/documents/upload`, {
+        method: 'POST',
+        body: formData,
+        headers: { Authorization: `Bearer ${getAuthToken() ?? ''}` },
+      });
+
+    let response = await send();
+    if (response.status === 401 && (await attemptTokenRefresh())) {
+      response = await send();
+    }
+
+    const parsed: unknown = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new ApiRequestError({
+        statusCode: response.status,
+        error: {
+          code: 'UPLOAD_FAILED',
+          message:
+            (parsed as { error?: { message?: string } } | null)?.error?.message
+            ?? `Upload failed with status ${response.status}`,
+        },
+      } as ApiErrorPayload);
+    }
+
+    return parsed;
+  },
 
   exportDossier: (businessId: string) =>
     request('POST', `/documents/dossier/${businessId}`),

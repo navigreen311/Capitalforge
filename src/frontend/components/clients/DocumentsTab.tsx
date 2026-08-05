@@ -16,6 +16,8 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { SectionCard } from '../ui/card';
 import { FocusTrap } from '@/components/ui/focus-trap';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { attemptTokenRefresh } from '@/lib/token-refresh';
+import { apiClient, getAuthToken } from '@/lib/api-client';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import {
   toDocumentRecords,
@@ -66,13 +68,16 @@ const TYPE_ICONS: Record<DocumentType, string> = {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function getAuthToken(): string {
-  try {
-    return localStorage.getItem('cf_token') ?? '';
-  } catch {
-    return '';
-  }
-}
+// `getAuthToken` is imported from `api-client` (see the import block above).
+//
+// This file used to define its own, reading `cf_token`. Nothing writes that
+// key — the token lives under `cf_access_token`, which is `api-client`'s
+// TOKEN_KEY and what `useAuthFetch` reads. So the local copy returned `''` on
+// every call it ever made, and `''` is falsy, so the spread meant to add
+// `Authorization` added nothing: both fetches in this component went out
+// **unauthenticated**. Neither checked its status, so nothing said so.
+//
+// A second copy of a storage key is a second chance to get it wrong.
 
 // ── Signature Badge ─────────────────────────────────────────────────────────
 
@@ -325,17 +330,32 @@ function ReleaseHoldModal({
     if (!doc) return;
     setReleasing(true);
     try {
-      const token = getAuthToken();
-      // Mock DELETE — replace with real API call
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      console.info(
-        '[DocumentsTab] DELETE /api/v1/documents/%s/hold — Authorization: Bearer %s',
-        doc.id,
-        token ? '***' : '(none)',
-      );
-      console.info('[DocumentsTab] Audit log: legal_hold_released doc_id=%s', doc.id);
+      // This was a 600ms sleep, two console.info lines and a success message.
+      // Nothing was released. Legal hold is the control that preserves records
+      // for litigation and regulatory review, so a release that no-ops leaves
+      // the records held while the screen says they are free — and the audit
+      // line it logged claimed an event that never happened.
+      //
+      // The endpoint exists and persists: PATCH
+      // /api/compliance/documents/:id/hold takes { legalHold }. The enable
+      // path on /compliance/documents was wired during the false-success
+      // sweep (docs/backlog/false-success-audit.md); this release path was
+      // missed because it lives in a different component.
+      //
+      // Awaited, and the message comes after the server confirms. apiClient
+      // throws ApiRequestError on a non-2xx, which the catch below surfaces.
+      await apiClient.patch(`/compliance/documents/${doc.id}/hold`, { legalHold: false });
+
       onSuccess(`Legal hold released for "${doc.name}"`);
       onClose();
+    } catch (err) {
+      // Say plainly that the hold is still in place. Silence here would leave
+      // an advisor believing a release happened.
+      onSuccess(
+        `Legal hold NOT released for "${doc.name}": ${
+          err instanceof Error ? err.message : 'the request failed'
+        }`,
+      );
     } finally {
       setReleasing(false);
     }
@@ -419,27 +439,43 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
   const handleSendForSignature = useCallback(async (doc: DocumentRecord) => {
     setSendingSignatureId(doc.id);
     try {
-      const token = getAuthToken();
+      // Rebuilt per attempt so the retry carries the refreshed token rather
+      // than repeating the 401. This was a bare `fetch` with the token read
+      // once and no refresh: an access token that aged out mid-page turned
+      // this click into a failure the advisor could only fix by reloading.
+      // Every other imperative call in this app refreshes — `apiClient`,
+      // `loadJson` and `fetch-all-pages` each do — and this one did not.
+      const send = (): Promise<Response> => {
+        const token = getAuthToken();
+        return fetch('/api/docusign/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            signerEmail:     'client@example.com', // In production, fetched from client record
+            signerName:      'Client Signer',      // In production, fetched from client record
+            documentBase64:  btoa(doc.name),        // Stub — real impl sends actual doc bytes
+            documentName:    doc.name,
+            envelopeSubject: `CapitalForge: Please sign ${doc.name}`,
+            envelopeMessage: `Please review and sign the document "${doc.name}".`,
+            businessId:      clientId,
+            docType:         doc.type,
+          }),
+        });
+      };
 
-      const res = await fetch('/api/docusign/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          signerEmail:     'client@example.com', // In production, fetched from client record
-          signerName:      'Client Signer',      // In production, fetched from client record
-          documentBase64:  btoa(doc.name),        // Stub — real impl sends actual doc bytes
-          documentName:    doc.name,
-          envelopeSubject: `CapitalForge: Please sign ${doc.name}`,
-          envelopeMessage: `Please review and sign the document "${doc.name}".`,
-          businessId:      clientId,
-          docType:         doc.type,
-        }),
-      });
+      let res = await send();
+      if ((res.status === 401 || res.status === 403) && (await attemptTokenRefresh())) {
+        res = await send();
+      }
 
-      const result = await res.json();
+      // `result.success` was read whatever the status. A 401 or a 500 parses
+      // to an envelope with no `success`, which is falsy — so the failure did
+      // surface, but as the generic "could not send" message rather than as
+      // what actually happened.
+      const result = await res.json().catch(() => ({}));
 
       if (result.success) {
         // Update local state to reflect sent status
