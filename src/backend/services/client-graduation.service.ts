@@ -436,6 +436,21 @@ export function estimateMonthsToNextTrack(
     }
   }
 
+  // Null, not zero, when a requirement was never measured.
+  //
+  // Zero means "nothing left to close". An unmeasured gate closes nothing —
+  // it contributes no months because there is no gap to project from, and
+  // returning 0 would report a client as ready for a track they have not been
+  // assessed against. The signature has always allowed null; nothing produced
+  // it until a gate could be unknown.
+  //
+  // Surfaced by giving the seed real trade-line arrays: a client cleared every
+  // measurable gate for Full Stack with no SBSS on record, and the panel
+  // offered "Estimated 0 months at the current rate."
+  if (t.businessCredit !== null && input.businessScores[t.businessCredit.scoreType] === undefined) {
+    return null;
+  }
+
   return maxMonths > 0 ? maxMonths : 0;
 }
 

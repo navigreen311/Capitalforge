@@ -475,7 +475,10 @@ test.describe('Programme track', () => {
     await expect(page.getByRole('heading', { name: 'Programme Track' })).toBeVisible({
       timeout: 30000,
     });
-    await expect(page.getByText('To reach Starter Stack')).toBeVisible();
+    // This client clears every measurable gate for Full Stack. Before the
+    // seed carried real trade-line arrays they were pinned to Credit Builder
+    // by a count that read 0 off a summary object.
+    await expect(page.getByText('To reach Full Stack')).toBeVisible();
 
     // The gates themselves, with the figure each one read.
     await expect(page.getByText('Personal FICO Score')).toBeVisible();
@@ -500,7 +503,21 @@ test.describe('Programme track', () => {
     await expect(page.getByRole('heading', { name: 'Next actions' })).toBeVisible({
       timeout: 30000,
     });
-    await expect(page.getByText(/Open \d+ additional Net-30 vendor accounts/)).toBeVisible();
+
+    // The action for an unmeasured requirement is to measure it — same day,
+    // not months of building. This client's only outstanding gate is an SBSS
+    // nobody has pulled.
+    await expect(page.getByText(/Pull a FICO SBSS report/).first()).toBeVisible();
+    await expect(page.getByText('Same day')).toBeVisible();
+
+    // And no timeline is invented from an absence. This read "Estimated 0
+    // months at the current rate" until the estimator returned null for an
+    // unmeasured gate — 0 means "nothing left to close", which is the
+    // opposite of what is true here.
+    await expect(
+      page.getByText('No timeline is projected while a requirement is unmeasured.'),
+    ).toBeVisible();
+    await expect(page.getByText(/Estimated 0 months/)).toHaveCount(0);
   });
 
   test('assesses nothing until a client is chosen', async ({ signedInPage: page }) => {

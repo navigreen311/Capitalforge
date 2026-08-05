@@ -319,6 +319,27 @@ describe('estimateMonthsToNextTrack', () => {
 
 // ── buildActionRoadmap ────────────────────────────────────────
 
+describe('estimateMonthsToNextTrack — an unmeasured gate has no timeline', () => {
+  it('returns null rather than zero when the required score was never pulled', () => {
+    // Zero means "nothing left to close". A client who clears every measurable
+    // gate for Full Stack but has no SBSS on record has closed nothing — and
+    // reporting 0 would tell an advisor they are ready for a track nobody has
+    // assessed them against.
+    const input: GraduationInput = {
+      ...fullStackInput,
+      businessScores: { paydex: 88 },
+    };
+    expect(estimateMonthsToNextTrack(input, GRADUATION_TRACKS.FULL_STACK)).toBeNull();
+  });
+
+  it('still estimates when the score is on record and short', () => {
+    const input: GraduationInput = { ...fullStackInput, businessScores: { sbss: 20 } };
+    const months = estimateMonthsToNextTrack(input, GRADUATION_TRACKS.FULL_STACK);
+    expect(months).not.toBeNull();
+    expect(months).toBeGreaterThan(0);
+  });
+});
+
 describe('buildActionRoadmap', () => {
   it('returns an empty roadmap when no gates are failing', () => {
     const { gates } = checkTrackEligibility(GRADUATION_TRACKS.LOC_SBA_BRIDGE, primeInput);
