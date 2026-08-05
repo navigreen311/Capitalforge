@@ -10,6 +10,10 @@ import type { Request } from '../../types/http.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
+import {
+  trackDirection,
+  type GraduationTrack,
+} from '../../services/client-graduation.service.js';
 
 export const platformPortfolioRouter = Router();
 
@@ -75,6 +79,80 @@ export function segmentApprovalRates(
     // Rate first, then volume: of two segments approving everything, the one
     // that did it over more applications is the stronger claim.
     .sort((a, b) => b.approvalRate - a.approvalRate || b.decidedApplications - a.decidedApplications);
+}
+
+
+// ── Graduation rate ───────────────────────────────────────────
+
+export interface GraduationRateResult {
+  /** Percentage of observed clients who moved up a track, or null. */
+  rate: number | null;
+  /** Clients with an observation predating the quarter — the denominator. */
+  observedBeforeQuarter: number;
+  graduatedInQuarter: number;
+  /** Present when the rate is null, saying which of the two reasons applies. */
+  unavailableBecause?: string;
+}
+
+/**
+ * How many observed clients moved up a track during the quarter.
+ *
+ * "Graduated" is defined here, using the vocabulary the track engine already
+ * has: a client graduates when they are observed on a track further along
+ * `TRACK_ORDER` than the one they were last observed on. That is a real event
+ * with a date, which is what a rate needs — the previous answer, "graduated is
+ * undefined", was true and is no longer.
+ *
+ * Two rules that keep the figure from flattering:
+ *
+ * The denominator is clients **observed before the quarter began**, not every
+ * client on the book. A client first seen mid-quarter has no earlier track to
+ * have moved from, so counting them as a non-graduate would push the rate down
+ * for a reason that has nothing to do with their progress.
+ *
+ * A downward move is not a graduation. A client whose utilisation rises can
+ * stop qualifying for a track, and `trackDirection` distinguishes the two — a
+ * rate counting any change would report deterioration as success.
+ */
+export function graduationRate(
+  events: { businessId: string; fromTrack: string | null; toTrack: string; observedAt: Date }[],
+  quarterStart: Date,
+  quarterEnd: Date,
+): GraduationRateResult {
+  const observedBefore = new Set(
+    events.filter((e) => e.observedAt < quarterStart).map((e) => e.businessId),
+  );
+
+  const graduated = new Set(
+    events
+      .filter(
+        (e) =>
+          e.observedAt >= quarterStart &&
+          e.observedAt < quarterEnd &&
+          observedBefore.has(e.businessId) &&
+          trackDirection(e.fromTrack as GraduationTrack | null, e.toTrack as GraduationTrack) > 0,
+      )
+      .map((e) => e.businessId),
+  );
+
+  if (observedBefore.size === 0) {
+    return {
+      rate: null,
+      observedBeforeQuarter: 0,
+      graduatedInQuarter: graduated.size,
+      unavailableBecause:
+        events.length === 0
+          ? 'No client has been assessed yet, so no track history exists to compare against.'
+          : 'No client was assessed before this quarter began, so there is no earlier track to '
+            + 'have moved from. The rate becomes available once a quarter has history behind it.',
+    };
+  }
+
+  return {
+    rate: Number(((graduated.size / observedBefore.size) * 100).toFixed(1)),
+    observedBeforeQuarter: observedBefore.size,
+    graduatedInQuarter: graduated.size,
+  };
 }
 
 // ── Portfolio performance against published industry figures ──
@@ -154,7 +232,7 @@ platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) =
   }
 
   try {
-    const [decided, profiles, businessesBefore, businessesAfter] = await Promise.all([
+    const [decided, profiles, businessesBefore, businessesAfter, trackObservations] = await Promise.all([
       sharedPrisma.cardApplication.findMany({
         where: {
           business: { tenantId },
@@ -172,7 +250,15 @@ platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) =
       }),
       sharedPrisma.business.count({ where: { tenantId, createdAt: { lt: range.start } } }),
       sharedPrisma.business.count({ where: { tenantId, createdAt: { lt: range.end } } }),
+      // Every observation up to the end of the quarter: the rate needs the
+      // ones before it to know who had a track to move from.
+      sharedPrisma.graduationEvent.findMany({
+        where: { tenantId, observedAt: { lt: range.end } },
+        select: { businessId: true, fromTrack: true, toTrack: true, observedAt: true },
+      }),
     ]);
+
+    const graduation = graduationRate(trackObservations, range.start, range.end);
 
     const approved = decided.filter((a) => a.status === 'approved');
     const limits = approved
@@ -202,10 +288,20 @@ platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) =
           : Number(((approved.length / decided.length) * 100).toFixed(1)),
       avgCreditLimit: avg(limits, 0),
 
-      // Nothing records a delinquency or a graduation for a card, so these
-      // cannot be derived. They were 1.8% and 19.4%, which read as measured.
+      // Delinquency is a decision, recorded in docs/gaps.md 2b. Graduation is
+      // now defined and counted: a client observed on a track further along
+      // than the one they were last observed on. Both were 1.8% and 19.4%
+      // literals, which read as measured.
       delinquencyRate: null,
-      graduationRate: null,
+      graduationRate: graduation.rate,
+
+      // The two figures behind the rate, for the same reason every other
+      // figure here carries its sample size: a graduation rate over four
+      // observed clients is not the statement it looks like.
+      graduationBasis: {
+        observedBeforeQuarter: graduation.observedBeforeQuarter,
+        graduatedInQuarter: graduation.graduatedInQuarter,
+      },
       // Approval rate by industry, computed from this tenant's own decided
       // applications. Null when the quarter decided none — an empty list would
       // say every segment performed at zero.
@@ -224,7 +320,9 @@ platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) =
           'Not measured. Delinquency is recorded only as a missed payment on a repayment plan, '
           + 'which observes clients already on one rather than the portfolio. Publishing that as '
           + 'a portfolio rate would understate it structurally. See docs/gaps.md section 2b.',
-        graduationRate: 'Nothing records a client graduating from the programme.',
+        ...(graduation.unavailableBecause
+          ? { graduationRate: graduation.unavailableBecause }
+          : {}),
       },
 
       portfolioGrowth:

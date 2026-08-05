@@ -228,6 +228,7 @@ model Business {
   smsMessages         SmsMessage[]
   costCalculations    CostCalculation[]
   creditBuilderSteps  CreditBuilderStep[]
+  graduationEvents    GraduationEvent[]
 
   @@index([tenantId, status])
   @@map("businesses")
@@ -1552,6 +1553,38 @@ model CreditBuilderStep {
   @@unique([businessId, stepNumber])
   @@index([tenantId])
   @@map("credit_builder_steps")
+}
+
+
+/// An observed change in which track a client qualifies for.
+///
+/// The graduation engine computes a track from live data every time it is
+/// asked; nothing recorded that it had *changed*, so "graduationRate" had
+/// nothing to count and was published as null with "graduated is undefined".
+///
+/// A row is written when an assessment finds a different track from the last
+/// one recorded, and one baseline row when a client is first assessed
+/// (`fromTrack` null). Transitions can go down as well as up — a client whose
+/// utilisation rises can stop qualifying for a track — so the direction is
+/// derived from the track order rather than assumed.
+///
+/// Deliberately not a status column on Business: a track is not a property a
+/// client has, it is a conclusion drawn from their data at a moment. Storing
+/// the conclusion would make it stale the moment anything underneath it moved.
+model GraduationEvent {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  businessId          String
+  /** Null on the first observation: there was no previous track to move from. */
+  fromTrack           String?
+  toTrack             String
+  observedAt          DateTime @default(now())
+
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, observedAt])
+  @@index([businessId, observedAt])
+  @@map("graduation_events")
 }
 
 model TradelineDispute {
