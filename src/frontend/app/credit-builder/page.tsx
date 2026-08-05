@@ -7,21 +7,25 @@
 // tradeline tracker, sub-progress, timeline, graduation banner
 // ============================================================
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import {
   toBusinessScoreSet,
   toTradelineCount,
   toCreditBuilderClients,
   toScoreHistoryPoints,
+  toDunsSteps,
+  completedStepCount,
 } from '@/lib/credit-view';
+import { loadJson, toLoadError } from '@/lib/load-json';
+import { useToast } from '@/components/global/ToastProvider';
 import { useRouter } from 'next/navigation';
 import {
   CreditBuilderClientSelector,
   BusinessCreditScoresPanel,
   TradelineTracker,
-  VendorDetailDrawer,
   VendorFilterBar,
+  StepCompletionToggle,
   TradelineSubProgress,
   PaydexSubProgress,
   EstimatedProgressTimeline,
@@ -35,12 +39,16 @@ import type { CBClient } from '@/components/credit-builder';
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * One step of the DUNS track. Reference material only — what the process is.
+ * Whether a given client has done it lives in `credit_builder_steps` and
+ * arrives separately, because it is a fact about a business rather than about
+ * the process.
+ */
 interface DunsStep {
   id: number;
   title: string;
   description: string;
-  completed: boolean;
-  completedDate: string | null;
   estimatedDays: string;
   actionLabel?: string;
 }
@@ -130,15 +138,24 @@ interface MilestoneAlert {
 //
 // Three of these arrived marked complete with dates in January 2026 — DUNS
 // registered, address established, bank account opened — for whichever
-// client happened to be selected. Nothing records a client's progress
-// through this, so every step starts unmarked and the page says why.
+// client happened to be selected. Progress is now recorded per client and
+// read from the API; these entries carry only the description of the step.
+//
+// Steps 1 and 3 used to offer "Verify DUNS →" and "Record account →". Both
+// were inert: `handleStepAction` has only ever had branches for steps 4 and 6,
+// so clicking either did nothing, in any state. They are not restored, because
+// there is nothing behind them to restore them to — no `dunsNumber` column
+// exists on a business, nothing verifies one (the D&B adapter *generates* a
+// random nine-digit number), and no model records a business bank account. A
+// button labelled "Verify" that cannot verify is the failure this page has
+// been audited for twice.
 const DUNS_STEPS: DunsStep[] = [
-  { id: 1, title: 'Register DUNS Number', description: 'Apply at Dun & Bradstreet. DUNS is required for all business credit activity.', completed: false, completedDate: null, estimatedDays: '1–3 days', actionLabel: 'Verify DUNS' },
-  { id: 2, title: 'Establish Business Address & Phone', description: 'Ensure business address is a physical or registered agent address. Get a dedicated business phone line.', completed: false, completedDate: null, estimatedDays: 'Immediate' },
-  { id: 3, title: 'Open Business Bank Account', description: 'Separate personal and business finances. Minimum 3 months of activity strengthens profile.', completed: false, completedDate: null, estimatedDays: '1 day', actionLabel: 'Record account' },
-  { id: 4, title: 'Apply for Net-30 Vendor Accounts', description: 'Open at least 5 trade lines with Tier 1 vendors that report to Dun & Bradstreet.', completed: false, completedDate: null, estimatedDays: '2–4 weeks', actionLabel: 'View vendors' },
-  { id: 5, title: 'Build Paydex Score to 80+', description: 'Pay all Net-30 invoices on time or early. Paydex 80+ is required for Tier 2 access.', completed: false, completedDate: null, estimatedDays: '60–90 days' },
-  { id: 6, title: 'Apply for Business Credit Cards', description: 'Once Paydex hits 80 and 5+ trade lines are established, apply for business credit cards.', completed: false, completedDate: null, estimatedDays: '90+ days from start', actionLabel: 'View eligible cards' },
+  { id: 1, title: 'Register DUNS Number', description: 'Apply at Dun & Bradstreet. DUNS is required for all business credit activity.', estimatedDays: '1–3 days' },
+  { id: 2, title: 'Establish Business Address & Phone', description: 'Ensure business address is a physical or registered agent address. Get a dedicated business phone line.', estimatedDays: 'Immediate' },
+  { id: 3, title: 'Open Business Bank Account', description: 'Separate personal and business finances. Minimum 3 months of activity strengthens profile.', estimatedDays: '1 day' },
+  { id: 4, title: 'Apply for Net-30 Vendor Accounts', description: 'Open at least 5 trade lines with Tier 1 vendors that report to Dun & Bradstreet.', estimatedDays: '2–4 weeks', actionLabel: 'View vendors' },
+  { id: 5, title: 'Build Paydex Score to 80+', description: 'Pay all Net-30 invoices on time or early. Paydex 80+ is required for Tier 2 access.', estimatedDays: '60–90 days' },
+  { id: 6, title: 'Apply for Business Credit Cards', description: 'Once Paydex hits 80 and 5+ trade lines are established, apply for business credit cards.', estimatedDays: '90+ days from start', actionLabel: 'View eligible cards' },
 ];
 
 const NET30_VENDORS: Net30Vendor[] = [
@@ -223,16 +240,16 @@ function formatDate(iso: string): string {
 
 export default function CreditBuilderPage() {
   const router = useRouter();
+  const toast = useToast();
   const [selectedClient, setSelectedClient] = useState<CBClient | null>(null);
-  const [dunsSteps, setDunsSteps] = useState<DunsStep[]>(DUNS_STEPS);
   const [tierFilter, setTierFilter] = useState<string>('all');
   const [bureauFilter, setBureauFilter] = useState<string>('all');
   const [vendorSearch, setVendorSearch] = useState('');
-  const [selectedVendor, setSelectedVendor] = useState<Net30Vendor | null>(null);
   const [expandedVendorId, setExpandedVendorId] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<MilestoneAlert[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [prefillVendor, setPrefillVendor] = useState<string | null>(null);
+  const [savingStep, setSavingStep] = useState<number | null>(null);
 
   // useAuthFetch skips a path containing "undefined", so these stay idle
   // until a client is chosen.
@@ -247,6 +264,12 @@ export default function CreditBuilderPage() {
   // no pull rather than interpolating across them.
   const { data: historyRaw } = useAuthFetch<unknown>(
     `/api/credit-builder/${selectedClient?.id}/score-history`,
+  );
+  // Progress through the DUNS track, per client. This was component state: it
+  // did not survive a refresh, and it was keyed to nobody, so marks made
+  // against one client stayed on screen after switching to another.
+  const { data: stepsRaw, refetch: refetchSteps } = useAuthFetch<unknown>(
+    `/api/credit-builder/${selectedClient?.id}/steps`,
   );
 
   // The picker's clients. It held eight literals under ids cb_001 to cb_008,
@@ -263,25 +286,72 @@ export default function CreditBuilderPage() {
   const scores = useMemo(() => toBusinessScoreSet(scoresRaw), [scoresRaw]);
   const tradelineCount = useMemo(() => toTradelineCount(tradelinesRaw), [tradelinesRaw]);
   const scoreHistory = useMemo(() => toScoreHistoryPoints(historyRaw), [historyRaw]);
+  const stepState = useMemo(() => toDunsSteps(stepsRaw), [stepsRaw]);
 
-  const completedCount = dunsSteps.filter((s) => s.completed).length;
-  const overallProgress = Math.round((completedCount / dunsSteps.length) * 100);
+  /** Reference steps joined to this client's marks. */
+  const dunsSteps = useMemo(
+    () =>
+      DUNS_STEPS.map((step) => {
+        const mark = stepState?.find((s) => s.stepNumber === step.id) ?? null;
+        return {
+          ...step,
+          completed: mark?.completed ?? false,
+          completedDate: mark?.completedAt ?? null,
+        };
+      }),
+    [stepState],
+  );
+
+  // Null until the track has been read: no client is selected, or the request
+  // failed. Zero would state that this client has completed none of them.
+  const completedCount = completedStepCount(stepState);
+  const overallProgress =
+    completedCount === null ? null : Math.round((completedCount / DUNS_STEPS.length) * 100);
+
   // A missing PAYDEX must not unlock a tier. `null >= 80` is false in JS, but
   // relying on that would be accidental — the absence is checked explicitly.
   // The same now goes for the tradeline count, which is null until read: an
   // unread list must not satisfy a threshold, and must not fail one either.
+  //
+  // `completedCount` is included on the same terms, and it is the reason the
+  // steps needed a table: this banner tells an advisor a client is ready to
+  // apply for credit, and it used to rest partly on three checkboxes held in
+  // component state — unkeyed to any client, gone on the next refresh.
   const tier1Unlocked =
     scores.paydex !== null &&
     scores.paydex >= 80 &&
     tradelineCount !== null &&
     tradelineCount >= 5 &&
+    completedCount !== null &&
     completedCount >= 3;
 
-  const toggleStep = useCallback((id: number) => {
-    setDunsSteps((prev) =>
-      prev.map((s) => s.id === id ? { ...s, completed: !s.completed, completedDate: !s.completed ? new Date().toISOString() : null } : s)
-    );
-  }, []);
+  const toggleStep = useCallback(
+    async (stepNumber: number, next: boolean) => {
+      if (!selectedClient) return;
+
+      setSavingStep(stepNumber);
+      try {
+        // Written before the circle changes. An optimistic tick here would be
+        // the same defect this page was audited for: a mark that reports a
+        // record nobody holds.
+        await loadJson(`/api/credit-builder/${selectedClient.id}/steps/${stepNumber}`, {
+          method: 'PUT',
+          body: { completed: next },
+        });
+        await refetchSteps();
+      } catch (error) {
+        const info = toLoadError(error);
+        toast.error(
+          info.type === 'auth_required'
+            ? 'Your session has expired. Sign in again to change this step.'
+            : 'Could not save the step. Nothing was changed.',
+        );
+      } finally {
+        setSavingStep(null);
+      }
+    },
+    [selectedClient, refetchSteps, toast],
+  );
 
   const handleStepAction = useCallback((step: DunsStep) => {
     if (step.id === 4) {
@@ -291,6 +361,38 @@ export default function CreditBuilderPage() {
       router.push(selectedClient ? `/optimizer?client_id=${selectedClient.id}&from=credit-builder` : '/optimizer');
     }
   }, [router, selectedClient]);
+
+  // The previous reading, per client, so a milestone reports a change rather
+  // than the first successful load. `checkMilestones` was imported and never
+  // called: no milestone alert could ever appear, on a page whose alert stack
+  // was rendered at the top of every view.
+  const lastReading = useRef<{ clientId: string; paydex: number | null; tradelineCount: number | null } | null>(null);
+
+  useEffect(() => {
+    const clientId = selectedClient?.id ?? null;
+    if (clientId === null) {
+      lastReading.current = null;
+      setAlerts([]);
+      return;
+    }
+
+    const current = { paydex: scores.paydex, tradelineCount };
+    const previous =
+      lastReading.current && lastReading.current.clientId === clientId
+        ? { paydex: lastReading.current.paydex, tradelineCount: lastReading.current.tradelineCount }
+        : null;
+
+    // Switching client is not progress. Without this the first reading for the
+    // new client would be compared against the old one's, and moving from a
+    // client with 2 tradelines to one with 6 would announce a milestone the
+    // second client passed long ago.
+    const fresh = checkMilestones(previous, current, clientId);
+    if (fresh.length > 0) {
+      setAlerts((prev) => [...prev, ...fresh.filter((a) => !prev.some((p) => p.id === a.id))]);
+    }
+
+    lastReading.current = { clientId, paydex: scores.paydex, tradelineCount };
+  }, [selectedClient?.id, scores.paydex, tradelineCount]);
 
   const filteredVendors = NET30_VENDORS.filter((v) => {
     const matchTier = tierFilter === 'all' || v.tier === Number(tierFilter);
@@ -329,18 +431,28 @@ export default function CreditBuilderPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Business Credit Builder</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {completedCount}/{dunsSteps.length} DUNS steps marked here · {STACKING_CRITERIA.length} stacking
-            criteria, none assessed
+            {completedCount === null
+              ? selectedClient
+                ? 'DUNS progress not read'
+                : 'Select a client to see their DUNS progress'
+              : `${completedCount}/${DUNS_STEPS.length} DUNS steps recorded`}{' '}
+            · {STACKING_CRITERIA.length} stacking criteria, none assessed
             {selectedClient && <span className="text-yellow-400"> — {selectedClient.legal_name}</span>}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
             <p className="text-xs text-gray-500">Overall Progress</p>
-            <p className="text-xl font-bold text-yellow-400">{overallProgress}%</p>
+            {/* A percentage requires a numerator. 0% for an unread track would
+                report a client who has done nothing. */}
+            <p className="text-xl font-bold text-yellow-400">
+              {overallProgress === null ? <span className="text-gray-600">—</span> : `${overallProgress}%`}
+            </p>
           </div>
           <div className="w-20 h-2 rounded-full bg-gray-800">
-            <div className="h-full rounded-full bg-yellow-600 transition-all" style={{ width: `${overallProgress}%` }} />
+            {overallProgress !== null && (
+              <div className="h-full rounded-full bg-yellow-600 transition-all" style={{ width: `${overallProgress}%` }} />
+            )}
           </div>
         </div>
       </div>
@@ -363,17 +475,28 @@ export default function CreditBuilderPage() {
           </div>
           <div className="flex items-center gap-2">
             <div className="h-2 w-32 rounded-full bg-gray-800">
-              <div className="h-full rounded-full bg-green-600 transition-all" style={{ width: `${overallProgress}%` }} />
+              {overallProgress !== null && (
+                <div className="h-full rounded-full bg-green-600 transition-all" style={{ width: `${overallProgress}%` }} />
+              )}
             </div>
-            <span className="text-sm font-semibold text-green-400">{completedCount}/{dunsSteps.length}</span>
+            <span className="text-sm font-semibold text-green-400">
+              {completedCount === null ? <span className="text-gray-600">—</span> : `${completedCount}/${DUNS_STEPS.length}`}
+            </span>
           </div>
         </div>
         <div className="space-y-2">
           {dunsSteps.map((step) => (
             <div key={step.id} className={`flex items-start gap-4 p-4 rounded-lg border transition-colors ${step.completed ? 'border-green-800 bg-green-900/20' : 'border-gray-800 bg-gray-900/50 hover:bg-gray-900'}`}>
-              <button onClick={() => toggleStep(step.id)} aria-label={step.completed ? 'Mark incomplete' : 'Mark complete'} className={`mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${step.completed ? 'bg-green-600 border-green-500 text-white' : 'border-gray-600 text-transparent hover:border-green-600'}`}>
-                <span className="text-xs font-bold leading-none">✓</span>
-              </button>
+              {/* Disabled without a client: there is nowhere to record the
+                  mark, and a circle that ticks and saves nothing is the
+                  defect this page had. */}
+              <StepCompletionToggle
+                stepId={String(step.id)}
+                completed={step.completed}
+                completedDate={null}
+                disabled={!selectedClient || savingStep !== null}
+                onToggle={(_stepId, next) => { void toggleStep(step.id, next); }}
+              />
               <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center mt-0.5">
                 <span className="text-xs font-bold text-gray-400">{step.id}</span>
               </div>
@@ -654,22 +777,13 @@ export default function CreditBuilderPage() {
         businessAgeMonths={null}
       />
 
-      {/* ── Vendor Detail Drawer ─────────────────────────────────── */}
-      <VendorDetailDrawer
-        vendor={selectedVendor ? {
-          name: selectedVendor.vendorName,
-          category: selectedVendor.category,
-          tier: `Tier ${selectedVendor.tier}`,
-          reportsTo: selectedVendor.bureausReported.join(', '),
-          creditLimit: selectedVendor.creditLimit,
-          difficulty: selectedVendor.approvalDifficulty,
-          requirements: selectedVendor.requires,
-          applicationUrl: selectedVendor.applicationUrl,
-        } : null}
-        isOpen={!!selectedVendor}
-        onClose={() => setSelectedVendor(null)}
-        onTrack={() => { setSelectedVendor(null); }}
-      />
+      {/* VendorDetailDrawer was rendered here and could never open:
+          `setSelectedVendor` was only ever called with null, because clicking
+          a row expands it in place instead. Its "track this vendor" action was
+          a no-op even if it had opened. The expanded row carries the same
+          detail — application URL, setup guide, reporting timeline, tips —
+          plus a working "+ Add to My Tradelines". Removed rather than wired,
+          since wiring it would give this page two ways to show one thing. */}
     </div>
   );
 }

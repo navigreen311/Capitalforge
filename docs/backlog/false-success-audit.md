@@ -160,7 +160,7 @@ Three questions per site:
 | `app/platform/workflows/page.tsx` | 8 | 0 | Most toasts in the app; unaudited |
 | `app/clients/[id]/page.tsx` | 4 | 2 | Toast **and** navigation on client records |
 | `components/funding-rounds/RoundActionButtons.tsx` | 2 | 2 | Funding rounds — money attached |
-| `components/credit-builder/TradelineTracker.tsx` | 4 | 0 | Writes to a credit-building record |
+| ~~`components/credit-builder/TradelineTracker.tsx`~~ | 4 | 0 | **Audited 2026-08-04 — clean.** All four writes (add, dispute, log payment, mark inactive) hit persisting endpoints, are awaited, toast only in the success branch, and say plainly that nothing was saved on failure |
 | `components/clients/DocumentsTab.tsx` | 4 | 0 | Document vault; compliance-relevant |
 | `app/optimizer/page.tsx` | 4 | 0 | Two already fixed; other two unaudited |
 | `components/documents/GenerateDocumentModal.tsx` | 3 | 0 | Document generation |
@@ -201,6 +201,41 @@ to: **real**, **claims a write that does not happen**, **navigates before
 confirming**, or **reachable from a catch**. Fix in a second pass, once the
 scale is known — some will be one-line moves of a toast into the success branch,
 and others need the endpoint built.
+
+## A sixth instance: a control that saved nowhere, feeding a claim
+
+Found 2026-08-04, on `/credit-builder`, and it is the pattern with the toast
+removed — nothing announced a save, so there was nothing false to catch.
+
+The six DUNS completion circles wrote to component state and to nothing else.
+No endpoint, no table. Three consequences, in increasing order of severity:
+
+1. A reload wiped every mark.
+2. They were keyed to no client. Marking three steps for one business and then
+   switching to another showed the second business the first one's progress.
+3. **`tier1Unlocked` read the count.** The graduation banner — *"<Client> is
+   ready for Tier 1 stacking! All business credit prerequisites are met."* —
+   requires three completed steps alongside a PAYDEX of 80 and five trade
+   lines. So a claim that a client is ready to apply for credit rested partly
+   on checkboxes that belonged to nobody and survived nothing.
+
+The page header was accurate: it said "DUNS steps marked here". The banner it
+fed was not, and the banner is the surface an advisor acts on.
+
+Now a `credit_builder_steps` row per business, with `completedBy` recording who
+asserted it — nothing in this system verifies a DUNS registration or a bank
+account, so the mark is stored as an advisor's claim rather than an
+observation. The count is null until read, so an unread track can neither
+satisfy the threshold nor fail it, and the circles are disabled when no client
+is selected: there is nowhere to record a mark, and a circle that ticks and
+saves nothing is the whole defect.
+
+**The generalisation worth keeping:** the standing question at the top of this
+document has a third form. *Does anything read it* and *does anything act on
+it* both assume the value survives long enough to be read. A control whose
+state is written nowhere fails a question the audit had not asked — **does it
+still exist a minute from now, and is it attached to the thing it describes?**
+Every input surface that feeds a judgment needs an answer to that one too.
 
 ## "Not known" is not "none"
 
