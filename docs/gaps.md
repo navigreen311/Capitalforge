@@ -159,15 +159,42 @@ A track that asserts no business-credit requirement now emits **no gate** rather
 than a gate with a threshold of zero. Zero is a comparison a client with no
 score would pass, which manufactures a cleared requirement out of an absent one.
 
-**Migration.** `scripts/track-migration-impact.ts` reports who changes track,
-and separately whose business-credit gate changes answer without moving them
-today — a movement count alone understates the reach, because another gate may
-already bind. Run against the development database: **3 businesses, 0 moved, 1
-gate flipped.** That sample proves little and the reason is worth knowing: every
-seeded client is pinned to Credit Builder by the tradeline gate, because seeded
-`CreditProfile.tradelines` holds a summary object rather than an array, so the
-count reads 0. Real pulls write arrays. **Run the script against a populated
-database before trusting a number.**
+### ~~Migration.~~ Closed 2026-08-05 — and the numbers were never real
+
+This section said: *"`scripts/track-migration-impact.ts` reports who changes
+track… Run against the development database: **3 businesses, 0 moved, 1 gate
+flipped**… Run the script against a populated database before trusting a
+number."*
+
+**Do not trust that figure, and do not go looking for the script.** Both are
+gone, for two independent reasons.
+
+**The script had rotted silently.** It read
+`TrackThresholds.minBusinessCreditScore` and built a `GraduationInput` with
+`businessCreditScore` — two fields that **this very change** replaced, with
+`businessCredit` and `businessScores`. `undefined >= 50` is false, so the
+business-credit gate failed for every track, so every client resolved to Credit
+Builder and the tool reported a migration that was pure artefact.
+
+Nothing caught it because **`scripts/**` was not in the tsconfig `include`**.
+The compiler had the answer and was never asked. That is fixed here: scripts are
+type-checked now, and adding them surfaced four more real errors in
+`migrate-data.ts` (Prisma JSON columns take `InputJsonValue`, not
+`Record<string, unknown>`), also fixed.
+
+**And the migration is moot regardless.** The business-credit gates it measured
+were removed outright on 2026-08-05 — no track declares one now — because they
+required a FICO SBSS, which a lender computes at application and no client can
+obtain. There is no Option A transition left to perform, so the script has been
+deleted rather than repaired: fixing it would have meant modelling a transition
+that is twice superseded.
+
+**The migration that actually mattered** is recorded in section 6: removing the
+gates moved Apex Digital Solutions from Starter Stack to LOC/SBA Bridge, two
+tracks up, having done nothing. That one was measured against the live engine
+rather than a parallel model of it, which is the lesson — **a migration tool
+that reimplements the rule it is checking will drift away from the rule, and
+will keep answering.**
 
 **Rendered as of 2026-08-05.** The Programme Track panel on `/credit-builder`
 reads `/graduation/status`: the four tracks with the client's marked, the gates

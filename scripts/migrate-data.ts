@@ -8,7 +8,7 @@
 //   npx tsx scripts/migrate-data.ts validate  --source <file.json>
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
@@ -262,7 +262,7 @@ async function importTenant(sourcePath: string, newTenantSlug: string): Promise<
         slug: newTenantSlug,
         plan: tenantSrc.plan || 'starter',
         isActive: tenantSrc.isActive ?? true,
-        brandConfig: (tenantSrc.brandConfig as Record<string, unknown>) || {},
+        brandConfig: (tenantSrc.brandConfig as Prisma.InputJsonValue) ?? {},
       },
     });
     console.log(`  ✓ Tenant created: ${newTenantSlug} (${newTenantId})`);
@@ -338,7 +338,7 @@ async function importTenant(sourcePath: string, newTenantSlug: string): Promise<
           lastName: owner.lastName,
           ownershipPercent: owner.ownershipPercent,
           dateOfBirth: owner.dateOfBirth ? new Date(owner.dateOfBirth) : undefined,
-          address: owner.address as Record<string, unknown> || {},
+          address: (owner.address as Prisma.InputJsonValue) ?? {},
           isBeneficialOwner: owner.isBeneficialOwner,
           kycStatus: owner.kycStatus,
           kycVerifiedAt: owner.kycVerifiedAt ? new Date(owner.kycVerifiedAt) : undefined,
@@ -368,7 +368,7 @@ async function importTenant(sourcePath: string, newTenantSlug: string): Promise<
           revocationReason: consent.revocationReason,
           ipAddress: consent.ipAddress,
           evidenceRef: consent.evidenceRef,
-          metadata: consent.metadata as Record<string, unknown> || {},
+          metadata: (consent.metadata as Prisma.InputJsonValue) ?? {},
         },
       });
     }
@@ -389,7 +389,7 @@ async function importTenant(sourcePath: string, newTenantSlug: string): Promise<
           checkType: check.checkType,
           riskScore: check.riskScore,
           riskLevel: check.riskLevel,
-          findings: check.findings as Record<string, unknown> || {},
+          findings: (check.findings as Prisma.InputJsonValue) ?? {},
           stateJurisdiction: check.stateJurisdiction,
           resolvedAt: check.resolvedAt ? new Date(check.resolvedAt) : undefined,
           createdAt: new Date(check.createdAt),
