@@ -508,7 +508,21 @@ not periodically measured and cannot be observed by the client at all.
 for every client since they were written, and the milestone panel has never
 measured anything.
 
-### An untested guard, left in place deliberately
+### ~~An untested guard, left in place deliberately~~ — closed 2026-08-05
+
+**The seam described at the end of this entry now exists.**
+`estimateMonthsToNextTrack` takes the thresholds it measures against, defaulting
+to the track's own, so the rule is exercised again without a track having to
+declare a requirement on an unobtainable product. Production callers pass
+nothing and behave exactly as before; two tests reach the guard directly.
+
+That closes the last of the three guards that lost their exercise when the SBSS
+gates were removed. The original entry is kept below, because the reasoning is
+the reusable part — an untested guard is a guard on its way out, and the fix is
+usually a parameter rather than a resurrected requirement.
+
+---
+
 
 `estimateMonthsToNextTrack` returns **null rather than 0** when a track
 requires a business-credit score the client has never been measured on. Zero
@@ -558,8 +572,12 @@ function, and the point is to reach someone planning work before that.
   visible instance is a sample, not the population. Fixed 2026-08-05.
 - Three different SBSS thresholds — **140, 160, 175** — appear on one page;
   nine sites carry one, and four different numbers were quoted as the SBA's.
-- Four coaching CTAs render as inert `<span>`s; three point at content on the
-  same page and one ("Set Reminder") has no feature behind it.
+- ~~Four coaching CTAs render as inert `<span>`s.~~ **Closed 2026-08-05.**
+  "Set Reminder" went with the card that carried it; the other three are
+  anchors to the sections they always named. An in-page jump renders with a
+  down arrow rather than the outbound ↗ — the arrow promised a destination
+  elsewhere — and a label with no destination still renders as a span, so a
+  card with nothing to click does not pretend to have something.
 - Coaching is keyed on **tier alone** and asserts client facts it never reads.
 
 ---

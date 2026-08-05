@@ -546,6 +546,7 @@ export default function CreditBuilderPage() {
         paydex={scores.paydex} paydexDate={scores.paydexDate}
         experianBusiness={scores.experianBusiness} experianDate={scores.experianDate}
         sbss={scores.sbss} sbssDate={scores.sbssDate}
+        equifaxBusinessRisk={scores.equifaxBusinessRisk} equifaxDate={scores.equifaxDate}
         history={scoreHistory}
       />
 
@@ -785,6 +786,9 @@ export default function CreditBuilderPage() {
       </div>
 
       {/* ── Tradeline Tracker ────────────────────────────────────── */}
+      {/* Anchor target for the "View Tradelines" coaching card, which was an
+          inert span pointing at content already on this page. */}
+      <div id="tradeline-tracker" />
       <TradelineTracker
         clientId={selectedClient?.id ?? null}
         clientName={selectedClient?.legal_name ?? null}

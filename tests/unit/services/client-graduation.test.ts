@@ -57,6 +57,7 @@ import {
   type GraduationInput,
   type MilestoneGate,
   type ScoreThreshold,
+  type TrackThresholds,
 } from '../../../src/backend/services/client-graduation.service.js';
 
 import {
@@ -397,28 +398,60 @@ describe('estimateMonthsToNextTrack', () => {
 // ── buildActionRoadmap ────────────────────────────────────────
 
 describe('estimateMonthsToNextTrack — an unmeasured gate has no timeline', () => {
-  // ⚠ The null-not-zero guard in this function is currently UNREACHABLE.
+  // The null-not-zero guard fires only when a track declares a business-credit
+  // threshold and the client has no score of that product. Both thresholds
+  // were SBSS and both were removed on 2026-08-05, so for a while no input
+  // could reach it and this file said so in a warning.
   //
-  // It fires only when a track declares a business-credit threshold and the
-  // client has no score of that product. Both thresholds were SBSS and both
-  // were removed on 2026-08-05, so no input can reach it today.
+  // `estimateMonthsToNextTrack` now takes the thresholds it measures against,
+  // defaulting to the track's own, so the rule can be exercised without a
+  // track having to declare a requirement on an unobtainable product.
+  // Production callers pass nothing and behave exactly as before.
   //
-  // The guard is kept, and this note is the reason: it exists because a client
-  // who cleared every measurable Full Stack gate with no SBSS on record was
-  // told "Estimated 0 months at the current rate" — zero means "nothing left
-  // to close", and nothing had been closed. The day a track declares a
-  // threshold again, that defect returns without it.
-  //
-  // Two other guards lost their only exercise in the same change: the
-  // compile-time proof that a PAYDEX cannot be compared against an SBSS
-  // requirement, and businessCreditGate's unknown-not-failed rule. Both were
-  // rescued by testing them directly rather than through a track. This one
-  // cannot be, without a seam to inject thresholds — recorded rather than
-  // quietly dropped, because an untested guard is a guard on its way out.
+  // Worth keeping exercised: it exists because a client who cleared every
+  // measurable Full Stack gate with no SBSS on record was told "Estimated 0
+  // months at the current rate", and zero means "nothing left to close".
   //
   // (Do not begin a wrapped comment line with the ts-expect-error directive
   // name. An earlier draft of this note did, and TypeScript read the prose as
   // a real directive on the following line.)
+
+  it('returns null, not zero, when a required score was never pulled', () => {
+    // The guard, reached through the seam. A client clearing everything else
+    // for a track that asks for an SBSS nobody has measured has closed
+    // nothing — and 0 would say the opposite.
+    const withThreshold: TrackThresholds = {
+      ...TRACK_THRESHOLDS[GRADUATION_TRACKS.FULL_STACK],
+      businessCredit: SBSS_THRESHOLD,
+    };
+    const input: GraduationInput = {
+      ...fullStackInput,
+      businessScores: { paydex: businessScore('paydex', 88) },
+    };
+
+    expect(
+      estimateMonthsToNextTrack(input, GRADUATION_TRACKS.FULL_STACK, withThreshold),
+    ).toBeNull();
+  });
+
+  it('still projects months when that score is on record and short', () => {
+    const withThreshold: TrackThresholds = {
+      ...TRACK_THRESHOLDS[GRADUATION_TRACKS.FULL_STACK],
+      businessCredit: SBSS_THRESHOLD,
+    };
+    const input: GraduationInput = {
+      ...fullStackInput,
+      businessScores: { sbss: businessScore('sbss', 20) },
+    };
+
+    const months = estimateMonthsToNextTrack(
+      input,
+      GRADUATION_TRACKS.FULL_STACK,
+      withThreshold,
+    );
+    expect(months).not.toBeNull();
+    expect(months).toBeGreaterThan(0);
+  });
 
   it('estimates zero when every gate a track asserts is met', () => {
     // Honest today: Full Stack asserts nothing about business credit, so a
