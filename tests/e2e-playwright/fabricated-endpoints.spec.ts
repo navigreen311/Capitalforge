@@ -102,15 +102,22 @@ test.describe('Dashboard sparklines', () => {
     expect(second.data.sparklines).toEqual(first.data.sparklines);
   });
 
-  test('states no history for a metric that has none', async ({ signedInPage: page }) => {
+  test('draws the applications history from the dates on the row', async ({ signedInPage: page }) => {
     await page.goto('/dashboard');
     const a = await auth(page);
 
-    const body = (await fetch(`${API}/v1/dashboard/kpi-summary`, { headers: { Authorization: a } }).then(expectOk)) as { data: { sparklines: Record<string, number[] | null> } };
+    const body = (await fetch(`${API}/v1/dashboard/kpi-summary`, { headers: { Authorization: a } }).then(expectOk)) as { data: { applications: number; sparklines: Record<string, number[] | null> } };
 
-    // "Active" is a current status with nothing on the row recording what it
-    // was before, so a past count can only be invented.
-    expect(body.data.sparklines['applications']).toBeNull();
+    // This was null, on the reasoning that "active" is a current status with
+    // nothing recording what it was before. True of the status, and beside the
+    // point: `createdAt` opens an application and `decidedAt` closes it.
+    const series = body.data.sparklines['applications'];
+    expect(Array.isArray(series)).toBe(true);
+
+    // The property worth asserting over the browser: the line agrees with the
+    // number printed above it. A series that contradicts its own headline is
+    // worse than no series.
+    expect(series![series!.length - 1]).toBe(body.data.applications);
 
     // The others come from timestamps and are non-decreasing, being running
     // totals — a walk produced dips and climbs at random.

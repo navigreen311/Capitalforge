@@ -529,7 +529,11 @@ rewardsRouter.post(
       const [updated, audit] = await sharedPrisma.$transaction([
         sharedPrisma.cardApplication.update({
           where: { id: cardId },
-          data: { status: 'cancelled' },
+          // The time as well as the fact. Without it a cancelled card cannot
+          // be placed in time, so the active-applications history had no way
+          // to show it as open before this moment and closed after — it could
+          // only drop the card entirely.
+          data: { status: 'cancelled', cancelledAt: new Date() },
         }),
         sharedPrisma.auditLog.create({
           data: {

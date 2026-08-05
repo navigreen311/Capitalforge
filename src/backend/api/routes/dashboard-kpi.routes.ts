@@ -9,6 +9,7 @@ import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '@shared/types/index.js';
+import { CLOSED_APPLICATION_STATUSES } from '@shared/types/index.js';
 
 // ── Lazy PrismaClient singleton ─────────────────────────────────────────────
 
@@ -60,6 +61,73 @@ function cumulativeByDay(
         0,
       ) * 100,
     ) / 100,
+  );
+}
+
+/** An application, as the active-count series needs to see it. */
+export interface ApplicationLifespan {
+  createdAt: Date;
+  decidedAt: Date | null;
+  cancelledAt: Date | null;
+  status: string;
+}
+
+/**
+ * The statuses that take an application out of the active set.
+ *
+ * Read from the shared list rather than a literal here. Both count queries
+ * above carried their own copy, and `cancelled` was missing from every one of
+ * them — a status the ApplicationStatus union did not declare either, so
+ * nothing enumerating it had any way to know it existed.
+ */
+const TERMINAL_STATUSES = new Set<string>(CLOSED_APPLICATION_STATUSES);
+
+/**
+ * How many applications were open at the end of each day.
+ *
+ * This was null, on the reasoning that "active" is a current status with
+ * nothing on the row recording what it was before — so a past count could only
+ * be invented. That was half right. The *status* has no history, but the two
+ * dates that bound an application's active life are on the row already:
+ * `createdAt` opens it and `decidedAt` closes it.
+ *
+ * So the series is derived rather than invented, and it reproduces the live
+ * figure exactly: the headline counts `status NOT IN (approved, declined)`,
+ * and an application is counted here for every day between being created and
+ * being decided.
+ *
+ * Two edges, both stated because they are judgments:
+ *
+ * A terminal application with no `decidedAt` cannot be placed in time — we
+ * know it left the active set, not when. It is excluded from the series
+ * entirely, which keeps the last point equal to the live count, since the
+ * headline excludes it too. No such row exists today.
+ *
+ * An application decided and later reopened counts as active across the whole
+ * window, including the days it was actually closed. Its current status is not
+ * terminal, so the headline counts it, and a series that disagreed with the
+ * number printed above it would be worse than one that is imprecise about a
+ * fortnight in its past.
+ */
+export function activeApplicationsByDay(
+  applications: ApplicationLifespan[],
+  boundaries: Date[],
+): number[] {
+  return boundaries.map(
+    (edge) =>
+      applications.filter((a) => {
+        if (a.createdAt >= edge) return false;
+
+        const terminal = TERMINAL_STATUSES.has(a.status);
+        if (!terminal) return true;
+
+        // A decision closes an application; a cancellation closes it too, and
+        // is not a decision — hence two columns rather than one overloaded.
+        const closedAt = a.decidedAt ?? a.cancelledAt;
+        if (closedAt === null) return false;
+
+        return closedAt >= edge;
+      }).length,
   );
 }
 
@@ -124,7 +192,7 @@ dashboardKpiRouter.get(
         db.cardApplication.count({
           where: {
             business: { tenantId },
-            status: { notIn: ['approved', 'declined'] },
+            status: { notIn: [...CLOSED_APPLICATION_STATUSES] },
           },
         }),
 
@@ -168,7 +236,7 @@ dashboardKpiRouter.get(
         db.cardApplication.count({
           where: {
             business: { tenantId },
-            status: { notIn: ['approved', 'declined'] },
+            status: { notIn: [...CLOSED_APPLICATION_STATUSES] },
             createdAt: { lt: thirtyDaysAgo },
           },
         }),
@@ -236,7 +304,7 @@ dashboardKpiRouter.get(
       // thirty round trips for a line drawing.
       const boundaries = dayBoundaries(SPARKLINE_POINTS, now);
 
-      const [clientRows, decidedRows, costRows] = await Promise.all([
+      const [clientRows, decidedRows, costRows, applicationRows] = await Promise.all([
         db.business.findMany({ where: { tenantId }, select: { createdAt: true } }),
         db.cardApplication.findMany({
           where: { business: { tenantId }, status: { in: ['approved', 'declined'] } },
@@ -245,6 +313,12 @@ dashboardKpiRouter.get(
         db.costCalculation.findMany({
           where: { business: { tenantId }, createdAt: { gte: monthStart } },
           select: { createdAt: true, programFees: true },
+        }),
+        // Every application, open or closed: the active count on a past day
+        // needs the ones that have since been decided.
+        db.cardApplication.findMany({
+          where: { business: { tenantId } },
+          select: { createdAt: true, decidedAt: true, cancelledAt: true, status: true },
         }),
       ]);
 
@@ -279,11 +353,12 @@ dashboardKpiRouter.get(
 
           sparklines: {
             clients: cumulativeByDay(clientRows.map((r) => r.createdAt), boundaries),
-            // Null, not a line. "Active" is a current status with no history
-            // on the row — an application approved last week has never been
-            // anything else as far as the database is concerned, so a past
-            // count of active applications cannot be derived, only invented.
-            applications: null,
+            // Derived from the dates that bound an application's active life,
+            // which were on the row all along. This was null on the reasoning
+            // that "active" is a status with no history — true of the status,
+            // and beside the point: `createdAt` opens an application and
+            // `decidedAt` closes it.
+            applications: activeApplicationsByDay(applicationRows, boundaries),
             funding: cumulativeByDay(
               decidedRows.map((r) => (r.status === 'approved' ? r.decidedAt : null)),
               boundaries,

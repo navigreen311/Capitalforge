@@ -60,7 +60,35 @@ export type ScoreType =
 export type CreditProfileType = 'personal' | 'business';
 
 // Funding
-export type ApplicationStatus = 'draft' | 'pending_consent' | 'submitted' | 'approved' | 'declined' | 'reconsideration';
+/**
+ * The statuses a card application can hold.
+ *
+ * `cancelled` was missing, and `rewards.routes.ts` has been writing it — so a
+ * status nothing declared was reaching the column, and every query that
+ * described the live set as `NOT IN (approved, declined)` counted cancelled
+ * cards among the active ones. The dashboard's headline "applications" figure
+ * was one of them.
+ *
+ * An undeclared value cannot be reasoned about: nothing that enumerates this
+ * union had any way to know it existed.
+ */
+export type ApplicationStatus =
+  | 'draft'
+  | 'pending_consent'
+  | 'submitted'
+  | 'approved'
+  | 'declined'
+  | 'reconsideration'
+  | 'cancelled';
+
+/**
+ * The statuses that take an application out of the active set.
+ *
+ * Exported so the two places that count active applications, and the series
+ * behind them, read one list. They each carried their own literal, which is
+ * how `cancelled` came to be missing from all of them at once.
+ */
+export const CLOSED_APPLICATION_STATUSES = ['approved', 'declined', 'cancelled'] as const;
 export type RoundStatus = 'planning' | 'in_progress' | 'completed' | 'cancelled';
 
 // Consent
