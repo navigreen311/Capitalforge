@@ -99,6 +99,27 @@ Every feature or significant change follows this sequence:
   is not a meaning site. Keep the `x !== null` form where the value is used,
   and let the helper carry the vocabulary.
 
+- **A tool that reimplements the rule it checks will drift from that rule and
+  keep answering.** Prefer calling the real engine over modelling it.
+
+  `scripts/track-migration-impact.ts` reimplemented `resolveCurrentTrack` so it
+  could compare before against after — a reasonable thing to want, and the
+  reason it rotted. It read `TrackThresholds.minBusinessCreditScore` for weeks
+  after that field was replaced by `businessCredit`. `undefined >= 50` is false,
+  so every client resolved to Credit Builder and it reported a migration that
+  never existed — while `docs/gaps.md` cited its numbers as grounds to trust
+  the change. It never errored and never returned nothing. It returned a
+  plausible, formatted report.
+
+  **If a tool must model rather than call, type-check it.** `scripts/**` was
+  outside the tsconfig `include`, so the compiler had the answer and was never
+  asked. Adding it surfaced this and four more real errors in
+  `migrate-data.ts`. A copy with no compiler watching it and no test ages into
+  a confident fiction while the original moves on.
+
+  The same shape as the verification rules above: the check ran, the check
+  passed, and the check was narrower than it read.
+
 - **Widening a type or a value's range requires checking every consumer that
   compares it to a threshold.** Not the feature you built — the code downstream
   that was written when the old range was the only one.
