@@ -113,6 +113,25 @@ function stubTransUnionPull(businessId: string, profileType: string): BureauPull
   const base = 640 + Math.floor(Math.random() * 160);
   return {
     bureau: 'transunion',
+    // This `sbss` write is correct, and is the one that was always correct.
+    //
+    // Saying so explicitly because the two adapters above carry comments
+    // describing this exact mapping as the bug they were fixing: Experian was
+    // writing Intelliscore as `sbss`, and Equifax was writing its Business
+    // Credit Risk Score as `sbss`. Both were relabelled. TransUnion was never
+    // part of that defect — it is the designated SBSS producer, so every
+    // business product now has exactly one: PAYDEX from D&B, Intelliscore from
+    // Experian, SBSS from TransUnion, Business Credit Risk from Equifax.
+    // Without this note the next reader sees three adapters and two "this was
+    // wrong" comments, and the ambiguity is its own hazard.
+    //
+    // One caveat for when real credentials replace these stubs. SBSS is
+    // computed by FICO at a *lender's* request, from an application — it is
+    // not a record held about a business that anyone can pull on demand. So a
+    // real TransUnion adapter cannot return an SBSS for an advisory pull the
+    // way this stub does. The label is right; the acquisition path this stub
+    // implies will not exist in production. See
+    // docs/product/business-credit-scores.md.
     score: profileType === 'business' ? stubSbssScore() : base,
     scoreType: profileType === 'business' ? 'sbss' : 'fico',
     utilization: parseFloat((Math.random() * 0.55).toFixed(4)),
