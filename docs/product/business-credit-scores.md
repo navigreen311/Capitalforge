@@ -33,7 +33,7 @@ identically to the others.
 |---|---|---|---|---|
 | PAYDEX | Dun & Bradstreet | 0–100 | Yes, paid | ~$60 one-time report |
 | Intelliscore Plus | Experian | 1–100 | **Yes, on demand** | ~$49.95/report, ~$199/yr |
-| Business Credit Risk Score | Equifax | 101–992 | Yes, paid | Not verified — see below |
+| Business Credit Risk Score | Equifax | 101–992 | Yes, paid | ~$49.95 reseller, ~$30–40 direct |
 | FICO SBSS | FICO (not a bureau) | 0–300 | **No — lender-computed** | n/a |
 
 The last column is the design-relevant one. "Not yet pulled" is a sensible
@@ -107,12 +107,25 @@ SBSS, which is FICO's and runs 0–300. These were conflated in this codebase
 until the `equifax_business_risk` score type was added; the Equifax adapter was
 writing its output under FICO's product name.
 
-**Can the client obtain it?** Believed yes, via a paid Equifax business report.
-**Not verified as of 2026-08-05** — current pricing and product name were not
-confirmed. Do not quote a price to a client from this document.
+**Can the client obtain it?** **Yes.** Around **$49.95** through an approved
+reseller such as eCredable, or roughly **$30–40** ordered directly from
+Equifax's business portal. Equifax widened self-service access in **August
+2025**, so guidance written before then may say this is harder than it is.
+*(Verified 2026-08-05, [NerdWallet — Equifax business credit report](https://www.nerdwallet.com/business/credit-cards/learn/equifax-business-credit-report)
+and [Equifax business credit reports for small businesses](https://www.equifax.com/business/product/business-credit-reports-small-business/).)*
 
-**What to tell a client.** Nothing specific yet. This section is incomplete and
-is the first gap to close if Equifax gating becomes product-relevant.
+**What to tell a client.** Order it directly from the Equifax business portal —
+legal name, EIN, address and primary contact, then download the PDF. Read it
+for errors and dispute what is wrong, the same play as Experian.
+
+**Watch the scale.** 101–992, sitting on a page beside two scores that run
+0–100. A "640" here is unremarkable; a 640 on any other card on that page would
+be impossible. The `sc_006` criterion asks for 500.
+
+*(Still unverified: which score the reseller bundle labels "Business Credit
+Risk" versus "One Score for Commercial" or "Business Failure Score". If an
+advisor is reading a number off a reseller PDF, confirm which product it is
+before comparing it to 500.)*
 
 ---
 
@@ -311,7 +324,11 @@ from the secondary sources named.
 
 ## Open items
 
-- Equifax Business Credit Risk Score: self-access route, product name, price.
+- ~~Equifax: self-access route, product name, price.~~ **Closed 2026-08-05** —
+  ~$49.95 via reseller, ~$30–40 direct, self-service widened Aug 2025. One
+  narrower question remains: which score in a reseller bundle is the *Business
+  Credit Risk Score* rather than *One Score for Commercial* or *Business Failure
+  Score*, since `sc_006` compares one of them to 500.
 - D&B minimum trade experiences before PAYDEX calculates.
 - Notice PDFs not read directly — requirement details are from secondary sources.
 - Whether any lender publishes its post-sunset model, which would give SBSS

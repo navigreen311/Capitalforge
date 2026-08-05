@@ -198,12 +198,24 @@ export interface BusinessScoreSet {
   experianDate: string | null;
   sbss: number | null;
   sbssDate: string | null;
+  /**
+   * Equifax's own business product, 101–992.
+   *
+   * The panel carried three slots while the system typed four. Equifax
+   * Business Credit Risk got its own score type when the adapter stopped
+   * writing its output as `sbss`, and `sc_006` gates Tier 2 on it — so the one
+   * place an advisor looks at business credit omitted a score the client can
+   * obtain and a tier depends on.
+   */
+  equifaxBusinessRisk: number | null;
+  equifaxDate: string | null;
 }
 
 /** scoreType values that map onto each panel slot. */
 const PAYDEX_TYPES = new Set(['paydex']);
 const EXPERIAN_TYPES = new Set(['intelliscore', 'experian_business']);
 const SBSS_TYPES = new Set(['sbss', 'fico_sbss']);
+const EQUIFAX_TYPES = new Set(['equifax_business_risk']);
 
 /**
  * Reduce the credit-builder scores response to the three the panel shows.
@@ -216,6 +228,8 @@ export function toBusinessScoreSet(data: unknown): BusinessScoreSet {
   const empty: BusinessScoreSet = {
     paydex: null,
     paydexDate: null,
+    equifaxBusinessRisk: null,
+    equifaxDate: null,
     experianBusiness: null,
     experianDate: null,
     sbss: null,
@@ -234,6 +248,9 @@ export function toBusinessScoreSet(data: unknown): BusinessScoreSet {
     } else if (SBSS_TYPES.has(type)) {
       acc.sbss = s.score;
       acc.sbssDate = s.pullDate;
+    } else if (EQUIFAX_TYPES.has(type)) {
+      acc.equifaxBusinessRisk = s.score;
+      acc.equifaxDate = s.pullDate;
     }
     return acc;
   }, empty);

@@ -78,6 +78,7 @@ function tier1Cards(f: CoachingFacts): CoachingItem[] {
       title: `Apply for ${needed} more Net-30 vendor${needed === 1 ? '' : 's'}`,
       description: `${f.tradelineCount} of the ${TRADELINE_TARGET} trade lines this tier needs are reporting to D&B. Browse the vendor table above and open ${needed} more.`,
       actionLabel: 'View Vendors',
+      actionUrl: '#vendor-table',
     });
   }
 
@@ -95,6 +96,7 @@ const TIER_1_GENERIC: CoachingItem[] = [
       title: 'Pay all outstanding invoices early',
       description: 'Early payments push your Paydex score higher faster. Review open invoices and pay at least 10 days before due date for maximum impact.',
       actionLabel: 'View Tradelines',
+      actionUrl: '#tradeline-tracker',
     },
     {
       id: 'c1-3',
@@ -123,6 +125,7 @@ function tier2Cards(f: CoachingFacts): CoachingItem[] {
       title: 'Apply for Tier 2 vendors',
       description: `PAYDEX is ${f.paydex}, past the ${PAYDEX_TARGET} Tier 2 vendors look for. Home Depot Pro and Staples Business carry higher limits and report to more bureaus.`,
       actionLabel: 'View Tier 2 Vendors',
+      actionUrl: '#vendor-table',
     });
   } else {
     cards.push({

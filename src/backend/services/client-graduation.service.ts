@@ -574,8 +574,23 @@ export function getNextTrack(current: GraduationTrack): GraduationTrack | null {
 export function estimateMonthsToNextTrack(
   input:     GraduationInput,
   nextTrack: GraduationTrack,
+  /**
+   * The thresholds to measure against. Defaults to the track's own.
+   *
+   * A seam, added because the null-not-zero guard below became unreachable
+   * when the SBSS gates were removed on 2026-08-05: it fires only when a track
+   * declares a business-credit threshold, and none does. The rule still
+   * matters — it exists because a client who cleared every measurable gate
+   * with no score on record was told "Estimated 0 months at the current rate",
+   * and zero means "nothing left to close" — so it needs to stay exercised
+   * through a period when no track happens to use it.
+   *
+   * Recorded in docs/gaps.md as an untested guard until this existed.
+   * Production callers pass nothing and behave exactly as before.
+   */
+  thresholds: TrackThresholds = TRACK_THRESHOLDS[nextTrack],
 ): number | null {
-  const t: TrackThresholds = TRACK_THRESHOLDS[nextTrack];
+  const t: TrackThresholds = thresholds;
   let maxMonths = 0;
 
   // FICO improvement: ~5–8 pts/month with consistent on-time payments

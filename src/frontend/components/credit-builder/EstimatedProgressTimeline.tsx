@@ -269,16 +269,33 @@ function CoachingCards({ tier, facts }: { tier: number; facts: CoachingFacts }) 
                   <p className="text-xs font-semibold text-yellow-300">{item.title}</p>
                   <p className="text-xs text-gray-400 mt-1 leading-relaxed">{item.description}</p>
                 </div>
+                {/* Three of these were inert spans — "View Vendors", "View
+                    Tradelines", "View Tier 2 Vendors" — pointing at content
+                    already on this page. They are anchors now, which is what
+                    they always described. An in-page jump is not an outbound
+                    link: no new tab, and no ↗, which would promise a
+                    destination elsewhere. A label with neither a handler nor
+                    a href still renders as a span, so a card that genuinely
+                    has nothing to click does not pretend otherwise. */}
                 {item.actionLabel && (
                   item.actionUrl ? (
-                    <a
-                      href={item.actionUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-shrink-0 text-xs font-medium text-yellow-500 hover:text-yellow-400 hover:underline whitespace-nowrap"
-                    >
-                      {item.actionLabel} &#x2197;
-                    </a>
+                    item.actionUrl.startsWith('#') ? (
+                      <a
+                        href={item.actionUrl}
+                        className="flex-shrink-0 text-xs font-medium text-yellow-500 hover:text-yellow-400 hover:underline whitespace-nowrap"
+                      >
+                        {item.actionLabel} &#x2193;
+                      </a>
+                    ) : (
+                      <a
+                        href={item.actionUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-shrink-0 text-xs font-medium text-yellow-500 hover:text-yellow-400 hover:underline whitespace-nowrap"
+                      >
+                        {item.actionLabel} &#x2197;
+                      </a>
+                    )
                   ) : (
                     <span className="flex-shrink-0 text-xs font-medium text-yellow-500/60 whitespace-nowrap">
                       {item.actionLabel}

@@ -36,6 +36,17 @@ export interface BusinessCreditScoresPanelProps {
   experianDate: string | null;
   sbss: number | null;
   sbssDate: string | null;
+  /**
+   * Equifax's own business product, 101–992.
+   *
+   * The panel showed three products while the system typed four. Equifax
+   * Business Credit Risk got its own score type when the adapter stopped
+   * writing its output as `sbss`, and `sc_006` gates Tier 2 on it — so the one
+   * place an advisor looks at business credit omitted a score the client can
+   * obtain and a tier depends on.
+   */
+  equifaxBusinessRisk: number | null;
+  equifaxDate: string | null;
   /** Pulls on record, oldest first. Empty when none have been taken. */
   history: ScoreHistoryPoint[];
 }
@@ -253,6 +264,8 @@ export function BusinessCreditScoresPanel({
   experianDate,
   sbss,
   sbssDate,
+  equifaxBusinessRisk,
+  equifaxDate,
   history,
 }: BusinessCreditScoresPanelProps) {
   const [showHistory, setShowHistory] = useState(false);
@@ -268,7 +281,7 @@ export function BusinessCreditScoresPanel({
             )}
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Two bureau scores a client can obtain, and one a lender computes
+            Three bureau scores a client can obtain, and one a lender computes
           </p>
         </div>
 
@@ -289,7 +302,7 @@ export function BusinessCreditScoresPanel({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <ScoreCard
           title="D&B PAYDEX"
           score={paydex}
@@ -327,6 +340,23 @@ export function BusinessCreditScoresPanel({
           obtainability={{
             kind: 'lender_computed',
             reason: 'Calculated by FICO when a lender requests it, from the owners\' personal credit, business bureau data, financials and the application — so there is no record to pull and nothing an advisor can do to produce one. Coach the inputs, personal credit first. If a lender has pulled one, ask them for it.',
+          }}
+        />
+        {/* Equifax Business Credit Risk, 101–992 — its own product, not SBSS.
+            The panel tracked three scores while the system typed four, so the
+            score `sc_006` gates Tier 2 on had no card. Client-obtainable, and
+            the target matches that criterion rather than being invented here. */}
+        <ScoreCard
+          title="Equifax Business Risk"
+          score={equifaxBusinessRisk}
+          maxScore={992}
+          pullDate={equifaxDate}
+          target={500}
+          targetLabel="500+ for Tier 2"
+          thresholds={{ green: 600, amber: 450 }}
+          obtainability={{
+            kind: 'client_obtainable',
+            action: 'About $49.95 through a reseller such as eCredable, or roughly $30–40 ordered directly from Equifax — verified 2026-08-05. Equifax widened self-service access in August 2025, so this is easier to obtain than it used to be. Scale is 101–992, unlike the 0–100 scores beside it.',
           }}
         />
       </div>
