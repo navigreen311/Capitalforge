@@ -425,6 +425,76 @@ does not have to wonder whether something is broken:
 
 ---
 
+## 6. Advisory content that is stale, wrong, or gated on the unobtainable
+
+A different kind of gap from the rest of this document. Sections 1–5 are about
+figures the system cannot produce. This one is about figures it produces
+confidently that are **wrong in the world** — thresholds from a superseded
+regulation, and gates on a score no client can obtain.
+
+**Full write-up, with every claim dated and sourced:
+[`docs/product/business-credit-scores.md`](product/business-credit-scores.md).**
+It carries a defects table; the summary is here so it is findable from where
+work gets planned.
+
+### FICO SBSS is not client-obtainable, and its SBA threshold no longer exists
+
+SBSS is computed **when a lender requests it**, blending the owners' personal
+credit, business bureau data, financials and the application. It is not a
+record held about a business, so there is nothing for a client or advisor to
+pull. FICO does not sell it to business owners.
+
+The SBA then removed the requirement entirely, effective **2026-03-01**, for
+7(a) Small Loans of $350,000 and under — Procedural Notices
+[5000-875701](https://www.sba.gov/document/procedural-notice-5000-875701-sunset-sbss-score-7a-small-loans)
+(2026-01-16) and
+[5000-876777](https://www.sba.gov/document/procedural-notice-5000-876777-sunset-sbss-score-supplemental-guidance)
+(2026-02-20). **Cite 876777 for any requirement** — it replaced the SOP 50 10 8
+amendments in the first notice. The requirement went 140 → 155 → 165 → sunset.
+
+Note the distinction: the SBA removed **the requirement, not the option**.
+Lenders still use SBSS by choice with their own models. SBSS is not irrelevant;
+it is no longer a universal floor, so there is no number left to aim at.
+
+### Seven places gate or project on SBSS
+
+Confirmed by reading, 2026-08-05. Any change here must touch all of them —
+this is the case the CLAUDE.md rule about threshold consumers was written for.
+
+| Site | What it does |
+|---|---|
+| `stacking-criteria.service.ts` `sc_004` | Tier 2 gate, **SBSS ≥ 140** — two revisions stale |
+| `stacking-criteria.service.ts` `sc_008` | Tier 3 gate, **SBSS ≥ 175** — no SBA basis found |
+| `client-graduation.service.ts` | Track threshold `{ scoreType: 'sbss', min: 50 }` |
+| `client-graduation.service.ts` | Track threshold `{ scoreType: 'sbss', min: 100 }` |
+| `credit-builder.service.ts:417` | `m.targetScore > (sbss?.value ?? 0)` — **no score collapses to 0** |
+| `credit-optimizer.ts:227` | `Math.max(...map(p => p.score ?? 0))` — **same collapse** |
+| `EstimatedProgressTimeline.tsx` | `SBSS_TARGET = 175`, projecting **~3 pts/month** toward it |
+
+The last three are the live ones. Two collapse "not measured" into zero — the
+same defect as the `Math.max` across incompatible scales fixed in 1c. The
+timeline projects an unlock date from a monthly gain rate for a score that is
+not periodically measured and cannot be observed by the client at all.
+
+**No client has ever had one.** A query on 2026-08-05 returned zero rows of
+`scoreType = 'sbss'` in the database — so both criteria have been unassessable
+for every client since they were written, and the milestone panel has never
+measured anything.
+
+### Also recorded there
+
+- `EstimatedProgressTimeline.tsx` `c2-2` told advisors the Experian report was
+  **free**; it is ~$49.95. Fixed 2026-08-05 — the one defect here that made an
+  advisor tell a client something untrue.
+- SBSS milestone 2 cites **"7a/504"**. The prescreen was 7(a) Small Loans only;
+  SBA Express was explicitly unaffected and 504 never applied.
+- Three different SBSS thresholds — **140, 160, 175** — appear on one page.
+- Four coaching CTAs render as inert `<span>`s; three point at content on the
+  same page and one ("Set Reminder") has no feature behind it.
+- Coaching is keyed on **tier alone** and asserts client facts it never reads.
+
+---
+
 ## What I would do first
 
 **~~The two columns in section 2.~~ Neither, as it turns out.** Both halves of
@@ -461,6 +531,12 @@ deletion that never ran.
 **Do not plan from section 3.** Those four tables are unused schema, not
 missing features. An earlier version of this document recommended exactly the
 opposite, on data that was never checked against the database.
+
+**Then section 6, and probably before most of the above.** Everything else in
+this document is a figure the system declines to produce. Section 6 is figures
+it produces confidently that are wrong in the world: tier gates on a score no
+client can obtain, at a threshold a regulator retired in March 2026. An absent
+number prompts a question; a stale number gets acted on.
 
 ---
 
