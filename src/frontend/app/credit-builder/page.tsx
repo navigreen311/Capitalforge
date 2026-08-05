@@ -19,6 +19,7 @@ import {
   toStackingCriteria,
   toBusinessAgeMonths,
 } from '@/lib/credit-view';
+import { toGraduationStatus } from '@/lib/graduation-view';
 import { loadJson, toLoadError } from '@/lib/load-json';
 import { useToast } from '@/components/global/ToastProvider';
 import { useRouter } from 'next/navigation';
@@ -29,6 +30,7 @@ import {
   VendorFilterBar,
   StepCompletionToggle,
   DerivedStepIndicator,
+  GraduationTrackPanel,
   TradelineSubProgress,
   PaydexSubProgress,
   EstimatedProgressTimeline,
@@ -291,6 +293,11 @@ export default function CreditBuilderPage() {
   const { data: criteriaRaw, refetch: refetchCriteria } = useAuthFetch<unknown>(
     `/api/credit-builder/${selectedClient?.id}/stacking-criteria`,
   );
+  // The four-track progression. This endpoint has been answering correctly
+  // since it was written, and nothing rendered it.
+  const { data: graduationRaw, error: graduationError } = useAuthFetch<unknown>(
+    `/api/businesses/${selectedClient?.id}/graduation/status`,
+  );
 
   // The picker's clients. It held eight literals under ids cb_001 to cb_008,
   // so selecting one sent every request above to a business that does not
@@ -309,6 +316,7 @@ export default function CreditBuilderPage() {
   const stepState = useMemo(() => toDunsSteps(stepsRaw), [stepsRaw]);
   const tierAssessments = useMemo(() => toStackingCriteria(criteriaRaw), [criteriaRaw]);
   const businessAgeMonths = useMemo(() => toBusinessAgeMonths(criteriaRaw), [criteriaRaw]);
+  const graduationStatus = useMemo(() => toGraduationStatus(graduationRaw), [graduationRaw]);
 
   const assessedCriteria = useMemo(
     () => tierAssessments?.flatMap((t) => t.criteria) ?? null,
@@ -742,6 +750,21 @@ export default function CreditBuilderPage() {
         prefillVendor={prefillVendor}
         showAddModal={showAddModal}
         onCloseAddModal={() => { setShowAddModal(false); setPrefillVendor(null); }}
+      />
+
+      {/* ── Programme Track ──────────────────────────────────────── */}
+      {/* Placed above the criteria panel deliberately: the track is the
+          question an advisor is actually asking — where is this client, and
+          what is in the way — and the eight stacking criteria are one input to
+          it rather than the answer. */}
+      <GraduationTrackPanel
+        status={graduationStatus}
+        clientSelected={selectedClient !== null}
+        error={
+          graduationError === null || !selectedClient
+            ? null
+            : 'This client’s track could not be read.'
+        }
       />
 
       {/* ── SBSS Milestones + Stacking Criteria side-by-side ───── */}
