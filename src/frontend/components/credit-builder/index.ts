@@ -8,4 +8,5 @@ export { GraduationBanner } from './GraduationBanner';
 export { MilestoneAlertSystem, checkMilestones } from './MilestoneAlertSystem';
 export { StepCompletionToggle } from './StepCompletionToggle';
 export { DerivedStepIndicator } from './DerivedStepIndicator';
+export { GraduationTrackPanel } from './GraduationTrackPanel';
 export { VendorFilterBar } from './VendorFilterBar';

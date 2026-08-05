@@ -9,6 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Programme Track panel on `/credit-builder`.** `GET /graduation/status` has
+  answered correctly since the engine was written and nothing rendered it, so
+  the four progression tracks, the gates holding a client back and the roadmap
+  out of them were reachable only by an advisor who knew the URL. The panel
+  shows which track a client is on, what the next one is waiting for, and what
+  to do about it. A gate the client fell short of and a gate nobody measured
+  are drawn differently — *Not yet* against *Not measured*, the second in grey
+  rather than the failure colour, showing "Not on record" instead of a figure
+  and naming the report that would resolve it.
+
 ### Changed
 
 - **Every track threshold names the score product it reads.** The graduation

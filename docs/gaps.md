@@ -157,14 +157,14 @@ seeded client is pinned to Credit Builder by the tradeline gate, because seeded
 count reads 0. Real pulls write arrays. **Run the script against a populated
 database before trusting a number.**
 
-**Still open — no surface renders any of this.** Nothing in the frontend calls
-`/graduation/status` or `/graduation/assess`; the "graduation banner" on
-`/credit-builder` is a different mechanism. The engine now distinguishes unknown
-from failed and says what would resolve it, but no page shows it to an advisor.
-When one is built, `MilestoneGate.status` and `MilestoneGate.resolution` are
-what it should render, and the stacking-criteria panel on `/credit-builder` is
-the precedent for how — four statuses, the unmeasured ones not borrowing the
-failure colour.
+**Rendered as of 2026-08-05.** The Programme Track panel on `/credit-builder`
+reads `/graduation/status`: the four tracks with the client's marked, the gates
+holding the next one closed, and the roadmap out of them. `MilestoneGate.status`
+drives three visually distinct states — *Met*, *Not yet*, *Not measured* — and
+an unmeasured gate shows "Not on record" rather than a figure, alongside the
+`resolution` naming the report that would answer it. The panel shares its
+vocabulary with the stacking-criteria panel below it deliberately: one set of
+words for one set of states.
 
 ---
 

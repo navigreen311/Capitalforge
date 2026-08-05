@@ -21,6 +21,7 @@ claim**.
 | Net-30 vendor table | in-page reference list | no |
 | Tradeline tracker | `GET /api/credit-builder/:clientId/tradelines` | POST tradelines, tradeline-payments, tradeline-disputes; PATCH tradelines/:id |
 | SBSS milestones | reference thresholds only | no |
+| Programme track | `GET /api/businesses/:clientId/graduation/status` | no |
 | Stacking unlock criteria | `GET /api/credit-builder/:clientId/stacking-criteria` | no |
 | Estimated timeline | derived from the scores and tradelines above | no |
 
@@ -106,6 +107,33 @@ for that explicitly, so an unread track can neither satisfy the threshold nor
 fail it. The circles are disabled when no client is selected.
 
 ---
+
+## Programme track
+
+Which of the four tracks — Credit Builder, Starter Stack, Full Stack, LOC/SBA
+Bridge — a client currently qualifies for, what the next one is waiting on, and
+what to do about it. Read from `/graduation/status`, which derives everything
+from persisted data and needs only the client id.
+
+Each gate carries one of three statuses, and the panel keeps them apart:
+
+| Status | Shown as | Means |
+|---|---|---|
+| `passed` | Met | the figure clears the requirement |
+| `failed` | Not yet | the figure is on record and falls short |
+| `unknown` | Not measured | nobody has measured this client against it |
+
+An unmeasured gate shows **"Not on record"** rather than a figure — printing a
+`0` there is the defect in miniature — and carries the `resolution` naming what
+would answer it, usually a report to pull. The roadmap acts on the same
+distinction: *pull the report, same day* for an unmeasured requirement, against
+*raise the score, months* for a genuine shortfall.
+
+No timeline is projected while a requirement is unmeasured. A month count
+derived from an absence promises something nobody measured.
+
+The vocabulary is shared with the stacking-criteria panel below it on purpose:
+one set of words for one set of states, so an advisor learns them once.
 
 ## Stacking unlock criteria
 

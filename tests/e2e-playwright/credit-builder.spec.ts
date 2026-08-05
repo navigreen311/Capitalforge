@@ -451,6 +451,102 @@ test.describe('Stacking unlock criteria', () => {
   });
 });
 
+// ── Programme track ─────────────────────────────────────────────────────────
+//
+// /graduation/status has answered correctly since the engine was written, and
+// nothing in the frontend called it — the four tracks, the gates holding a
+// client back and the roadmap out of them were reachable only by an advisor
+// who knew the URL.
+
+test.describe('Programme track', () => {
+  async function selectClient(page: import('@playwright/test').Page, name: string) {
+    const box = page.getByRole('combobox', { name: 'Search clients' });
+    await box.click();
+    await box.fill(name);
+    await page.getByText(name).first().click();
+  }
+
+  test('shows the track a client is on and what the next one waits for', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    await expect(page.getByRole('heading', { name: 'Programme Track' })).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.getByText('To reach Starter Stack')).toBeVisible();
+
+    // The gates themselves, with the figure each one read.
+    await expect(page.getByText('Personal FICO Score')).toBeVisible();
+    await expect(page.getByText('Active Positive Tradelines')).toBeVisible();
+  });
+
+  test('lists all four tracks and marks the current one', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    for (const track of ['Credit Builder', 'Starter Stack', 'Full Stack', 'LOC / SBA Bridge']) {
+      await expect(page.getByText(track, { exact: true }).first()).toBeVisible({ timeout: 30000 });
+    }
+    await expect(page.getByText('— current')).toBeVisible();
+  });
+
+  test('names the next action rather than only the shortfall', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+
+    // The roadmap the engine produces, which nothing rendered before.
+    await expect(page.getByRole('heading', { name: 'Next actions' })).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.getByText(/Open \d+ additional Net-30 vendor accounts/)).toBeVisible();
+  });
+
+  test('assesses nothing until a client is chosen', async ({ signedInPage: page }) => {
+    await page.goto('/credit-builder');
+
+    // Not read is not "nothing holding them back".
+    await expect(
+      page.getByText('Select a client to see which track they qualify for.'),
+    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText('To reach')).toHaveCount(0);
+  });
+
+  test('does not present an unmeasured requirement as a shortfall', async ({
+    signedInPage: page,
+  }) => {
+    await page.goto('/credit-builder');
+    await selectClient(page, CLIENT_WITH_SCORE);
+    await expect(page.getByRole('heading', { name: 'Programme Track' })).toBeVisible({
+      timeout: 30000,
+    });
+
+    // Scoped to this panel. The stacking-criteria panel below deliberately
+    // uses the same words for the same states — consistency an advisor should
+    // get — so an unscoped count reads both.
+    const panel = page.locator('section').filter({
+      has: page.getByRole('heading', { name: 'Programme Track' }),
+    });
+
+    const met = await panel.getByText('Met', { exact: true }).count();
+    const notYet = await panel.getByText('Not yet', { exact: true }).count();
+    const notMeasured = await panel.getByText('Not measured', { exact: true }).count();
+    expect(met + notYet + notMeasured, 'every gate carries exactly one status').toBeGreaterThan(0);
+
+    // An unmeasured gate never shows a figure it does not have — exactly one
+    // "Not on record" line per unmeasured gate, and none when there are none.
+    // This is the assertion that fails if the panel ever prints a 0 for an
+    // absent score, which is the whole defect in miniature.
+    await expect(panel.getByText('Not on record')).toHaveCount(notMeasured);
+
+    // "Not yet" is a statement about the client; "Not measured" is a statement
+    // about us. A gate carries one or the other, never both.
+    await expect(panel.getByText('Not measured', { exact: true })).toHaveCount(notMeasured);
+    await expect(panel.getByText('Not yet', { exact: true })).toHaveCount(notYet);
+  });
+});
+
 // ── Controls that did nothing ───────────────────────────────────────────────
 
 test.describe('Inert step actions', () => {
