@@ -55,23 +55,22 @@ side.
 
 ### Symmetry is not evidence — both directions can be fake
 
-**2FA** was checked under this rule and fails it differently. `enable` and
-`disable` both operate on `twoFactorStore`, a **process-local `Map`** declared
-in the route file. Neither persists.
+The rule above compares the two halves of a capability. That catches a
+mismatch, and a mismatch is the common case — but not the only one.
 
-So the secrets and the enabled flag live in RAM: **a server restart silently
-disables 2FA for every user**, and with more than one instance the answer
-depends on which one you reach. Nothing is inconsistent between the two
-directions, because both are equally unreal — which is why a
-symmetry check alone would have passed it.
+**2FA passes the reverse-direction check cleanly and is entirely unreal.**
+`enable` and `disable` both operate on a process-local `Map`, and the login
+page issues tokens *before* asking for the second factor. Nothing is
+inconsistent between the directions, because neither of them does anything.
 
-Worse, the enforcement is client-side. `login/page.tsx` stores the access token
-**and then** asks `/api/auth/2fa/status` and redirects. The session exists
-before the challenge does, so the challenge is advisory: the tokens are already
-in `localStorage`.
+So the check is: not "do the two halves agree", but **"does each half reach
+storage, and does anything enforce what it wrote"**. Agreement between two
+mocks is agreement.
 
-Recorded here rather than fixed — a real second factor is a security change
-that deserves its own work, not a line in an audit sweep.
+2FA is tracked separately in **`docs/backlog/two-factor-auth.md`**. It does not
+belong on this list: everything here reports a write that did not happen, and
+that is an authentication control the interface offers and the system does not
+have.
 
 ### A third check, added 2026-08-05
 
