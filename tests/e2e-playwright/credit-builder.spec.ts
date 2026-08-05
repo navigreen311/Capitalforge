@@ -90,6 +90,38 @@ test.describe('Credit builder figures', () => {
     await expect(page.getByText('Current Paydex: 0')).toHaveCount(0);
   });
 
+  test('separates a score nobody pulled from one nobody can pull', async ({
+    signedInPage: page,
+  }) => {
+    // All three cards were the same component reading `score === null`, so a
+    // client with no scores got "Not yet pulled" three times. Two of those
+    // name a real errand. The third named one that does not exist: FICO
+    // calculates SBSS when a lender requests it, so there is no dormant
+    // record for an advisor to fetch, at any price.
+    await selectClient(page, CLIENT_WITHOUT_SCORE);
+
+    const sbss = page.locator('div').filter({ hasText: /^FICO SBSS/ }).first();
+    await expect(sbss).toBeVisible({ timeout: 30000 });
+
+    // The SBSS card says what it is rather than implying a missing pull.
+    await expect(page.getByText('Lender-computed').first()).toBeVisible();
+    await expect(page.getByText('Not obtainable on demand').first()).toBeVisible();
+
+    // And the two obtainable cards still say the honest thing, so this is a
+    // distinction rather than a blanket rewording.
+    await expect(page.getByText('Not yet pulled').first()).toBeVisible();
+
+    // Each obtainable card names the action and its cost — the half that was
+    // missing, since the page tracked whether a client had a score and never
+    // how they get one.
+    await expect(page.getByText(/about \$49\.95 a report/i).first()).toBeVisible();
+    await expect(page.getByText(/CreditSignal/i).first()).toBeVisible();
+
+    // No target on the SBSS card. "115 pts needed" would be a to-do item
+    // nobody can pick up.
+    await expect(page.getByText('175+ for Tier 3')).toHaveCount(0);
+  });
+
   test('distinguishes no trade lines from trade lines not read', async ({
     signedInPage: page,
   }) => {
@@ -504,11 +536,18 @@ test.describe('Programme track', () => {
       timeout: 30000,
     });
 
-    // The action for an unmeasured requirement is to measure it — same day,
-    // not months of building. This client's only outstanding gate is an SBSS
-    // nobody has pulled.
-    await expect(page.getByText(/Pull a FICO SBSS report/).first()).toBeVisible();
-    await expect(page.getByText('Same day')).toBeVisible();
+    // The action for an unmeasured requirement is to measure it — unless
+    // nobody can. This used to assert /Pull a FICO SBSS report/ and "Same
+    // day", and the page said both. Neither is true of SBSS: FICO calculates
+    // it when a lender requests it, so there is no report to buy this
+    // afternoon and no errand an advisor can run. "Same day" was the worse
+    // half — it put a deadline on work that cannot be done at all.
+    await expect(page.getByText(/nobody here can obtain one/i).first()).toBeVisible();
+    await expect(page.getByText('Not obtainable on demand').first()).toBeVisible();
+    await expect(page.getByText(/Pull a FICO SBSS report/)).toHaveCount(0);
+
+    // Still framed as unmeasured rather than as a shortfall.
+    await expect(page.getByText(/not a shortfall/i).first()).toBeVisible();
 
     // And no timeline is invented from an absence. This read "Estimated 0
     // months at the current rate" until the estimator returned null for an

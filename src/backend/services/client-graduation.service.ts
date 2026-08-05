@@ -350,6 +350,24 @@ const SCORE_LABELS: Partial<Record<ScoreType, string>> = {
   vantage: 'VantageScore',
 };
 
+/**
+ * Products no client or advisor can obtain a report for.
+ *
+ * FICO SBSS is calculated by FICO when a *lender* requests it, from the
+ * owners' personal credit, business bureau data, financials and the
+ * application itself. There is no dormant SBSS held about a business, so
+ * "pull a report" is not a thing anybody can do — and telling an advisor to
+ * do it "same day" describes an errand that does not exist.
+ *
+ * Everything else here is a record held at a bureau and can be bought.
+ * See docs/product/business-credit-scores.md.
+ */
+const LENDER_COMPUTED: ReadonlySet<ScoreType> = new Set<ScoreType>(['sbss']);
+
+export function isLenderComputed(scoreType: ScoreType): boolean {
+  return LENDER_COMPUTED.has(scoreType);
+}
+
 function scoreLabel(scoreType: ScoreType): string {
   return SCORE_LABELS[scoreType] ?? scoreType;
 }
@@ -379,7 +397,9 @@ function businessCreditGate<T extends ScoreType>(
       status: 'unknown',
       passed: false,
       gap: null,
-      resolution: `Pull a ${label} report for this client. No ${label} is on record, so this requirement has not been measured — it is not a shortfall.`,
+      resolution: isLenderComputed(threshold.scoreType)
+        ? `No ${label} is on record, and nobody here can obtain one: it is calculated when a lender requests it, from the owners' personal credit, business bureau data, financials and the application. This requirement cannot be measured on demand — it is not a shortfall. Coach the inputs, personal credit first, or ask a lender who has pulled one.`
+        : `Pull a ${label} report for this client. No ${label} is on record, so this requirement has not been measured — it is not a shortfall.`,
     };
   }
 
@@ -606,7 +626,13 @@ export function buildActionRoadmap(
       action:   bizCreditGate.resolution
         ?? `Pull the business credit report this track requires (target: ${bizCreditGate.required})`,
       impact:   'This requirement has not been measured for this client — it is not a shortfall',
-      timelineEstimate: 'Same day',
+      // "Same day" is true of a report somebody can buy this afternoon. It is
+      // false of a lender-computed score, where the honest answer is that no
+      // amount of time spent by this advisor produces one.
+      timelineEstimate:
+        t.businessCredit && isLenderComputed(t.businessCredit.scoreType)
+          ? 'Not obtainable on demand'
+          : 'Same day',
     });
   } else if (bizCreditGate && bizCreditGate.status === 'failed') {
     const gap = typeof bizCreditGate.gap === 'number' ? bizCreditGate.gap : 0;

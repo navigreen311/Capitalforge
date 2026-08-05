@@ -215,7 +215,18 @@ describe('checkTrackEligibility', () => {
       expect(bizGate?.status).toBe('unknown');
       expect(bizGate?.actual).toBeNull();
       expect(bizGate?.gap).toBeNull();
-      expect(bizGate?.resolution).toMatch(/Pull a FICO SBSS report/);
+
+      // This used to assert /Pull a FICO SBSS report/, and the engine said
+      // exactly that. Nobody can: SBSS is calculated by FICO when a lender
+      // requests it, from an application that does not exist yet. The
+      // resolution for an unmeasured requirement has to distinguish "buy the
+      // report" from "there is no report to buy", because the first is an
+      // errand and the second is a different conversation entirely.
+      expect(bizGate?.resolution).not.toMatch(/Pull a/i);
+      expect(bizGate?.resolution).toMatch(/nobody here can obtain one/i);
+      expect(bizGate?.resolution).toMatch(/when a lender requests it/i);
+      // Still not a shortfall — that distinction is unchanged.
+      expect(bizGate?.resolution).toMatch(/not a shortfall/i);
 
       // Unknown still does not unlock the track: a track asserts the client
       // clears every requirement.

@@ -640,3 +640,58 @@ export function toScoreHistoryPoints(data: unknown): ScoreHistoryPoint[] {
     ];
   });
 }
+
+// ---------------------------------------------------------------------------
+// Score card state
+// ---------------------------------------------------------------------------
+
+/**
+ * How a client comes to have a given score.
+ *
+ * A property of the *product*, not of the value — which is the whole point.
+ * The score cards derived their empty state from `score === null`, and that
+ * cannot distinguish "nobody has pulled this yet" from "nobody can pull this
+ * at all". Both rendered as "Not yet pulled", so the FICO SBSS card named an
+ * action — pull it — that does not exist and never did.
+ *
+ * See docs/product/business-credit-scores.md for who computes each product.
+ */
+export type ScoreObtainability =
+  | {
+      kind: 'client_obtainable';
+      /** What the advisor tells the client to do, including the cost. */
+      action: string;
+    }
+  | {
+      kind: 'lender_computed';
+      /** Why there is nothing for anyone here to pull. */
+      reason: string;
+    };
+
+/**
+ * The three states a score card can be in.
+ *
+ * `awaiting_pull` and `not_obtainable` both have a null score. They are
+ * different claims — one is about our records, the other about the world —
+ * and a count or a colour that collapses them is the defect this type exists
+ * to prevent.
+ */
+export type ScoreCardState = 'measured' | 'awaiting_pull' | 'not_obtainable';
+
+export function scoreCardState(
+  score: number | null,
+  obtainability: ScoreObtainability,
+): ScoreCardState {
+  if (score !== null) return 'measured';
+  return obtainability.kind === 'client_obtainable' ? 'awaiting_pull' : 'not_obtainable';
+}
+
+/**
+ * Whether a target and a progress bar mean anything for this card.
+ *
+ * Both imply an action that closes the gap. For a lender-computed score there
+ * is none, so "115 pts needed" would be a to-do item nobody can pick up.
+ */
+export function showsProgressToward(obtainability: ScoreObtainability): boolean {
+  return obtainability.kind === 'client_obtainable';
+}
