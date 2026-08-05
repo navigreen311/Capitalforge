@@ -488,7 +488,17 @@ measured anything.
   advisor tell a client something untrue.
 - SBSS milestone 2 cites **"7a/504"**. The prescreen was 7(a) Small Loans only;
   SBA Express was explicitly unaffected and 504 never applied.
-- Three different SBSS thresholds — **140, 160, 175** — appear on one page.
+- **The 504 error had two invisible siblings.** It was the one visible
+  instance — on the page, in front of an advisor. Checking it turned up two
+  more of exactly the same kind, in a roadmap ladder nobody had opened:
+  *"SBA Express loan pre-qualification"* at SBSS 140, and *"SBA 7(a) loan
+  ($500K–$5M)"* at SBSS 200. Express sat outside the prescreen entirely and
+  the prescreen never touched loans above $350K, so all three were the same
+  mistake — attaching an SBA product to an SBSS number that never gated it.
+  Same shape as the issuer-site sweep that went from 6 sites to 15: the
+  visible instance is a sample, not the population. Fixed 2026-08-05.
+- Three different SBSS thresholds — **140, 160, 175** — appear on one page;
+  nine sites carry one, and four different numbers were quoted as the SBA's.
 - Four coaching CTAs render as inert `<span>`s; three point at content on the
   same page and one ("Set Reminder") has no feature behind it.
 - Coaching is keyed on **tier alone** and asserts client facts it never reads.
