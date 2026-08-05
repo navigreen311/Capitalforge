@@ -188,7 +188,7 @@ reason stated, because a zero would be a claim.
 | Figure | Why it is null | Cost |
 |---|---|---|
 | `delinquencyRate` (portfolio benchmarks) | **Partly recorded — see 2b below.** A missed payment *is* recorded, on `PaymentSchedule`, and it links to a card. But a schedule belongs to a repayment plan, so the only delinquency this system can see is a client already on one. | **Product decision, then small.** Not the column this row claimed. |
-| `graduationRate` (portfolio benchmarks) | Nothing records a client graduating from the programme. | **Product.** "Graduated" is undefined today. |
+| ~~`graduationRate` (portfolio benchmarks)~~ | ~~Nothing records a client graduating from the programme.~~ | **Defined and counted, 2026-08-05.** A client graduates when observed on a track further along `TRACK_ORDER` than the one they were last observed on. `GraduationEvent` records observations; `graduationRate` counts upward moves in the quarter over clients observed before it began. Null with a stated reason until a quarter has history behind it — see 2c. |
 | ~~`topPerformingSegments` (portfolio benchmarks)~~ | ~~Businesses carry an `industry`, but no application volume is attributed to a segment.~~ | **Done 2026-08-05.** It was query work only, as this row said: the endpoint fetched decided applications without selecting the business's industry, so it had nothing to group by. `segmentApprovalRates` in `platform-portfolio.routes.ts`, each segment carrying its own sample size. |
 | `resolved` (compliance sweep) | The sweep writes a new check row; nothing marks an earlier one resolved. | **Product.** Needs a resolution model for checks. |
 | `applications` sparkline (dashboard KPIs) | "Active" is a current status with nothing on the row recording what it was before. | **Column or table.** A status-history row per application would make every trend on this page derivable. |
@@ -281,6 +281,37 @@ a deliberate advisor-entered delinquency flag with a surface behind it. At that
 point option 2 becomes available, the column has a writer, and the figure can
 mean what the page implies it means. Until then, the honest answer to "what is
 this portfolio's delinquency rate" is that this system does not know.
+
+
+### 2c. What the graduation rate counts, and what it cannot see
+
+"Graduated" was undefined, which was true: the engine computed a track from
+live data every time it was asked and nothing recorded that the answer had
+changed. The track engine supplied the vocabulary to define it — a client
+graduates when they are observed on a track further along `TRACK_ORDER` than
+the one they were last observed on.
+
+Two rules keep the figure from flattering. **A downward move is not a
+graduation**: a client whose utilisation rises can stop qualifying for a track,
+and a rate counting any change would report deterioration as success. **The
+denominator is clients observed before the quarter began**, not the whole book:
+a client first seen mid-quarter had no earlier track to move from, and counting
+them as a non-graduate would push the rate down for a reason unrelated to their
+progress.
+
+**What it cannot see.** An observation is written when a client is *assessed*,
+and a client nobody assesses is never observed. Coverage is therefore the set
+of clients somebody looked at, not the book. The rate reports its denominator
+beside it (`graduationBasis.observedBeforeQuarter`) rather than dividing by the
+book and publishing a number that could only understate — the same reasoning
+that keeps `delinquencyRate` null in 2b, applied to a figure that can at least
+say how much it saw.
+
+Nothing schedules an assessment. `inngestFunctionDefs` is a registry of
+definitions with cron strings that no scheduler consumes, so adding one there
+would have looked like coverage without providing any. Wiring a scheduler to
+that registry is what would make this a rate over the book rather than over the
+clients somebody opened.
 
 
 ---

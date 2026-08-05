@@ -11,6 +11,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Graduation is defined, recorded and counted.** A client graduates when
+  observed on a track further along than the one they were last observed on —
+  the vocabulary the track engine already had. `GraduationEvent` records an
+  observation when a client's track changes (and a baseline on first sight);
+  repeated assessments write nothing. `graduationRate` counts upward moves in
+  the quarter over clients observed before it began, reports both figures
+  beside it, and stays null with a stated reason until a quarter has history
+  behind it. A downward move is not counted as a graduation.
+
+### Added
+
 - **Portfolio benchmarks report approval rate by segment**, computed from the
   tenant's own decided applications. It was a list of literals — the same
   segments and figures for every tenant, beside an industry-benchmark block the

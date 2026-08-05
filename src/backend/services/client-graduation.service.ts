@@ -43,6 +43,26 @@ export const GRADUATION_TRACKS = {
 
 export type GraduationTrack = (typeof GRADUATION_TRACKS)[keyof typeof GRADUATION_TRACKS];
 
+/**
+ * The tracks in progression order, weakest first.
+ *
+ * Exported because "graduated" means moving *up* this list, and a rate that
+ * counted any change would count a client who stopped qualifying for a track
+ * as having graduated from it.
+ */
+export const TRACK_ORDER: readonly GraduationTrack[] = [
+  GRADUATION_TRACKS.CREDIT_BUILDER,
+  GRADUATION_TRACKS.STARTER_STACK,
+  GRADUATION_TRACKS.FULL_STACK,
+  GRADUATION_TRACKS.LOC_SBA_BRIDGE,
+] as const;
+
+/** Positive when `to` is further along than `from`; 0 when unchanged. */
+export function trackDirection(from: GraduationTrack | null, to: GraduationTrack): number {
+  if (from === null) return 0;
+  return TRACK_ORDER.indexOf(to) - TRACK_ORDER.indexOf(from);
+}
+
 // ── Track Thresholds ─────────────────────────────────────────
 
 /**
@@ -774,6 +794,8 @@ export async function autoAssessGraduation(
     },
   });
 
+  await recordTrackObservation(businessId, tenantId, assessment.currentTrack);
+
   logger.info('[GraduationEngine] Auto-assessed graduation', {
     businessId,
     currentTrack: assessment.currentTrack,
@@ -782,6 +804,59 @@ export async function autoAssessGraduation(
   });
 
   return assessment;
+}
+
+/**
+ * Record that this client was observed on a track, when it differs from the
+ * last observation.
+ *
+ * Writes a baseline row on first sight (`fromTrack` null) and a transition row
+ * whenever the track changes. Nothing is written when the track is unchanged,
+ * so repeated assessments do not accumulate rows.
+ *
+ * The honest limit, and it is the reason `graduationRate` reports what it
+ * reports: this runs when a client is assessed, and a client nobody assesses
+ * is never observed. Coverage is therefore the set of clients somebody looked
+ * at, not the book. The rate says so rather than dividing by the book and
+ * publishing a number that only ever understates.
+ */
+async function recordTrackObservation(
+  businessId: string,
+  tenantId:   string,
+  currentTrack: GraduationTrack,
+): Promise<void> {
+  const prisma = getPrisma();
+
+  try {
+    const last = await prisma.graduationEvent.findFirst({
+      where: { businessId, tenantId },
+      orderBy: { observedAt: 'desc' },
+      select: { toTrack: true },
+    });
+
+    if (last?.toTrack === currentTrack) return;
+
+    await prisma.graduationEvent.create({
+      data: {
+        tenantId,
+        businessId,
+        fromTrack: last?.toTrack ?? null,
+        toTrack: currentTrack,
+      },
+    });
+
+    logger.info('[GraduationEngine] Track observation recorded', {
+      businessId,
+      from: last?.toTrack ?? null,
+      to: currentTrack,
+    });
+  } catch (err) {
+    // An assessment that cannot be recorded is still a valid assessment. The
+    // caller asked what track this client is on, and failing their request
+    // because a history row could not be written would trade the answer they
+    // wanted for bookkeeping they did not ask about.
+    logger.error('[GraduationEngine] Could not record track observation', { businessId, err });
+  }
 }
 
 /**
