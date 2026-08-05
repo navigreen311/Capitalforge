@@ -9,6 +9,28 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Portfolio benchmarks report approval rate by segment**, computed from the
+  tenant's own decided applications. It was a list of literals — the same
+  segments and figures for every tenant, beside an industry-benchmark block the
+  portfolio beat on every axis. The data was already there: a business carries
+  an `industry` and an application belongs to a business; the query never
+  selected it. Each segment carries its own sample size, businesses with no
+  industry are reported as "Not recorded" rather than dropped so the volumes
+  reconcile, and the figure is null — not an empty list — when a quarter
+  decided nothing.
+
+### Changed
+
+- `docs/gaps.md` §2b records why `delinquencyRate` stays null, and corrects the
+  row that said no delinquency is recorded. A missed payment **is** recorded, on
+  `PaymentSchedule`, linked to a card. But a schedule belongs to a repayment
+  plan, so the only delinquency observable is a client already on one —
+  publishing that as a portfolio rate would draw numerator and denominator from
+  different populations and read as 0.0%. Three options are set out; the choice
+  is a product decision, not a column.
+
 ### Changed
 
 - **A business score carries the product it is a score of.** `BusinessScore

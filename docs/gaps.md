@@ -187,14 +187,75 @@ reason stated, because a zero would be a claim.
 
 | Figure | Why it is null | Cost |
 |---|---|---|
-| `delinquencyRate` (portfolio benchmarks) | No delinquency status is recorded against a card application. `VendorTradeline.status` does carry a `delinquent` value, but that is a Net-30 vendor account, not a card — counting it as the portfolio delinquency rate would answer a different question than the one asked. | **Column** on `CardApplication`, plus whatever sets it. |
+| `delinquencyRate` (portfolio benchmarks) | **Partly recorded — see 2b below.** A missed payment *is* recorded, on `PaymentSchedule`, and it links to a card. But a schedule belongs to a repayment plan, so the only delinquency this system can see is a client already on one. | **Product decision, then small.** Not the column this row claimed. |
 | `graduationRate` (portfolio benchmarks) | Nothing records a client graduating from the programme. | **Product.** "Graduated" is undefined today. |
-| `topPerformingSegments` (portfolio benchmarks) | Businesses carry an `industry`, but no application volume is attributed to a segment. | **Query work only** — this one is close. Attribute applications to the business industry and it computes. |
+| ~~`topPerformingSegments` (portfolio benchmarks)~~ | ~~Businesses carry an `industry`, but no application volume is attributed to a segment.~~ | **Done 2026-08-05.** It was query work only, as this row said: the endpoint fetched decided applications without selecting the business's industry, so it had nothing to group by. `segmentApprovalRates` in `platform-portfolio.routes.ts`, each segment carrying its own sample size. |
 | `resolved` (compliance sweep) | The sweep writes a new check row; nothing marks an earlier one resolved. | **Product.** Needs a resolution model for checks. |
 | `applications` sparkline (dashboard KPIs) | "Active" is a current status with nothing on the row recording what it was before. | **Column or table.** A status-history row per application would make every trend on this page derivable. |
 | ~~`businessAgeMonths` (credit builder)~~ | ~~No formation date is recorded for a business.~~ **This was wrong.** `Business.dateOfFormation` exists (`schema.prisma:171`) and is populated for every seeded business. Nothing surfaced it: the credit-builder page passed `null` to the progress timeline, which rendered "Formation date not recorded". | **Done 2026-08-05.** No column was needed. The age is computed in `credit-facts.ts` and reaches both the Tier 3 criterion and the timeline. |
 | `estimatedUnusedValue` (card benefits) | Null only when no unused benefit carries a value — this is working as intended. | **None.** |
 | Compliance score, when no checks have run | A score of 100 from an empty check table is a clean bill of health derived from never having looked. | **None.** |
+
+### 2b. Delinquency is recorded, but not of the portfolio
+
+Written up 2026-08-05, after the row above turned out to be wrong in the same
+way section 3 was, and the correction is the useful part.
+
+**The claim.** *"No delinquency status is recorded against a card application."*
+Costed as a column on `CardApplication`.
+
+**What is actually there.** `PaymentSchedule` carries `cardApplicationId`, a
+`status` of `'missed'`, and `jobs/inngest-functions.ts` writes that status
+nightly for every schedule past its due date. `dashboard-payments.routes.ts`
+already reads it. A missed payment against a specific card is recorded, has
+been for as long as that job has run, and needs no new column.
+
+**Why the figure is still null.** A `PaymentSchedule` belongs to a
+`RepaymentPlan` — a hardship arrangement a client is put on. So the only
+delinquency this system can observe is *a client already on a plan missing a
+payment*. A card going past due outside a plan is invisible to it.
+
+Computing `delinquentCards / allCards` from that would publish a portfolio
+delinquency rate whose numerator and denominator are drawn from different
+populations. On the development database today:
+
+```
+card applications                  7
+payment schedules                  3
+schedules linked to a card         3
+cards with a missed payment        0
+```
+
+That computes to **0.0%**, which reads as "no delinquencies in this portfolio"
+and means "we only ever looked at three cards". The figure this page exists to
+support is one an advisor compares against an industry benchmark printed
+beside it; a structurally low number there is worse than no number.
+
+**A near-miss worth recording.** While tracing this it looked as though the
+codebase wrote two different strings for one state — `'missed'` from the job,
+`'overdue'` from `repayment.service.ts` — which would have been the same defect
+as `sbss`/`intelliscore` one table over. It is not: `repayment.service` writes
+`'overdue'` to a module-level `Map`, never to the database. The persisted
+vocabulary is consistent. Recorded because the next person to grep for
+`'overdue'` will have the same moment.
+
+**Three honest options, in the order they cost:**
+
+1. **Rename the figure to what it measures** — *missed payments among clients
+   on a repayment plan* — and publish it with that denominator. True today,
+   computable today, and not comparable to an industry delinquency benchmark,
+   so it should not sit beside one.
+2. **Record delinquency on the card**, which is what the original row assumed.
+   The column is trivial; the writer is not. It needs a source: issuer feed,
+   statement import, or advisor entry — and until one exists the column would
+   be another unwritten field, which section 3 of this document is about.
+3. **Leave it null.** Currently the most honest state, and the reason it has
+   stayed null.
+
+Option 1 is the smallest true thing. It is not obviously the right one: a
+number labelled "delinquency rate" invites the comparison whatever the label
+says underneath.
+
 
 ---
 
@@ -271,13 +332,17 @@ does not have to wonder whether something is broken:
 
 ## What I would do first
 
-**~~The two columns in section 2.~~ One column, now.** The business-age half of
-this recommendation was based on a column that already existed — see the struck
-row in section 2, and the correction in section 3, which is the same mistake:
-a claim about the schema written without checking the schema. A delinquency
-status on `CardApplication` is still a real single field with an obvious owner,
-and still the only thing standing between the portfolio benchmarks and a real
-delinquency rate.
+**~~The two columns in section 2.~~ Neither, as it turns out.** Both halves of
+this recommendation were wrong, and wrong the same way section 3 was — a claim
+about the schema written without checking the schema. Business age needed no
+column (`dateOfFormation` was there). Delinquency needs no column either: a
+missed payment is recorded on `PaymentSchedule` and linked to a card. What it
+needs is a decision about what "portfolio delinquency" means when the only
+delinquency observable is among clients already on a repayment plan. See 2b.
+
+Three claims in this document have now been checked against the schema and
+found wrong. Nothing here should be planned from without running the query
+first.
 
 **Then the application status history.** One table — a row per status change on
 a card application — turns the dashboard's `applications` sparkline from null

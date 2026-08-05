@@ -22,6 +22,61 @@ function ok<T>(res: Response, data: T) {
 // GET /api/platform/portfolio/benchmarks?quarter=X
 // ============================================================
 
+
+// ── Per-segment approval rates ────────────────────────────────
+
+export interface SegmentPerformance {
+  industry:            string;
+  decidedApplications: number;
+  approved:            number;
+  /** Percentage, one decimal place. */
+  approvalRate:        number;
+}
+
+/**
+ * Approval rate by industry, from the applications decided in the quarter.
+ *
+ * This was a list of literals — the same segments and figures for every
+ * tenant. The data to compute it was already here: a business carries an
+ * `industry`, and an application belongs to a business. Nothing joined them.
+ *
+ * Every segment carries its own sample size, for the reason the endpoint
+ * already gives beside its other figures: an approval rate over three
+ * applications is not the same statement as one over three hundred. No minimum
+ * is imposed — a threshold would be a number nobody chose — so a segment of one
+ * appears, ranked, with a `decidedApplications` of 1 next to it.
+ *
+ * Businesses with no industry recorded are reported under "Not recorded"
+ * rather than dropped, so the segment volumes still sum to the quarter's
+ * decided applications.
+ */
+export function segmentApprovalRates(
+  decided: { status: string; industry: string | null }[],
+): SegmentPerformance[] | null {
+  if (decided.length === 0) return null;
+
+  const bySegment = new Map<string, { decided: number; approved: number }>();
+
+  for (const application of decided) {
+    const industry = application.industry?.trim() ? application.industry : 'Not recorded';
+    const entry = bySegment.get(industry) ?? { decided: 0, approved: 0 };
+    entry.decided += 1;
+    if (application.status === 'approved') entry.approved += 1;
+    bySegment.set(industry, entry);
+  }
+
+  return [...bySegment.entries()]
+    .map(([industry, counts]) => ({
+      industry,
+      decidedApplications: counts.decided,
+      approved: counts.approved,
+      approvalRate: Number(((counts.approved / counts.decided) * 100).toFixed(1)),
+    }))
+    // Rate first, then volume: of two segments approving everything, the one
+    // that did it over more applications is the stronger claim.
+    .sort((a, b) => b.approvalRate - a.approvalRate || b.decidedApplications - a.decidedApplications);
+}
+
 // ── Portfolio performance against published industry figures ──
 //
 // This served two quarters of results as literals, and the tenant's own
@@ -106,7 +161,10 @@ platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) =
           status: { in: ['approved', 'declined'] },
           decidedAt: { gte: range.start, lt: range.end },
         },
-        select: { status: true, creditLimit: true },
+        // The business's industry, which is what attributes an application to
+        // a segment. It was never selected, so the segment breakdown had
+        // nothing to group by and was served as literals instead.
+        select: { status: true, creditLimit: true, business: { select: { industry: true } } },
       }),
       sharedPrisma.creditProfile.findMany({
         where: { business: { tenantId }, pulledAt: { gte: range.start, lt: range.end } },
@@ -148,12 +206,18 @@ platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) =
       // cannot be derived. They were 1.8% and 19.4%, which read as measured.
       delinquencyRate: null,
       graduationRate: null,
+      // Approval rate by industry, computed from this tenant's own decided
+      // applications. Null when the quarter decided none — an empty list would
+      // say every segment performed at zero.
+      topPerformingSegments: segmentApprovalRates(
+        decided.map((a) => ({ status: a.status, industry: a.business.industry })),
+      ),
+
       unavailable: {
-        delinquencyRate: 'No delinquency status is recorded against a card application.',
+        delinquencyRate:
+          'Delinquency is recorded only as a missed payment on a repayment plan, which covers '
+          + 'cards under a plan and not the portfolio. See docs/gaps.md section 2.',
         graduationRate: 'Nothing records a client graduating from the programme.',
-        topPerformingSegments:
-          'Businesses carry an industry, but no application volume is attributed to a segment, ' +
-          'so a per-segment approval rate cannot be computed.',
       },
 
       portfolioGrowth:
