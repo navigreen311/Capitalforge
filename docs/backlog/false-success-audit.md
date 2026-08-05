@@ -21,6 +21,58 @@ Ask both of every surface in this audit. A toast that reports a write nothing
 performed and a field that reports an influence nothing exercised are the same
 defect, and the second is quieter.
 
+### A search rule, added 2026-08-05: check the reverse direction first
+
+**Audit by capability, not by page — and start with the undo.**
+
+The enable path gets exercised. Somebody demos it, somebody tests it, somebody
+uses it in anger. The reverse is used rarely, often under pressure, and usually
+by someone who assumes it works because the forward path did. **That is where
+mocks survive.**
+
+Two instances proved it in one sweep:
+
+- **Legal hold.** The *enable* path was escalated and fixed during this audit.
+  The *release* path was a 600 ms sleep, a success toast and a `console.info`
+  claiming an audit event that never happened — missed because it lives in a
+  different component, so a page-scoped sweep never reached it.
+- **Tenant suspend.** Answered 200 with a `suspendedAt` timestamp and wrote
+  nothing. **There is no unsuspend endpoint at all**, and that is precisely why
+  it survived: nobody could try to undo a suspension, so nobody discovered that
+  suspending did nothing either.
+
+So the rule has two halves:
+
+1. **For every capability, list both directions before reading any code.** If
+   the reverse does not exist, that is the finding — a one-way access control
+   is its own defect, and its absence hides the state of the forward path.
+2. **Read the reverse path first.** If it is real, the forward one usually is.
+   The converse does not hold.
+
+A capability, not a page: the two halves of legal hold live in different
+components and different routers, and no page-shaped sweep puts them side by
+side.
+
+### Symmetry is not evidence — both directions can be fake
+
+**2FA** was checked under this rule and fails it differently. `enable` and
+`disable` both operate on `twoFactorStore`, a **process-local `Map`** declared
+in the route file. Neither persists.
+
+So the secrets and the enabled flag live in RAM: **a server restart silently
+disables 2FA for every user**, and with more than one instance the answer
+depends on which one you reach. Nothing is inconsistent between the two
+directions, because both are equally unreal — which is why a
+symmetry check alone would have passed it.
+
+Worse, the enforcement is client-side. `login/page.tsx` stores the access token
+**and then** asks `/api/auth/2fa/status` and redirects. The session exists
+before the challenge does, so the challenge is advisory: the tokens are already
+in `localStorage`.
+
+Recorded here rather than fixed — a real second factor is a security change
+that deserves its own work, not a line in an audit sweep.
+
 ### A third check, added 2026-08-05
 
 3. **Does a test assert the current behaviour?**
