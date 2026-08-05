@@ -27,6 +27,79 @@ function d(iso: string): Date {
   return new Date(iso);
 }
 
+/**
+ * Per-account trade lines, in the shape `CreditProfile.tradelines` declares.
+ *
+ * The column is typed `Tradeline[]` and every real bureau pull writes an array
+ * of per-account records. The seed wrote a summary object instead —
+ * `{ accounts: 18, avgAge: 9.4, revolving: 6 }` — so seeded profiles carried a
+ * shape nothing else produces, and every reader that counted or aggregated
+ * over them got nothing:
+ *
+ *   - the graduation engine took `.length` of a non-array and read 0, which
+ *     pinned every seeded client to the entry track no matter what else they
+ *     had, and hid the business-credit gates entirely
+ *   - the optimizer's per-account aggregations reported null for every seeded
+ *     client, which is honest for a summary object and useless as fixture data
+ *
+ * Deterministic on purpose: `db:seed:check` runs the seeder twice and compares,
+ * so a random balance or a `Date.now()` offset would make the seed
+ * non-reproducible. Dates are derived from a fixed reference.
+ */
+const TRADELINE_REFERENCE_DATE = new Date('2026-03-01T00:00:00.000Z');
+
+/** Card issuers for personal files, vendors for business ones. */
+const PERSONAL_CREDITORS = ['Chase Sapphire', 'Amex Blue Business', 'Citi Double Cash', 'Discover it', 'Capital One Spark', 'Wells Fargo Active Cash'];
+const VENDOR_CREDITORS = ['Uline', 'Quill', 'Grainger', 'Summa Office Supplies', 'Crown Office Supplies', 'Home Depot Commercial'];
+
+function tradelines(
+  count: number,
+  opts: {
+    creditors: string[];
+    accountType: string;
+    baseLimit: number;
+    /** Months between each account being opened, working backwards. */
+    spacingMonths: number;
+  },
+): Prisma.JsonArray {
+  return Array.from({ length: count }, (_, i) => {
+    const openedAt = new Date(TRADELINE_REFERENCE_DATE);
+    openedAt.setMonth(openedAt.getMonth() - (i + 1) * opts.spacingMonths);
+
+    const creditLimit = opts.baseLimit + i * 500;
+
+    return {
+      creditor: opts.creditors[i % opts.creditors.length]!,
+      accountType: opts.accountType,
+      creditLimit,
+      // A fixed fraction of the limit rather than a random figure, so two
+      // seed runs produce identical rows.
+      balance: Math.round(creditLimit * (0.05 + (i % 5) * 0.05)),
+      paymentStatus: 'current',
+      openedAt: openedAt.toISOString(),
+      isDerogatory: false,
+    };
+  });
+}
+
+
+/**
+ * The trade lines each seeded profile carries, defined once.
+ *
+ * Referenced by both the create and the update branch of every upsert: two
+ * literals would drift, and a re-seed that wrote a different set from the
+ * create path is the shape of the incident in
+ * docs/backlog/incident-2026-08-03-broken-seed.md.
+ */
+const TRADELINES_BY_PROFILE: Record<string, Prisma.JsonArray> = {
+  'seed-cp-001': tradelines(18, { creditors: PERSONAL_CREDITORS, accountType: 'revolving', baseLimit: 5_000, spacingMonths: 6 }),
+  'seed-cp-002': tradelines(12, { creditors: VENDOR_CREDITORS, accountType: 'business_line', baseLimit: 1_000, spacingMonths: 3 }),
+  'seed-cp-003': tradelines(10, { creditors: PERSONAL_CREDITORS, accountType: 'revolving', baseLimit: 3_000, spacingMonths: 7 }),
+  'seed-cp-004': tradelines(14, { creditors: PERSONAL_CREDITORS, accountType: 'installment', baseLimit: 4_000, spacingMonths: 9 }),
+  'seed-cp-005': tradelines(12, { creditors: VENDOR_CREDITORS, accountType: 'business_line', baseLimit: 1_000, spacingMonths: 3 }),
+  'seed-cp-006': tradelines(12, { creditors: VENDOR_CREDITORS, accountType: 'business_line', baseLimit: 1_000, spacingMonths: 3 }),
+};
+
 function dec(value: string): Prisma.Decimal {
   return new Prisma.Decimal(value);
 }
@@ -324,7 +397,10 @@ const SEED_PHONES = {
   // Biz 1: strong personal + business credit
   await prisma.creditProfile.upsert({
     where: { id: 'seed-cp-001' },
-    update: {},
+    // Applied on re-seed as well as on create: rows written before
+    // `tradelines` became a real array still hold the summary object,
+    // and every reader that counts or aggregates over them gets nothing.
+    update: { tradelines: TRADELINES_BY_PROFILE['seed-cp-001'] },
     create: {
       id: 'seed-cp-001',
       businessId: biz1.id,
@@ -335,14 +411,17 @@ const SEED_PHONES = {
       utilization: dec('0.14'),
       inquiryCount: 2,
       derogatoryCount: 0,
-      tradelines: { accounts: 18, avgAge: 9.4, revolving: 6, installment: 4 },
+      tradelines: TRADELINES_BY_PROFILE['seed-cp-001'],
       pulledAt: d('2026-03-01'),
     },
   });
 
   await prisma.creditProfile.upsert({
     where: { id: 'seed-cp-002' },
-    update: {},
+    // Applied on re-seed as well as on create: rows written before
+    // `tradelines` became a real array still hold the summary object,
+    // and every reader that counts or aggregates over them gets nothing.
+    update: { tradelines: TRADELINES_BY_PROFILE['seed-cp-002'] },
     create: {
       id: 'seed-cp-002',
       businessId: biz1.id,
@@ -353,7 +432,7 @@ const SEED_PHONES = {
       utilization: dec('0.22'),
       inquiryCount: 1,
       derogatoryCount: 0,
-      tradelines: { vendors: 12, avgDaysBeyondTerms: 0 },
+      tradelines: TRADELINES_BY_PROFILE['seed-cp-002'],
       pulledAt: d('2026-03-01'),
     },
   });
@@ -364,7 +443,10 @@ const SEED_PHONES = {
   // database anywhere that could fill it.
   await prisma.creditProfile.upsert({
     where: { id: 'seed-cp-005' },
-    update: {},
+    // Applied on re-seed as well as on create: rows written before
+    // `tradelines` became a real array still hold the summary object,
+    // and every reader that counts or aggregates over them gets nothing.
+    update: { tradelines: TRADELINES_BY_PROFILE['seed-cp-005'] },
     create: {
       id: 'seed-cp-005',
       businessId: biz1.id,
@@ -375,7 +457,7 @@ const SEED_PHONES = {
       utilization: dec('0.22'),
       inquiryCount: 1,
       derogatoryCount: 0,
-      tradelines: { vendors: 12, avgDaysBeyondTerms: 0 },
+      tradelines: TRADELINES_BY_PROFILE['seed-cp-005'],
       pulledAt: d('2026-03-01'),
     },
   });
@@ -386,7 +468,10 @@ const SEED_PHONES = {
   // criterion could not be satisfied by any client.
   await prisma.creditProfile.upsert({
     where: { id: 'seed-cp-006' },
-    update: {},
+    // Applied on re-seed as well as on create: rows written before
+    // `tradelines` became a real array still hold the summary object,
+    // and every reader that counts or aggregates over them gets nothing.
+    update: { tradelines: TRADELINES_BY_PROFILE['seed-cp-006'] },
     create: {
       id: 'seed-cp-006',
       businessId: biz1.id,
@@ -397,7 +482,7 @@ const SEED_PHONES = {
       utilization: dec('0.22'),
       inquiryCount: 1,
       derogatoryCount: 0,
-      tradelines: { vendors: 12, avgDaysBeyondTerms: 0 },
+      tradelines: TRADELINES_BY_PROFILE['seed-cp-006'],
       pulledAt: d('2026-03-01'),
     },
   });
@@ -405,7 +490,10 @@ const SEED_PHONES = {
   // Biz 2: moderate personal, no business file yet
   await prisma.creditProfile.upsert({
     where: { id: 'seed-cp-003' },
-    update: {},
+    // Applied on re-seed as well as on create: rows written before
+    // `tradelines` became a real array still hold the summary object,
+    // and every reader that counts or aggregates over them gets nothing.
+    update: { tradelines: TRADELINES_BY_PROFILE['seed-cp-003'] },
     create: {
       id: 'seed-cp-003',
       businessId: biz2.id,
@@ -416,7 +504,7 @@ const SEED_PHONES = {
       utilization: dec('0.38'),
       inquiryCount: 5,
       derogatoryCount: 1,
-      tradelines: { accounts: 10, avgAge: 6.2, revolving: 4, installment: 3 },
+      tradelines: TRADELINES_BY_PROFILE['seed-cp-003'],
       pulledAt: d('2026-02-15'),
     },
   });
@@ -424,7 +512,10 @@ const SEED_PHONES = {
   // Biz 3: strong personal FICO, new business
   await prisma.creditProfile.upsert({
     where: { id: 'seed-cp-004' },
-    update: {},
+    // Applied on re-seed as well as on create: rows written before
+    // `tradelines` became a real array still hold the summary object,
+    // and every reader that counts or aggregates over them gets nothing.
+    update: { tradelines: TRADELINES_BY_PROFILE['seed-cp-004'] },
     create: {
       id: 'seed-cp-004',
       businessId: biz3.id,
@@ -435,7 +526,7 @@ const SEED_PHONES = {
       utilization: dec('0.19'),
       inquiryCount: 3,
       derogatoryCount: 0,
-      tradelines: { accounts: 14, avgAge: 11.1, revolving: 5, installment: 6 },
+      tradelines: TRADELINES_BY_PROFILE['seed-cp-004'],
       pulledAt: d('2026-03-10'),
     },
   });

@@ -9,6 +9,25 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Seeded `CreditProfile.tradelines` is an array, as the column declares.** It
+  held a summary object — `{ accounts: 18, avgAge: 9.4 }` — a shape nothing else
+  produces, so every reader that counted or aggregated over it got nothing. The
+  graduation engine took `.length` of a non-array and read **0**, which pinned
+  every seeded client to the entry track whatever else they had and hid the
+  business-credit gates entirely; the optimizer's per-account aggregations
+  reported null for every seeded client. Applied on re-seed as well as on
+  create, so databases holding the old shape are corrected rather than only new
+  ones.
+- **No timeline is projected from an unmeasured requirement.**
+  `estimateMonthsToNextTrack` returned `0` when the only outstanding gate was
+  one nobody had measured — and `0` means "nothing left to close", so the panel
+  offered *"Estimated 0 months at the current rate"* to a client who had not
+  been assessed. It returns null, and the panel says so. Surfaced by giving the
+  seed real trade lines: the defect was unreachable while every client was
+  pinned to the entry track.
+
 ### Added
 
 - **Programme Track panel on `/credit-builder`.** `GET /graduation/status` has
