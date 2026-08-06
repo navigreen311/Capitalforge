@@ -1,20 +1,52 @@
 # Two-factor authentication
 
-**Status: BUILT 2026-08-06.** Kept for the reasoning and the scoping questions,
-each of which is now answered in code:
+**Status: CLOSED — shipped 2026-08-06.** Kept for the reasoning; the scoping
+questions are answered in code.
 
-| Question | Answer |
-|---|---|
-| Where do secrets live, encrypted how | `User.mfaSecret`, via `encryption.service` |
-| Does the challenge gate token issue | **Yes.** `login` returns a challenge, not a session; tokens come from `completeMfaChallenge` |
-| Recovery codes | 10, bcrypt-hashed, single-use, shown once at enrolment |
-| Sessions under the old scheme | No enrolled users existed. One account carried `mfaEnabled` with a **null secret** — enforcing on the flag alone would have locked it out, so enrolment is `mfaEnabled && mfaSecret != null` |
-| Rate limiting and replay | 5 failures then a 15-minute lock; `mfaLastUsedStep` refuses a replayed window |
+## What shipped
 
-One thing found while building it that this document did not anticipate: the
-old adapter never worked at all. otplib v13 has no `authenticator` export, so
-`authenticator = otplib.authenticator` assigned `undefined` while reporting the
-library as available.
+- **The challenge gates token issue.** `login()` returns a discriminated union
+  — a session, or a five-minute challenge carrying no permissions. Tokens come
+  only from `completeMfaChallenge`. The challenge is signed with the access
+  secret but typed `mfa_challenge`, and `verifyAccessToken` refuses any type
+  but `access`, so it cannot be used as a bearer token.
+- **Secrets encrypted at rest** in `User.mfaSecret` via `encryption.service`.
+- **Enrolment is two-phase.** The secret is stored without enabling; the factor
+  turns on only when a code proves the authenticator holds it. Closing the tab
+  mid-setup strands nobody.
+- **Recovery codes**: ten, bcrypt-hashed, single-use, shown once.
+- **Replay refused** — `mfaLastUsedStep` rejects a code from a window already
+  spent.
+- **Lockout** after five failures, for fifteen minutes.
+- **Disabling requires a valid code**, so a stolen session cannot remove the
+  control that exists to make a stolen session insufficient.
+
+## What was deliberately bounded
+
+- **The TOTP window is ±1 step (30 seconds each way).** Wider is friendlier and
+  proportionally weaker: every extra step is another code an attacker may
+  present.
+- **There is no mock fallback.** If otplib is missing or incompatible, 2FA
+  returns 503 rather than substituting something weaker. The previous
+  implementation degraded silently to a hand-rolled mock, which is the failure
+  this refuses to repeat.
+- **Recovery codes are not retrievable.** Only hashes are kept, so the
+  enrolment response is the single opportunity to record them. Making them
+  re-displayable would mean storing them readably, which is the property that
+  would make that table dangerous.
+
+## Two findings this document did not anticipate
+
+**The old adapter never worked.** otplib v13 has no `authenticator` export, so
+`authenticator = otplib.authenticator` assigned `undefined` while setting
+`otplibAvailable = true`. See the capability-flag entry in
+`false-success-audit.md`.
+
+**One account was already in an impossible state** — `mfaEnabled` with a null
+secret — and enforcing on the flag alone would have locked it out permanently.
+That, not sessions, was the real answer to "what happens to sessions
+established under the current scheme". `isMfaEnrolled` is the fix; see the
+same audit document.
 
 ---
 

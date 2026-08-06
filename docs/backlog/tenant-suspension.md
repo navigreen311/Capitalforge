@@ -1,27 +1,64 @@
 # Tenant suspension — enforceable, not just recorded
 
-**Status:** open. `POST /api/platform/tenants/:id/suspend` answers **501** as of
-2026-08-05. Before that it answered 200 with a `suspendedAt` timestamp and
-wrote nothing.
+**Status: CLOSED — shipped 2026-08-06.** Kept for the reasoning.
 
-**Why it refuses rather than being wired.** `Tenant.isActive` exists, so wiring
-it is a two-line change — and it would not suspend anything.
+## What shipped
 
-| Path | Reads `tenant.isActive`? |
-|---|---|
-| `auth.service.ts` — register | **Yes** |
-| `auth.service.ts` — login | **No** — reads `user.isActive`, a different flag |
-| `auth.service.ts` — token refresh | **No** — `user.isActive` again |
-| `tenantMiddleware` — every authenticated request | **No** — decodes the JWT, no database read |
-| `tenant-lookup.routes.ts` | Filters lists only |
+- **Both directions.** `POST /platform/tenants/:id/suspend` writes the row;
+  `POST /platform/tenants/:id/unsuspend` lifts it. A one-way access control is
+  its own defect, and its absence is what hid the original mock — nobody could
+  try to undo a suspension and discover that suspending had done nothing.
+- **Enforced at three points**: login, token refresh, and `tenantMiddleware`.
+  Any two leaves a hole the size of a session — refresh alone buys seven days,
+  and an access token issued before the suspension works until it expires.
+- **`suspendedAt`, `suspendedBy`, `suspendedReason` are columns.** A boolean
+  cannot answer "who suspended this tenant and why", and the old response
+  promised a timestamp it had nowhere to store. The response reads the row back
+  rather than echoing the request.
+- **A missing tenant is inactive**, not an error. Returning `true` on a lookup
+  miss is how a fail-open creeps in.
 
-Writing `isActive: false` today blocks **new user registration** and nothing
-else. Existing sessions continue, existing users still log in, every request
-still passes. That converts a false claim into an unenforced one and adds a
-database row that makes the lie look substantiated — worse than the 501,
-because the row is evidence.
+## What was deliberately bounded
+
+**A suspension takes effect within 30 seconds, not instantly.**
+
+`tenantMiddleware` performed zero database reads — a pure JWT decode on every
+authenticated request — and this change had to keep, spend or bound that.
+
+| Option | Cost | Staleness |
+|---|---|---|
+| Query in the middleware | A round trip per authenticated request | None |
+| **Cache with a short TTL** | One query per tenant per window | **Up to the TTL** |
+| JWT claim refreshed at login | Free | Up to 15 minutes |
+
+Chosen: **a 30-second per-process cache**, invalidated locally on suspend and
+unsuspend, so the instance serving the change is correct immediately and the
+others catch up within the window.
+
+The JWT claim was rejected because fifteen minutes of continued access after an
+operator suspends a tenant is precisely the gap suspension exists to close. The
+uncached read would put a query on the hottest path in the application for a
+value that changes approximately never.
+
+**If it ever needs to be instant, the answer is a shared invalidation channel —
+Redis pub/sub or equivalent — not a shorter TTL.** Shortening the window trades
+away the hot-path saving for an improvement that never reaches zero; a channel
+removes the staleness entirely. No Redis client is wired today, which is why
+this was not the first choice.
+
+The bound is stated in `tenant-status.service` beside the code, not only here.
+
+## The blast radius, and how it is covered
+
+This code can lock out every user of a tenant, so the integration tests exist
+for that rather than for coverage: login, refresh, **mid-session** (the case a
+login-only check misses), restoration on unsuspend with the audit columns
+cleared, and **a bystander tenant reachable throughout** — which is where a
+wrongly-keyed cache would fail.
 
 ---
+
+## The original entry, kept for the reasoning
 
 ## What building it takes
 
