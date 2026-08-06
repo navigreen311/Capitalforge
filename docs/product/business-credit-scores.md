@@ -122,10 +122,37 @@ for errors and dispute what is wrong, the same play as Experian.
 0–100. A "640" here is unremarkable; a 640 on any other card on that page would
 be impossible. The `sc_006` criterion asks for 500.
 
-*(Still unverified: which score the reseller bundle labels "Business Credit
-Risk" versus "One Score for Commercial" or "Business Failure Score". If an
-advisor is reading a number off a reseller PDF, confirm which product it is
-before comparing it to 500.)*
+### Which score is which — resolved 2026-08-06
+
+Equifax sells four commercial scores and a reseller bundle prints several
+together. **They are told apart by range, not by the number's plausibility.**
+
+| Product | Range | Direction |
+|---|---|---|
+| **Business Credit Risk Score** | **101–992** | Higher is lower risk — **this is the one `sc_006` reads** |
+| Business Failure Score | 1,000–1,880 | Higher is lower risk of closure |
+| OneScore for Commercial | 300–650 | Higher is lower risk |
+| Payment Index | 1–100 | Higher is better payment behaviour |
+
+*(Verified 2026-08-06, [NerdWallet](https://www.nerdwallet.com/business/credit-cards/learn/equifax-business-credit-report),
+[Equifax business risk scores](https://www.equifax.com/business/product/business-risk-score/),
+[Equifax OneScore for Commercial](https://www.equifax.com/business/product/onescore-for-commercial/).)*
+
+**The trap, and it is a real one.** Three of the four are unmistakable — a
+Failure Score is over 1,000, a Payment Index is under 101, and
+`validateScoreForType` rejects both. **OneScore for Commercial sits entirely
+inside 101–992**, so entering one as a Business Credit Risk Score passes every
+check we have and is then compared to `sc_006`'s threshold of 500 — a number
+that means nothing on that scale.
+
+It is also the likeliest mistake: OneScore is what Equifax leads with in the
+Industry Report 2.0 bundle, so it is prominent on exactly the PDF an advisor
+would be reading.
+
+**Overlapping ranges cannot be distinguished by value.** The defence is naming
+the product where the number is entered, not a tighter validator. If a report
+shows a score between 300 and 650, confirm which of the two it is before
+recording it.
 
 ---
 

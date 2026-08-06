@@ -356,7 +356,7 @@ export function BusinessCreditScoresPanel({
           thresholds={{ green: 600, amber: 450 }}
           obtainability={{
             kind: 'client_obtainable',
-            action: 'About $49.95 through a reseller such as eCredable, or roughly $30–40 ordered directly from Equifax — verified 2026-08-05. Equifax widened self-service access in August 2025, so this is easier to obtain than it used to be. Scale is 101–992, unlike the 0–100 scores beside it.',
+            action: 'About $49.95 through a reseller such as eCredable, or roughly $30–40 direct from Equifax (verified 2026-08-05). Check which score you are reading: a bundle prints several, and only the Business Credit Risk Score (101–992) belongs here. Business Failure runs 1,000–1,880 and Payment Index 1–100, so both are obvious — but OneScore for Commercial runs 300–650 and looks exactly like a valid figure on this scale.',
           }}
         />
       </div>
