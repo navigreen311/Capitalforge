@@ -12,85 +12,132 @@ datasource db {
 // ============================================================
 
 model Tenant {
-  id              String   @id @default(uuid())
-  name            String
-  slug            String   @unique
-  brandConfig     Json?
-  plan            String   @default("starter")
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  brandConfig Json?
+  plan        String   @default("starter")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  users           User[]
-  businesses      Business[]
-  ledgerEvents    LedgerEvent[]
-  consentRecords  ConsentRecord[]
-  complianceChecks ComplianceCheck[]
-  documents       Document[]
-  branding        TenantBranding?
-  voiceCalls      VoiceCall[]
+  users               User[]
+  businesses          Business[]
+  ledgerEvents        LedgerEvent[]
+  consentRecords      ConsentRecord[]
+  complianceChecks    ComplianceCheck[]
+  documents           Document[]
+  branding            TenantBranding?
+  voiceCalls          VoiceCall[]
   callComplianceScans CallComplianceScan[]
-  callQaScores    CallQaScore[]
-  doNotCallList   DoNotCallList[]
-  smsMessages     SmsMessage[]
+  callQaScores        CallQaScore[]
+  doNotCallList       DoNotCallList[]
+  smsMessages         SmsMessage[]
 
   @@map("tenants")
 }
 
 model TenantBranding {
-  id              String   @id @default(uuid())
-  tenantId        String   @unique
-  displayName     String?
-  logoUrl         String?
-  faviconUrl      String?
-  primaryColor    String?  // hex color e.g. #C9A84C
-  customDomain    String?
-  emailFromName   String?
-  emailFromAddr   String?
-  hideCfBranding  Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(uuid())
+  tenantId       String   @unique
+  displayName    String?
+  logoUrl        String?
+  faviconUrl     String?
+  primaryColor   String? // hex color e.g. #C9A84C
+  customDomain   String?
+  emailFromName  String?
+  emailFromAddr  String?
+  hideCfBranding Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@map("tenant_brandings")
 }
 
 model User {
-  id              String   @id @default(uuid())
-  tenantId        String
-  email           String
-  passwordHash    String?
-  firstName       String
-  lastName        String
-  role            String   @default("advisor")
-  mfaEnabled      Boolean  @default(false)
-  mfaSecret       String?
-  isActive        Boolean  @default(true)
-  lastLoginAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String    @id @default(uuid())
+  tenantId          String
+  email             String
+  passwordHash      String?
+  firstName         String
+  lastName          String
+  role              String    @default("advisor")
+  /**
+   * Enrolment is `mfaEnabled && mfaSecret != null`, never the flag alone.
+   * `admin@demoadvisors.io` was found with mfaEnabled = true and a null
+   * secret: the old routes kept state in a process-local Map and never wrote
+   * these columns, so the flag was set by something that left no credential
+   * behind. Enforcing on the flag alone would have locked that account out
+   * permanently — nothing to verify against and no recovery codes.
+   * See isMfaEnrolled() in two-factor.service.ts.
+   */
+  mfaEnabled        Boolean   @default(false)
+  /**
+   * TOTP secret, encrypted at rest via encryption.service (never plaintext).
+   */
+  mfaSecret         String?
+  mfaEnrolledAt     DateTime?
+  /**
+   * The last TOTP time-step accepted for this user.
+   * A code stays valid for its whole 30-second window, so without this a
+   * code observed once can be replayed until the window closes. A step at or
+   * below this value is refused.
+   */
+  mfaLastUsedStep   Int?
+  mfaFailedAttempts Int       @default(0)
+  mfaLockedUntil    DateTime?
+  isActive          Boolean   @default(true)
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  auditLogs       AuditLog[]
-  advisorDeals    Business[] @relation("AdvisorBusinesses")
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
+  auditLogs     AuditLog[]
+  recoveryCodes TwoFactorRecoveryCode[]
+  advisorDeals  Business[]              @relation("AdvisorBusinesses")
 
   @@unique([tenantId, email])
   @@map("users")
 }
 
-model AuditLog {
-  id              String   @id @default(uuid())
-  userId          String?
-  tenantId        String
-  action          String
-  resource        String
-  resourceId      String?
-  metadata        Json?
-  ipAddress       String?
-  timestamp       DateTime @default(now())
+/**
+ * Single-use recovery codes, stored hashed.
+ * Without these a lost device is a lost account, and support routes around
+ * the control — which is worse than not having it, because the bypass becomes
+ * routine and undocumented.
+ * Hashed with bcrypt, like a password: this table is exactly as sensitive as
+ * the password column, because a code in it is a login.
+ */
+model TwoFactorRecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String
+  /**
+   * Set when spent. Rows are kept so "which code was used, when" survives.
+   */
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
-  user            User?    @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@map("two_factor_recovery_codes")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  tenantId   String
+  action     String
+  resource   String
+  resourceId String?
+  metadata   Json?
+  ipAddress  String?
+  timestamp  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
 
   @@index([tenantId, timestamp])
   @@index([resource, resourceId])
@@ -102,25 +149,24 @@ model AuditLog {
 // ============================================================
 
 model CardProduct {
-  id                   String   @id @default(uuid())
-  issuerId             String   // issuer name string (e.g. "chase", "amex")
-  name                 String
-  cardType             String   // business_credit | business_charge | secured
-  annualFee            Decimal  @default(0)
-  annualFeeWaivedY1    Boolean  @default(false)
-  aprIntro             Decimal? // intro APR percentage, null = no intro
-  aprIntroMonths       Int?     // intro APR duration in months
-  aprPostPromo         Decimal? // regular/post-promo APR
-  creditLimitMin       Int      @default(0)
-  creditLimitMax       Int      @default(0)
-  creditLimitTypical   Int      @default(0)
-  scoreMinimum         Int      @default(0)     // minimum FICO
-  revenueMinimum       Decimal  @default(0)     // minimum annual revenue
-  businessAgeMinimum   Int      @default(0)     // minimum months in business
-  rewardsType          String?  // cash_back | points | miles
+  id                 String   @id @default(uuid())
+  issuerId           String // issuer name string (e.g. "chase", "amex")
+  name               String
+  cardType           String // business_credit | business_charge | secured
+  annualFee          Decimal  @default(0)
+  annualFeeWaivedY1  Boolean  @default(false)
+  aprIntro           Decimal? // intro APR percentage, null = no intro
+  aprIntroMonths     Int? // intro APR duration in months
+  aprPostPromo       Decimal? // regular/post-promo APR
+  creditLimitMin     Int      @default(0)
+  creditLimitMax     Int      @default(0)
+  creditLimitTypical Int      @default(0)
+  scoreMinimum       Int      @default(0) // minimum FICO
+  revenueMinimum     Decimal  @default(0) // minimum annual revenue
+  businessAgeMinimum Int      @default(0) // minimum months in business
+  rewardsType        String? // cash_back | points | miles
   /**
    * Primary rewards rate, as a PERCENT: 2 means 2% cash back, 1.5 means 1.5x.
-   *
    * Both conventions were in this table at once — 28 rows as a percent and 12
    * as a fraction, for the same products — because two seed sources disagreed.
    * The optimizer and the card list both read this number as a percent, so a
@@ -128,21 +174,20 @@ model CardProduct {
    * Anything below 1 is a fraction that was never converted; see
    * scripts/dedupe-card-products.ts and the guard in prisma/seeds/card-products.ts.
    */
-  rewardsRate          Decimal?
-  rewardsDetails       String?  // human-readable rewards description
-  welcomeBonus         String?  // welcome bonus description
-  welcomeBonusValue    Decimal? // estimated dollar value of welcome bonus
-  personalGuarantee    Boolean  @default(true)
-  approvalDifficulty   String   @default("moderate") // easy | moderate | hard | very_hard
-  bestFor              String?  // short description of ideal use case
-  isActive             Boolean  @default(true)
-  notes                String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  rewardsRate        Decimal?
+  rewardsDetails     String? // human-readable rewards description
+  welcomeBonus       String? // welcome bonus description
+  welcomeBonusValue  Decimal? // estimated dollar value of welcome bonus
+  personalGuarantee  Boolean  @default(true)
+  approvalDifficulty String   @default("moderate") // easy | moderate | hard | very_hard
+  bestFor            String? // short description of ideal use case
+  isActive           Boolean  @default(true)
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   /**
    * One row per product per issuer.
-   *
    * The primary key is derived from the issuer spelling, so two seed lists
    * spelling it differently ("capital_one" / "capital-one") produced two rows
    * for the same card with two ids and no complaint from the database. The
@@ -160,112 +205,117 @@ model CardProduct {
 // ============================================================
 
 model Business {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  advisorId           String?
-  legalName           String
-  dba                 String?
-  ein                 String?
-  entityType          String
-  stateOfFormation    String?
-  dateOfFormation     DateTime?
-  mcc                 String?
-  /** NAICS industry code. Referenced by the client PATCH allowlist and the
-   *  edit-profile form since before it existed as a column, so saving it
-   *  passed validation and then failed at the database with a 500. */
-  naicsCode           String?
-  industry            String?
-  annualRevenue       Decimal?
-  monthlyRevenue      Decimal?
-  employees           Int?
-  website             String?
+  id               String    @id @default(uuid())
+  tenantId         String
+  advisorId        String?
+  legalName        String
+  dba              String?
+  ein              String?
+  entityType       String
+  stateOfFormation String?
+  dateOfFormation  DateTime?
+  mcc              String?
+  /**
+   * NAICS industry code. Referenced by the client PATCH allowlist and the
+   * edit-profile form since before it existed as a column, so saving it
+   * passed validation and then failed at the database with a 500.
+   */
+  naicsCode        String?
+  industry         String?
+  annualRevenue    Decimal?
+  monthlyRevenue   Decimal?
+  employees        Int?
+  website          String?
 
   /**
    * Business address and email.
-   *
    * The onboarding wizard has always collected these — address line 1, city,
    * state and ZIP are required to leave its first step — and there was
    * nowhere to put them. The create validator dropped them as unknown keys
    * and no column existed, so the one part of the form a user could not skip
    * was the part guaranteed to be discarded.
    */
-  addressLine1        String?
-  addressLine2        String?
-  city                String?
-  state               String?
-  zip                 String?
-  businessEmail       String?
+  addressLine1          String?
+  addressLine2          String?
+  city                  String?
+  state                 String?
+  zip                   String?
+  businessEmail         String?
   /**
    * IANA timezone for this client, e.g. "America/Chicago".
-   *
    * Quiet-hours rules are stated in the recipient's local time, so outreach
    * needs to know it. When null the dispatcher derives one from the phone
    * number's area code and refuses to send if it cannot.
    */
-  timezone            String?
-  /** Primary contact number used by VoiceForge outreach campaigns */
-  phoneNumber         String?
+  timezone              String?
+  /**
+   * Primary contact number used by VoiceForge outreach campaigns
+   */
+  phoneNumber           String?
   fundingReadinessScore Int?
-  status              String   @default("intake")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  status                String   @default("intake")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  tenant              Tenant   @relation(fields: [tenantId], references: [id])
-  advisor             User?    @relation("AdvisorBusinesses", fields: [advisorId], references: [id])
-  owners              BusinessOwner[]
-  creditProfiles      CreditProfile[]
-  fundingRounds       FundingRound[]
-  cardApplications    CardApplication[]
-  complianceChecks    ComplianceCheck[]
-  consentRecords      ConsentRecord[]
-  documents           Document[]
-  suitabilityChecks   SuitabilityCheck[]
-  voiceCalls          VoiceCall[]
-  repaymentPlans      RepaymentPlan[]
-  acknowledgments     ProductAcknowledgment[]
-  achAuthorizations   AchAuthorization[]
-  vendorTradelines    VendorTradeline[]
-  smsMessages         SmsMessage[]
-  costCalculations    CostCalculation[]
-  creditBuilderSteps  CreditBuilderStep[]
-  graduationEvents    GraduationEvent[]
+  tenant             Tenant                  @relation(fields: [tenantId], references: [id])
+  advisor            User?                   @relation("AdvisorBusinesses", fields: [advisorId], references: [id])
+  owners             BusinessOwner[]
+  creditProfiles     CreditProfile[]
+  fundingRounds      FundingRound[]
+  cardApplications   CardApplication[]
+  complianceChecks   ComplianceCheck[]
+  consentRecords     ConsentRecord[]
+  documents          Document[]
+  suitabilityChecks  SuitabilityCheck[]
+  voiceCalls         VoiceCall[]
+  repaymentPlans     RepaymentPlan[]
+  acknowledgments    ProductAcknowledgment[]
+  achAuthorizations  AchAuthorization[]
+  vendorTradelines   VendorTradeline[]
+  smsMessages        SmsMessage[]
+  costCalculations   CostCalculation[]
+  creditBuilderSteps CreditBuilderStep[]
+  graduationEvents   GraduationEvent[]
 
   @@index([tenantId, status])
   @@map("businesses")
 }
 
 model BusinessOwner {
-  id                  String   @id @default(uuid())
-  businessId          String
-  firstName           String
-  lastName            String
-  /** Role at the business, e.g. "CEO". Rendered on the client profile card
-   *  since before it was a column, so it always read blank. */
-  title               String?
-  ownershipPercent    Decimal
-  ssn                 String?
+  id                String    @id @default(uuid())
+  businessId        String
+  firstName         String
+  lastName          String
+  /**
+   * Role at the business, e.g. "CEO". Rendered on the client profile card
+   * since before it was a column, so it always read blank.
+   */
+  title             String?
+  ownershipPercent  Decimal
+  ssn               String?
   /**
    * Last four digits only.
-   *
    * The add-owner form asks for four digits; `ssn` holds a full nine and its
    * validator rejects anything shorter. Keeping them apart means the short
    * form cannot quietly become the record of a full SSN, and nothing here
    * stores more of one than it needs.
    */
-  ssnLast4            String?
-  dateOfBirth         DateTime?
-  address             Json?
-  /** Whether this owner personally guarantees the debt. Also rendered on the
-   *  profile card ("PG: Yes"/"PG: No") before it could be recorded, so it
-   *  answered "No" for everyone. */
-  personalGuarantee   Boolean  @default(false)
-  isBeneficialOwner   Boolean  @default(true)
-  kycStatus           String   @default("pending")
-  kycVerifiedAt       DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  ssnLast4          String?
+  dateOfBirth       DateTime?
+  address           Json?
+  /**
+   * Whether this owner personally guarantees the debt. Also rendered on the
+   * profile card ("PG: Yes"/"PG: No") before it could be recorded, so it
+   * answered "No" for everyone.
+   */
+  personalGuarantee Boolean   @default(false)
+  isBeneficialOwner Boolean   @default(true)
+  kycStatus         String    @default("pending")
+  kycVerifiedAt     DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  business            Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@map("business_owners")
 }
@@ -275,27 +325,27 @@ model BusinessOwner {
 // ============================================================
 
 model CreditProfile {
-  id                  String   @id @default(uuid())
-  businessId          String
-  profileType         String   // personal | business
-  bureau              String   // equifax | transunion | experian | dnb
-  score               Int?
+  id              String   @id @default(uuid())
+  businessId      String
+  profileType     String // personal | business
+  bureau          String // equifax | transunion | experian | dnb
+  score           Int?
   /// fico | vantage | sbss | paydex | intelliscore
   ///
   /// The name of the product, not a category: `intelliscore` is Experian's
   /// business score (1–100) and `sbss` is FICO's (0–300). Business pulls were
   /// written as `sbss` whatever bureau produced them, which made the reader
   /// for Experian's card unsatisfiable.
-  scoreType           String?
-  utilization         Decimal?
-  inquiryCount        Int?
-  derogatoryCount     Int?
-  tradelines          Json?
-  rawData             Json?
-  pulledAt            DateTime
-  createdAt           DateTime @default(now())
+  scoreType       String?
+  utilization     Decimal?
+  inquiryCount    Int?
+  derogatoryCount Int?
+  tradelines      Json?
+  rawData         Json?
+  pulledAt        DateTime
+  createdAt       DateTime @default(now())
 
-  business            Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@index([businessId, bureau, pulledAt])
   @@map("credit_profiles")
@@ -306,35 +356,35 @@ model CreditProfile {
 // ============================================================
 
 model FundingRound {
-  id                  String   @id @default(uuid())
-  businessId          String
-  roundNumber         Int
-  targetCredit        Decimal?
-  targetCardCount     Int?
-  status              String   @default("planning")
-  aprExpiryDate       DateTime?
-  alertSent60         Boolean  @default(false)
-  alertSent30         Boolean  @default(false)
-  alertSent15         Boolean  @default(false)
-  startedAt           DateTime?
-  completedAt         DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id              String    @id @default(uuid())
+  businessId      String
+  roundNumber     Int
+  targetCredit    Decimal?
+  targetCardCount Int?
+  status          String    @default("planning")
+  aprExpiryDate   DateTime?
+  alertSent60     Boolean   @default(false)
+  alertSent30     Boolean   @default(false)
+  alertSent15     Boolean   @default(false)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  business            Business @relation(fields: [businessId], references: [id])
-  applications        CardApplication[]
+  business     Business          @relation(fields: [businessId], references: [id])
+  applications CardApplication[]
 
   @@unique([businessId, roundNumber])
   @@map("funding_rounds")
 }
 
 model CardApplication {
-  id                  String   @id @default(uuid())
+  id                  String    @id @default(uuid())
   businessId          String
   fundingRoundId      String?
   issuer              String
   cardProduct         String
-  status              String   @default("draft")
+  status              String    @default("draft")
   creditLimit         Decimal?
   introApr            Decimal?
   introAprExpiry      DateTime?
@@ -350,11 +400,11 @@ model CardApplication {
   cancelledAt         DateTime?
   declineReason       String?
   adverseActionNotice Json?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  business            Business @relation(fields: [businessId], references: [id])
-  fundingRound        FundingRound? @relation(fields: [fundingRoundId], references: [id])
+  business     Business      @relation(fields: [businessId], references: [id])
+  fundingRound FundingRound? @relation(fields: [fundingRoundId], references: [id])
 
   @@index([businessId, status])
   @@map("card_applications")
@@ -374,7 +424,7 @@ model SuitabilityCheck {
   overrideReason      String?
   createdAt           DateTime @default(now())
 
-  business            Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@map("suitability_checks")
 }
@@ -384,21 +434,21 @@ model SuitabilityCheck {
 // ============================================================
 
 model ConsentRecord {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String?
-  channel             String   // voice | sms | email | partner | document
-  consentType         String   // tcpa | data_sharing | referral | application
-  status              String   @default("active") // active | revoked | expired
-  grantedAt           DateTime @default(now())
-  revokedAt           DateTime?
-  revocationReason    String?
-  ipAddress           String?
-  evidenceRef         String?
-  metadata            Json?
+  id               String    @id @default(uuid())
+  tenantId         String
+  businessId       String?
+  channel          String // voice | sms | email | partner | document
+  consentType      String // tcpa | data_sharing | referral | application
+  status           String    @default("active") // active | revoked | expired
+  grantedAt        DateTime  @default(now())
+  revokedAt        DateTime?
+  revocationReason String?
+  ipAddress        String?
+  evidenceRef      String?
+  metadata         Json?
 
-  tenant              Tenant   @relation(fields: [tenantId], references: [id])
-  business            Business? @relation(fields: [businessId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  business Business? @relation(fields: [businessId], references: [id])
 
   @@index([tenantId, businessId, channel])
   @@index([status])
@@ -406,35 +456,35 @@ model ConsentRecord {
 }
 
 model ProductAcknowledgment {
-  id                  String   @id @default(uuid())
-  businessId          String
-  acknowledgmentType  String   // product_reality | fee_schedule | personal_guarantee | cash_advance_risk
-  version             String
-  signedAt            DateTime
-  signatureRef        String?
-  documentVaultId     String?
-  metadata            Json?
-  createdAt           DateTime @default(now())
+  id                 String   @id @default(uuid())
+  businessId         String
+  acknowledgmentType String // product_reality | fee_schedule | personal_guarantee | cash_advance_risk
+  version            String
+  signedAt           DateTime
+  signatureRef       String?
+  documentVaultId    String?
+  metadata           Json?
+  createdAt          DateTime @default(now())
 
-  business            Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@map("product_acknowledgments")
 }
 
 model ComplianceCheck {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String?
-  checkType           String   // udap | state_law | vendor | kyb
-  riskScore           Int?
-  riskLevel           String?  // low | medium | high | critical
-  findings            Json?
-  stateJurisdiction   String?
-  resolvedAt          DateTime?
-  createdAt           DateTime @default(now())
+  id                String    @id @default(uuid())
+  tenantId          String
+  businessId        String?
+  checkType         String // udap | state_law | vendor | kyb
+  riskScore         Int?
+  riskLevel         String? // low | medium | high | critical
+  findings          Json?
+  stateJurisdiction String?
+  resolvedAt        DateTime?
+  createdAt         DateTime  @default(now())
 
-  tenant              Tenant   @relation(fields: [tenantId], references: [id])
-  business            Business? @relation(fields: [businessId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  business Business? @relation(fields: [businessId], references: [id])
 
   @@index([tenantId, checkType])
   @@map("compliance_checks")
@@ -445,37 +495,37 @@ model ComplianceCheck {
 // ============================================================
 
 model AchAuthorization {
-  id                  String   @id @default(uuid())
-  businessId          String
-  processorName       String
-  authorizedAmount    Decimal?
-  authorizedFrequency String?
-  status              String   @default("active") // active | revoked | suspended
-  signedDocumentRef   String?
-  authorizedAt        DateTime
-  revokedAt           DateTime?
+  id                   String    @id @default(uuid())
+  businessId           String
+  processorName        String
+  authorizedAmount     Decimal?
+  authorizedFrequency  String?
+  status               String    @default("active") // active | revoked | suspended
+  signedDocumentRef    String?
+  authorizedAt         DateTime
+  revokedAt            DateTime?
   revocationNotifiedAt DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  business            Business @relation(fields: [businessId], references: [id])
-  debitEvents         DebitEvent[]
+  business    Business     @relation(fields: [businessId], references: [id])
+  debitEvents DebitEvent[]
 
   @@map("ach_authorizations")
 }
 
 model DebitEvent {
-  id                  String   @id @default(uuid())
-  authorizationId     String
-  amount              Decimal
-  frequency           String?
-  isWithinTolerance   Boolean  @default(true)
-  flagged             Boolean  @default(false)
-  flagReason          String?
-  processedAt         DateTime
-  createdAt           DateTime @default(now())
+  id                String   @id @default(uuid())
+  authorizationId   String
+  amount            Decimal
+  frequency         String?
+  isWithinTolerance Boolean  @default(true)
+  flagged           Boolean  @default(false)
+  flagReason        String?
+  processedAt       DateTime
+  createdAt         DateTime @default(now())
 
-  authorization       AchAuthorization @relation(fields: [authorizationId], references: [id])
+  authorization AchAuthorization @relation(fields: [authorizationId], references: [id])
 
   @@map("debit_events")
 }
@@ -485,22 +535,22 @@ model DebitEvent {
 // ============================================================
 
 model CostCalculation {
-  id                  String   @id @default(uuid())
-  businessId          String
-  programFees         Decimal  @default(0)
-  percentOfFunding    Decimal  @default(0)
-  annualFees          Decimal  @default(0)
-  cashAdvanceFees     Decimal  @default(0)
-  processorFees       Decimal  @default(0)
-  totalCost           Decimal  @default(0)
-  effectiveApr        Decimal?
-  irc163jImpact       Decimal?
-  bestCaseFlow        Json?
-  baseCaseFlow        Json?
-  worstCaseFlow       Json?
-  createdAt           DateTime @default(now())
+  id               String   @id @default(uuid())
+  businessId       String
+  programFees      Decimal  @default(0)
+  percentOfFunding Decimal  @default(0)
+  annualFees       Decimal  @default(0)
+  cashAdvanceFees  Decimal  @default(0)
+  processorFees    Decimal  @default(0)
+  totalCost        Decimal  @default(0)
+  effectiveApr     Decimal?
+  irc163jImpact    Decimal?
+  bestCaseFlow     Json?
+  baseCaseFlow     Json?
+  worstCaseFlow    Json?
+  createdAt        DateTime @default(now())
 
-  business            Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@map("cost_calculations")
 }
@@ -510,18 +560,18 @@ model CostCalculation {
 // ============================================================
 
 model LedgerEvent {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  eventType           String
-  aggregateType       String
-  aggregateId         String
-  payload             Json
-  metadata            Json?
-  version             Int      @default(1)
-  publishedAt         DateTime @default(now())
-  processedAt         DateTime?
+  id            String    @id @default(uuid())
+  tenantId      String
+  eventType     String
+  aggregateType String
+  aggregateId   String
+  payload       Json
+  metadata      Json?
+  version       Int       @default(1)
+  publishedAt   DateTime  @default(now())
+  processedAt   DateTime?
 
-  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId, eventType])
   @@index([aggregateType, aggregateId])
@@ -534,23 +584,23 @@ model LedgerEvent {
 // ============================================================
 
 model Document {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String?
-  documentType        String
-  title               String
-  storageKey          String
-  mimeType            String?
-  sizeBytes           Int?
-  sha256Hash          String?
-  cryptoTimestamp      String?
-  legalHold           Boolean  @default(false)
-  metadata            Json?
-  uploadedBy          String?
-  createdAt           DateTime @default(now())
+  id              String   @id @default(uuid())
+  tenantId        String
+  businessId      String?
+  documentType    String
+  title           String
+  storageKey      String
+  mimeType        String?
+  sizeBytes       Int?
+  sha256Hash      String?
+  cryptoTimestamp String?
+  legalHold       Boolean  @default(false)
+  metadata        Json?
+  uploadedBy      String?
+  createdAt       DateTime @default(now())
 
-  tenant              Tenant   @relation(fields: [tenantId], references: [id])
-  business            Business? @relation(fields: [businessId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  business Business? @relation(fields: [businessId], references: [id])
 
   @@index([tenantId, documentType])
   @@index([businessId])
@@ -562,21 +612,21 @@ model Document {
 // ============================================================
 
 model DeclineRecovery {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  applicationId       String
-  issuer              String
-  declineReasons      Json
-  adverseActionRaw    String?
-  reconsiderationStatus String @default("pending")
-  reconsiderationNotes String?
-  reapplyCooldownDate DateTime?
-  letterGenerated     Boolean  @default(false)
-  recoveryStage       String   @default("new")
-  resolvedAt          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                    String    @id @default(uuid())
+  tenantId              String
+  businessId            String
+  applicationId         String
+  issuer                String
+  declineReasons        Json
+  adverseActionRaw      String?
+  reconsiderationStatus String    @default("pending")
+  reconsiderationNotes  String?
+  reapplyCooldownDate   DateTime?
+  letterGenerated       Boolean   @default(false)
+  recoveryStage         String    @default("new")
+  resolvedAt            DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@index([tenantId, businessId])
   @@map("decline_recoveries")
@@ -587,42 +637,42 @@ model DeclineRecovery {
 // ============================================================
 
 model RepaymentPlan {
-  id                  String   @id @default(uuid())
+  id                  String    @id @default(uuid())
   tenantId            String
   businessId          String
   totalBalance        Decimal
   monthlyPayment      Decimal?
-  strategy            String   @default("avalanche")
-  status              String   @default("active")
+  strategy            String    @default("avalanche")
+  status              String    @default("active")
   interestShockDate   DateTime?
   interestShockAmount Decimal?
   nextPaymentDate     DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  schedules           PaymentSchedule[]
-  business            Business @relation(fields: [businessId], references: [id])
+  schedules PaymentSchedule[]
+  business  Business          @relation(fields: [businessId], references: [id])
 
   @@index([tenantId, businessId])
   @@map("repayment_plans")
 }
 
 model PaymentSchedule {
-  id                  String   @id @default(uuid())
-  repaymentPlanId     String
-  cardApplicationId   String?
-  issuer              String
-  dueDate             DateTime
-  minimumPayment      Decimal
-  recommendedPayment  Decimal?
-  actualPayment       Decimal?
-  status              String   @default("upcoming")
-  autopayEnabled      Boolean  @default(false)
-  autopayVerified     Boolean  @default(false)
-  paidAt              DateTime?
-  createdAt           DateTime @default(now())
+  id                 String    @id @default(uuid())
+  repaymentPlanId    String
+  cardApplicationId  String?
+  issuer             String
+  dueDate            DateTime
+  minimumPayment     Decimal
+  recommendedPayment Decimal?
+  actualPayment      Decimal?
+  status             String    @default("upcoming")
+  autopayEnabled     Boolean   @default(false)
+  autopayVerified    Boolean   @default(false)
+  paidAt             DateTime?
+  createdAt          DateTime  @default(now())
 
-  repaymentPlan       RepaymentPlan @relation(fields: [repaymentPlanId], references: [id])
+  repaymentPlan RepaymentPlan @relation(fields: [repaymentPlanId], references: [id])
 
   @@index([repaymentPlanId, dueDate])
   @@map("payment_schedules")
@@ -633,22 +683,22 @@ model PaymentSchedule {
 // ============================================================
 
 model SpendTransaction {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  cardApplicationId   String?
-  amount              Decimal
-  merchantName        String?
-  mcc                 String?
-  mccCategory         String?
-  riskScore           Int?
-  isCashLike          Boolean  @default(false)
-  businessPurpose     String?
-  evidenceDocId       String?
-  flagged             Boolean  @default(false)
-  flagReason          String?
-  transactionDate     DateTime
-  createdAt           DateTime @default(now())
+  id                String   @id @default(uuid())
+  tenantId          String
+  businessId        String
+  cardApplicationId String?
+  amount            Decimal
+  merchantName      String?
+  mcc               String?
+  mccCategory       String?
+  riskScore         Int?
+  isCashLike        Boolean  @default(false)
+  businessPurpose   String?
+  evidenceDocId     String?
+  flagged           Boolean  @default(false)
+  flagReason        String?
+  transactionDate   DateTime
+  createdAt         DateTime @default(now())
 
   @@index([tenantId, businessId])
   @@index([mcc])
@@ -660,30 +710,30 @@ model SpendTransaction {
 // ============================================================
 
 model RewardsOptimization {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  cardApplicationId   String
-  mccCategory         String
-  rewardsRate         Decimal
-  annualValue         Decimal?
-  isOptimalCard       Boolean  @default(false)
-  createdAt           DateTime @default(now())
+  id                String   @id @default(uuid())
+  tenantId          String
+  businessId        String
+  cardApplicationId String
+  mccCategory       String
+  rewardsRate       Decimal
+  annualValue       Decimal?
+  isOptimalCard     Boolean  @default(false)
+  createdAt         DateTime @default(now())
 
   @@index([tenantId, businessId])
   @@map("rewards_optimizations")
 }
 
 model CardBenefit {
-  id                  String   @id @default(uuid())
-  cardApplicationId   String
-  benefitType         String
-  benefitName         String
-  benefitValue        Decimal?
-  expiryDate          DateTime?
-  utilized            Boolean  @default(false)
-  utilizedDate        DateTime?
-  createdAt           DateTime @default(now())
+  id                String    @id @default(uuid())
+  cardApplicationId String
+  benefitType       String
+  benefitName       String
+  benefitValue      Decimal?
+  expiryDate        DateTime?
+  utilized          Boolean   @default(false)
+  utilizedDate      DateTime?
+  createdAt         DateTime  @default(now())
 
   @@map("card_benefits")
 }
@@ -693,20 +743,20 @@ model CardBenefit {
 // ============================================================
 
 model Invoice {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  invoiceNumber       String
-  type                String
-  amount              Decimal
-  feeBreakdown        Json?
-  status              String   @default("draft")
-  issuedAt            DateTime?
-  dueDate             DateTime?
-  paidAt              DateTime?
-  stripePaymentId     String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id              String    @id @default(uuid())
+  tenantId        String
+  businessId      String
+  invoiceNumber   String
+  type            String
+  amount          Decimal
+  feeBreakdown    Json?
+  status          String    @default("draft")
+  issuedAt        DateTime?
+  dueDate         DateTime?
+  paidAt          DateTime?
+  stripePaymentId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId, businessId])
@@ -714,17 +764,17 @@ model Invoice {
 }
 
 model CommissionRecord {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  invoiceId           String?
-  partnerId           String?
-  advisorId           String?
-  amount              Decimal
-  percentage          Decimal?
-  type                String
-  status              String   @default("pending")
-  paidAt              DateTime?
-  createdAt           DateTime @default(now())
+  id         String    @id @default(uuid())
+  tenantId   String
+  invoiceId  String?
+  partnerId  String?
+  advisorId  String?
+  amount     Decimal
+  percentage Decimal?
+  type       String
+  status     String    @default("pending")
+  paidAt     DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([tenantId])
   @@map("commission_records")
@@ -735,22 +785,22 @@ model CommissionRecord {
 // ============================================================
 
 model StatementRecord {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  cardApplicationId   String?
-  issuer              String
-  statementDate       DateTime
-  closingBalance      Decimal?
-  minimumPayment      Decimal?
-  dueDate             DateTime?
-  interestCharged     Decimal?
-  feesCharged         Decimal?
-  sourceDocumentId    String?
-  normalizedData      Json?
-  anomalies           Json?
-  reconciled          Boolean  @default(false)
-  createdAt           DateTime @default(now())
+  id                String    @id @default(uuid())
+  tenantId          String
+  businessId        String
+  cardApplicationId String?
+  issuer            String
+  statementDate     DateTime
+  closingBalance    Decimal?
+  minimumPayment    Decimal?
+  dueDate           DateTime?
+  interestCharged   Decimal?
+  feesCharged       Decimal?
+  sourceDocumentId  String?
+  normalizedData    Json?
+  anomalies         Json?
+  reconciled        Boolean   @default(false)
+  createdAt         DateTime  @default(now())
 
   @@index([tenantId, businessId])
   @@map("statement_records")
@@ -761,20 +811,20 @@ model StatementRecord {
 // ============================================================
 
 model DealCommitteeReview {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  riskTier            String
-  status              String   @default("pending")
-  redFlagChecklist    Json?
-  committeeNotes      String?
-  conditions          Json?
-  counselSignoff      Boolean  @default(false)
-  accountantSignoff   Boolean  @default(false)
-  reviewedBy          Json?
-  decidedAt           DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                String    @id @default(uuid())
+  tenantId          String
+  businessId        String
+  riskTier          String
+  status            String    @default("pending")
+  redFlagChecklist  Json?
+  committeeNotes    String?
+  conditions        Json?
+  counselSignoff    Boolean   @default(false)
+  accountantSignoff Boolean   @default(false)
+  reviewedBy        Json?
+  decidedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@map("deal_committee_reviews")
@@ -785,19 +835,19 @@ model DealCommitteeReview {
 // ============================================================
 
 model HardshipCase {
-  id                  String   @id @default(uuid())
+  id                  String    @id @default(uuid())
   tenantId            String
   businessId          String
   triggerType         String
   severity            String
-  status              String   @default("open")
+  status              String    @default("open")
   paymentPlan         Json?
   settlementOffer     Json?
   counselorReferral   String?
   cardClosureSequence Json?
   resolvedAt          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@map("hardship_cases")
@@ -808,24 +858,24 @@ model HardshipCase {
 // ============================================================
 
 model Complaint {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String?
-  category            String
-  subcategory         String?
-  source              String
-  severity            String   @default("medium")
-  status              String   @default("open")
-  description         String
-  evidenceDocIds      Json?
-  callRecordIds       Json?
-  rootCause           String?
-  resolution          String?
-  assignedTo          String?
-  escalatedTo         String?
-  resolvedAt          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id             String    @id @default(uuid())
+  tenantId       String
+  businessId     String?
+  category       String
+  subcategory    String?
+  source         String
+  severity       String    @default("medium")
+  status         String    @default("open")
+  description    String
+  evidenceDocIds Json?
+  callRecordIds  Json?
+  rootCause      String?
+  resolution     String?
+  assignedTo     String?
+  escalatedTo    String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@index([category])
@@ -837,19 +887,19 @@ model Complaint {
 // ============================================================
 
 model Partner {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  name                String
-  type                String
-  status              String   @default("active")
-  complianceScore     Int?
-  dueDiligenceStatus  String   @default("pending")
-  contractId          String?
-  onboardedAt         DateTime?
-  nextReviewDate      DateTime?
-  metadata            Json?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  tenantId           String
+  name               String
+  type               String
+  status             String    @default("active")
+  complianceScore    Int?
+  dueDiligenceStatus String    @default("pending")
+  contractId         String?
+  onboardedAt        DateTime?
+  nextReviewDate     DateTime?
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   referralAttributions ReferralAttribution[]
 
@@ -862,17 +912,17 @@ model Partner {
 // ============================================================
 
 model ContractAnalysis {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  partnerId           String?
-  documentId          String?
-  contractType        String
-  extractedClauses    Json?
-  redFlags            Json?
-  missingProtections  Json?
-  riskScore           Int?
-  analyzedAt          DateTime @default(now())
-  createdAt           DateTime @default(now())
+  id                 String   @id @default(uuid())
+  tenantId           String
+  partnerId          String?
+  documentId         String?
+  contractType       String
+  extractedClauses   Json?
+  redFlags           Json?
+  missingProtections Json?
+  riskScore          Int?
+  analyzedAt         DateTime @default(now())
+  createdAt          DateTime @default(now())
 
   @@index([tenantId])
   @@map("contract_analyses")
@@ -883,33 +933,33 @@ model ContractAnalysis {
 // ============================================================
 
 model CommComplianceRecord {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  advisorId           String
-  channel             String
-  content             String?
-  violations          Json?
-  riskScore           Int?
-  approved            Boolean?
-  reviewedAt          DateTime?
-  createdAt           DateTime @default(now())
+  id         String    @id @default(uuid())
+  tenantId   String
+  advisorId  String
+  channel    String
+  content    String?
+  violations Json?
+  riskScore  Int?
+  approved   Boolean?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([tenantId, advisorId])
   @@map("comm_compliance_records")
 }
 
 model ApprovedScript {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  name                String
-  category            String
-  content             String
-  version             String
-  isActive            Boolean  @default(true)
-  approvedBy          String?
-  approvedAt          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id         String    @id @default(uuid())
+  tenantId   String
+  name       String
+  category   String
+  content    String
+  version    String
+  isActive   Boolean   @default(true)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([tenantId, category])
   @@map("approved_scripts")
@@ -920,17 +970,17 @@ model ApprovedScript {
 // ============================================================
 
 model TrainingCertification {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  userId              String
-  trackName           String
-  status              String   @default("not_started")
-  score               Int?
-  completedAt         DateTime?
-  expiresAt           DateTime?
-  certificateRef      String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id             String    @id @default(uuid())
+  tenantId       String
+  userId         String
+  trackName      String
+  status         String    @default("not_started")
+  score          Int?
+  completedAt    DateTime?
+  expiresAt      DateTime?
+  certificateRef String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([tenantId, userId])
   @@map("training_certifications")
@@ -941,29 +991,28 @@ model TrainingCertification {
 // ============================================================
 
 model DisclosureTemplate {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  state               String
-  category            String
-  name                String
-  content             String
-  version             String
-  effectiveDate       DateTime
-  isActive            Boolean  @default(true)
+  id            String    @id @default(uuid())
+  tenantId      String
+  state         String
+  category      String
+  name          String
+  content       String
+  version       String
+  effectiveDate DateTime
+  isActive      Boolean   @default(true)
   /**
    * Where this version stands in review: draft, pending_review, approved,
    * rejected or superseded.
-   *
    * Previously derived from isActive and approvedAt, which can only express
    * three of those five. Submitting a template for review therefore had
    * nowhere to record itself: the endpoint answered 200 and wrote nothing,
    * and the template came back still a draft.
    */
-  status              String   @default("draft")
-  approvedBy          String?
-  approvedAt          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  status        String    @default("draft")
+  approvedBy    String?
+  approvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([tenantId, state, category])
   @@map("disclosure_templates")
@@ -974,33 +1023,33 @@ model DisclosureTemplate {
 // ============================================================
 
 model WorkflowRule {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  name                String
-  conditions          Json
-  actions             Json
-  priority            Int      @default(0)
-  isActive            Boolean  @default(true)
-  triggerEvent        String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  conditions   Json
+  actions      Json
+  priority     Int      @default(0)
+  isActive     Boolean  @default(true)
+  triggerEvent String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([tenantId, isActive])
   @@map("workflow_rules")
 }
 
 model PolicyRule {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  name                String
-  ruleType            String
-  conditions          Json
-  actions             Json
-  stopOnMatch         Boolean  @default(false)
-  version             String
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  ruleType    String
+  conditions  Json
+  actions     Json
+  stopOnMatch Boolean  @default(false)
+  version     String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([tenantId, ruleType])
   @@map("policy_rules")
@@ -1011,20 +1060,20 @@ model PolicyRule {
 // ============================================================
 
 model ReferralAttribution {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  sourceType          String
-  sourceId            String?
-  partnerId           String?
-  channel             String?
-  feeAmount           Decimal?
-  feeStatus           String   @default("pending")
-  consentDocId        String?
-  paidAt              DateTime?
-  createdAt           DateTime @default(now())
+  id           String    @id @default(uuid())
+  tenantId     String
+  businessId   String
+  sourceType   String
+  sourceId     String?
+  partnerId    String?
+  channel      String?
+  feeAmount    Decimal?
+  feeStatus    String    @default("pending")
+  consentDocId String?
+  paidAt       DateTime?
+  createdAt    DateTime  @default(now())
 
-  partner             Partner? @relation(fields: [partnerId], references: [id])
+  partner Partner? @relation(fields: [partnerId], references: [id])
 
   @@index([tenantId, businessId])
   @@map("referral_attributions")
@@ -1035,21 +1084,23 @@ model ReferralAttribution {
 // ============================================================
 
 model RegulatoryAlert {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  source              String
-  ruleType            String
-  title               String
-  summary             String
-  impactScore         Int?
-  affectedModules     Json?
-  status              String   @default("new")
-  reviewedBy          String?
-  reviewedAt          DateTime?
-  effectiveDate       DateTime?
-  /** Free-form response/workflow state written by regulator-response.service */
-  metadata            Json?
-  createdAt           DateTime @default(now())
+  id              String    @id @default(uuid())
+  tenantId        String
+  source          String
+  ruleType        String
+  title           String
+  summary         String
+  impactScore     Int?
+  affectedModules Json?
+  status          String    @default("new")
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  effectiveDate   DateTime?
+  /**
+   * Free-form response/workflow state written by regulator-response.service
+   */
+  metadata        Json?
+  createdAt       DateTime  @default(now())
 
   @@index([tenantId, status])
   @@map("regulatory_alerts")
@@ -1060,31 +1111,31 @@ model RegulatoryAlert {
 // ============================================================
 
 model PipelineStage {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  stage               String
-  enteredAt           DateTime @default(now())
-  exitedAt            DateTime?
-  advisorId           String?
-  notes               String?
+  id         String    @id @default(uuid())
+  tenantId   String
+  businessId String
+  stage      String
+  enteredAt  DateTime  @default(now())
+  exitedAt   DateTime?
+  advisorId  String?
+  notes      String?
 
   @@index([tenantId, stage])
   @@map("pipeline_stages")
 }
 
 model AdvisorQaScore {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  advisorId           String
-  callRecordId        String?
-  overallScore        Int
-  complianceScore     Int?
-  scriptAdherence     Int?
-  consentCapture      Int?
-  riskClaimAvoidance  Int?
-  feedback            String?
-  scoredAt            DateTime @default(now())
+  id                 String   @id @default(uuid())
+  tenantId           String
+  advisorId          String
+  callRecordId       String?
+  overallScore       Int
+  complianceScore    Int?
+  scriptAdherence    Int?
+  consentCapture     Int?
+  riskClaimAvoidance Int?
+  feedback           String?
+  scoredAt           DateTime @default(now())
 
   @@index([tenantId, advisorId])
   @@map("advisor_qa_scores")
@@ -1095,31 +1146,31 @@ model AdvisorQaScore {
 // ============================================================
 
 model TenantPlan {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  planName            String
-  moduleEntitlements  Json
-  usageLimits         Json?
-  monthlyPrice        Decimal?
-  billingCycle        String   @default("monthly")
-  startDate           DateTime
-  endDate             DateTime?
-  status              String   @default("active")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  tenantId           String
+  planName           String
+  moduleEntitlements Json
+  usageLimits        Json?
+  monthlyPrice       Decimal?
+  billingCycle       String    @default("monthly")
+  startDate          DateTime
+  endDate            DateTime?
+  status             String    @default("active")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([tenantId])
   @@map("tenant_plans")
 }
 
 model UsageMeter {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  metricName          String
-  metricValue         Int      @default(0)
-  periodStart         DateTime
-  periodEnd           DateTime
-  createdAt           DateTime @default(now())
+  id          String   @id @default(uuid())
+  tenantId    String
+  metricName  String
+  metricValue Int      @default(0)
+  periodStart DateTime
+  periodEnd   DateTime
+  createdAt   DateTime @default(now())
 
   @@index([tenantId, metricName, periodStart])
   @@map("usage_meters")
@@ -1152,18 +1203,18 @@ model IssuerContact {
 // ============================================================
 
 model FairLendingRecord {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  applicationId       String?
-  demographicData     Json?
-  businessType        String?
-  creditPurpose       String?
-  actionTaken         String?
-  actionDate          DateTime?
-  adverseReasons      Json?
-  isFirewalled        Boolean  @default(true)
-  createdAt           DateTime @default(now())
+  id              String    @id @default(uuid())
+  tenantId        String
+  businessId      String
+  applicationId   String?
+  demographicData Json?
+  businessType    String?
+  creditPurpose   String?
+  actionTaken     String?
+  actionDate      DateTime?
+  adverseReasons  Json?
+  isFirewalled    Boolean   @default(true)
+  createdAt       DateTime  @default(now())
 
   @@index([tenantId])
   @@map("fair_lending_records")
@@ -1174,18 +1225,18 @@ model FairLendingRecord {
 // ============================================================
 
 model FundsFlowClassification {
-  id                  String   @id @default(uuid())
+  id                  String    @id @default(uuid())
   tenantId            String
   workflowName        String
   classification      String
   riskBasis           String?
   regulatoryFramework String?
   legalOpinionRef     String?
-  status              String   @default("active")
+  status              String    @default("active")
   reviewedBy          String?
   reviewedAt          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([tenantId, classification])
   @@map("funds_flow_classifications")
@@ -1196,23 +1247,23 @@ model FundsFlowClassification {
 // ============================================================
 
 model OffboardingWorkflow {
-  id                  String   @id @default(uuid())
+  id                  String    @id @default(uuid())
   tenantId            String
   businessId          String?
   offboardingType     String
-  status              String   @default("initiated")
+  status              String    @default("initiated")
   finalInvoiceId      String?
   refundAmount        Decimal?
-  dataExportCompleted Boolean  @default(false)
-  dataDeletionStatus  String   @default("pending")
+  dataExportCompleted Boolean   @default(false)
+  dataDeletionStatus  String    @default("pending")
   deletionProofHash   String?
   retentionSchedule   Json?
   exitReason          String?
   exitInterviewNotes  String?
-  initiatedAt         DateTime @default(now())
+  initiatedAt         DateTime  @default(now())
   completedAt         DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@map("offboarding_workflows")
@@ -1223,19 +1274,19 @@ model OffboardingWorkflow {
 // ============================================================
 
 model AiDecisionLog {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  moduleSource        String
-  decisionType        String
-  inputHash           String?
-  output              Json
-  confidence          Decimal?
-  overriddenBy        String?
-  overrideReason      String?
-  modelVersion        String?
-  promptVersion       String?
-  latencyMs           Int?
-  createdAt           DateTime @default(now())
+  id             String   @id @default(uuid())
+  tenantId       String
+  moduleSource   String
+  decisionType   String
+  inputHash      String?
+  output         Json
+  confidence     Decimal?
+  overriddenBy   String?
+  overrideReason String?
+  modelVersion   String?
+  promptVersion  String?
+  latencyMs      Int?
+  createdAt      DateTime @default(now())
 
   @@index([tenantId, moduleSource])
   @@map("ai_decision_logs")
@@ -1246,13 +1297,13 @@ model AiDecisionLog {
 // ============================================================
 
 model SandboxProfile {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  profileName         String
-  archetype           String
-  profileData         Json
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
+  id          String   @id @default(uuid())
+  tenantId    String
+  profileName String
+  archetype   String
+  profileData Json
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
 
   @@index([tenantId])
   @@map("sandbox_profiles")
@@ -1265,7 +1316,7 @@ model SandboxProfile {
 model AiGenerationLog {
   id           String   @id @default(uuid())
   tenantId     String
-  feature      String   // chat | document_generation | optimizer | suitability
+  feature      String // chat | document_generation | optimizer | suitability
   model        String
   inputTokens  Int      @default(0)
   outputTokens Int      @default(0)
@@ -1281,15 +1332,15 @@ model AiGenerationLog {
 // ============================================================
 
 model BackupRecord {
-  id                  String   @id @default(uuid())
-  tenantId            String?
-  backupType          String
-  status              String   @default("completed")
-  sizeBytes           Int?
-  storageLocation     String?
-  retentionDays       Int      @default(90)
-  expiresAt           DateTime?
-  createdAt           DateTime @default(now())
+  id              String    @id @default(uuid())
+  tenantId        String?
+  backupType      String
+  status          String    @default("completed")
+  sizeBytes       Int?
+  storageLocation String?
+  retentionDays   Int       @default(90)
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
 
   @@index([backupType, createdAt])
   @@map("backup_records")
@@ -1300,39 +1351,39 @@ model BackupRecord {
 // ============================================================
 
 model Issuer {
-  id                  String       @id @default(uuid())
-  name                String       @unique
-  slug                String       @unique
-  type                String       // bank | credit_union | fintech
-  logoUrl             String?
-  phoneRecon          String?
-  isActive            Boolean      @default(true)
-  notes               String?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  id         String   @id @default(uuid())
+  name       String   @unique
+  slug       String   @unique
+  type       String // bank | credit_union | fintech
+  logoUrl    String?
+  phoneRecon String?
+  isActive   Boolean  @default(true)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  rules               IssuerRule[]
+  rules IssuerRule[]
 
   @@map("issuers")
 }
 
 model IssuerRule {
-  id                  String   @id @default(uuid())
-  issuerId            String
-  ruleType            String   // velocity_max_apps_per_period | velocity_cooldown_days | once_per_lifetime | score_minimum | business_age_minimum | revenue_minimum | inquiry_maximum | utilization_maximum | blackout_after_decline | portfolio_maximum | membership_required | geographic_restriction | relationship_requirement
-  name                String
-  description         String?
-  value               Float?
-  periodDays          Int?
-  severity            String   @default("hard") // hard | soft
-  effectiveDate       DateTime @default(now())
-  sourceUrl           String?
-  lastVerified        DateTime?
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id            String    @id @default(uuid())
+  issuerId      String
+  ruleType      String // velocity_max_apps_per_period | velocity_cooldown_days | once_per_lifetime | score_minimum | business_age_minimum | revenue_minimum | inquiry_maximum | utilization_maximum | blackout_after_decline | portfolio_maximum | membership_required | geographic_restriction | relationship_requirement
+  name          String
+  description   String?
+  value         Float?
+  periodDays    Int?
+  severity      String    @default("hard") // hard | soft
+  effectiveDate DateTime  @default(now())
+  sourceUrl     String?
+  lastVerified  DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  issuer              Issuer   @relation(fields: [issuerId], references: [id])
+  issuer Issuer @relation(fields: [issuerId], references: [id])
 
   @@index([issuerId, ruleType])
   @@index([isActive])
@@ -1344,48 +1395,48 @@ model IssuerRule {
 // ============================================================
 
 model CreditUnion {
-  id                    String              @id @default(uuid())
-  name                  String
-  slug                  String              @unique
-  charterNumber         String?
-  membershipCriteria    String?
-  openMembership        Boolean             @default(false)
-  joinFee               Float?
-  assetMillions         Float?
-  businessCardsOffered  Boolean             @default(false)
-  notes                 String?
-  isActive              Boolean             @default(true)
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
+  id                   String   @id @default(uuid())
+  name                 String
+  slug                 String   @unique
+  charterNumber        String?
+  membershipCriteria   String?
+  openMembership       Boolean  @default(false)
+  joinFee              Float?
+  assetMillions        Float?
+  businessCardsOffered Boolean  @default(false)
+  notes                String?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  products              CreditUnionProduct[]
+  products CreditUnionProduct[]
 
   @@map("credit_unions")
 }
 
 model CreditUnionProduct {
-  id                    String      @id @default(uuid())
-  creditUnionId         String
-  productName           String
-  productType           String      // business_credit_card | personal_credit_card | business_loan | line_of_credit
-  maxLimit              Float?
-  aprIntro              Float?
-  aprIntroMonths        Int?
-  aprPostPromo          Float?
-  annualFee             Float?
-  scoreMinimum          Int?
-  businessAgeMinimum    Int?
-  revenueMinimum        Float?
-  rewardsType           String?
-  rewardsRate           Float?
-  personalGuarantee     Boolean     @default(true)
-  hardPull              Boolean     @default(true)
-  notes                 String?
-  isActive              Boolean     @default(true)
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
+  id                 String   @id @default(uuid())
+  creditUnionId      String
+  productName        String
+  productType        String // business_credit_card | personal_credit_card | business_loan | line_of_credit
+  maxLimit           Float?
+  aprIntro           Float?
+  aprIntroMonths     Int?
+  aprPostPromo       Float?
+  annualFee          Float?
+  scoreMinimum       Int?
+  businessAgeMinimum Int?
+  revenueMinimum     Float?
+  rewardsType        String?
+  rewardsRate        Float?
+  personalGuarantee  Boolean  @default(true)
+  hardPull           Boolean  @default(true)
+  notes              String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  creditUnion           CreditUnion @relation(fields: [creditUnionId], references: [id])
+  creditUnion CreditUnion @relation(fields: [creditUnionId], references: [id])
 
   @@index([creditUnionId, productType])
   @@map("credit_union_products")
@@ -1402,39 +1453,41 @@ model CreditUnionProduct {
 // the services' own create()/select() shapes.
 
 model VoiceCall {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  advisorId           String?
+  id         String  @id @default(uuid())
+  tenantId   String
+  businessId String
+  advisorId  String?
 
   // Twilio linkage
-  twilioCallSid       String?
-  recordingSid        String?
-  recordingUrl        String?
+  twilioCallSid String?
+  recordingSid  String?
+  recordingUrl  String?
 
-  toPhoneNumber       String
-  fromPhoneNumber     String
-  direction           String   // outbound | inbound
-  status              String   @default("queued") // queued | ringing | in_progress | completed | failed | busy | no_answer
+  toPhoneNumber   String
+  fromPhoneNumber String
+  direction       String // outbound | inbound
+  status          String @default("queued") // queued | ringing | in_progress | completed | failed | busy | no_answer
 
-  purpose             String
-  campaignType        String?
-  campaignId          String?
+  purpose      String
+  campaignType String?
+  campaignId   String?
 
-  durationSeconds     Int?
-  transcriptText      String?
-  /** Document Vault entry holding the immutable call log */
-  documentVaultId     String?
+  durationSeconds Int?
+  transcriptText  String?
+  /**
+   * Document Vault entry holding the immutable call log
+   */
+  documentVaultId String?
 
-  startedAt           DateTime?
-  endedAt             DateTime?
-  createdAt           DateTime @default(now())
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
 
-  tenant              Tenant   @relation(fields: [tenantId], references: [id])
-  business            Business @relation(fields: [businessId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
-  complianceScans     CallComplianceScan[]
-  qaScores            CallQaScore[]
+  complianceScans CallComplianceScan[]
+  qaScores        CallQaScore[]
 
   @@index([tenantId, businessId])
   @@index([tenantId, status])
@@ -1443,27 +1496,31 @@ model VoiceCall {
 }
 
 model CallComplianceScan {
-  id                     String   @id @default(uuid())
-  tenantId               String
-  callId                 String
-  advisorId              String
+  id        String @id @default(uuid())
+  tenantId  String
+  callId    String
+  advisorId String
 
   riskScore              Int
-  riskLevel              String   // low | medium | high | critical
-  violationCount         Int      @default(0)
-  criticalViolationCount Int      @default(0)
-  complianceStatus       String   // pass | review | fail
+  riskLevel              String // low | medium | high | critical
+  violationCount         Int    @default(0)
+  criticalViolationCount Int    @default(0)
+  complianceStatus       String // pass | review | fail
 
-  /** Serialised violation and disclosure detail (written with JSON.stringify) */
-  violationsJson         String
-  disclosuresJson        String
+  /**
+   * Serialised violation and disclosure detail (written with JSON.stringify)
+   */
+  violationsJson  String
+  disclosuresJson String
 
-  /** True when scanned mid-call rather than post-call */
-  isLiveScan             Boolean  @default(false)
-  scannedAt              DateTime @default(now())
+  /**
+   * True when scanned mid-call rather than post-call
+   */
+  isLiveScan Boolean  @default(false)
+  scannedAt  DateTime @default(now())
 
-  tenant                 Tenant    @relation(fields: [tenantId], references: [id])
-  call                   VoiceCall @relation(fields: [callId], references: [id])
+  tenant Tenant    @relation(fields: [tenantId], references: [id])
+  call   VoiceCall @relation(fields: [callId], references: [id])
 
   @@index([tenantId, callId])
   @@index([tenantId, complianceStatus])
@@ -1471,25 +1528,25 @@ model CallComplianceScan {
 }
 
 model CallQaScore {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  callId              String
-  advisorId           String
+  id        String @id @default(uuid())
+  tenantId  String
+  callId    String
+  advisorId String
 
-  overallScore        Int
-  complianceScore     Int?
-  scriptAdherence     Int?
-  tcpaHandling        Int?
-  consentCapture      Int?
-  riskClaimAvoidance  Int?
-  disclosureDelivery  Int?
+  overallScore       Int
+  complianceScore    Int?
+  scriptAdherence    Int?
+  tcpaHandling       Int?
+  consentCapture     Int?
+  riskClaimAvoidance Int?
+  disclosureDelivery Int?
 
-  grade               String   // A | B | C | D | F
-  feedback            String?
-  scoredAt            DateTime @default(now())
+  grade    String // A | B | C | D | F
+  feedback String?
+  scoredAt DateTime @default(now())
 
-  tenant              Tenant    @relation(fields: [tenantId], references: [id])
-  call                VoiceCall @relation(fields: [callId], references: [id])
+  tenant Tenant    @relation(fields: [tenantId], references: [id])
+  call   VoiceCall @relation(fields: [callId], references: [id])
 
   @@index([tenantId, advisorId])
   @@index([tenantId, callId])
@@ -1502,24 +1559,28 @@ model CallQaScore {
 // tradeline a client "added" vanished on the next restart.
 
 model VendorTradeline {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  vendor              String
-  creditLimit         Decimal?
-  balance             Decimal  @default(0)
-  /** net_30 | net_60 | net_90 — how long after a charge payment is due. */
-  paymentTerms        String?
-  status              String   @default("open") // open | closed | delinquent
-  /** Bureaus this vendor reports to, e.g. ["D&B","Experian"] */
-  reportsTo           Json?
-  openedDate          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id           String    @id @default(uuid())
+  tenantId     String
+  businessId   String
+  vendor       String
+  creditLimit  Decimal?
+  balance      Decimal   @default(0)
+  /**
+   * net_30 | net_60 | net_90 — how long after a charge payment is due.
+   */
+  paymentTerms String?
+  status       String    @default("open") // open | closed | delinquent
+  /**
+   * Bureaus this vendor reports to, e.g. ["D&B","Experian"]
+   */
+  reportsTo    Json?
+  openedDate   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  business            Business @relation(fields: [businessId], references: [id])
-  disputes            TradelineDispute[]
-  payments            TradelinePayment[]
+  business Business           @relation(fields: [businessId], references: [id])
+  disputes TradelineDispute[]
+  payments TradelinePayment[]
 
   @@index([businessId, status])
   @@index([tenantId])
@@ -1540,25 +1601,28 @@ model VendorTradeline {
 /// than folded in — a mark is a claim about the world, and the two must stay
 /// distinguishable.
 model CreditBuilderStep {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  /** 1–6, matching the DUNS registration track on /credit-builder. */
-  stepNumber          Int
-  completed           Boolean  @default(false)
-  completedAt         DateTime?
-  /** User id of whoever marked it. Null for a step that was never completed. */
-  completedBy         String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id          String    @id @default(uuid())
+  tenantId    String
+  businessId  String
+  /**
+   * 1–6, matching the DUNS registration track on /credit-builder.
+   */
+  stepNumber  Int
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  /**
+   * User id of whoever marked it. Null for a step that was never completed.
+   */
+  completedBy String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, stepNumber])
   @@index([tenantId])
   @@map("credit_builder_steps")
 }
-
 
 /// An observed change in which track a client qualifies for.
 ///
@@ -1576,15 +1640,17 @@ model CreditBuilderStep {
 /// client has, it is a conclusion drawn from their data at a moment. Storing
 /// the conclusion would make it stale the moment anything underneath it moved.
 model GraduationEvent {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String
-  /** Null on the first observation: there was no previous track to move from. */
-  fromTrack           String?
-  toTrack             String
-  observedAt          DateTime @default(now())
+  id         String   @id @default(uuid())
+  tenantId   String
+  businessId String
+  /**
+   * Null on the first observation: there was no previous track to move from.
+   */
+  fromTrack  String?
+  toTrack    String
+  observedAt DateTime @default(now())
 
-  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, observedAt])
   @@index([businessId, observedAt])
@@ -1592,16 +1658,16 @@ model GraduationEvent {
 }
 
 model TradelineDispute {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  tradelineId         String
-  reason              String
-  status              String   @default("pending") // pending | submitted | resolved | rejected
-  resolutionNote      String?
-  filedAt             DateTime @default(now())
-  resolvedAt          DateTime?
+  id             String    @id @default(uuid())
+  tenantId       String
+  tradelineId    String
+  reason         String
+  status         String    @default("pending") // pending | submitted | resolved | rejected
+  resolutionNote String?
+  filedAt        DateTime  @default(now())
+  resolvedAt     DateTime?
 
-  tradeline           VendorTradeline @relation(fields: [tradelineId], references: [id], onDelete: Cascade)
+  tradeline VendorTradeline @relation(fields: [tradelineId], references: [id], onDelete: Cascade)
 
   @@index([tradelineId, status])
   @@index([tenantId])
@@ -1614,17 +1680,21 @@ model TradelineDispute {
 // model existed — so the DNC check silently passed for every recipient.
 
 model DoNotCallList {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  /** E.164 number. Stored normalised so lookups cannot miss on formatting. */
-  phoneNumber         String
-  businessId          String?
-  /** opt_out | manual | litigation | bounce */
-  source              String   @default("opt_out")
-  reason              String?
-  addedAt             DateTime @default(now())
+  id          String   @id @default(uuid())
+  tenantId    String
+  /**
+   * E.164 number. Stored normalised so lookups cannot miss on formatting.
+   */
+  phoneNumber String
+  businessId  String?
+  /**
+   * opt_out | manual | litigation | bounce
+   */
+  source      String   @default("opt_out")
+  reason      String?
+  addedAt     DateTime @default(now())
 
-  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, phoneNumber])
   @@index([phoneNumber])
@@ -1632,27 +1702,33 @@ model DoNotCallList {
 }
 
 model SmsMessage {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  businessId          String?
-  /** Provider message id; null when the send never reached the provider. */
-  providerSid         String?
-  direction           String   @default("outbound") // outbound | inbound
-  toPhoneNumber       String
-  fromPhoneNumber     String
-  body                String
-  /** queued | sent | delivered | failed | undelivered | blocked | received */
-  status              String   @default("queued")
-  /** Why a message was not sent: dnc | no_consent | quiet_hours | no_phone */
-  blockedReason       String?
-  errorCode           String?
-  campaignId          String?
-  purpose             String?
-  sentAt              DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id              String   @id @default(uuid())
+  tenantId        String
+  businessId      String?
+  /**
+   * Provider message id; null when the send never reached the provider.
+   */
+  providerSid     String?
+  direction       String   @default("outbound") // outbound | inbound
+  toPhoneNumber   String
+  fromPhoneNumber String
+  body            String
+  /**
+   * queued | sent | delivered | failed | undelivered | blocked | received
+   */
+  status          String   @default("queued")
+  /**
+   * Why a message was not sent: dnc | no_consent | quiet_hours | no_phone
+   */
+  blockedReason   String?
+  errorCode       String?
+  campaignId      String?
+  purpose         String?
+  sentAt          DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  tenant              Tenant   @relation(fields: [tenantId], references: [id])
-  business            Business? @relation(fields: [businessId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  business Business? @relation(fields: [businessId], references: [id])
 
   @@index([tenantId, campaignId])
   @@index([businessId, sentAt])
@@ -1661,26 +1737,27 @@ model SmsMessage {
 }
 
 model TradelinePayment {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  tradelineId         String
-  amount              Decimal
-  paidOn              DateTime
-  /** When it was due. Null when the caller could not say. */
-  dueOn               DateTime?
+  id          String    @id @default(uuid())
+  tenantId    String
+  tradelineId String
+  amount      Decimal
+  paidOn      DateTime
+  /**
+   * When it was due. Null when the caller could not say.
+   */
+  dueOn       DateTime?
   /**
    * Whether it was paid by the due date.
-   *
    * Null when no due date was known — for a vendor tradeline the whole point
    * is the on-time record that builds PAYDEX, so an unknown must not be
    * recorded as on time.
    */
-  onTime              Boolean?
-  method              String?
-  note                String?
-  createdAt           DateTime @default(now())
+  onTime      Boolean?
+  method      String?
+  note        String?
+  createdAt   DateTime  @default(now())
 
-  tradeline           VendorTradeline @relation(fields: [tradelineId], references: [id], onDelete: Cascade)
+  tradeline VendorTradeline @relation(fields: [tradelineId], references: [id], onDelete: Cascade)
 
   @@index([tradelineId, paidOn])
   @@index([tenantId])

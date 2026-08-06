@@ -13,6 +13,7 @@ import { prisma as sharedPrisma } from '../../config/database.js';
 import {
   createAuthService,
   AuthError,
+  isMfaChallenge,
 }                             from '../../services/auth.service.js';
 import { requireAuth }        from '../../middleware/auth.middleware.js';
 import { ROLES }              from '@shared/constants/index.js';
@@ -115,6 +116,21 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
   try {
     const result = await authSvc.login(parsed.data);
+
+    // An enrolled user gets a challenge, not a session. There are no tokens in
+    // this branch to leak: the second factor gates token issue rather than
+    // following it, which is what makes the challenge more than advisory.
+    if (isMfaChallenge(result)) {
+      res.status(200).json({
+        success: true,
+        data: {
+          mfaRequired:    true,
+          challengeToken: result.challengeToken,
+        },
+      } satisfies ApiResponse);
+      return;
+    }
+
     res.status(200).json({
       success: true,
       data: {

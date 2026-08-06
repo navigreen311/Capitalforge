@@ -5,7 +5,12 @@
 // ============================================================
 
 'use client';
-import { getAccessToken } from '@/lib/session-storage';
+import {
+  setAccessToken,
+  setRefreshToken,
+  setStoredUser,
+  type StoredUser,
+} from '@/lib/session-storage';
 
 import { useState, useRef, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
@@ -87,14 +92,18 @@ export default function TwoFactorPage() {
     setError(null);
 
     try {
-      const token = getAccessToken();
-      const res = await fetch('/api/auth/2fa/verify', {
+      // The challenge token is the credential here, not a session — there is
+      // no session yet. This page used to send the access token that login had
+      // already stored, which meant the user was signed in before arriving.
+      const challengeToken = sessionStorage.getItem('cf_mfa_challenge');
+      if (challengeToken === null) {
+        throw new Error('That sign-in attempt has expired. Please sign in again.');
+      }
+
+      const res = await fetch('/api/auth/2fa/challenge', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ code }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken, code }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -104,6 +113,16 @@ export default function TwoFactorPage() {
           (data as { error?: { message?: string } }).error?.message ?? 'Invalid verification code',
         );
       }
+
+      // Tokens exist only now, on the far side of the second factor.
+      const body = (data as {
+        data: { accessToken: string; refreshToken: string; user: StoredUser };
+      }).data;
+
+      setAccessToken(body.accessToken);
+      setRefreshToken(body.refreshToken);
+      setStoredUser(body.user);
+      sessionStorage.removeItem('cf_mfa_challenge');
 
       // 2FA verified — proceed to dashboard
       router.push('/dashboard');

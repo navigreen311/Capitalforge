@@ -23,6 +23,7 @@ import {
 import {
   createAuthService,
   AuthError,
+  isMfaChallenge,
 } from '../../../src/backend/services/auth.service.js';
 
 import {
@@ -259,6 +260,12 @@ describe('AuthService.login', () => {
       password: 'Str0ng!password#',
       tenantId: 'tenant-abc',
     });
+
+    // Login returns a union now: a session, or a challenge for an enrolled
+    // user. This fixture is not enrolled, so it must be the session — and
+    // asserting that explicitly is the point, because the failure mode worth
+    // catching is tokens being handed to someone who owes a second factor.
+    if (isMfaChallenge(result)) throw new Error('expected a session, got a challenge');
 
     expect(result.tokens.accessToken).toBeTruthy();
     expect(result.tokens.refreshToken).toBeTruthy();
