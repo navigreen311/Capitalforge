@@ -75,40 +75,39 @@ export default function LoginPage() {
         throw new Error((data as { error?: { message?: string }}).error?.message ?? 'Invalid email or password');
       }
 
-      // Store tokens for authenticated requests
-      // The annotation used to say `{ id, firstName }`, which is narrower than
-      // what this actually stores: `safeUser` returns id, email, firstName,
-      // lastName and role. DealCommitteeQueue reads `role` off the stored
-      // object, and did so correctly only by luck — the writer's own type
-      // said the field was not there.
-      const { accessToken, refreshToken, user } = (
-        data as {
-          data: {
-            accessToken: string;
-            refreshToken: string;
-            user: StoredUser;
-          };
-        }
-      ).data;
-      setAccessToken(accessToken);
-      setRefreshToken(refreshToken);
-      setStoredUser(user);
+      // The server decides whether this is a session or a challenge.
+      //
+      // This used to store the access token here and *then* ask
+      // /api/auth/2fa/status, so the session existed before the challenge did
+      // — anyone who did not follow the redirect was already signed in. There
+      // are no tokens in the challenge branch to store, because the API does
+      // not issue them until the second factor is verified.
+      const body = (data as {
+        data: {
+          mfaRequired?: boolean;
+          challengeToken?: string;
+          accessToken?: string;
+          refreshToken?: string;
+          user?: StoredUser;
+        };
+      }).data;
 
-      // Check if 2FA is enabled — redirect to challenge page if so
-      try {
-        const tfaRes = await fetch('/api/auth/2fa/status', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (tfaRes.ok) {
-          const tfaData = await tfaRes.json();
-          if (tfaData.data?.enabled) {
-            router.push('/login/two-factor');
-            return;
-          }
-        }
-      } catch {
-        // If 2FA status check fails, proceed to dashboard
+      if (body.mfaRequired === true && body.challengeToken) {
+        // Held in memory for the challenge page, not in storage: it is a
+        // credential, it is worthless after five minutes, and nothing else
+        // should be able to read it.
+        sessionStorage.setItem('cf_mfa_challenge', body.challengeToken);
+        router.push('/login/two-factor');
+        return;
       }
+
+      if (!body.accessToken || !body.refreshToken || !body.user) {
+        throw new Error('Sign-in did not return a session.');
+      }
+
+      setAccessToken(body.accessToken);
+      setRefreshToken(body.refreshToken);
+      setStoredUser(body.user);
 
       router.push('/dashboard');
     } catch (err) {

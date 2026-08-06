@@ -200,3 +200,61 @@ export async function verifyRefreshToken(
     return { valid: false, reason: 'malformed' };
   }
 }
+
+// ── MFA challenge token ──────────────────────────────────────
+
+/**
+ * Short-lived proof that a password was accepted, and nothing more.
+ *
+ * The login page used to store the access token and *then* ask whether a
+ * second factor was required, so the session existed before the challenge did.
+ * Anyone who did not follow the redirect was already signed in.
+ *
+ * This is what `login` returns instead of tokens for an enrolled user. It is
+ * signed with the **access** secret but carries `type: 'mfa_challenge'`, and
+ * `verifyAccessToken` rejects any type other than `access` — so a challenge
+ * cannot be presented to the API as a session even though the signature
+ * verifies. It carries no permissions for the same reason.
+ */
+const MFA_CHALLENGE_TTL = '5m';
+
+export interface MfaChallengePayload {
+  sub: string;
+  tenantId: string;
+  type: 'mfa_challenge';
+}
+
+export async function generateMfaChallengeToken(
+  userId: string,
+  tenantId: string,
+): Promise<string> {
+  return new SignJWT({ tenantId, type: 'mfa_challenge' })
+    .setProtectedHeader({ alg: JWT_ALGORITHM })
+    .setSubject(userId)
+    .setIssuer(JWT_ISSUER)
+    .setAudience(JWT_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(MFA_CHALLENGE_TTL)
+    .sign(getAccessSecret());
+}
+
+/** The user a challenge names, or null if it is not a valid challenge. */
+export async function verifyMfaChallengeToken(
+  token: string,
+): Promise<{ userId: string; tenantId: string } | null> {
+  try {
+    const { payload } = await jwtVerify(token, getAccessSecret(), {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    });
+
+    // An access token would verify against this secret too. The type check is
+    // what stops a session being presented as a completed challenge.
+    if (payload['type'] !== 'mfa_challenge') return null;
+    if (typeof payload.sub !== 'string' || typeof payload['tenantId'] !== 'string') return null;
+
+    return { userId: payload.sub, tenantId: payload['tenantId'] };
+  } catch {
+    return null;
+  }
+}

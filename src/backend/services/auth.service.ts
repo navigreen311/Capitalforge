@@ -11,7 +11,10 @@ import {
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
+  generateMfaChallengeToken,
+  verifyMfaChallengeToken,
 } from '../config/auth.js';
+import { createTwoFactorService, isMfaEnrolled } from './two-factor.service.js';
 import { ROLES, PERMISSIONS } from '@shared/constants/index.js';
 import type { TenantContext } from '@shared/types/index.js';
 
@@ -91,6 +94,27 @@ export interface RegisterInput {
 export interface AuthTokens {
   accessToken:  string;
   refreshToken: string;
+}
+
+/**
+ * A password was accepted, and a second factor is required before a session
+ * exists.
+ *
+ * Deliberately not an `AuthResult`: there are no tokens to hand back yet. The
+ * old flow issued them first and then asked, which made the challenge
+ * advisory — anyone who ignored the redirect was already signed in.
+ */
+export interface MfaChallengeResult {
+  mfaRequired: true;
+  /** Present this with a code to `completeMfaChallenge`. Valid five minutes. */
+  challengeToken: string;
+}
+
+export type LoginOutcome = AuthResult | MfaChallengeResult;
+
+/** Narrowing helper, so callers cannot read `tokens` off a challenge. */
+export function isMfaChallenge(outcome: LoginOutcome): outcome is MfaChallengeResult {
+  return (outcome as MfaChallengeResult).mfaRequired === true;
 }
 
 export interface AuthResult {
@@ -177,7 +201,39 @@ export function createAuthService(prisma: PrismaClient) {
    * SECURITY: errors deliberately do not distinguish between
    * "user not found" and "wrong password" to prevent enumeration.
    */
-  async function login(input: LoginInput): Promise<AuthResult> {
+  const twoFactor = createTwoFactorService(prisma);
+
+  /**
+   * Exchange a challenge token plus a code for a session.
+   *
+   * This is where tokens are issued for an enrolled user — not in `login`.
+   */
+  async function completeMfaChallenge(
+    challengeToken: string,
+    code: string,
+  ): Promise<AuthResult> {
+    const claim = await verifyMfaChallengeToken(challengeToken);
+    if (claim === null) {
+      throw new AuthError('That sign-in attempt has expired.', 'AUTH_MFA_CHALLENGE_INVALID', 401);
+    }
+
+    // Throws on a bad code, a reused one, or a locked factor.
+    await twoFactor.verifyCode(claim.userId, code);
+
+    const user = await prisma.user.findUnique({ where: { id: claim.userId } });
+    if (!user || !user.isActive) {
+      throw new AuthError('Invalid credentials.', 'AUTH_INVALID_CREDENTIALS', 401);
+    }
+
+    prisma.user
+      .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+      .catch(() => {});
+
+    const ctx = await buildContext(user.id, user.tenantId, user.role);
+    return { tokens: await issueTokens(ctx), user: safeUser(user) };
+  }
+
+  async function login(input: LoginInput): Promise<LoginOutcome> {
     const user = await prisma.user.findUnique({
       where: {
         tenantId_email: {
@@ -212,6 +268,20 @@ export function createAuthService(prisma: PrismaClient) {
       .catch(() => {
         // Silently swallow — do not surface DB errors to the client
       });
+
+    // The second factor gates token issue rather than following it.
+    //
+    // An enrolled user gets a challenge here, not a session. Enrolment means a
+    // flag AND a secret: `admin@demoadvisors.io` carried mfaEnabled = true with
+    // a null secret, left by the in-memory implementation, and enforcing on the
+    // flag alone would have locked that account out with nothing to verify
+    // against and no recovery codes.
+    if (isMfaEnrolled(user)) {
+      return {
+        mfaRequired: true,
+        challengeToken: await generateMfaChallengeToken(user.id, user.tenantId),
+      };
+    }
 
     const ctx    = await buildContext(user.id, user.tenantId, user.role);
     const tokens = await issueTokens(ctx);
@@ -333,7 +403,7 @@ export function createAuthService(prisma: PrismaClient) {
     return { jti: '' };
   }
 
-  return { login, register, refreshTokens, logout };
+  return { login, completeMfaChallenge, register, refreshTokens, logout, twoFactor };
 }
 
 export type AuthService = ReturnType<typeof createAuthService>;

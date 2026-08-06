@@ -1,277 +1,224 @@
 // ============================================================
 // CapitalForge — Two-Factor Authentication Routes
-// POST /api/auth/2fa/setup    — generate TOTP secret + QR code
-// POST /api/auth/2fa/verify   — verify 6-digit TOTP code
-// POST /api/auth/2fa/disable  — disable 2FA for user
+//
+//   POST /api/auth/2fa/setup     — begin enrolment (secret + otpauth URI)
+//   POST /api/auth/2fa/confirm   — prove the app holds it, get recovery codes
+//   POST /api/auth/2fa/disable   — turn it off, requires a valid code
+//   GET  /api/auth/2fa/status    — enrolled? how many recovery codes left?
+//   POST /api/auth/2fa/challenge — exchange a login challenge for a session
+//
+// These are transport. The rules live in `two-factor.service`.
+//
+// What this replaces: a process-local `Map` holding every secret and enabled
+// flag, so a restart silently disabled 2FA for every user and two instances
+// disagreed; a hand-rolled "mock TOTP" that stood in silently when otplib was
+// missing; and a login flow that issued tokens *before* asking for a second
+// factor, which made the challenge advisory — anyone who ignored the redirect
+// was already signed in.
 // ============================================================
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { z } from 'zod';
 import { requireAuth } from '../../middleware/auth.middleware.js';
-import crypto from 'crypto';
+import { prisma as sharedPrisma } from '../../config/database.js';
+import {
+  createTwoFactorService,
+  isMfaEnrolled,
+  TwoFactorError,
+} from '../../services/two-factor.service.js';
+import { createAuthService, AuthError } from '../../services/auth.service.js';
+import type { ApiResponse } from '../../../shared/types/index.js';
+import logger from '../../config/logger.js';
 
-// ── Try to load real TOTP libraries (graceful fallback) ──────
-
-let otplibAvailable = false;
-let authenticator: {
-  generateSecret: () => string;
-  keyuri: (user: string, service: string, secret: string) => string;
-  check: (token: string, secret: string) => boolean;
-} | null = null;
+const router = Router();
+const twoFactor = createTwoFactorService(sharedPrisma);
+const authSvc = createAuthService(sharedPrisma);
 
 let QRCode: { toDataURL: (text: string) => Promise<string> } | null = null;
-
-// NOTE: loaded with require() rather than `await import()` — this backend compiles
-// to CommonJS (tsconfig "module": "NodeNext" with no "type": "module" in
-// package.json), where top-level await is not valid.
 try {
-  const otplib = require('otplib');
-  authenticator = otplib.authenticator;
-  otplibAvailable = true;
-} catch {
-  // otplib not installed — use mock fallback
-}
-
-try {
+  // require, not `await import`: this backend compiles to CommonJS.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const qr = require('qrcode');
   QRCode = qr.default ?? qr;
 } catch {
-  // qrcode not installed — use placeholder
+  QRCode = null;
 }
 
-// ── In-memory 2FA store (replace with DB in production) ──────
-
-interface TwoFactorRecord {
-  secret: string;
-  enabled: boolean;
-  enabledAt?: string;
+function fail(res: Response, err: unknown): void {
+  if (err instanceof TwoFactorError) {
+    res.status(err.statusCode).json({
+      success: false,
+      error: { code: err.code, message: err.message },
+    } satisfies ApiResponse);
+    return;
+  }
+  if (err instanceof AuthError) {
+    res.status(err.statusHint).json({
+      success: false,
+      error: { code: err.code, message: err.message },
+    } satisfies ApiResponse);
+    return;
+  }
+  logger.error('[2fa] Unhandled error', { err });
+  res.status(500).json({
+    success: false,
+    error: { code: 'INTERNAL_ERROR', message: 'Two-factor request failed.' },
+  } satisfies ApiResponse);
 }
 
-const twoFactorStore = new Map<string, TwoFactorRecord>();
+const CodeSchema = z.object({ code: z.string().min(6).max(32) });
 
-// ── Mock TOTP helpers (used when otplib is not available) ─────
+// ── POST /setup ──────────────────────────────────────────────
 
-function mockGenerateSecret(): string {
-  return crypto.randomBytes(20).toString('base64url').slice(0, 32);
-}
-
-function mockGenerateKeyUri(email: string, secret: string): string {
-  return `otpauth://totp/CapitalForge:${encodeURIComponent(email)}?secret=${secret}&issuer=CapitalForge&digits=6&period=30`;
-}
-
-function mockVerify(token: string, _secret: string): boolean {
-  // Accept "123456" as valid code when otplib is not installed
-  return token === '123456';
-}
-
-// ── Validation schemas ───────────────────────────────────────
-
-const verifySchema = z.object({
-  code: z.string().length(6).regex(/^\d{6}$/, 'Code must be exactly 6 digits'),
-});
-
-const disableSchema = z.object({
-  password: z.string().min(1, 'Password is required'),
-});
-
-// ── Router ───────────────────────────────────────────────────
-
-const router = Router();
-
-// ── POST /api/auth/2fa/setup ─────────────────────────────────
-/**
- * Generates a new TOTP secret for the authenticated user.
- * Returns the secret string and a QR code data URL for scanning.
- * Does NOT enable 2FA — the user must verify a code first.
- */
 router.post('/setup', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = req.tenant?.userId ?? 'unknown';
-    const email = req.tenant?.email ?? 'user@capitalforge.io';
+    const { userId } = req.tenant!;
+    const user = await sharedPrisma.user.findUniqueOrThrow({ where: { id: userId } });
 
-    // Generate secret
-    const secret = otplibAvailable && authenticator
-      ? authenticator.generateSecret()
-      : mockGenerateSecret();
+    const { secret, keyuri } = await twoFactor.beginEnrolment(userId, user.email);
 
-    // Generate key URI for QR code
-    const keyUri = otplibAvailable && authenticator
-      ? authenticator.keyuri(email, 'CapitalForge', secret)
-      : mockGenerateKeyUri(email, secret);
-
-    // Generate QR code data URL
-    let qrDataUrl: string | null = null;
-    if (QRCode) {
-      try {
-        qrDataUrl = await QRCode.toDataURL(keyUri);
-      } catch {
-        // QR generation failed — client will show fallback
-      }
-    }
-
-    // Store the pending secret (not yet enabled)
-    twoFactorStore.set(userId, { secret, enabled: false });
-
-    res.status(200).json({
+    // The factor is NOT on yet. Enabling here would strand a user who closed
+    // the tab mid-setup: enrolled against a secret their app never received.
+    res.json({
       success: true,
       data: {
         secret,
-        keyUri,
-        qrDataUrl,
-        mock: !otplibAvailable,
-        message: !otplibAvailable
-          ? 'Running in mock mode — use code "123456" to verify.'
-          : 'Scan the QR code with your authenticator app, then enter the 6-digit code to verify.',
+        keyuri,
+        qrCode: QRCode ? await QRCode.toDataURL(keyuri) : null,
+        enabled: false,
       },
-    });
+    } satisfies ApiResponse);
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: { code: 'SETUP_FAILED', message: 'Failed to set up two-factor authentication.' },
-    });
+    fail(res, err);
   }
 });
 
-// ── POST /api/auth/2fa/verify ────────────────────────────────
-/**
- * Verifies a 6-digit TOTP code against the stored secret.
- * If valid:
- *   - During setup: enables 2FA for the user
- *   - During login: confirms the 2FA challenge
- *
- * Body: { code: "123456" }
- */
-router.post('/verify', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const parsed = verifySchema.safeParse(req.body);
+// ── POST /confirm ────────────────────────────────────────────
+
+router.post('/confirm', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const parsed = CodeSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
       success: false,
-      error: {
-        code: 'VALIDATION_ERROR',
-        message: 'A valid 6-digit code is required.',
-        details: parsed.error.flatten().fieldErrors,
-      },
-    });
+      error: { code: 'VALIDATION_ERROR', message: 'A code is required.' },
+    } satisfies ApiResponse);
     return;
   }
 
   try {
-    const userId = req.tenant?.userId ?? 'unknown';
-    const record = twoFactorStore.get(userId);
+    const { userId } = req.tenant!;
+    const { recoveryCodes } = await twoFactor.confirmEnrolment(userId, parsed.data.code);
 
-    if (!record) {
-      res.status(400).json({
-        success: false,
-        error: { code: 'NO_SECRET', message: 'No 2FA setup found. Please run setup first.' },
-      });
-      return;
-    }
-
-    // Verify the code
-    const isValid = otplibAvailable && authenticator
-      ? authenticator.check(parsed.data.code, record.secret)
-      : mockVerify(parsed.data.code, record.secret);
-
-    if (!isValid) {
-      res.status(401).json({
-        success: false,
-        error: { code: 'INVALID_CODE', message: 'Invalid verification code. Please try again.' },
-      });
-      return;
-    }
-
-    // Enable 2FA if not already enabled
-    if (!record.enabled) {
-      record.enabled = true;
-      record.enabledAt = new Date().toISOString();
-      twoFactorStore.set(userId, record);
-    }
-
-    res.status(200).json({
+    // Shown once. Only hashes are stored, so this response is the single
+    // opportunity to record them — which is what makes them safe to keep.
+    res.json({
       success: true,
       data: {
-        verified: true,
-        twoFactorEnabled: true,
-        message: '2FA verification successful.',
+        enabled: true,
+        recoveryCodes,
+        notice:
+          'Store these now. They are not retrievable — only hashes are kept — and each works once.',
       },
-    });
+    } satisfies ApiResponse);
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: { code: 'VERIFY_FAILED', message: 'Failed to verify code.' },
-    });
+    fail(res, err);
   }
 });
 
-// ── POST /api/auth/2fa/disable ───────────────────────────────
-/**
- * Disables 2FA for the authenticated user.
- * Requires password confirmation as a security measure.
- *
- * Body: { password: "current_password" }
- */
+// ── POST /disable ────────────────────────────────────────────
+
 router.post('/disable', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const parsed = disableSchema.safeParse(req.body);
+  const parsed = CodeSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
       success: false,
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Password confirmation is required to disable 2FA.',
-        details: parsed.error.flatten().fieldErrors,
+        // Disabling requires a code for the same reason enabling does: without
+        // it, a stolen session can remove the control that exists to make a
+        // stolen session insufficient.
+        message: 'A valid code is required to disable two-factor authentication.',
       },
-    });
+    } satisfies ApiResponse);
     return;
   }
 
   try {
-    const userId = req.tenant?.userId ?? 'unknown';
-    const record = twoFactorStore.get(userId);
-
-    if (!record || !record.enabled) {
-      res.status(400).json({
-        success: false,
-        error: { code: 'NOT_ENABLED', message: '2FA is not currently enabled.' },
-      });
-      return;
-    }
-
-    // In production, verify password against DB here.
-    // For now, accept any non-empty password.
-    twoFactorStore.delete(userId);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        twoFactorEnabled: false,
-        message: 'Two-factor authentication has been disabled.',
-      },
-    });
+    await twoFactor.disable(req.tenant!.userId, parsed.data.code);
+    res.json({ success: true, data: { enabled: false } } satisfies ApiResponse);
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: { code: 'DISABLE_FAILED', message: 'Failed to disable 2FA.' },
-    });
+    fail(res, err);
   }
 });
 
-// ── GET /api/auth/2fa/status ─────────────────────────────────
-/**
- * Returns the current 2FA status for the authenticated user.
- */
-router.get('/status', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const userId = req.tenant?.userId ?? 'unknown';
-  const record = twoFactorStore.get(userId);
+// ── GET /status ──────────────────────────────────────────────
 
-  res.status(200).json({
-    success: true,
-    data: {
-      enabled: record?.enabled ?? false,
-      enabledAt: record?.enabledAt ?? null,
-      mock: !otplibAvailable,
-    },
-  });
+router.get('/status', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId } = req.tenant!;
+    const user = await sharedPrisma.user.findUniqueOrThrow({ where: { id: userId } });
+
+    // `isMfaEnrolled`, not `user.mfaEnabled`. A flag with no secret behind it
+    // is not an enrolment — see the service for the account that proved it.
+    const enrolled = isMfaEnrolled(user);
+
+    res.json({
+      success: true,
+      data: {
+        enabled: enrolled,
+        enrolledAt: user.mfaEnrolledAt,
+        recoveryCodesRemaining: enrolled ? await twoFactor.remainingRecoveryCodes(userId) : 0,
+      },
+    } satisfies ApiResponse);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// ── POST /challenge ──────────────────────────────────────────
+
+const ChallengeSchema = z.object({
+  challengeToken: z.string().min(1),
+  code: z.string().min(6).max(32),
+});
+
+/**
+ * Exchange the challenge `login` returned for an actual session.
+ *
+ * Deliberately unauthenticated: the caller has no session yet, which is the
+ * whole point. The challenge token is the credential, and it is worthless on
+ * its own — `verifyAccessToken` refuses any payload whose `type` is not
+ * `access`, so a challenge cannot be presented to the API as a bearer token
+ * even though it verifies against the same secret.
+ */
+router.post('/challenge', async (req: Request, res: Response): Promise<void> => {
+  const parsed = ChallengeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'A challenge token and a code are required.' },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  try {
+    const result = await authSvc.completeMfaChallenge(
+      parsed.data.challengeToken,
+      parsed.data.code,
+    );
+
+    res.json({
+      success: true,
+      data: {
+        user: result.user,
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+      },
+    } satisfies ApiResponse);
+  } catch (err) {
+    fail(res, err);
+  }
 });
 
 export { router as twoFactorRouter };
