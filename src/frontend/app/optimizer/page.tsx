@@ -38,6 +38,7 @@ import {
 } from '@/lib/credit-union-issuers';
 import { useToast } from '@/components/global/ToastProvider';
 
+import { EXISTING_CARD_CATALOGUE, EXISTING_CARDS, catalogueEntry } from '@/lib/existing-cards';
 // ─── Types for Optimizer V2 API ──────────────────────────────────────────────
 
 type PrioritizationMode = 'max_credit' | 'best_terms' | 'fastest_approval' | 'min_inquiries';
@@ -605,22 +606,6 @@ const MOCK_RESULTS: Omit<CardRecommendationProps, 'rank'>[] = [
   },
 ];
 
-const EXISTING_CARDS = [
-  'Chase Ink Business Preferred',
-  'Chase Ink Business Cash',
-  'Chase Ink Business Unlimited',
-  'Amex Business Gold',
-  'Amex Business Platinum',
-  'Amex Blue Business Cash',
-  'Capital One Spark Cash Plus',
-  'Capital One Spark Miles',
-  'Brex 30',
-  'Bank of America Business Advantage',
-  'Citi Business Custom Cash',
-  'US Bank Business Triple Cash',
-  'Wells Fargo Business Platinum',
-  'Discover it Business',
-];
 
 // ─── Network diversity ────────────────────────────────────────────────────────
 
@@ -781,6 +766,25 @@ interface CUFormState {
 interface ExistingCardDetail {
   balance: string;
   limit: string;
+  /**
+   * When the card was opened, as `YYYY-MM`, or blank.
+   *
+   * Blank is expected and is not a failure to fill in the form: a client
+   * often knows they hold a card without recalling the month. A card with no
+   * date cannot be placed in the 24-month 5/24 window, so it is reported as
+   * unplaceable rather than counted or dropped — the difference between
+   * "3 of 5 slots open" and "at most 3".
+   */
+  openedAt?: string;
+}
+
+/** A card as the record holds it. */
+interface RecordedHeldCard {
+  id: string;
+  issuer: string;
+  productName: string | null;
+  openedAt: string | null;
+  creditLimit: number | null;
 }
 
 interface FormState {
@@ -906,6 +910,11 @@ export default function OptimizerPage() {
   /** Set when a handed-over client is not in this advisor's list. */
   const [handoffUnresolved, setHandoffUnresolved] = useState(false);
 
+  const [savingCards, setSavingCards] = useState(false);
+  const [saveCardsMsg, setSaveCardsMsg] = useState<string | null>(null);
+  /** Cards on the client's record, or null before they have been loaded. */
+  const [recordedCards, setRecordedCards] = useState<RecordedHeldCard[] | null>(null);
+
   // Load clients on mount
   useEffect(() => {
     setClientsLoading(true);
@@ -943,6 +952,76 @@ export default function OptimizerPage() {
       })
       .finally(() => setClientsLoading(false));
   }, [handoff.clientId]);
+
+  // ── The client's recorded cards ────────────────────────────
+  //
+  // Selecting a client now loads what is on their record and ticks it. Before
+  // this the section always opened empty, so an advisor's starting point was
+  // "this client holds nothing" regardless of what had been recorded — and
+  // running from that state produced a plan built on a 5/24 count the
+  // eligibility panel disagreed with.
+  useEffect(() => {
+    const businessId = form.selectedBusinessId;
+    if (!businessId) {
+      setRecordedCards(null);
+      return;
+    }
+
+    let cancelled = false;
+    loadJson<{ cards: RecordedHeldCard[] }>(`/api/clients/${businessId}/held-cards`)
+      .then((data) => {
+        if (cancelled) return;
+        const cards = data.cards ?? [];
+        setRecordedCards(cards);
+
+        // Match a recorded row back to a catalogue label. A card recorded
+        // outside this form — an issuer not in the list — has no checkbox to
+        // tick, so it is held in `recordedCards` and shown as a count rather
+        // than dropped. Dropping it would be the worse failure: the save
+        // below replaces the record, so an unrepresented card would be
+        // deleted by an advisor who never saw it.
+        const labels: string[] = [];
+        const details: Record<string, ExistingCardDetail> = {};
+        for (const card of cards) {
+          const entry = EXISTING_CARD_CATALOGUE.find(
+            (c) => c.issuer === card.issuer && c.productName === card.productName,
+          );
+          if (!entry) continue;
+          labels.push(entry.label);
+          details[entry.label] = {
+            balance: '',
+            limit: card.creditLimit == null ? '' : String(card.creditLimit),
+            openedAt: card.openedAt ? card.openedAt.slice(0, 7) : '',
+          };
+        }
+        setForm((f) => ({ ...f, selectedCards: labels, cardDetails: { ...f.cardDetails, ...details } }));
+        setSaveCardsMsg(null);
+      })
+      .catch(() => {
+        // Leave the ticks alone and say nothing was loaded. Clearing them
+        // would present "no cards on file" as the answer to a question that
+        // was never answered.
+        if (!cancelled) {
+          setRecordedCards(null);
+          setSaveCardsMsg('Could not load this client’s recorded cards; what is ticked below is not their record.');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.selectedBusinessId]);
+
+  /** Cards on the record that this form has no checkbox for. */
+  const unrepresentedCards = useMemo(() => {
+    if (recordedCards === null) return [];
+    return recordedCards.filter(
+      (card) =>
+        !EXISTING_CARD_CATALOGUE.some(
+          (c) => c.issuer === card.issuer && c.productName === card.productName,
+        ),
+    );
+  }, [recordedCards]);
 
   const cuEligibility = useMemo<EligibilityResult[]>(() => {
     if (!cuForm.state) return [];
@@ -1085,6 +1164,85 @@ export default function OptimizerPage() {
     const match = clients.find((c) => c.id === form.selectedBusinessId);
     return match?.businessName ?? 'Client';
   }, [form.selectedBusinessId, clients]);
+
+  const handleSaveHeldCards = useCallback(async () => {
+    const businessId = form.selectedBusinessId;
+    if (!businessId) {
+      toast.error('Select a client before saving cards to a record.');
+      return;
+    }
+
+    const ticked = form.selectedCards.flatMap((label) => {
+      const entry = catalogueEntry(label);
+      if (!entry) return [];
+      const detail = form.cardDetails[label];
+      const month = detail?.openedAt?.trim();
+      const limit = numOrNull(detail?.limit ?? '');
+      return [
+        {
+          issuer: entry.issuer,
+          productName: entry.productName,
+          // A `YYYY-MM` input names a month, not a day. Recording it as the
+          // first of that month is a rounding of at most 30 days against a
+          // 24-month window, and it is stated here rather than hidden in a
+          // date parser.
+          openedAt: month ? new Date(`${month}-01T00:00:00.000Z`).toISOString() : null,
+          creditLimit: limit,
+        },
+      ];
+    });
+
+    // Cards already on file that this form cannot show. Sent back unchanged,
+    // because the save replaces the record: leaving them out would delete
+    // them on behalf of an advisor who was never shown them.
+    const preserved = unrepresentedCards.map((card) => ({
+      issuer: card.issuer,
+      productName: card.productName ?? undefined,
+      openedAt: card.openedAt,
+      creditLimit: card.creditLimit,
+    }));
+
+    setSavingCards(true);
+    setSaveCardsMsg(null);
+    try {
+      const data = await loadJson<{ cards: RecordedHeldCard[]; written: number }>(
+        `/api/clients/${businessId}/held-cards`,
+        { method: 'POST', body: { cards: [...ticked, ...preserved], replace: true } },
+      );
+      setRecordedCards(data.cards ?? []);
+
+      const undated = ticked.filter((c) => c.openedAt === null).length;
+      toast.success(
+        `Saved ${data.written} card${data.written === 1 ? '' : 's'} to ${selectedClientName}.`,
+      );
+      setSaveCardsMsg(
+        undated === 0
+          ? 'On record and counting toward 5/24.'
+          : `On record. ${undated} without an opening date, so ${undated === 1 ? 'it cannot' : 'they cannot'} be placed in the 24-month window — 5/24 will read as an upper bound.`,
+      );
+    } catch (e) {
+      // Same rule as save-strategy: a failure here must not read as a save. An
+      // advisor told the record was updated stops re-entering the cards.
+      const info = toLoadError(e);
+      const why =
+        info.type === 'auth_required'
+          ? 'Your session has ended; nothing was saved. Sign in again.'
+          : info.type === 'network_error'
+            ? 'Could not reach the server; nothing was saved.'
+            : `Nothing was saved. ${info.message}`;
+      toast.error(why);
+      setSaveCardsMsg(why);
+    } finally {
+      setSavingCards(false);
+    }
+  }, [
+    form.selectedBusinessId,
+    form.selectedCards,
+    form.cardDetails,
+    unrepresentedCards,
+    selectedClientName,
+    toast,
+  ]);
 
   const handleSaveStrategy = useCallback(async () => {
     // Both guards used to be defaults: no client became the literal id
@@ -1574,6 +1732,39 @@ export default function OptimizerPage() {
                             </div>
                           </div>
                         </div>
+                        {/* When it was opened.
+                            Blank is expected and not a gap in the form: a
+                            client often knows they hold a card without
+                            recalling the month. An undated card cannot be
+                            placed in the 24-month 5/24 window, so it widens
+                            the answer to "at most N" rather than counting. */}
+                        <div>
+                          <label
+                            htmlFor={`opened-${card}`}
+                            className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1"
+                          >
+                            Opened <span className="normal-case font-normal">(optional)</span>
+                          </label>
+                          <input
+                            id={`opened-${card}`}
+                            type="month"
+                            value={detail.openedAt ?? ''}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                cardDetails: {
+                                  ...f.cardDetails,
+                                  [card]: { ...(f.cardDetails[card] ?? { balance: '', limit: '' }), openedAt: e.target.value },
+                                },
+                              }))
+                            }
+                            className="cf-input text-xs"
+                          />
+                          <p className="text-[10px] text-gray-400 mt-1">
+                            Without this the card counts against 5/24 as
+                            &ldquo;cannot be placed&rdquo; rather than as a slot used.
+                          </p>
+                        </div>
                         {limNum > 0 && (
                           <div className="space-y-1">
                             <div className="flex items-center justify-between">
@@ -1594,6 +1785,48 @@ export default function OptimizerPage() {
             <p className="text-xs text-gray-400 mt-3">
               {form.selectedCards.length} card{form.selectedCards.length !== 1 ? 's' : ''} selected
             </p>
+
+            {unrepresentedCards.length > 0 && (
+              <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
+                {unrepresentedCards.length} card
+                {unrepresentedCards.length === 1 ? '' : 's'} on this
+                client&rsquo;s record {unrepresentedCards.length === 1 ? 'is' : 'are'} not
+                in the list above ({unrepresentedCards.map((c) => c.issuer).join(', ')}).
+                {' '}
+                {unrepresentedCards.length === 1 ? 'It stays' : 'They stay'} on record and
+                {unrepresentedCards.length === 1 ? ' counts' : ' count'} toward 5/24;
+                saving here will not remove {unrepresentedCards.length === 1 ? 'it' : 'them'}.
+              </p>
+            )}
+
+            {/* Saving is a separate act from running a plan.
+                Ticking a card to see what the plan does is a question, not a
+                claim — and every saved row carries the advisor's name. An
+                auto-write on run would also only ever add: unticking could not
+                remove, because a run cannot tell "no longer held" from "not
+                mentioned this time". */}
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={handleSaveHeldCards}
+                disabled={savingCards || !form.selectedBusinessId}
+                className={`w-full py-2 rounded-lg text-xs font-semibold transition-colors ${
+                  savingCards || !form.selectedBusinessId
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-brand-navy/10 text-brand-navy hover:bg-brand-navy/15'
+                }`}
+              >
+                {savingCards ? 'Saving…' : 'Save to client record'}
+              </button>
+              <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+                {form.selectedBusinessId
+                  ? 'Records these as cards the client holds, attributed to you. They then count toward 5/24 on every run and on the eligibility panel — not just this one.'
+                  : 'Select a client to save cards to their record.'}
+              </p>
+              {saveCardsMsg && (
+                <p className="text-[10px] mt-1.5 text-gray-600">{saveCardsMsg}</p>
+              )}
+            </div>
           </SectionCard>
 
           {/* Run button */}

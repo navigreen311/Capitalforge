@@ -649,10 +649,46 @@ window and can only widen the answer to "at most N". A recorded card with a date
 counts properly. Cards still typed into the form are honoured and continue to
 count as unplaceable — they are a draft, not a record.
 
-**Still open, smaller:** the form does not write what it collects to the table,
-so a card typed in one run is invisible to the next and to the 5/24 panel. Until
-it does, "one record" holds for anything recorded and not for anything merely
-typed.
+**~~Still open, smaller: the form does not write what it collects.~~ Closed
+2026-08-06 — the form persists.**
+
+`POST /api/clients/:businessId/held-cards` replaces the client's list in one
+transaction, and selecting a client loads it back and ticks it. So the section
+now opens on what is on record rather than on empty, and a card entered once is
+a card the next run and the 5/24 panel both see.
+
+Four decisions worth keeping:
+
+- **Saving is explicit, not a side effect of running a plan.** Ticking a card
+  to see what the plan does is a question, not a claim, and every row carries an
+  attestor's name. An auto-write on run would also only ever *add*: unticking
+  could not remove, because a run cannot distinguish "no longer held" from "not
+  mentioned this time". That is the enable-without-disable shape found three
+  times in this codebase already.
+- **The save replaces rather than appends**, which is the only way removal
+  exists at all.
+- **The date input is `YYYY-MM` and optional.** Requiring it would push an
+  advisor to invent a month to get past the form, and an invented month counts
+  against 5/24 as confidently as a real one. Blank stays blank and stays
+  unplaceable.
+- **A card on record that the form has no checkbox for is preserved on save and
+  shown as a count**, because a replacing save would otherwise delete rows an
+  advisor was never shown.
+
+**Found while writing the test: Brex is not in the issuer registry.** The
+catalogue offers a *Brex 30* checkbox, and `Brex` appears nowhere in
+`shared/constants/issuers.ts`. A recorded Brex card counts against 5/24
+correctly — that count asks only whether the issuer is a credit union — and
+reaches the issuer-rules path as an unresolved issuer, which that path already
+reports rather than resolving in the card's favour. So the behaviour is honest
+but partial.
+
+Declared in `CATALOGUE_ISSUERS_NOT_IN_REGISTRY` rather than fixed by adding
+`brex` to the registry: membership there implies a cooldown, a velocity rule
+and an application policy for the issuer, and inventing those is exactly what
+`parseIssuer` returns null to avoid. The test asserts the declared issuers
+*still* fail to parse, so the exemption cannot outlive its reason, and a new
+catalogue entry with an unrecognised issuer fails rather than joining quietly.
 
 ---
 
