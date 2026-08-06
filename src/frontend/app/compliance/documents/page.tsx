@@ -209,7 +209,7 @@ export default function DocumentVaultPage() {
     const newState = !doc.legalHold;
 
     try {
-      await loadJson(`/api/compliance/documents/${id}/hold`, {
+      await loadJson(`/api/documents/${id}/legal-hold`, {
         method: 'PATCH',
         body: { legalHold: newState },
       });
@@ -303,7 +303,7 @@ export default function DocumentVaultPage() {
   const toggleSlideoverHold = useCallback(async (doc: DocumentRecord) => {
     const newState = !doc.legalHold;
     try {
-      await loadJson(`/api/compliance/documents/${doc.id}/hold`, {
+      await loadJson(`/api/documents/${doc.id}/legal-hold`, {
         method: 'PATCH',
         body: { legalHold: newState },
       });

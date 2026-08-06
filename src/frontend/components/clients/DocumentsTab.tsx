@@ -337,14 +337,14 @@ function ReleaseHoldModal({
       // line it logged claimed an event that never happened.
       //
       // The endpoint exists and persists: PATCH
-      // /api/compliance/documents/:id/hold takes { legalHold }. The enable
+      // /api/documents/:id/legal-hold takes { legalHold }. The enable
       // path on /compliance/documents was wired during the false-success
       // sweep (docs/backlog/false-success-audit.md); this release path was
       // missed because it lives in a different component.
       //
       // Awaited, and the message comes after the server confirms. apiClient
       // throws ApiRequestError on a non-2xx, which the catch below surfaces.
-      await apiClient.patch(`/compliance/documents/${doc.id}/hold`, { legalHold: false });
+      await apiClient.patch(`/documents/${doc.id}/legal-hold`, { legalHold: false });
 
       onSuccess(`Legal hold released for "${doc.name}"`);
       onClose();
