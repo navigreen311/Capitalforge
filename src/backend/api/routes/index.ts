@@ -414,6 +414,9 @@ apiRouter.use('/platform/data-lineage', platformDataLineageRouter);
 import { crmRouter } from './crm.routes.js';
 apiRouter.use('/', crmRouter);
 
+import { heldCardsRouter } from './held-cards.routes.js';
+apiRouter.use('/', heldCardsRouter);
+
 import { issuerRulesRouter } from './issuer-rules.routes.js';
 apiRouter.use('/', issuerRulesRouter);
 
