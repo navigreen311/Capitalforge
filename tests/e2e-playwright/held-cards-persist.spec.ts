@@ -85,7 +85,12 @@ test('a card saved from the form is what the next session sees', async ({ signed
   const before = (await beforeRes.json()).data.cards as Array<Record<string, unknown>>;
 
   await clientSelect.selectOption(clientId!);
-  await expect(cardCheckbox(page)).toBeVisible({ timeout: 30000 });
+  // Enabled, not merely visible. The section is disabled until the client's
+  // record has answered, and a driver will click a disabled control without
+  // waiting — the click fires no change event, so the tick is not real state
+  // and the response clears it. That is exactly how this test first failed on
+  // CI and passed locally: same code, slower request.
+  await expect(cardCheckbox(page)).toBeEnabled({ timeout: 30000 });
   await cardCheckbox(page).check();
   await page.locator(`[id="opened-${CARD}"]`).fill(MONTH);
 
@@ -145,4 +150,56 @@ test('a card saved from the form is what the next session sees', async ({ signed
   // next run starting from a record this one wrote, which is how a test comes
   // to pass on its own leftovers.
   expect(restore.ok(), 'the client record should be restored').toBe(true);
+});
+
+// ============================================================
+// A click cannot land in the window where it would be discarded
+//
+// Selecting a client starts a request whose response replaces the ticked list.
+// A card ticked before it landed was discarded when it did: the click
+// registered, the response arrived a moment later, and the box cleared itself
+// with nothing on screen to say why.
+//
+// It never happened locally, where the request takes a few milliseconds. It
+// happened on CI, where the test above ticked a card, waited the full sixty
+// seconds and never saw the field that appears when a card is ticked — a real
+// defect, found because the assertion was about the app's state rather than
+// about the click.
+//
+// Delaying the response makes the window certain rather than a matter of how
+// loaded the machine is. What is asserted is that the window is closed to the
+// advisor: the section says it is loading and its controls are disabled, so
+// there is no click to lose. (The state update also merges rather than
+// replaces if an edit does get through — belt and braces for a re-render
+// arriving late, which no browser test can stage honestly, since a click on a
+// disabled control fires no change event at all.)
+// ============================================================
+
+test('the card list is not editable while the record is still loading', async ({
+  signedInPage: page,
+}) => {
+  await page.route('**/held-cards', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await new Promise((r) => setTimeout(r, 3000));
+    await route.fallback();
+  });
+
+  await page.goto('/optimizer');
+  const clientSelect = page.getByLabel('Select client');
+  await expect(clientSelect).toBeEnabled({ timeout: 30000 });
+  const clientId = await clientSelect.locator('option').nth(1).getAttribute('value');
+
+  const loading = page.getByText(/Loading this client.s recorded cards/);
+  await clientSelect.selectOption(clientId!);
+
+  await expect(loading).toBeVisible();
+  await expect(cardCheckbox(page)).toBeDisabled();
+
+  // And once the record has answered, the section is editable and a tick
+  // holds — the same window, on the other side of it.
+  await expect(loading).toBeHidden({ timeout: 30000 });
+  await expect(cardCheckbox(page)).toBeEnabled();
+  await cardCheckbox(page).check();
+  await expect(cardCheckbox(page)).toBeChecked();
+  await expect(page.locator(`[id="opened-${CARD}"]`)).toBeVisible();
 });
