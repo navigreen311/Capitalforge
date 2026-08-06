@@ -180,6 +180,26 @@ export function validateScoreForType(score: number, scoreType: string): string |
     // starts at 101 rather than 0 — a zero here would not be a bad score, it
     // would be an impossible one.
     case 'equifax_business_risk':
+      // 101–992, Equifax's Business Credit Risk Score.
+      //
+      // This range check is not sufficient to identify the product, and the
+      // gap is worth knowing. Equifax sells four commercial scores and a
+      // reseller bundle prints several together:
+      //
+      //   Business Credit Risk     101–992   ← this one
+      //   Business Failure Score   1000–1880 → rejected here, too high
+      //   Payment Index            1–100     → rejected here, too low
+      //   OneScore for Commercial  300–650   → ACCEPTED, and wrong
+      //
+      // OneScore sits entirely inside 101–992, so a OneScore entered here
+      // passes validation silently — and it is the score Equifax leads with
+      // in the Industry Report 2.0 bundle, so it is the one most likely to be
+      // read off a PDF by mistake. sc_006 then compares it to 500, a
+      // threshold meant for a different scale.
+      //
+      // Overlapping ranges cannot be told apart by their value. The defence
+      // is labelling at the point of entry, not a tighter check here.
+      // See docs/product/business-credit-scores.md.
       if (score < 101 || score > 992) {
         return `Equifax Business Risk Score must be 101–992, got ${score}`;
       }
