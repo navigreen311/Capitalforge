@@ -47,7 +47,7 @@ It answers `501` now.
 | `POST /api/platform/billing/send-overdue-reminders` | Nothing queues or sends them. This system can send real SMS and email, so a reported send is consequential. | **Product.** Needs a scheduling decision (who, when, how often) before any send. |
 | `POST /api/platform/referrals`<br>`POST /api/platform/referrals/:id/follow-up` | No table holds a referral link, its conversions or a commission. | **Table.** |
 | `POST /api/platform/reports/schedules` | Nothing stores a schedule and nothing runs one. | **Table + a runner.** |
-| `POST /api/platform/tenants/:id/suspend` | **The write exists and has no reader.** This answered `200` with `{ status: 'suspended', suspendedAt }` and wrote nothing. `Tenant.isActive` exists — but only *registration* checks it. Login and token refresh read `user.isActive`, a different flag, and `tenantMiddleware` decodes the JWT without touching the database. So setting it would block new sign-ups and nothing else. There is also **no unsuspend**, which is what hid the mock: nobody could try to undo a suspension. | **Product then wiring.** Enforcement at login, refresh and middleware — and a decision about where, since middleware currently does zero database reads per request. `suspendedAt` and `reason` have nowhere to live; `isActive` is a boolean. See `docs/backlog/tenant-suspension.md`. |
+| ~~`POST /api/platform/tenants/:id/suspend`~~ | **Built 2026-08-06.** Both directions are real and enforced at login, token refresh and `tenantMiddleware`. A 30-second per-process cache keeps the middleware off a per-request query; the staleness bound is stated in `tenant-status.service`. | **Done.** See `docs/backlog/tenant-suspension.md`. |
 
 | `PATCH /api/platform/offboarding/:id/advance` | Deliberate: stage moves when the export or the deletion actually happens, not because somebody advanced it. | **None — this one should stay refused.** Advancing by hand is how a workflow claims a deletion that never ran. |
 | `POST /api/declines/:id/reminder` | Nothing schedules or delivers a reapply reminder. | **Product.** Same scheduling question as overdue reminders. |
@@ -586,7 +586,7 @@ function, and the point is to reach someone planning work before that.
 
 ## What I would do first
 
-**Two-factor authentication, ahead of everything else here.** It is not on the
+**~~Two-factor authentication, ahead of everything else here.~~ Built 2026-08-06.** It is not on the
 list above because it is not a gap of the same kind: the rest of this document
 is about figures the system declines to produce, and this is a **security
 control the interface offers, the user completes, and the system does not

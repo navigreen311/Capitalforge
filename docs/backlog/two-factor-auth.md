@@ -1,4 +1,24 @@
-# Two-factor authentication does not exist
+# Two-factor authentication
+
+**Status: BUILT 2026-08-06.** Kept for the reasoning and the scoping questions,
+each of which is now answered in code:
+
+| Question | Answer |
+|---|---|
+| Where do secrets live, encrypted how | `User.mfaSecret`, via `encryption.service` |
+| Does the challenge gate token issue | **Yes.** `login` returns a challenge, not a session; tokens come from `completeMfaChallenge` |
+| Recovery codes | 10, bcrypt-hashed, single-use, shown once at enrolment |
+| Sessions under the old scheme | No enrolled users existed. One account carried `mfaEnabled` with a **null secret** — enforcing on the flag alone would have locked it out, so enrolment is `mfaEnabled && mfaSecret != null` |
+| Rate limiting and replay | 5 failures then a 15-minute lock; `mfaLastUsedStep` refuses a replayed window |
+
+One thing found while building it that this document did not anticipate: the
+old adapter never worked at all. otplib v13 has no `authenticator` export, so
+`authenticator = otplib.authenticator` assigned `undefined` while reporting the
+library as available.
+
+---
+
+## The original entry — two-factor authentication does not exist
 
 **Status:** open, unscoped. **Not a false-success defect** — it is an
 authentication control the interface offers, the user completes, and the system
