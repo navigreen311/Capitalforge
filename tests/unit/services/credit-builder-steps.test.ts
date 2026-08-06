@@ -37,6 +37,7 @@ const EMPTY: StepDerivationInput = {
   intelliscorePulledAt: null,
   equifaxBusinessRisk: null,
   equifaxBusinessRiskPulledAt: null,
+  equifaxOneScore: null,
   businessAgeMonths: null,
   submittedApplicationCount: 0,
 };
@@ -57,6 +58,7 @@ const COMPLETE: StepDerivationInput = {
   intelliscorePulledAt: new Date('2026-03-01T00:00:00.000Z'),
   equifaxBusinessRisk: 640,
   equifaxBusinessRiskPulledAt: new Date('2026-03-01T00:00:00.000Z'),
+  equifaxOneScore: null,
   businessAgeMonths: 84,
   submittedApplicationCount: 2,
 };

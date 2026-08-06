@@ -150,9 +150,27 @@ Industry Report 2.0 bundle, so it is prominent on exactly the PDF an advisor
 would be reading.
 
 **Overlapping ranges cannot be distinguished by value.** The defence is naming
-the product where the number is entered, not a tighter validator. If a report
-shows a score between 300 and 650, confirm which of the two it is before
-recording it.
+the product where the number is entered, not a tighter validator.
+
+**Built 2026-08-06.** Three changes, none of which is a stricter range check:
+
+- **`equifax_onescore` is its own score type**, 300–650. An advisor reading a
+  OneScore off a bundle now has somewhere correct to put it. "Do not record it
+  in the wrong slot" is only actionable once a right slot exists.
+- **`sc_006` distinguishes three states, not two.** A OneScore on record makes
+  the criterion *unassessable* and says which product was found — it used to
+  read as "no Equifax score on record", which sends an advisor to buy a report
+  they already have.
+- **A value inside 300–650 carries the ambiguity in its basis.** Still
+  assessed, because it is a legitimate Business Credit Risk value; the basis
+  says to confirm the report before relying on it. Downgrading the whole band
+  to unknown would cover a third of the scale and be read as decoration within
+  a week.
+
+The residual risk is unchanged and unfixable by code: a OneScore recorded as a
+Business Credit Risk Score, by someone who did not check, is indistinguishable
+from the real thing. What the system can do is offer the right slot, name the
+ambiguity where it exists, and never claim more than the value supports.
 
 ---
 
