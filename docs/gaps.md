@@ -584,6 +584,69 @@ function, and the point is to reach someone planning work before that.
 
 ---
 
+## 6b. A signer is a business, not a person
+
+`BusinessOwner` records firstName, lastName, title, ownership percentage and
+KYC status — and **no email**. So when a document goes out for signature, the
+only recorded destination is `Business.businessEmail`.
+
+That is usually the right envelope going to roughly the right place, and it is
+not the same as sending it to the person who signs. The owner is named on the
+envelope — largest stake first — while the address belongs to the business.
+
+**Cost.** *Column.* `BusinessOwner.email`, plus a decision about which owner
+signs when several are recorded. Largest stake is a reasonable default and not
+obviously right for every document type.
+
+Until then the route refuses rather than substitutes: a business with no email
+gets a stated refusal. An envelope to a placeholder reaches nobody, and an
+envelope to a real wrong address is a client's contract in a stranger's inbox.
+
+---
+
+## 7. Nothing records a card a client already held
+
+**Chase 5/24 is counted from applications made through CapitalForge.** There is
+no model for a card a client arrived with: `CardApplication` is an application
+*this system* submitted, and the schema has no other card-holding table.
+
+So a client who opened four bank cards before onboarding counts as **zero**
+against 5/24, and the panel reads *"5 of 5 slots open"* — the most permissive
+possible answer — while the optimizer's own Inputs Used panel may be showing a
+held Chase card the advisor typed in. Two surfaces, one client, different
+answers, and the one an advisor acts on is the wrong one.
+
+**The error runs one way.** The count can only be too low, which is the
+dangerous direction: it reads as headroom, the client applies, and the
+auto-decline is the first anyone hears of the four cards. A figure that is
+sometimes wrong in either direction invites scepticism; one that is only ever
+too low invites trust it has not earned.
+
+**What was done instead of a warning.** The eligibility result now carries a
+`caveats` array stating what the number was counted from and which way it can
+be wrong. Deliberately not a banner: this is true of **every client, always**,
+and a flag that always fires is read as decoration inside a week — the same
+reasoning that made *narrow* a property of a tier rather than a badge on all
+four. It states the basis so a reader can weigh it, exactly as
+`creditUnionCardsExcludedFrom524` is reported rather than silently subtracted.
+
+The stacking optimizer already solved its half: it takes `existingCards` on the
+request and says *"At most N of 5 slots open"* when a held card has no opening
+date. The issuer-rules path has no equivalent input.
+
+**Cost.** *Product, then table.* The product question first: is a held card an
+**advisor attestation** or something pulled from a bureau? Attested is cheap and
+immediately useful, and it is what the optimizer already accepts — but it is a
+claim, and the 5/24 answer would then be only as good as the typing. A bureau
+pull is authoritative and needs an integration that does not exist. Either way
+the answer belongs in a table, so both surfaces read one record instead of one
+reading a request payload and the other reading nothing.
+
+Until then the caveat stands, and **the count should not be described as a
+measurement of the client's 5/24 standing** — it measures what we recorded.
+
+---
+
 ## What I would do first
 
 **~~Two-factor authentication, ahead of everything else here.~~ Built 2026-08-06.** It is not on the

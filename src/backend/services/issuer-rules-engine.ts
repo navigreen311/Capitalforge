@@ -68,6 +68,18 @@ export interface EligibilityContext {
   state?: string;
 }
 
+/**
+ * The rule type the cross-issuer velocity check dispatches on — Chase 5/24 and
+ * its relatives.
+ *
+ * Exported and shared because `buildCaveats` has to describe exactly the rule
+ * `evaluateRule` applied. An earlier draft matched `'velocity'`, which is not a
+ * rule type this engine has ever emitted, so the caveat never fired — and its
+ * tests passed, because they asserted the same wrong string. Two copies of a
+ * dispatch key is two chances to be wrong about which one is real.
+ */
+export const CROSS_ISSUER_VELOCITY_RULE = 'velocity_max_apps_per_period';
+
 /** Result of evaluating a single rule. */
 export interface RuleViolation {
   ruleId: string;
@@ -92,6 +104,77 @@ export interface EligibilityResult {
   eligibilityScore: number;
   evaluatedAt: string;
   rulesEvaluated: number;
+  /**
+   * What the verdict above rests on, where that is narrower than it reads.
+   *
+   * `eligible: true` is the absence of a violation, and an absence has a
+   * denominator. The velocity rules count `CardApplication` rows created in
+   * this system — and **nothing here records a card a client already held**.
+   * No model exists for one: `CardApplication` is an application made through
+   * CapitalForge, so a client who arrived with four bank cards opened
+   * elsewhere counts as zero against Chase 5/24.
+   *
+   * That makes the count a **floor, not a measurement**, and it errs in the
+   * permissive direction: the advisor is told there is room, the client
+   * applies, and the auto-decline is the first anyone hears of the four cards.
+   *
+   * Carried as a caveat rather than a warning banner because it is true of
+   * every client, always — a flag that always fires is read as decoration
+   * within a week. It states the basis of the number so the reader can weigh
+   * it, which is the same reason `creditUnionCardsExcludedFrom524` is reported
+   * rather than silently subtracted.
+   *
+   * See `docs/gaps.md` §7 for what would close it.
+   */
+  caveats: EligibilityCaveat[];
+}
+
+export interface EligibilityCaveat {
+  /** Which rule or figure the caveat qualifies. */
+  subject: string;
+  /** What was actually counted. */
+  basis: string;
+  /** Which direction the uncertainty runs, so a reader knows what to fear. */
+  direction: 'may_understate' | 'may_overstate';
+}
+
+/**
+ * What this verdict rests on, stated where it is narrower than it reads.
+ *
+ * Only emitted for rules that actually ran, so this does not editorialise
+ * about checks nobody performed.
+ */
+export function buildCaveats(
+  rules: readonly { ruleType: string; periodDays: number | null }[],
+  context: EligibilityContext,
+): EligibilityCaveat[] {
+  const caveats: EligibilityCaveat[] = [];
+
+  // Cross-issuer velocity — Chase 5/24 and its relatives. `periodDays >= 365`
+  // is the same discriminator `checkVelocity` uses to pick this counter, so
+  // the caveat cannot describe a rule the evaluator did not apply.
+  const hasCrossIssuerVelocity = rules.some(
+    (r) => r.ruleType === CROSS_ISSUER_VELOCITY_RULE && (r.periodDays ?? 0) >= 365,
+  );
+
+  if (hasCrossIssuerVelocity) {
+    const exempted = context.creditUnionCardsExcludedFrom524 ?? 0;
+    caveats.push({
+      subject: 'Chase 5/24 and other cross-issuer velocity limits',
+      basis:
+        `Counted ${context.newCardsLast24Months} card`
+        + `${context.newCardsLast24Months === 1 ? '' : 's'} from applications recorded in `
+        + 'CapitalForge'
+        + (exempted > 0
+          ? `, with ${exempted} credit-union card${exempted === 1 ? '' : 's'} excluded as exempt`
+          : '')
+        + '. Cards a client already held, or opened elsewhere, are not recorded '
+        + 'anywhere in this system and are not in that number.',
+      direction: 'may_understate',
+    });
+  }
+
+  return caveats;
 }
 
 // ============================================================
@@ -164,6 +247,7 @@ export class IssuerRulesEngine {
       eligibilityScore,
       evaluatedAt: new Date().toISOString(),
       rulesEvaluated: issuer.rules.length,
+      caveats: buildCaveats(issuer.rules, context),
     };
   }
 
@@ -178,7 +262,7 @@ export class IssuerRulesEngine {
     const severity = rule.severity as 'hard' | 'soft';
 
     switch (rule.ruleType) {
-      case 'velocity_max_apps_per_period':
+      case CROSS_ISSUER_VELOCITY_RULE:
         return this.checkVelocity(rule, context, severity);
 
       case 'velocity_cooldown_days':

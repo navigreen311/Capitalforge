@@ -439,12 +439,17 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
   const handleSendForSignature = useCallback(async (doc: DocumentRecord) => {
     setSendingSignatureId(doc.id);
     try {
-      // Rebuilt per attempt so the retry carries the refreshed token rather
-      // than repeating the 401. This was a bare `fetch` with the token read
-      // once and no refresh: an access token that aged out mid-page turned
-      // this click into a failure the advisor could only fix by reloading.
-      // Every other imperative call in this app refreshes — `apiClient`,
-      // `loadJson` and `fetch-all-pages` each do — and this one did not.
+      // The server resolves the signer and the file from the document id.
+      //
+      // This used to build the whole payload here — signerEmail
+      // 'client@example.com', signerName 'Client Signer', and
+      // documentBase64: btoa(doc.name), which is the filename encoded as if it
+      // were a document. Two comments said "In production, fetched from client
+      // record". The endpoint takes an id now, so there is nothing here left to
+      // get wrong.
+      //
+      // Rebuilt per attempt so a retry carries the refreshed token rather than
+      // repeating the 401.
       const send = (): Promise<Response> => {
         const token = getAuthToken();
         return fetch('/api/docusign/send', {
@@ -453,16 +458,7 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({
-            signerEmail:     'client@example.com', // In production, fetched from client record
-            signerName:      'Client Signer',      // In production, fetched from client record
-            documentBase64:  btoa(doc.name),        // Stub — real impl sends actual doc bytes
-            documentName:    doc.name,
-            envelopeSubject: `CapitalForge: Please sign ${doc.name}`,
-            envelopeMessage: `Please review and sign the document "${doc.name}".`,
-            businessId:      clientId,
-            docType:         doc.type,
-          }),
+          body: JSON.stringify({ documentId: doc.id }),
         });
       };
 
@@ -471,10 +467,6 @@ export default function DocumentsTab({ clientId }: DocumentsTabProps) {
         res = await send();
       }
 
-      // `result.success` was read whatever the status. A 401 or a 500 parses
-      // to an envelope with no `success`, which is falsy — so the failure did
-      // surface, but as the generic "could not send" message rather than as
-      // what actually happened.
       const result = await res.json().catch(() => ({}));
 
       if (result.success) {
