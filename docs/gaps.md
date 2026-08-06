@@ -584,6 +584,26 @@ function, and the point is to reach someone planning work before that.
 
 ---
 
+## 6b. A signer is a business, not a person
+
+`BusinessOwner` records firstName, lastName, title, ownership percentage and
+KYC status — and **no email**. So when a document goes out for signature, the
+only recorded destination is `Business.businessEmail`.
+
+That is usually the right envelope going to roughly the right place, and it is
+not the same as sending it to the person who signs. The owner is named on the
+envelope — largest stake first — while the address belongs to the business.
+
+**Cost.** *Column.* `BusinessOwner.email`, plus a decision about which owner
+signs when several are recorded. Largest stake is a reasonable default and not
+obviously right for every document type.
+
+Until then the route refuses rather than substitutes: a business with no email
+gets a stated refusal. An envelope to a placeholder reaches nobody, and an
+envelope to a real wrong address is a client's contract in a stranger's inbox.
+
+---
+
 ## 7. Nothing records a card a client already held
 
 **Chase 5/24 is counted from applications made through CapitalForge.** There is
