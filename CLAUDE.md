@@ -99,6 +99,41 @@ Every feature or significant change follows this sequence:
   is not a meaning site. Keep the `x !== null` form where the value is used,
   and let the helper carry the vocabulary.
 
+- **Every signal has a scope. The failure is reading it as evidence for
+  something adjacent.**
+
+  The rules above are instances of this in the code. It applies just as
+  directly to the *reporting* layer — to the commands used to check whether
+  work landed, which is where it is least likely to be noticed, because
+  nothing fails.
+
+  **A green `gh pr checks` is not a merge.** PR #35 was reported merged on the
+  strength of a status call taken *before* the merge. It was closed, not
+  merged: its branch was deleted in the same command that merged a sibling,
+  which auto-closes the PR. Nine PRs of drift followed, found only because
+  later work happened to need the missing code. **Verify `mergedAt`**, not the
+  checks that preceded it.
+
+  **A passing merge is not a clean merge.** PR #43's merge output contained
+  `create mode 100644 uploads/test/.../agreement.pdf` — test fixtures
+  committed to the repository. No check fails on a committed fixture; lint,
+  types, unit, integration and browser all pass happily. **Read what a merge
+  actually wrote.**
+
+  **`.count()` does not retry; `expect(locator)` does.** A count taken after a
+  heading paints but before its data arrives legitimately reads zero — green
+  locally every time, red in CI. **Fix the race rather than re-running.** A
+  flaky assertion guarding a real property is precisely the signal that gets
+  waved through, and then the genuine failure is waved through with it.
+
+  **A watcher that exits immediately reported nothing, not success.**
+  `gh pr checks --watch` returns straight away when no checks have registered
+  yet. An empty result is the absence of an answer, not an answer.
+
+  The common shape: the command succeeded, so the thing it was standing in for
+  was assumed to hold. Ask what the signal actually observed, and whether that
+  is the question being asked of it.
+
 - **A tool that reimplements the rule it checks will drift from that rule and
   keep answering.** Prefer calling the real engine over modelling it.
 
