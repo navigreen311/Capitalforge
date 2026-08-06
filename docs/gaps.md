@@ -22,7 +22,7 @@ be made before any of it can be built.
 
 ## 1. Endpoints that refuse
 
-Twenty-one endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
+Twenty-two endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
 body, so a caller does not have to read the source to find out.
 
 The last two arrived differently from the rest. They were not refusals that had
@@ -47,6 +47,8 @@ It answers `501` now.
 | `POST /api/platform/billing/send-overdue-reminders` | Nothing queues or sends them. This system can send real SMS and email, so a reported send is consequential. | **Product.** Needs a scheduling decision (who, when, how often) before any send. |
 | `POST /api/platform/referrals`<br>`POST /api/platform/referrals/:id/follow-up` | No table holds a referral link, its conversions or a commission. | **Table.** |
 | `POST /api/platform/reports/schedules` | Nothing stores a schedule and nothing runs one. | **Table + a runner.** |
+| `POST /api/platform/tenants/:id/suspend` | **The write exists and has no reader.** This answered `200` with `{ status: 'suspended', suspendedAt }` and wrote nothing. `Tenant.isActive` exists — but only *registration* checks it. Login and token refresh read `user.isActive`, a different flag, and `tenantMiddleware` decodes the JWT without touching the database. So setting it would block new sign-ups and nothing else. There is also **no unsuspend**, which is what hid the mock: nobody could try to undo a suspension. | **Product then wiring.** Enforcement at login, refresh and middleware — and a decision about where, since middleware currently does zero database reads per request. `suspendedAt` and `reason` have nowhere to live; `isActive` is a boolean. See `docs/backlog/tenant-suspension.md`. |
+
 | `PATCH /api/platform/offboarding/:id/advance` | Deliberate: stage moves when the export or the deletion actually happens, not because somebody advanced it. | **None — this one should stay refused.** Advancing by hand is how a workflow claims a deletion that never ran. |
 | `POST /api/declines/:id/reminder` | Nothing schedules or delivers a reapply reminder. | **Product.** Same scheduling question as overdue reminders. |
 | `POST /api/optimizer/save-strategy` | No table stores an optimizer strategy. This answered `200` with `{ savedAt, clientId }` and wrote nothing, while the page reported "Strategy saved to *client* profile". | **Table.** A `SavedStrategy` holding the plan as JSON, including the input provenance it was built on. See `docs/backlog/saved-strategy-and-funding-round-persistence.md`. |
@@ -583,6 +585,26 @@ function, and the point is to reach someone planning work before that.
 ---
 
 ## What I would do first
+
+**Two-factor authentication, ahead of everything else here.** It is not on the
+list above because it is not a gap of the same kind: the rest of this document
+is about figures the system declines to produce, and this is a **security
+control the interface offers, the user completes, and the system does not
+have**.
+
+Secrets and enabled flags live in a process-local `Map`, so a restart disables
+2FA for every user silently, and with two instances the answer depends which
+one you reach. And the enforcement is advisory: `login/page.tsx` writes the
+access token, **then** checks `/2fa/status` and redirects — so the session
+exists before the challenge, and anyone who does not follow the redirect is
+already signed in.
+
+**Do not plan the fix from this paragraph.**
+[`docs/backlog/two-factor-auth.md`](backlog/two-factor-auth.md) has the scoping
+questions, and they are unanswered on purpose: where secrets live and how they
+are encrypted, whether the challenge gates token issue (it should, which
+changes the login contract for every client), recovery codes, and what happens
+to sessions established under the current scheme.
 
 **~~The two columns in section 2.~~ Neither, as it turns out.** Both halves of
 this recommendation were wrong, and wrong the same way section 3 was — a claim
