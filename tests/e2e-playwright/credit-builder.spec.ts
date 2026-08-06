@@ -622,6 +622,17 @@ test.describe('Programme track', () => {
       has: page.getByRole('heading', { name: 'Programme Track' }),
     });
 
+    // Wait for a gate before counting them.
+    //
+    // `.count()` resolves immediately and does not retry, unlike an
+    // `expect()` on a locator. The heading paints with the panel shell while
+    // the gates arrive from /graduation/status afterwards, so counting on the
+    // heading alone can legitimately read zero — which is how this failed in
+    // CI while passing locally every time.
+    await expect(panel.getByText(/^(Met|Not yet|Not measured)$/).first()).toBeVisible({
+      timeout: 30000,
+    });
+
     const met = await panel.getByText('Met', { exact: true }).count();
     const notYet = await panel.getByText('Not yet', { exact: true }).count();
     const notMeasured = await panel.getByText('Not measured', { exact: true }).count();

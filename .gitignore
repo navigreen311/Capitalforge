@@ -29,3 +29,8 @@ playwright-report/
 # Failure snapshots from the browser suite. Appended across runs, so it
 # outlives the output directory Playwright empties on each start.
 .playwright-failures.jsonl
+
+# Local file storage. `STORAGE_PROVIDER=local` writes real files here —
+# uploads from the app, and fixtures written by integration tests. None of it
+# belongs in the repository; an integration test writing a PDF committed one.
+uploads/
