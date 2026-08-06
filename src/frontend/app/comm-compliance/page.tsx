@@ -1,4 +1,5 @@
 'use client';
+import { getStoredUserId } from '@/lib/session-storage';
 
 // ============================================================
 // /comm-compliance — Communication compliance
@@ -61,16 +62,10 @@ const RISK_STYLE: Record<RiskLevel, string> = {
 
 /** The signed-in user, as the login stored it. */
 function currentUser(): { id: string } | null {
-  if (typeof window === 'undefined') return null;
-  const raw = localStorage.getItem('cf_user');
-  if (raw === null) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    const id = (parsed as { id?: unknown }).id;
-    return typeof id === 'string' ? { id } : null;
-  } catch {
-    return null;
-  }
+  // Was its own parse of `cf_user`. Three components each had one, with three
+  // ideas of the payload and two levels of validation.
+  const id = getStoredUserId();
+  return id === null ? null : { id };
 }
 
 function formatDate(iso: string | null): string {

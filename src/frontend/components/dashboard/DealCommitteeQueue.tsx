@@ -1,5 +1,7 @@
 'use client';
 
+import { getStoredUserRole } from '@/lib/session-storage';
+
 // ============================================================
 // DealCommitteeQueue — Pending deal committee reviews with SLA
 //
@@ -27,10 +29,6 @@ interface CommitteeDeal {
   sla_hours_max: number;
   reviewers: Reviewer[];
   submitted_at: string;
-}
-
-interface CfUser {
-  role?: string;
 }
 
 // ── Mock Data ──────────────────────────────────────────────────────────────
@@ -68,14 +66,12 @@ const MOCK_DEALS: CommitteeDeal[] = [
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function getUserRole(): string | null {
-  try {
-    const raw = localStorage.getItem('cf_user');
-    if (!raw) return null;
-    const user: CfUser = JSON.parse(raw);
-    return user.role ?? null;
-  } catch {
-    return null;
-  }
+  // Was `JSON.parse(raw) as CfUser` and then `user.role` — an unchecked cast
+  // over a string from storage. It worked only because `safeUser` happens to
+  // include `role`, while the login page's own annotation for what it stores
+  // says `{ id, firstName }`. `getStoredUserRole` checks the field rather than
+  // asserting the shape.
+  return getStoredUserRole();
 }
 
 function formatDealAmount(amount: number): string {

@@ -17,6 +17,7 @@
 // ============================================================
 
 import { attemptTokenRefresh } from './token-refresh';
+import { getAccessToken } from './session-storage';
 
 export interface PagedResult<T> {
   rows: T[];
@@ -79,12 +80,10 @@ async function fetchPage(
 }
 
 function authHeader(): Record<string, string> {
-  // Reached through globalThis rather than naming `window` and `localStorage`
-  // directly: the backend tsconfig compiles this file and has no DOM lib, so
-  // those identifiers break `npm run build:backend`.
-  const storage = (globalThis as { localStorage?: { getItem(key: string): string | null } })
-    .localStorage;
-  const token = storage?.getItem('cf_access_token') ?? null;
+  // `session-storage` owns the key and reaches storage through globalThis for
+  // the same reason this file used to: the backend tsconfig compiles this
+  // file and has no DOM lib, so naming `localStorage` breaks build:backend.
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

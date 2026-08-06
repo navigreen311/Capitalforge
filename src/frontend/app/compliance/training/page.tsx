@@ -1,4 +1,5 @@
 'use client';
+import { getStoredUserId } from '@/lib/session-storage';
 
 // ============================================================
 // /compliance/training — Compliance training status
@@ -49,15 +50,8 @@ const STATUS_STYLE: Record<CertStatus, { label: string; cls: string }> = {
 
 /** The signed-in user, as the login stored it. */
 function currentUserId(): string | null {
-  if (typeof window === 'undefined') return null;
-  const raw = localStorage.getItem('cf_user');
-  if (raw === null) return null;
-  try {
-    const id = (JSON.parse(raw) as { id?: unknown }).id;
-    return typeof id === 'string' ? id : null;
-  } catch {
-    return null;
-  }
+  // Was its own parse of `cf_user`, one of three.
+  return getStoredUserId();
 }
 
 function formatDate(iso: string | null): string {

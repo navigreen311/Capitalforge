@@ -16,6 +16,7 @@
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { isPublicRoute } from '@/lib/auth-routes';
+import { getAccessToken } from '@/lib/session-storage';
 
 /**
  * True when shell components should fetch: the current route expects a
@@ -39,7 +40,7 @@ export function useSessionGate(): boolean {
   useEffect(() => {
     setHasToken(
       typeof window !== 'undefined' &&
-        !!window.localStorage.getItem('cf_access_token'),
+        getAccessToken() !== null,
     );
   }, [pathname]);
 

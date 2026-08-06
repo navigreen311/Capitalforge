@@ -5,6 +5,7 @@
 // ============================================================
 
 'use client';
+import { getAccessToken } from '@/lib/session-storage';
 
 import { useState, useRef, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
@@ -86,7 +87,7 @@ export default function TwoFactorPage() {
     setError(null);
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('cf_access_token') : null;
+      const token = getAccessToken();
       const res = await fetch('/api/auth/2fa/verify', {
         method: 'POST',
         headers: {

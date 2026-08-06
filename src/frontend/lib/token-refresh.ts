@@ -13,8 +13,17 @@
 // place and forgotten in another.
 // ============================================================
 
-const ACCESS_KEY = 'cf_access_token';
-const REFRESH_KEY = 'cf_refresh_token';
+// Keys and accessors live in session-storage — one definition for the app.
+// These were local copies that happened to agree with the others, which is
+// not the same as being one fact.
+import {
+  getAccessToken,
+  getRefreshToken,
+  setAccessToken,
+  setRefreshToken,
+  clearSession,
+} from './session-storage';
+
 
 /** The single refresh in flight, if any. See `attemptTokenRefresh`. */
 let inFlightRefresh: Promise<boolean> | null = null;
@@ -52,7 +61,7 @@ export function attemptTokenRefresh(): Promise<boolean> {
 async function runTokenRefresh(): Promise<boolean> {
   try {
     const refreshToken =
-      typeof window !== 'undefined' ? localStorage.getItem(REFRESH_KEY) : null;
+      getRefreshToken();
 
     if (!refreshToken) return false;
 
@@ -69,8 +78,7 @@ async function runTokenRefresh(): Promise<boolean> {
       // request. Any other status (a 400, a 500, a proxy hiccup) says nothing
       // about the token, so it is left alone.
       if (response.status === 401 && typeof window !== 'undefined') {
-        localStorage.removeItem(ACCESS_KEY);
-        localStorage.removeItem(REFRESH_KEY);
+        clearSession();
       }
       return false;
     }
@@ -82,9 +90,9 @@ async function runTokenRefresh(): Promise<boolean> {
     const accessToken = json?.data?.accessToken;
     if (!accessToken) return false;
 
-    localStorage.setItem(ACCESS_KEY, accessToken);
+    setAccessToken(accessToken);
     if (json?.data?.refreshToken) {
-      localStorage.setItem(REFRESH_KEY, json.data.refreshToken);
+      setRefreshToken(json.data.refreshToken);
     }
     return true;
   } catch {
@@ -104,5 +112,5 @@ async function runTokenRefresh(): Promise<boolean> {
  */
 export function canRecoverSession(): boolean {
   if (typeof window === 'undefined') return false;
-  return !localStorage.getItem(ACCESS_KEY) && !!localStorage.getItem(REFRESH_KEY);
+  return getAccessToken() === null && getRefreshToken() !== null;
 }

@@ -11,6 +11,7 @@
 
 import type { ApiResponse, PaginationParams } from '../../shared/types';
 import { attemptTokenRefresh, canRecoverSession } from './token-refresh';
+import { getAccessToken, setAccessToken, clearAccessToken } from './session-storage';
 
 // ─── Re-export core types ─────────────────────────────────────────────────────
 export type { ApiResponse };
@@ -43,19 +44,22 @@ export class ApiRequestError extends Error {
 
 // ─── Token management ─────────────────────────────────────────────────────────
 
-const TOKEN_KEY = 'cf_access_token';
+// The key itself lives in `session-storage`, which owns every storage key in
+// this app. It was a literal here and in eight other places, and one of those
+// eight read `cf_token` — a key nothing writes.
+//
+// These three keep their names because a dozen callers import them.
 
 export function setAuthToken(token: string): void {
-  if (typeof window !== 'undefined') localStorage.setItem(TOKEN_KEY, token);
+  setAccessToken(token);
 }
 
 export function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return getAccessToken();
 }
 
 export function clearAuthToken(): void {
-  if (typeof window !== 'undefined') localStorage.removeItem(TOKEN_KEY);
+  clearAccessToken();
 }
 
 /**

@@ -6,6 +6,13 @@
 
 'use client';
 
+import {
+  setAccessToken,
+  setRefreshToken,
+  setStoredUser,
+  type StoredUser,
+} from '@/lib/session-storage';
+
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -69,10 +76,23 @@ export default function LoginPage() {
       }
 
       // Store tokens for authenticated requests
-      const { accessToken, refreshToken, user } = (data as { data: { accessToken: string; refreshToken: string; user: { id: string; firstName: string } } }).data;
-      localStorage.setItem('cf_access_token', accessToken);
-      localStorage.setItem('cf_refresh_token', refreshToken);
-      localStorage.setItem('cf_user', JSON.stringify(user));
+      // The annotation used to say `{ id, firstName }`, which is narrower than
+      // what this actually stores: `safeUser` returns id, email, firstName,
+      // lastName and role. DealCommitteeQueue reads `role` off the stored
+      // object, and did so correctly only by luck — the writer's own type
+      // said the field was not there.
+      const { accessToken, refreshToken, user } = (
+        data as {
+          data: {
+            accessToken: string;
+            refreshToken: string;
+            user: StoredUser;
+          };
+        }
+      ).data;
+      setAccessToken(accessToken);
+      setRefreshToken(refreshToken);
+      setStoredUser(user);
 
       // Check if 2FA is enabled — redirect to challenge page if so
       try {
