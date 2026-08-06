@@ -130,6 +130,22 @@ Every feature or significant change follows this sequence:
   `gh pr checks --watch` returns straight away when no checks have registered
   yet. An empty result is the absence of an answer, not an answer.
 
+  **A retrying assertion can be satisfied by a transient and stop looking.**
+  Verifying that the optimizer's card list persists meant reloading and
+  asserting the box was ticked. It passed — and passed just as happily with
+  the save removed and the client's record empty. Browsers restore form
+  control state across a reload, so the checkbox came back ticked from the
+  browser's own restoration a few milliseconds before React rendered from the
+  record, and `toBeChecked` polls until true. It caught the transient. `goto`
+  to the same URL does it too, and a second tab did it once as well.
+
+  The rule that generalises: **an assertion about state the app derives must
+  be anchored to the derivation**, not to the first moment the DOM happens to
+  agree. Here that meant waiting on the record's GET before reading the
+  control. The tell was a contradiction the failure output made visible — the
+  checkbox asserted checked while the field that only renders when it is
+  checked was reported missing.
+
   The common shape: the command succeeded, so the thing it was standing in for
   was assumed to hold. Ask what the signal actually observed, and whether that
   is the question being asked of it.
