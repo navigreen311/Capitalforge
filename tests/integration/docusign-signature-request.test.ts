@@ -95,6 +95,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Delete the stored object too. `STORAGE_PROVIDER=local` writes a real file
+  // under uploads/, and the first run of this suite committed one to the
+  // repository. The directory is ignored now; leaving debris behind would
+  // still accumulate on every developer's disk.
+  await storageService.deleteFile(`test/${SUFFIX}/agreement.pdf`).catch(() => {});
+
   await prisma.document.deleteMany({ where: { tenantId } });
   await prisma.businessOwner.deleteMany({ where: { businessId } });
   await prisma.business.deleteMany({ where: { tenantId } });
