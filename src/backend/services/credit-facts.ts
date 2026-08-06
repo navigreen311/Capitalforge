@@ -39,6 +39,14 @@ export interface CreditFacts {
   /** Equifax Business Credit Risk Score, 101–992. */
   equifaxBusinessRisk: number | null;
   equifaxBusinessRiskPulledAt: Date | null;
+  /**
+   * Equifax OneScore for Commercial, 300–650, when one is on record.
+   *
+   * Carried separately so a criterion reading Business Credit Risk can say
+   * "a different Equifax product is recorded" rather than "no Equifax score" —
+   * those are different facts, and only one of them is the advisor's to fix.
+   */
+  equifaxOneScore: number | null;
 
   /**
    * Whole months since the business was formed, null when no formation date is
@@ -128,6 +136,7 @@ export async function readCreditFacts(
   const sbss = latest('sbss');
   const intelliscore = latest('intelliscore');
   const equifaxBusinessRisk = latest('equifax_business_risk');
+  const equifaxOneScore = latest('equifax_onescore');
 
   return {
     addressLine1: business.addressLine1,
@@ -143,6 +152,7 @@ export async function readCreditFacts(
     intelliscore: intelliscore?.score ?? null,
     intelliscorePulledAt: intelliscore?.pulledAt ?? null,
     equifaxBusinessRisk: equifaxBusinessRisk?.score ?? null,
+    equifaxOneScore: equifaxOneScore?.score ?? null,
     equifaxBusinessRiskPulledAt: equifaxBusinessRisk?.pulledAt ?? null,
     businessAgeMonths: business.dateOfFormation
       ? monthsSince(business.dateOfFormation, now)

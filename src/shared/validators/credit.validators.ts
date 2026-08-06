@@ -16,6 +16,7 @@ export const ScoreTypeSchema = z.enum([
   'paydex',
   'intelliscore',
   'equifax_business_risk',
+  'equifax_onescore',
 ]);
 
 export const CreditProfileTypeSchema = z.enum(['personal', 'business']);
@@ -202,6 +203,14 @@ export function validateScoreForType(score: number, scoreType: string): string |
       // See docs/product/business-credit-scores.md.
       if (score < 101 || score > 992) {
         return `Equifax Business Risk Score must be 101–992, got ${score}`;
+      }
+      break;
+    case 'equifax_onescore':
+      // 300–650. Recorded separately from Business Credit Risk precisely
+      // because the ranges overlap: a value here is unambiguous about which
+      // product it is, which the value alone can never be.
+      if (score < 300 || score > 650) {
+        return `Equifax OneScore for Commercial must be 300–650, got ${score}`;
       }
       break;
     case 'paydex':

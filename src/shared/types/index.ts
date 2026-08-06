@@ -56,7 +56,22 @@ export type ScoreType =
    * adapter wrote. Nothing produced this string, so the "Equifax Business
    * Credit ≥ 500" stacking criterion could not be assessed for any client.
    */
-  | 'equifax_business_risk';
+  | 'equifax_business_risk'
+  /**
+   * Equifax OneScore for Commercial, 300–650.
+   *
+   * A distinct product from Business Credit Risk, and the reason it needs its
+   * own slot: **300–650 sits entirely inside 101–992**, so a OneScore recorded
+   * as `equifax_business_risk` passes every range check and is then compared
+   * against sc_006's threshold of 500 — a number that means nothing on this
+   * scale.
+   *
+   * Overlapping ranges cannot be told apart by value. The defence is a slot to
+   * record it correctly, plus naming the ambiguity where a value falls in the
+   * overlap. It is also the score Equifax leads with in the Industry Report
+   * 2.0 bundle, so it is the one most likely to be read off a PDF by mistake.
+   */
+  | 'equifax_onescore';
 export type CreditProfileType = 'personal' | 'business';
 
 // Funding

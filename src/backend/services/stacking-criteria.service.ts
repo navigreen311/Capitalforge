@@ -133,6 +133,73 @@ function assessScore(
   return { status: 'not_met', basis: `${productName} ${score}, needs ${threshold}` };
 }
 
+
+/**
+ * The band where Equifax's two commercial scores are indistinguishable.
+ *
+ * Business Credit Risk runs 101–992 and OneScore for Commercial runs 300–650,
+ * so **every OneScore is a syntactically valid Business Credit Risk Score**. A
+ * value in this band cannot say which product it is; only the person who read
+ * it off the report can.
+ */
+export const EQUIFAX_OVERLAP = { min: 300, max: 650 } as const;
+
+export function isEquifaxOverlapValue(score: number | null): boolean {
+  return score !== null && score >= EQUIFAX_OVERLAP.min && score <= EQUIFAX_OVERLAP.max;
+}
+
+/**
+ * sc_006, which reads Equifax Business Credit Risk against 500.
+ *
+ * Three states rather than the usual two-plus-unknown, because there are three
+ * things that can be true and they need different actions:
+ *
+ *   - a Business Credit Risk score is on record  → assess it
+ *   - a **OneScore** is on record instead        → unassessable, and say which
+ *   - nothing is on record                       → unknown, pull a report
+ *
+ * The middle case used to read as the last one. "No Equifax score on record"
+ * sends an advisor to buy a report they already have, and says nothing about
+ * the score sitting in the system being the wrong product for this criterion.
+ */
+function assessEquifaxCriterion(facts: CreditFacts): { status: CriterionStatus; basis: string } {
+  if (facts.equifaxBusinessRisk === null) {
+    if (facts.equifaxOneScore !== null) {
+      return {
+        status: 'unassessable',
+        basis:
+          `An Equifax OneScore for Commercial of ${facts.equifaxOneScore} is on record, which is `
+          + 'a different product from the Business Credit Risk Score this criterion reads. The '
+          + 'two run on different scales (300–650 against 101–992), so 500 means nothing on the '
+          + 'one recorded.',
+      };
+    }
+    return {
+      status: 'unknown',
+      basis: 'No Equifax Business Risk on record for this client',
+    };
+  }
+
+  const met = facts.equifaxBusinessRisk >= TIER_2_EQUIFAX_RISK;
+  const base = `Equifax Business Risk ${facts.equifaxBusinessRisk}, needs ${TIER_2_EQUIFAX_RISK}`;
+
+  // Assessed, and the basis says what it rests on. Not downgraded to unknown:
+  // this is a legitimate Business Credit Risk value, and a flag that fired for
+  // the whole 300–650 band would cover a third of the scale and be read as
+  // decoration within a week.
+  if (isEquifaxOverlapValue(facts.equifaxBusinessRisk)) {
+    return {
+      status: met ? 'met' : 'not_met',
+      basis:
+        `${base}. That value also falls inside OneScore for Commercial's range `
+        + `(${EQUIFAX_OVERLAP.min}–${EQUIFAX_OVERLAP.max}), so confirm the report says `
+        + '"Business Credit Risk" before relying on this.',
+    };
+  }
+
+  return { status: met ? 'met' : 'not_met', basis: base };
+}
+
 /**
  * The eight criteria, assessed.
  *
@@ -226,7 +293,7 @@ export function assessStackingCriteria(
     label: 'Equifax Business Credit ≥ 500',
     description: 'Equifax Business Risk Score above 500.',
     requiredForTier: 2,
-    ...assessScore(facts.equifaxBusinessRisk, TIER_2_EQUIFAX_RISK, 'Equifax Business Risk'),
+    ...assessEquifaxCriterion(facts),
   });
 
   // ── sc_007 — two years of trading ──

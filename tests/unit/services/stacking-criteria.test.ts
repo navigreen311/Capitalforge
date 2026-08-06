@@ -38,6 +38,7 @@ const NOTHING: CreditFacts = {
   intelliscorePulledAt: null,
   equifaxBusinessRisk: null,
   equifaxBusinessRiskPulledAt: null,
+  equifaxOneScore: null,
   businessAgeMonths: null,
   submittedApplicationCount: 0,
 };
@@ -57,6 +58,7 @@ const STRONG: CreditFacts = {
   intelliscorePulledAt: new Date('2026-03-01'),
   equifaxBusinessRisk: 640,
   equifaxBusinessRiskPulledAt: new Date('2026-03-01'),
+  equifaxOneScore: null,
   businessAgeMonths: 84,
   submittedApplicationCount: 3,
 };
@@ -160,8 +162,58 @@ describe('sc_006 — Equifax’s own business product', () => {
     // produced the score this reads, so no client could satisfy it.
     expect(criterion({ ...STRONG, equifaxBusinessRisk: 499 }, 'sc_006').status).toBe('not_met');
     expect(criterion({ ...STRONG, equifaxBusinessRisk: 500 }, 'sc_006').status).toBe('met');
-    expect(criterion({ ...STRONG, equifaxBusinessRisk: 640 }, 'sc_006').basis)
-      .toBe('Equifax Business Risk 640, needs 500');
+    // 700 is above the OneScore range, so the basis is the plain one.
+    expect(criterion({ ...STRONG, equifaxBusinessRisk: 700 }, 'sc_006').basis)
+      .toBe('Equifax Business Risk 700, needs 500');
+  });
+
+
+  it('names the ambiguity when the value could be either Equifax product', () => {
+    // OneScore for Commercial runs 300–650, entirely inside Business Credit
+    // Risk's 101–992. Every OneScore is a syntactically valid risk score, so a
+    // value in that band cannot say which product it is.
+    const c = criterion({ ...STRONG, equifaxBusinessRisk: 640 }, 'sc_006');
+
+    // Still assessed. This is a legitimate risk score, and a flag covering the
+    // whole 300–650 band would cover a third of the scale and be read as
+    // decoration within a week.
+    expect(c.status).toBe('met');
+    expect(c.basis).toMatch(/Equifax Business Risk 640, needs 500/);
+    expect(c.basis).toMatch(/also falls inside OneScore for Commercial's range/);
+    expect(c.basis).toMatch(/confirm the report says "Business Credit Risk"/);
+  });
+
+  it('says nothing about ambiguity outside the overlap', () => {
+    // 900 cannot be a OneScore, so the caveat would be noise.
+    expect(criterion({ ...STRONG, equifaxBusinessRisk: 900 }, 'sc_006').basis)
+      .not.toMatch(/OneScore/);
+    expect(criterion({ ...STRONG, equifaxBusinessRisk: 200 }, 'sc_006').basis)
+      .not.toMatch(/OneScore/);
+  });
+
+  it('distinguishes the wrong Equifax product from no Equifax score', () => {
+    // The case that used to read as "nothing on record", which sends an
+    // advisor to buy a report they already have.
+    const wrongProduct = criterion(
+      { ...STRONG, equifaxBusinessRisk: null, equifaxOneScore: 520 },
+      'sc_006',
+    );
+
+    expect(wrongProduct.status).toBe('unassessable');
+    expect(wrongProduct.basis).toMatch(/OneScore for Commercial of 520 is on record/);
+    expect(wrongProduct.basis).toMatch(/different product/);
+    // And it does not claim the client failed a threshold.
+    expect(wrongProduct.status).not.toBe('not_met');
+  });
+
+  it('is unknown when no Equifax score of any kind is recorded', () => {
+    const none = criterion(
+      { ...STRONG, equifaxBusinessRisk: null, equifaxOneScore: null },
+      'sc_006',
+    );
+    expect(none.status).toBe('unknown');
+    expect(none.basis).toMatch(/No Equifax Business Risk on record/);
+    expect(none.basis).not.toMatch(/OneScore/);
   });
 
   it('is not assessed from an SBSS, which is a different product', () => {
