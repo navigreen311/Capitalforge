@@ -176,6 +176,27 @@ export class StorageService {
   /**
    * Delete a file from S3/R2 or the local filesystem.
    */
+  /**
+   * The bytes behind a stored object.
+   *
+   * Added 2026-08-06. The service could write, sign a URL and delete, but not
+   * read — so anything needing the actual content had to be handed it by the
+   * caller. That is how `documentBase64: btoa(doc.name)` came to be sent for
+   * signature: the frontend had no way to obtain the real file, so it sent the
+   * filename encoded as if it were a document.
+   *
+   * Throws rather than returning null: a caller asking for bytes cannot do
+   * anything useful with "there were none", and a signature flow that silently
+   * proceeds on an empty buffer is the failure this exists to prevent.
+   */
+  async readFile(path: string): Promise<Buffer> {
+    const client = await getS3Client();
+    if (client) {
+      return this._readS3(client, path);
+    }
+    return this._readLocal(path);
+  }
+
   async deleteFile(path: string): Promise<DeleteFileResult> {
     const client = await getS3Client();
     if (client) {
@@ -237,6 +258,29 @@ export class StorageService {
       expiresAt: Math.floor(Date.now() / 1000) + expiresIn,
       mode:      's3',
     };
+  }
+
+  private async _readS3(client: unknown, path: string): Promise<Buffer> {
+    const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+
+    const command = new GetObjectCommand({ Bucket: this.bucket, Key: path });
+    const response = (await (client as { send: (cmd: unknown) => Promise<unknown> }).send(
+      command,
+    )) as { Body?: { transformToByteArray?: () => Promise<Uint8Array> } };
+
+    const bytes = await response.Body?.transformToByteArray?.();
+    if (bytes === undefined) {
+      throw new Error(`Stored object has no readable body: ${path}`);
+    }
+    return Buffer.from(bytes);
+  }
+
+  private async _readLocal(path: string): Promise<Buffer> {
+    const fullPath = join(this.uploadsDir, path);
+    if (!existsSync(fullPath)) {
+      throw new Error(`Stored object not found: ${path}`);
+    }
+    return readFileSync(fullPath);
   }
 
   private async _deleteS3(client: unknown, path: string): Promise<DeleteFileResult> {
