@@ -354,10 +354,25 @@ export class DocumentVaultService {
           ...(typeof existing.metadata === 'object' && existing.metadata !== null
             ? (existing.metadata as Record<string, unknown>)
             : {}),
-          legalHoldSetAt: hold ? new Date().toISOString() : null,
-          legalHoldSetBy: hold ? requestedBy : null,
-          legalHoldRemovedAt: !hold ? new Date().toISOString() : undefined,
-          legalHoldRemovedBy: !hold ? requestedBy : undefined,
+          // Releasing used to write `legalHoldSetBy: null`, erasing who applied
+          // the hold and leaving only who lifted it. That is the wrong half to
+          // keep: "why was this document preserved, and on whose instruction"
+          // is the question a released hold gets asked about, and the answer
+          // was being deleted by the act of answering the other one.
+          //
+          // A new hold clears the previous release, so the pair on the record
+          // always describes the current cycle rather than accumulating.
+          ...(hold
+            ? {
+                legalHoldSetAt: new Date().toISOString(),
+                legalHoldSetBy: requestedBy,
+                legalHoldRemovedAt: null,
+                legalHoldRemovedBy: null,
+              }
+            : {
+                legalHoldRemovedAt: new Date().toISOString(),
+                legalHoldRemovedBy: requestedBy,
+              }),
         },
       },
     });
@@ -509,7 +524,7 @@ export class DocumentOnLegalHoldError extends Error {
   constructor(documentId: string) {
     super(
       `Document ${documentId} is under legal hold and cannot be deleted. ` +
-      'Remove the legal hold via PUT /api/documents/:id/legal-hold before deleting.',
+      'Remove the legal hold via PATCH /api/documents/:id/legal-hold before deleting.',
     );
     this.name = 'DocumentOnLegalHoldError';
   }

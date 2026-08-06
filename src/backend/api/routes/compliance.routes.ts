@@ -571,45 +571,26 @@ complianceRouter.post(
 );
 
 // ─────────────────────────────────────────────────────────────────
-// PATCH /api/compliance/documents/:id/hold
-// Toggle legal hold on a document.
+// `PATCH /api/compliance/documents/:id/hold` lived here.
+//
+// Removed 2026-08-05. Legal hold had three endpoints across two routers, and
+// this was the one every live caller used — which is exactly why it had to
+// go rather than win. It wrote the boolean directly:
+//
+//     prismaClient.document.update({ where: { id }, data: { legalHold } })
+//
+// No record of who set the hold or when. The two unused endpoints in
+// document.routes went through `vaultService.setLegalHold(id, tenantId, hold,
+// userId)`, which records legalHoldSetAt/By and legalHoldRemovedAt/By.
+//
+// Consolidating on caller count would have deleted the audit trail and kept
+// the bare boolean. "Who released this hold, and when" is the question asked
+// after the fact, and this endpoint could not answer it.
+//
+// Callers now use PATCH /api/documents/:id/legal-hold, which takes the same
+// { legalHold } body.
 // ─────────────────────────────────────────────────────────────────
-complianceRouter.patch(
-  '/compliance/documents/:id/hold',
-  tenantMiddleware,
-  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { tenantId } = req.tenant!;
-      const { id } = req.params;
-      const prismaClient = getPrisma();
 
-      const doc = await prismaClient.document.findFirst({
-        where: { id, tenantId },
-      });
-      if (!doc) {
-        throw notFound(`Document ${id}`);
-      }
-
-      const { legalHold } = z.object({ legalHold: z.boolean() }).parse(req.body);
-
-      const updated = await prismaClient.document.update({
-        where: { id },
-        data: { legalHold },
-      });
-
-      logger.info('Document legal hold toggled', { requestId: req.requestId, tenantId, docId: id, legalHold });
-
-      const body: ApiResponse<{ id: string; legalHold: boolean }> = {
-        success: true,
-        data: { id: updated.id, legalHold: updated.legalHold },
-      };
-      res.status(200).json(body);
-    } catch (err) {
-      next(err);
-    }
-  },
-);
 
 // ─────────────────────────────────────────────────────────────────
 // GET /api/compliance/disclosure-templates

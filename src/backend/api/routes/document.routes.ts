@@ -338,50 +338,12 @@ documentRouter.get(
 //
 // Requires COMPLIANCE_WRITE permission.
 
-documentRouter.put(
-  '/documents/:id/legal-hold',
-  requireAuth,
-  requirePermissions(PERMISSIONS.COMPLIANCE_WRITE),
-  async (req: Request, res: Response): Promise<void> => {
-    const documentId = req.params['id'];
-    const ctx        = req.tenant!;
+// `PUT /documents/:id/legal-hold` lived here, taking `{ hold }`, alongside the
+// `PATCH` below taking `{ legalHold }`. Same path, same handler, same service
+// call — two verbs for one toggle. Removed 2026-08-05 when the capability was
+// consolidated onto one endpoint; `PATCH` won because `{ legalHold }` is what
+// every caller already sends.
 
-    const { hold } = req.body as { hold?: unknown };
-
-    if (typeof hold !== 'boolean') {
-      badRequest(res, 'hold must be a boolean (true to set hold, false to release)');
-      return;
-    }
-
-    const reqLog = logger.child({
-      requestId:  req.requestId,
-      tenantId:   ctx.tenantId,
-      documentId,
-      hold,
-      route:      'PUT /documents/:id/legal-hold',
-    });
-
-    reqLog.info('[legal-hold] Legal hold toggle requested');
-
-    try {
-      const updated = await getVaultService().setLegalHold(
-        documentId,
-        ctx.tenantId,
-        hold,
-        ctx.userId,
-      );
-
-      const body: ApiResponse<DocumentRecord> = { success: true, data: updated };
-      res.status(200).json(body);
-    } catch (err) {
-      if (err instanceof DocumentNotFoundError) {
-        notFound(res, `Document not found: ${documentId}`);
-        return;
-      }
-      serverError(res, 'Failed to update legal hold', err);
-    }
-  },
-);
 
 // ── POST /api/documents/upload ────────────────────────────────
 //
