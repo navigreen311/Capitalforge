@@ -19,6 +19,7 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import { IssuerRulesEngine, EligibilityContext } from '../../services/issuer-rules-engine.js';
 import logger from '../../config/logger.js';
 import { isCreditUnionIssuerName, parseIssuer } from '../../../shared/constants/issuers.js';
+import { tallyHeldCardsForFiveTwentyFour } from '../../services/held-cards.service.js';
 import {
   CREDIT_UNION_MEMBERSHIP,
   type MembershipCost,
@@ -251,6 +252,7 @@ async function buildContextFromBusiness(
         take: 1,
       },
       cardApplications: true,
+      heldCards: { select: { issuer: true, openedAt: true } },
     },
   });
 
@@ -287,7 +289,20 @@ async function buildContextFromBusiness(
   const creditUnionCardsInWindow = cardsInWindow.filter((app) =>
     isCreditUnionIssuerName(app.issuer),
   );
-  const newCardsLast24Months = cardsInWindow.length - creditUnionCardsInWindow.length;
+  const applicationsIn524 = cardsInWindow.length - creditUnionCardsInWindow.length;
+
+  // Cards the client arrived with, which applications cannot see.
+  //
+  // `CardApplication` records what this system submitted. A client who opened
+  // four bank cards before onboarding counted as zero, so the answer could only
+  // ever be too low — and too low reads as headroom.
+  const heldTally = tallyHeldCardsForFiveTwentyFour(
+    business.heldCards ?? [],
+    twentyFourMonthsAgo,
+    now,
+  );
+
+  const newCardsLast24Months = applicationsIn524 + heldTally.counted;
 
   // Count applications to this specific issuer
   const issuerApps = business.cardApplications.filter(
@@ -354,7 +369,13 @@ async function buildContextFromBusiness(
     newCardsLast24Months,
     // Reported rather than merely subtracted: an exemption that only shows up
     // as a smaller number is indistinguishable from cards being missed.
-    creditUnionCardsExcludedFrom524: creditUnionCardsInWindow.length,
+    creditUnionCardsExcludedFrom524:
+      creditUnionCardsInWindow.length + heldTally.creditUnionExcluded,
+    // Where the number came from, so the caveat can describe it rather than
+    // guess. `unplaceable` is why an answer may be "at most N".
+    fiveTwentyFourFromApplications: applicationsIn524,
+    fiveTwentyFourFromHeldCards: heldTally.counted,
+    heldCardsOfUnknownAge: heldTally.unplaceable,
     issuerAppsInPeriod,
     lastApplicationDate: lastIssuerApp?.submittedAt?.toISOString() ?? null,
     lastDeclineDate: lastDecline?.decidedAt?.toISOString() ?? null,

@@ -288,6 +288,7 @@ model Business {
   costCalculations   CostCalculation[]
   creditBuilderSteps CreditBuilderStep[]
   graduationEvents   GraduationEvent[]
+  heldCards          HeldCard[]
 
   @@index([tenantId, status])
   @@map("businesses")
@@ -1774,4 +1775,48 @@ model TradelinePayment {
   @@index([tradelineId, paidOn])
   @@index([tenantId])
   @@map("tradeline_payments")
+}
+
+/// A card the client already holds, as attested by an advisor.
+///
+/// Chase 5/24 was counted from `CardApplication` — applications made through
+/// CapitalForge — and nothing recorded a card a client arrived with. A client
+/// who opened four bank cards before onboarding counted as zero, so the panel
+/// read "5 of 5 slots open", and the error ran one way: too low, which reads
+/// as headroom until the auto-decline.
+///
+/// This is an attestation, not a bureau pull. `source` and `attestedBy` say so
+/// on every row, because the 5/24 answer is only ever as good as the typing —
+/// and a figure whose provenance is recorded can be weighed, while one that
+/// merely appears cannot.
+model HeldCard {
+  id          String    @id @default(uuid())
+  tenantId    String
+  businessId  String
+  /// Free text, matched against the issuer registry the same way
+  /// CardApplication.issuer is — including for the credit-union exemption.
+  issuer      String
+  productName String?
+  /// When the card was opened.
+  ///
+  /// Null is the common case and the important one: a client often knows they
+  /// hold a card without recalling the month. Such a card cannot be placed in
+  /// the 24-month window, so it is reported as unplaceable rather than counted
+  /// or ignored — the difference between "3 of 5 slots open" and "at most 3".
+  openedAt    DateTime?
+  /// Set when the client has since closed it. A closed card still counts
+  /// toward 5/24 if it was opened inside the window: 5/24 counts openings.
+  closedAt    DateTime?
+  creditLimit Decimal?
+  /// advisor_attested | bureau_pull. Only the first exists today.
+  source      String    @default("advisor_attested")
+  attestedBy  String
+  attestedAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, businessId])
+  @@map("held_cards")
 }

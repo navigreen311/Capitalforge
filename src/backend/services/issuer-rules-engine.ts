@@ -36,6 +36,25 @@ export interface EligibilityContext {
    * with two exempted.
    */
   creditUnionCardsExcludedFrom524?: number;
+  /**
+   * Where `newCardsLast24Months` came from.
+   *
+   * Applications are what this system submitted; held cards are what the
+   * client arrived with, attested by an advisor. The split matters because
+   * the two have different provenance and the caveat has to say so — one is
+   * a record of our own action, the other is a claim about the past.
+   */
+  fiveTwentyFourFromApplications?: number;
+  fiveTwentyFourFromHeldCards?: number;
+  /**
+   * Held bank cards with no opening date.
+   *
+   * Neither counted nor ignored: they are why an answer may be "at most N
+   * slots open" rather than "N". The stacking optimizer already drew this
+   * distinction; the issuer-rules path did not.
+   */
+  heldCardsOfUnknownAge?: number;
+
   /** Number of applications to this specific issuer in the past N days */
   issuerAppsInPeriod: number;
   /** Most recent application date to this issuer (ISO string or null) */
@@ -159,17 +178,42 @@ export function buildCaveats(
 
   if (hasCrossIssuerVelocity) {
     const exempted = context.creditUnionCardsExcludedFrom524 ?? 0;
+    const fromApplications = context.fiveTwentyFourFromApplications ?? context.newCardsLast24Months;
+    const fromHeldCards = context.fiveTwentyFourFromHeldCards ?? 0;
+    const unplaceable = context.heldCardsOfUnknownAge ?? 0;
+
+    const parts = [
+      `Counted ${context.newCardsLast24Months} card`
+      + `${context.newCardsLast24Months === 1 ? '' : 's'}`
+      + ` — ${fromApplications} from applications recorded in CapitalForge`
+      + `, ${fromHeldCards} from cards the client is recorded as already holding`,
+    ];
+
+    if (exempted > 0) {
+      parts.push(
+        `${exempted} credit-union card${exempted === 1 ? '' : 's'} excluded as exempt`,
+      );
+    }
+
+    if (unplaceable > 0) {
+      // The reason the answer is "at most N". These cards exist and cannot be
+      // placed in the window, so they are neither counted nor ignored.
+      parts.push(
+        `${unplaceable} held card${unplaceable === 1 ? '' : 's'} could not be placed in time `
+        + '(no opening date recorded), so the figure is a floor',
+      );
+    }
+
+    parts.push(
+      'Held cards are advisor attestations rather than a bureau pull, so this is '
+      + 'only as good as what was entered; a card nobody recorded is still invisible',
+    );
+
     caveats.push({
       subject: 'Chase 5/24 and other cross-issuer velocity limits',
-      basis:
-        `Counted ${context.newCardsLast24Months} card`
-        + `${context.newCardsLast24Months === 1 ? '' : 's'} from applications recorded in `
-        + 'CapitalForge'
-        + (exempted > 0
-          ? `, with ${exempted} credit-union card${exempted === 1 ? '' : 's'} excluded as exempt`
-          : '')
-        + '. Cards a client already held, or opened elsewhere, are not recorded '
-        + 'anywhere in this system and are not in that number.',
+      basis: parts.join('. ') + '.',
+      // Still may understate: the record improves the answer without
+      // guaranteeing it. Nothing forces an advisor to enter a card.
       direction: 'may_understate',
     });
   }
