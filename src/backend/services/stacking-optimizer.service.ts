@@ -612,6 +612,7 @@ export const stackingOptimizer = new StackingOptimizerService();
 
 import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
+import { tallyHeldCardsForFiveTwentyFour } from './held-cards.service.js';
 import {
   CREDIT_UNION_MEMBERSHIP,
   type MembershipCost,
@@ -1253,6 +1254,8 @@ function buildApplicationContext(
   },
   supplied?: SuppliedProfile,
   suppliedExistingCards?: SuppliedExistingCard[],
+  /** Cards on record for this client — see HeldCard. */
+  recordedHeldCards?: readonly { issuer: string; openedAt: Date | null }[],
 ): ApplicationContext & { provenance: InputProvenance } {
   // Get best FICO from most recent credit profile
   const sortedProfiles = [...business.creditProfiles].sort(
@@ -1341,6 +1344,12 @@ function buildApplicationContext(
   for (const card of suppliedExistingCards ?? []) {
     for (const key of heldKeysForSuppliedCard(card)) heldProductKeys.add(key);
   }
+  // And the cards on record, which the form need not repeat.
+  for (const card of recordedHeldCards ?? []) {
+    for (const key of heldKeysForSuppliedCard({ issuer: card.issuer })) {
+      heldProductKeys.add(key);
+    }
+  }
 
   // Recent application dates (past 90 days)
   const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
@@ -1380,9 +1389,26 @@ function buildApplicationContext(
   //
   // Neither guess is available. The number is reported as a floor and the
   // headroom as a ceiling, with the count of cards that could move it.
-  const heldBankCardsOfUnknownAge = (suppliedExistingCards ?? []).filter(
+  // Two sources, and only one of them can be placed in time.
+  //
+  // A card typed into this run's form has no opening date — the form has no
+  // field for one — so it can only ever be unplaceable. A card on record may
+  // carry `openedAt`, and then it counts properly rather than widening the
+  // answer to "at most N".
+  //
+  // Reading the record here is what makes the two surfaces agree: the 5/24
+  // path and this one now answer from the same rows.
+  const recordTally = tallyHeldCardsForFiveTwentyFour(
+    (recordedHeldCards ?? []).map((c) => ({ issuer: c.issuer, openedAt: c.openedAt })),
+    new Date(now.getTime() - 730 * 24 * 60 * 60 * 1000),
+    now,
+  );
+
+  const undatedFromForm = (suppliedExistingCards ?? []).filter(
     (card) => !isCreditUnionIssuerName(card.issuer ?? null),
   ).length;
+
+  const heldBankCardsOfUnknownAge = undatedFromForm + recordTally.unplaceable;
 
   // Report the union the exclusion actually used, not one half of it.
   //
@@ -1682,11 +1708,27 @@ export async function runStackingOptimizer(
     include: {
       creditProfiles: { orderBy: { pulledAt: 'desc' }, take: 5 },
       cardApplications: true,
+      // The same record the 5/24 path reads. Held cards used to reach this
+      // service only on the request payload, so the two surfaces answered
+      // from different data about the same client: one from what an advisor
+      // had typed into this form, the other from nothing at all.
+      heldCards: true,
     },
   });
 
   // 2. Build application context, recording where each input came from
-  const ctx = buildApplicationContext(business, input.profile, input.existingCards);
+  // Cards on record, plus anything typed into this run's form.
+  //
+  // The record carries `openedAt`; the form has no date field, so a card that
+  // arrives only on the request can never be placed in the 24-month window.
+  // That is the difference the table makes: a dated card counts, an undated one
+  // is reported as unplaceable, and the answer stops being a blanket floor.
+  const ctx = buildApplicationContext(
+    business,
+    input.profile,
+    input.existingCards,
+    business.heldCards,
+  );
 
   // 3. Load all active card products
   const loadedCards = await prisma.cardProduct.findMany({
