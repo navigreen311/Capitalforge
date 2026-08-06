@@ -60,9 +60,16 @@ describe('buildCaveats — cross-issuer velocity', () => {
 
     expect(caveats).toHaveLength(1);
     expect(caveats[0]!.subject).toMatch(/5\/24/);
-    expect(caveats[0]!.basis).toMatch(/Counted 2 cards from applications recorded in CapitalForge/);
-    // The half that matters: what is missing, not just what was counted.
-    expect(caveats[0]!.basis).toMatch(/already held, or opened elsewhere, are not recorded/);
+    // The wording gained a breakdown when held cards became a record: the
+    // total now names its two sources, because they have different provenance
+    // — one is what this system did, the other is what an advisor was told.
+    expect(caveats[0]!.basis).toMatch(/Counted 2 cards/);
+    expect(caveats[0]!.basis).toMatch(/2 from applications recorded in CapitalForge/);
+    expect(caveats[0]!.basis).toMatch(/from cards the client is recorded as already holding/);
+    // The half that matters: the limits of the number, not just its value.
+    // Held cards are attestations, so the figure is only as good as the entry.
+    expect(caveats[0]!.basis).toMatch(/advisor attestations rather than a bureau pull/);
+    expect(caveats[0]!.basis).toMatch(/a card nobody recorded is still invisible/);
   });
 
   it('names the direction of the error', () => {
@@ -93,7 +100,43 @@ describe('buildCaveats — cross-issuer velocity', () => {
 
   it('says one card, not 1 cards', () => {
     const caveats = buildCaveats([velocityRule(730)], context({ newCardsLast24Months: 1 }));
-    expect(caveats[0]!.basis).toMatch(/Counted 1 card from/);
+    expect(caveats[0]!.basis).toMatch(/Counted 1 card —/);
+  });
+
+
+  it('says the figure is a floor when a held card cannot be placed in time', () => {
+    // The distinction that turns "3 of 5 slots open" into "at most 3". A card
+    // with no opening date is neither counted nor ignored.
+    const caveats = buildCaveats(
+      [velocityRule(730)],
+      context({ newCardsLast24Months: 3, heldCardsOfUnknownAge: 2 }),
+    );
+
+    expect(caveats[0]!.basis).toMatch(/2 held cards could not be placed in time/);
+    expect(caveats[0]!.basis).toMatch(/the figure is a floor/);
+  });
+
+  it('omits the floor clause when every held card is placeable', () => {
+    const caveats = buildCaveats(
+      [velocityRule(730)],
+      context({ newCardsLast24Months: 3, heldCardsOfUnknownAge: 0 }),
+    );
+    expect(caveats[0]!.basis).not.toMatch(/could not be placed/);
+  });
+
+  it('names both sources even when one contributes nothing', () => {
+    // A client with no held cards on record still gets the breakdown, so the
+    // reader can tell "none held" from "held cards not considered".
+    const caveats = buildCaveats(
+      [velocityRule(730)],
+      context({
+        newCardsLast24Months: 2,
+        fiveTwentyFourFromApplications: 2,
+        fiveTwentyFourFromHeldCards: 0,
+      }),
+    );
+    expect(caveats[0]!.basis).toMatch(/2 from applications/);
+    expect(caveats[0]!.basis).toMatch(/0 from cards the client is recorded as already holding/);
   });
 
   it('does not describe a rule that was never evaluated', () => {

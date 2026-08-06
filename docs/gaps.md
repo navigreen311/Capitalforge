@@ -604,7 +604,41 @@ envelope to a real wrong address is a client's contract in a stranger's inbox.
 
 ---
 
-## 7. Nothing records a card a client already held
+## 7. ~~Nothing records a card a client already held~~ — recorded 2026-08-06
+
+**A `HeldCard` table exists, and 5/24 counts it.** The product question was
+*attestation or bureau pull*; the answer is **attestation**, because that is
+what can exist today and it is what the optimizer already accepted on its
+request. Every row carries `source` and `attestedBy`, so the claim travels with
+its provenance rather than arriving as a fact.
+
+Three things the record buys:
+
+- **A card the client arrived with now counts.** The figure was structurally a
+  floor for every client; it is now a floor only where an attestation is
+  missing or undated.
+- **`openedAt` may be null, and that is reported rather than smoothed.** A
+  client often knows they hold a card without recalling the month. Such a card
+  is *unplaceable* — neither counted nor ignored — which is the difference
+  between "3 of 5 slots open" and "at most 3". The stacking optimizer already
+  drew that distinction; the issuer-rules path now does too.
+- **The exemption is checked before the date**, so an undated credit-union card
+  does not inflate the unplaceable count and make the answer vaguer than the
+  rule requires.
+
+**What it does not buy.** An attestation is only as good as the entry, and
+nothing forces an advisor to record a card. The caveat still reads
+`may_understate` and now says so explicitly: *"a card nobody recorded is still
+invisible"*. A bureau pull would replace the claim with a measurement, and
+needs an integration that does not exist.
+
+**Still open:** the optimizer accepts `existingCards` on the request with no
+opening date, so it cannot place them either. Pointing that surface at the
+table — one record, two readers — is the remaining half.
+
+---
+
+## The original entry
 
 **Chase 5/24 is counted from applications made through CapitalForge.** There is
 no model for a card a client arrived with: `CardApplication` is an application
