@@ -632,9 +632,27 @@ nothing forces an advisor to record a card. The caveat still reads
 invisible"*. A bureau pull would replace the claim with a measurement, and
 needs an integration that does not exist.
 
-**Still open:** the optimizer accepts `existingCards` on the request with no
-opening date, so it cannot place them either. Pointing that surface at the
-table — one record, two readers — is the remaining half.
+**~~Still open: the optimizer.~~ Closed 2026-08-06 — one record, two readers.**
+
+The optimizer loaded held cards from the request payload only, so the two
+surfaces answered from different data about the same client: the optimizer from
+what an advisor had typed into that run's form, the issuer-rules path from
+nothing. That is how "5 of 5 slots open" appeared beside an Inputs Used panel
+listing a held Chase card.
+
+Both read `HeldCard` now, through the same pure tally, so they cannot disagree
+about how many cards a client holds or which are exempt.
+
+**What the table buys over the payload:** an opening date. The form has no field
+for one, so a card arriving only on the request can *never* be placed in the
+window and can only widen the answer to "at most N". A recorded card with a date
+counts properly. Cards still typed into the form are honoured and continue to
+count as unplaceable — they are a draft, not a record.
+
+**Still open, smaller:** the form does not write what it collects to the table,
+so a card typed in one run is invisible to the next and to the 5/24 panel. Until
+it does, "one record" holds for anything recorded and not for anything merely
+typed.
 
 ---
 
