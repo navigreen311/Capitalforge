@@ -72,6 +72,86 @@ belong on this list: everything here reports a write that did not happen, and
 that is an authentication control the interface offers and the system does not
 have.
 
+### A capability flag set by the absence of a throw
+
+Found 2026-08-06 while building 2FA. Not the RAM-storage defect — a separate
+one, in the same file, and quieter.
+
+```ts
+try {
+  const otplib = require('otplib');
+  authenticator = otplib.authenticator;   // undefined in v13
+  otplibAvailable = true;                 // ← set anyway
+} catch {
+  // otplib not installed — use mock fallback
+}
+```
+
+otplib v13 has no `authenticator` export. The import **succeeded**, so the
+catch never ran, so the mock fallback was unreachable — and `otplibAvailable`
+reported the real library as live while `authenticator` held `undefined`. Every
+`authenticator.check(...)` would have thrown at the point of use, far from the
+line that caused it.
+
+The comment made it worse by describing an intent the code did not implement:
+*"graceful fallback"* reads as "degrades safely", and what it did was claim
+success for an import that produced nothing usable.
+
+**The general rule: a capability flag set by the success of an import is not
+evidence the import produced a working thing.** Verify the *shape*, not the
+absence of a throw:
+
+```ts
+otp =
+  typeof lib.generateSecret === 'function' &&
+  typeof lib.verifySync === 'function'
+    ? (lib as OtpLib)
+    : null;
+```
+
+This is the same family as the rest of this document — a flag asserting a state
+nothing established — but it is worth its own entry because the usual tell is
+missing. There is no toast, no response, no user-visible claim. The false
+success is internal, and its only symptom is a `TypeError` somewhere else.
+
+Related, and deliberate: the replacement has **no mock fallback at all**. A
+second factor that quietly degrades to something weaker is worse than one that
+refuses, because the refusal gets noticed.
+
+### A boolean asserting a state with no credential behind it
+
+Found the same day, by querying the database rather than reading the schema.
+
+`admin@demoadvisors.io` carried `mfaEnabled = true` with `mfaSecret = NULL` —
+a flag set by the in-memory implementation, which never wrote either column.
+Harmless while nothing read it. **On the day enforcement shipped it would have
+locked that account out permanently**: nothing to verify a code against, and no
+recovery codes to fall back on.
+
+Two things worth carrying:
+
+**It was found by querying, not by reading.** The schema says `mfaEnabled
+Boolean` and `mfaSecret String?`, and nothing in it forbids the combination.
+That is now the third or fourth time in this codebase that the deciding
+information came from the data rather than the definition — alongside the five
+`gaps.md` claims disproved by running the query, and the `scripts/**` tool that
+described a schema it no longer matched. **Read the schema to know what is
+possible; query the data to know what is true.**
+
+**The fix makes the incoherent state unreadable rather than checking for it.**
+
+```ts
+export function isMfaEnrolled(user) {
+  return user?.mfaEnabled === true && user.mfaSecret !== null && user.mfaSecret !== '';
+}
+```
+
+Every caller asks that question instead of reading the flag. The alternative —
+checking for the combination at each call site — is a rule that has to be
+remembered, and the next call site is where it gets forgotten. Same move as the
+`{ legalHold: boolean }` toggle: prefer making the bad state unrepresentable,
+and where the data already contains it, unreadable.
+
 ### A third check, added 2026-08-05
 
 3. **Does a test assert the current behaviour?**

@@ -37,6 +37,11 @@ function extractBearerToken(req: Request): string | null {
 }
 
 // ── Main middleware ───────────────────────────────────────────
+import { prisma as sharedPrisma } from '../config/database.js';
+import { createTenantStatusService } from '../services/tenant-status.service.js';
+
+const tenantStatusSvc = createTenantStatusService(sharedPrisma);
+
 export async function tenantMiddleware(
   req: Request,
   res: Response,
@@ -86,6 +91,30 @@ export async function tenantMiddleware(
       error: { code: 'INVALID_TOKEN', message: 'Token is missing required tenant claims.' },
     };
     res.status(401).json(body);
+    return;
+  }
+
+  // A suspended tenant stops here, not at the next login.
+  //
+  // This middleware used to do zero database reads — a pure JWT decode on
+  // every authenticated request — which is why an access token issued before a
+  // suspension kept working until it expired. The lookup is cached for 30
+  // seconds per process, so the hot path costs one query per tenant per
+  // window rather than one per request. See tenant-status.service for why that
+  // trade was chosen over a JWT claim (stale for the token's whole lifetime)
+  // or an uncached read (a query on every request).
+  if (!(await tenantStatusSvc.isTenantActive(payload.tenantId))) {
+    const reqLog = logger.child({ requestId: req.requestId });
+    reqLog.warn('Tenant middleware: suspended tenant', { tenantId: payload.tenantId });
+
+    const body: ApiResponse = {
+      success: false,
+      error: {
+        code: 'TENANT_SUSPENDED',
+        message: 'This organisation is suspended.',
+      },
+    };
+    res.status(403).json(body);
     return;
   }
 

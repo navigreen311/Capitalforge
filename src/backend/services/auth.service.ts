@@ -15,6 +15,7 @@ import {
   verifyMfaChallengeToken,
 } from '../config/auth.js';
 import { createTwoFactorService, isMfaEnrolled } from './two-factor.service.js';
+import { createTenantStatusService } from './tenant-status.service.js';
 import { ROLES, PERMISSIONS } from '@shared/constants/index.js';
 import type { TenantContext } from '@shared/types/index.js';
 
@@ -202,6 +203,7 @@ export function createAuthService(prisma: PrismaClient) {
    * "user not found" and "wrong password" to prevent enumeration.
    */
   const twoFactor = createTwoFactorService(prisma);
+  const tenantStatus = createTenantStatusService(prisma);
 
   /**
    * Exchange a challenge token plus a code for a session.
@@ -256,6 +258,17 @@ export function createAuthService(prisma: PrismaClient) {
         'Invalid credentials.',
         'AUTH_INVALID_CREDENTIALS',
         401,
+      );
+    }
+
+    // The tenant, not just the user. `user.isActive` above is a different
+    // flag: a suspended tenant's users are all individually active, which is
+    // why suspension used to have no effect on login at all.
+    if (!(await tenantStatus.isTenantActive(user.tenantId))) {
+      throw new AuthError(
+        'This organisation is suspended. Contact your administrator.',
+        'AUTH_TENANT_SUSPENDED',
+        403,
       );
     }
 
@@ -375,6 +388,16 @@ export function createAuthService(prisma: PrismaClient) {
 
     if (!user || !user.isActive) {
       throw new AuthError('User account is inactive.', 'AUTH_USER_INACTIVE', 401);
+    }
+
+    // Without this a session outlives the suspension by the refresh token's
+    // lifetime — seven days of a suspended tenant renewing itself.
+    if (!(await tenantStatus.isTenantActive(user.tenantId))) {
+      throw new AuthError(
+        'This organisation is suspended.',
+        'AUTH_TENANT_SUSPENDED',
+        403,
+      );
     }
 
     const ctx    = await buildContext(user.id, user.tenantId, user.role);

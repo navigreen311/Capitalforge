@@ -17,7 +17,19 @@ model Tenant {
   slug        String   @unique
   brandConfig Json?
   plan        String   @default("starter")
+  /// False suspends the tenant. Enforced at login, at token refresh and on
+  /// every authenticated request — see tenant-status.service.
+  ///
+  /// Previously read only by `register`, so setting it blocked new sign-ups
+  /// and nothing else: existing sessions continued and existing users still
+  /// logged in.
   isActive    Boolean  @default(true)
+  /// Who suspended this tenant, when, and why. A boolean cannot answer the
+  /// question asked after the fact, and the endpoint used to return a
+  /// `suspendedAt` it had nowhere to store.
+  suspendedAt     DateTime?
+  suspendedBy     String?
+  suspendedReason String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

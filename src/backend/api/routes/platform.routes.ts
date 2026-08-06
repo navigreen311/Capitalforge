@@ -64,6 +64,10 @@ function membershipCostFor(slug: CreditUnionIssuerId): MembershipCost {
 }
 
 
+import { createTenantStatusService } from '../../services/tenant-status.service.js';
+
+const tenantStatus = createTenantStatusService(sharedPrisma);
+
 const router = Router();
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -219,47 +223,68 @@ const SuspendSchema = z.object({
   reason: z.string().min(1).optional(),
 });
 
-// Suspending a tenant is an access-control action, and this did not perform
-// one. It validated the body, logged, and answered 200 with
-// `{ status: 'suspended', suspendedAt: <now> }` — writing nothing. An operator
-// suspended a tenant, saw a confirmation with a timestamp, and the tenant kept
-// working.
+// ── Tenant suspension ────────────────────────────────────────
 //
-// The absence of an unsuspend endpoint is what hid it: nobody could try to
-// undo a suspension, so nobody discovered that suspending did nothing either.
+// This answered 200 with `{ status: 'suspended', suspendedAt: <now> }` and
+// wrote nothing. An operator suspended a tenant, saw a confirmation with a
+// timestamp, and the tenant kept working. It then refused with a 501 while the
+// enforcement it needed did not exist.
 //
-// It refuses now rather than being wired to `Tenant.isActive`, and the reason
-// is worth stating precisely, because the field DOES exist and wiring it would
-// look like a fix:
+// Both directions are real now, and enforced at login, at token refresh and on
+// every authenticated request — see tenant-status.service, which also records
+// why the middleware check is cached rather than read per request.
 //
-//   - `auth.service.ts` register  — checks tenant.isActive        ✓
-//   - `auth.service.ts` login     — checks USER.isActive, not the tenant's
-//   - `auth.service.ts` refresh   — checks USER.isActive
-//   - `tenantMiddleware`          — decodes the JWT, never reads the database
-//
-// So writing `isActive: false` today blocks new user registration and nothing
-// else. Existing sessions continue, existing users still log in, every request
-// still passes. That converts a false claim into an unenforced one, and adds a
-// database row that makes the lie look substantiated.
-//
-// See docs/gaps.md and docs/backlog/tenant-suspension.md.
-router.post('/tenants/:id/suspend', (req: Request, res: Response) => {
+// `unsuspend` exists because a one-way access control is its own defect. Its
+// absence is what hid the original mock: nobody could try to undo a suspension
+// and discover that suspending had done nothing.
+router.post('/tenants/:id/suspend', async (req: Request, res: Response) => {
   const tenantId = req.params.id;
-  logger.info(`[platform] POST /tenants/${tenantId}/suspend — refused, not implemented`);
   const parsed = SuspendSchema.safeParse(req.body || {});
   if (!parsed.success) return validationError(res, parsed.error);
-  return res.status(501).json({
-    success: false,
-    error: {
-      code: 'NOT_IMPLEMENTED',
-      message:
-        'Tenant suspension is not implemented. `Tenant.isActive` exists, but nothing '
-        + 'enforces it on login, on token refresh, or on authenticated requests — only on '
-        + 'new user registration — so setting it would not suspend anything. This used to '
-        + 'answer 200 with a suspendedAt timestamp and write nothing at all. There is also '
-        + 'no unsuspend endpoint. See docs/backlog/tenant-suspension.md.',
-    },
-  } as ApiResponse);
+
+  const actor = req.tenant?.userId ?? 'unknown';
+
+  try {
+    await tenantStatus.suspend(tenantId, actor, parsed.data.reason ?? null);
+  } catch {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: `Tenant ${tenantId} was not found.` },
+    } as ApiResponse);
+  }
+
+  const tenant = await sharedPrisma.tenant.findUnique({ where: { id: tenantId } });
+
+  // Read back rather than echoing the request: the response describes the row,
+  // which is the thing the old version could not do.
+  return ok(res, {
+    tenantId,
+    status: 'suspended',
+    suspendedAt: tenant?.suspendedAt?.toISOString() ?? null,
+    suspendedBy: tenant?.suspendedBy ?? null,
+    reason: tenant?.suspendedReason ?? null,
+  });
+});
+
+router.post('/tenants/:id/unsuspend', async (req: Request, res: Response) => {
+  const tenantId = req.params.id;
+  const actor = req.tenant?.userId ?? 'unknown';
+
+  try {
+    await tenantStatus.unsuspend(tenantId, actor);
+  } catch {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: `Tenant ${tenantId} was not found.` },
+    } as ApiResponse);
+  }
+
+  const tenant = await sharedPrisma.tenant.findUnique({ where: { id: tenantId } });
+  return ok(res, {
+    tenantId,
+    status: tenant?.isActive === true ? 'active' : 'suspended',
+    suspendedAt: tenant?.suspendedAt?.toISOString() ?? null,
+  });
 });
 
 // ============================================================
