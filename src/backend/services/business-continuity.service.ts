@@ -39,6 +39,9 @@ export interface RtoRpoStatus {
   rpoMeasurable:            boolean;
   rtoLastTestedMinutes?:    number;
   rtoMet:                   boolean;
+  /** False when no passing test has a measured restore time, so a caller can
+   *  tell "objective missed" from "never timed". Mirrors `rpoMeasurable`. */
+  rtoMeasurable:            boolean;
 }
 
 export interface CaseExportResult {
@@ -55,23 +58,47 @@ export interface CaseExportResult {
   sizeBytes:     number | null;
 }
 
+export type RecoveryTestType =
+  | 'full_restore'
+  | 'partial_restore'
+  | 'failover_drill'
+  | 'tabletop';
+
+export type RecoveryOutcome = 'pass' | 'fail' | 'partial';
+
 export interface RecoveryTestLog {
   id:              string;
-  testedBy:        string;
-  testType:        'full_restore' | 'partial_restore' | 'failover_drill' | 'tabletop';
-  backupId?:       string;
+  tenantId:        string | null;
+  backupId:        string | null;
+  testType:        RecoveryTestType;
   startedAt:       Date;
-  completedAt?:    Date;
-  durationMinutes?: number;
-  outcome:         'pass' | 'fail' | 'partial';
-  rtoAchievedMinutes?: number;
-  notes:           string;
+  completedAt:     Date | null;
+  /**
+   * Derived from the two timestamps, never stored.
+   *
+   * A stored duration is a third fact that can disagree with the two it comes
+   * from, and the one that disagrees is the one an auditor reads. Null when no
+   * end time was recorded — which is not the same as zero.
+   */
+  durationMinutes: number | null;
+  outcome:         RecoveryOutcome;
+  rtoAchievedMinutes: number | null;
+  /**
+   * Whether the restore met the recovery time objective.
+   *
+   * Null when nothing was measured. The distinction that matters: a drill can
+   * be recorded `pass` and still miss the RTO, and those are the ones worth
+   * finding. An outcome on its own cannot say so, so this is computed beside
+   * it rather than folded into it.
+   */
+  withinRto:       boolean | null;
+  notes:           string | null;
+  /** Who ran the drill. May name a vendor rather than a user. */
+  performedBy:     string;
+  /** The signed-in user who recorded it. */
+  loggedBy:        string;
   createdAt:       Date;
 }
-
-// ── In-memory stores ─────────────────────────────────────────
-
-const recoveryTestStore = new Map<string, RecoveryTestLog>();
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -231,14 +258,16 @@ export async function getRtoRpoStatus(tenantId?: string): Promise<RtoRpoStatus> 
     ? Math.floor((nowMs - lastBackupMs) / 60_000)
     : undefined;
 
-  const testLogs     = Array.from(recoveryTestStore.values())
-    .filter((t) => t.outcome === 'pass')
-    .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
-  const lastTest     = testLogs[0];
+  // Read from the table. These lived in a Map, so the last successful
+  // recovery test — the thing an auditor asks for — was forgotten on restart.
+  const testLogs = await listRecoveryTests({ outcome: 'pass', limit: 50 });
+  const lastTest = [...testLogs].sort(
+    (a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0),
+  )[0];
 
   return {
     lastBackupAt:              lastBackup?.completedAt ?? lastBackup?.createdAt,
-    lastSuccessfulRecoveryAt:  lastTest?.completedAt,
+    lastSuccessfulRecoveryAt:  lastTest?.completedAt ?? undefined,
     rtoTargetMinutes:          RTO_TARGET_MINUTES,
     rpoTargetMinutes:          RPO_TARGET_MINUTES,
     currentRpoMinutes:         currentRpoMins,
@@ -250,8 +279,14 @@ export async function getRtoRpoStatus(tenantId?: string): Promise<RtoRpoStatus> 
     rpoBreached:               currentRpoMins === undefined || currentRpoMins > RPO_TARGET_MINUTES,
     // Lets a caller tell "inside the objective" from "nothing to measure".
     rpoMeasurable:             currentRpoMins !== undefined,
-    rtoLastTestedMinutes:      lastTest?.rtoAchievedMinutes,
-    rtoMet:                    lastTest ? (lastTest.rtoAchievedMinutes ?? 9999) <= RTO_TARGET_MINUTES : false,
+    rtoLastTestedMinutes:      lastTest?.rtoAchievedMinutes ?? undefined,
+    // `?? 9999` used to stand in for an unmeasured restore time, so a drill
+    // that passed without anyone timing it reported the objective as missed —
+    // the mirror of the `rpoBreached` defect fixed above, and the same
+    // third-state collapse. `withinRto` is null when nothing was measured, and
+    // `rtoMeasurable` lets a caller tell that from a genuine miss.
+    rtoMet:                    lastTest?.withinRto === true,
+    rtoMeasurable:             lastTest?.withinRto !== null && lastTest !== undefined,
   };
 }
 
@@ -309,30 +344,96 @@ export async function exportClientCase(
 // Recovery Testing Log
 // ============================================================
 
-export function logRecoveryTest(entry: Omit<RecoveryTestLog, 'id' | 'createdAt'>): RecoveryTestLog {
-  const log: RecoveryTestLog = {
-    id:        uuidv4(),
-    ...entry,
-    createdAt: new Date(),
+export interface LogRecoveryTestInput {
+  tenantId?: string | null;
+  backupId?: string | null;
+  testType: RecoveryTestType;
+  startedAt: Date;
+  completedAt?: Date | null;
+  outcome: RecoveryOutcome;
+  rtoAchievedMinutes?: number | null;
+  notes?: string | null;
+  /** Who ran the drill. */
+  performedBy: string;
+  /** The signed-in user recording it — never a value from the request body. */
+  loggedBy: string;
+}
+
+export async function logRecoveryTest(entry: LogRecoveryTestInput): Promise<RecoveryTestLog> {
+  const row = await sharedPrisma.recoveryTest.create({
+    data: {
+      tenantId: entry.tenantId ?? null,
+      backupId: entry.backupId ?? null,
+      testType: entry.testType,
+      startedAt: entry.startedAt,
+      completedAt: entry.completedAt ?? null,
+      outcome: entry.outcome,
+      rtoAchievedMinutes: entry.rtoAchievedMinutes ?? null,
+      notes: entry.notes ?? null,
+      performedBy: entry.performedBy,
+      loggedBy: entry.loggedBy,
+    },
+  });
+  return toRecoveryTest(row);
+}
+
+/** A stored row, with the two derived fields computed rather than read. */
+function toRecoveryTest(row: {
+  id: string;
+  tenantId: string | null;
+  backupId: string | null;
+  testType: string;
+  startedAt: Date;
+  completedAt: Date | null;
+  outcome: string;
+  rtoAchievedMinutes: number | null;
+  notes: string | null;
+  performedBy: string;
+  loggedBy: string;
+  createdAt: Date;
+}): RecoveryTestLog {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    backupId: row.backupId,
+    testType: row.testType as RecoveryTestType,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt,
+    durationMinutes:
+      row.completedAt === null
+        ? null
+        : Math.floor((row.completedAt.getTime() - row.startedAt.getTime()) / 60_000),
+    outcome: row.outcome as RecoveryOutcome,
+    rtoAchievedMinutes: row.rtoAchievedMinutes,
+    withinRto:
+      row.rtoAchievedMinutes === null ? null : row.rtoAchievedMinutes <= RTO_TARGET_MINUTES,
+    notes: row.notes,
+    performedBy: row.performedBy,
+    loggedBy: row.loggedBy,
+    createdAt: row.createdAt,
   };
-  if (log.startedAt && log.completedAt) {
-    log.durationMinutes = Math.floor(
-      (log.completedAt.getTime() - log.startedAt.getTime()) / 60_000,
-    );
-  }
-  recoveryTestStore.set(log.id, log);
-  return log;
 }
 
-export function listRecoveryTests(options?: { limit?: number; outcome?: RecoveryTestLog['outcome'] }): RecoveryTestLog[] {
-  let logs = Array.from(recoveryTestStore.values());
-  if (options?.outcome) logs = logs.filter((l) => l.outcome === options.outcome);
-  logs.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  return options?.limit ? logs.slice(0, options.limit) : logs;
+export async function listRecoveryTests(options?: {
+  limit?: number;
+  outcome?: RecoveryOutcome;
+  tenantId?: string | null;
+}): Promise<RecoveryTestLog[]> {
+  const rows = await sharedPrisma.recoveryTest.findMany({
+    where: {
+      ...(options?.outcome ? { outcome: options.outcome } : {}),
+      ...(options?.tenantId !== undefined ? { tenantId: options.tenantId } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    ...(options?.limit ? { take: options.limit } : {}),
+  });
+  return rows.map(toRecoveryTest);
 }
 
-export function getRecoveryTest(id: string): RecoveryTestLog | undefined {
-  return recoveryTestStore.get(id);
+/** One test, or undefined. */
+export async function getRecoveryTest(id: string): Promise<RecoveryTestLog | undefined> {
+  const row = await sharedPrisma.recoveryTest.findUnique({ where: { id } });
+  return row ? toRecoveryTest(row) : undefined;
 }
 
 // No demo backups.
