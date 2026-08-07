@@ -38,7 +38,8 @@ import logger from '../../config/logger.js';
  */
 import { prisma as sharedPrisma } from '../../config/database.js';
 import { storageService as storage } from '../../services/storage.service.js';
-
+
+import { selectSigner } from '../../services/signer-selection.js';
 const SendForSignatureSchema = z.object({
   documentId:      z.string().min(1, 'documentId is required'),
   /** Optional overrides for the covering email only — never the parties. */
@@ -253,6 +254,9 @@ interface ResolvedSignatureRequest {
   request: {
     signerEmail: string;
     signerName: string;
+    signerAddressKind: 'owner' | 'business';
+    signerReason: string;
+    signerOwnerId: string | null;
     documentBase64: string;
     documentName: string;
     envelopeSubject: string;
@@ -311,24 +315,25 @@ async function resolveSignatureRequest(
     };
   }
 
-  // `BusinessOwner` has no email column, so the business address is the only
-  // recorded destination. Recorded in docs/gaps.md: signing ought to go to a
-  // named owner, and that needs a column before it can.
-  const signerEmail = business.businessEmail;
-  if (signerEmail === null || signerEmail.trim() === '') {
-    return {
-      error: {
-        code: 'NO_SIGNER_EMAIL',
-        message:
-          `No email is recorded for ${business.legalName}, so this document cannot be sent for `
-          + 'signature. Add a business email on the client profile first.',
-        status: 422,
-      },
-    };
-  }
+  // Who signs, and where the envelope goes — decided in one place and
+  // reported, rather than "the owner's name plus whatever address exists".
+  // See services/signer-selection.ts for why the two were being conflated.
+  const signer = selectSigner(
+    business.owners.map((o) => ({
+      id: o.id,
+      firstName: o.firstName,
+      lastName: o.lastName,
+      email: o.email,
+      isSignatory: o.isSignatory,
+      ownershipPercent: o.ownershipPercent === null ? null : Number(o.ownershipPercent),
+    })),
+    business.legalName,
+    business.businessEmail,
+  );
 
-  const owner = business.owners[0];
-  const signerName = owner ? `${owner.firstName} ${owner.lastName}`.trim() : business.legalName;
+  if (!signer.ok) {
+    return { error: { code: signer.code, message: signer.message, status: 422 } };
+  }
 
   let content: Buffer;
   try {
@@ -360,8 +365,14 @@ async function resolveSignatureRequest(
 
   return {
     request: {
-      signerEmail,
-      signerName,
+      signerEmail: signer.email,
+      signerName: signer.name,
+      // Carried through so a caller can say whether the document reached the
+      // person or the company. A fallback nobody can distinguish from the
+      // real thing is how the original defect survived.
+      signerAddressKind: signer.addressKind,
+      signerReason: signer.reason,
+      signerOwnerId: signer.ownerId,
       documentBase64: content.toString('base64'),
       documentName: document.title,
       envelopeSubject: `CapitalForge: Please sign ${document.title}`,

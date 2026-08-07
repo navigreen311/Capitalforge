@@ -619,6 +619,8 @@ describe('createBusiness() — with mocked Prisma and EventBus', () => {
           ssnLast4:         null,
           dateOfBirth:      null,
           address:          null,
+          email:            null,
+          isSignatory:      false,
           personalGuarantee: false,
           isBeneficialOwner: true,
           kycStatus:        'pending',

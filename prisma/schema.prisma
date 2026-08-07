@@ -306,6 +306,23 @@ model BusinessOwner {
    */
   title             String?
   ownershipPercent  Decimal
+  /**
+   * Where this person is reachable.
+   * Absent until now, which meant a document going out for signature had only
+   * `Business.businessEmail` as a destination — the owner's name on the
+   * envelope and the business's address on the outside. Usually the right
+   * envelope going to roughly the right place, and not the same as sending it
+   * to the person who signs.
+   */
+  email             String?
+  /**
+   * Marks the owner who signs, when it is not simply the largest stake.
+   * Largest stake is a reasonable default and not obviously right for every
+   * document: a 60% owner may not be the officer authorised to bind the
+   * company. This makes the exception recordable instead of forcing the
+   * default to be wrong quietly.
+   */
+  isSignatory       Boolean   @default(false)
   ssn               String?
   /**
    * Last four digits only.

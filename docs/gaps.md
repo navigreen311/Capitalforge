@@ -613,24 +613,39 @@ function, and the point is to reach someone planning work before that.
 
 ---
 
-## 6b. A signer is a business, not a person
+## 6b. ~~A signer is a business, not a person~~ — fixed 2026-08-07
 
-`BusinessOwner` records firstName, lastName, title, ownership percentage and
-KYC status — and **no email**. So when a document goes out for signature, the
-only recorded destination is `Business.businessEmail`.
+`BusinessOwner` recorded firstName, lastName, title, ownership percentage and
+KYC status — and **no email**. So a document going out for signature had only
+`Business.businessEmail` as a destination: the owner named on the envelope, the
+company's address on the outside. Usually the right envelope going to roughly
+the right place, and not the same as sending it to the person who signs.
 
-That is usually the right envelope going to roughly the right place, and it is
-not the same as sending it to the person who signs. The owner is named on the
-envelope — largest stake first — while the address belongs to the business.
+**Two columns and one rule.** `BusinessOwner.email`, and `isSignatory` for the
+case largest-stake gets wrong — a 60% owner may not be the officer authorised
+to bind the company, and that exception is now recordable rather than quietly
+incorrect.
 
-**Cost.** *Column.* `BusinessOwner.email`, plus a decision about which owner
-signs when several are recorded. Largest stake is a reasonable default and not
-obviously right for every document type.
+The selection lives in `services/signer-selection.ts`, away from the route, in
+this order:
 
-Until then the route refuses rather than substitutes: a business with no email
-gets a stated refusal. An envelope to a placeholder reaches nobody, and an
-envelope to a real wrong address is a client's contract in a stranger's inbox.
+1. an owner marked `isSignatory` who has an email;
+2. otherwise the largest stake who has an email;
+3. otherwise the largest stake, addressed at the business.
 
+**Step 3 is kept, and reported.** A business address is not a stranger's inbox,
+and refusing outright would break every client onboarded before the column
+existed. What is not kept is the silence: the result carries `addressKind`,
+`'owner'` or `'business'`, and a `reason` in words. A fallback nobody can
+distinguish from the real thing is exactly how the original defect survived —
+both paths produced a sent envelope and a success message.
+
+The rule does not depend on the caller's ordering. The query sorts by stake
+today; a refactor dropping that `orderBy` would otherwise silently change who
+signs a contract.
+
+Refusals remain for the two cases where there is genuinely nobody to send to:
+no owner recorded at all, and no address anywhere.
 ---
 
 ## 7. ~~Nothing records a card a client already held~~ — recorded 2026-08-06
