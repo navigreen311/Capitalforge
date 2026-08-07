@@ -478,6 +478,40 @@ three.
 
 ---
 
+## 3b. What is deliberately still refused — reviewed 2026-08-07
+
+Everything in §1 that remains a 501 is here, with what it is waiting on. None
+of these is waiting on someone finding the time; each is waiting on something
+specific, and that is the point of listing them apart from the closed rows.
+
+**Waiting on a product decision nobody has made.**
+
+| Endpoint | The decision |
+|---|---|
+| `POST /api/tax/documents/generate` + 3 more | A 1099-INT is an IRS information return. Somebody has to own the correctness of the numbers, and no table records the interest they would be computed from. A wrong 1099 is worse than no 1099. |
+| `POST /api/compliance/disclosures/:id/file` | Filing is a real-world act with a real-world receipt. The system needs to model what "filed" means before it can claim it. |
+| `POST /api/statements/anomalies/:id/dismiss` + `/steps/:step` | A `StatementAnomaly` is computed while reading a statement and carries no identifier. Deciding what makes two anomalies "the same" across reads comes before anywhere to record a dismissal. |
+| `POST /api/platform/billing/send-overdue-reminders` | Who, when, how often — and what happens when a send fails. |
+| `POST /api/declines/:id/reminder` | The same question. Both send real messages. |
+
+The two reminder endpoints and the report-schedule runner (§1) are one
+decision, not three. Answering it once unblocks all three.
+
+**Waiting on an integration that does not exist.**
+
+| Endpoint | Missing |
+|---|---|
+| `POST /api/platform/integrations/:id/connect` + `/test`, `POST /api/integrations/:provider/connect`, `DELETE .../disconnect` | OAuth or key exchange with Plaid, QuickBooks, Xero, DocuSign or Stripe, and a table to record a connection. |
+| `GET /api/rewards/:clientId/points-balances` | Balances come from the issuer. There is no source. |
+
+**Refused on purpose, and should stay refused.**
+
+`PATCH /api/platform/offboarding/:id/advance`. A stage moves when the export or
+the deletion actually happens. Advancing it by hand is how a workflow comes to
+claim a deletion that never ran.
+
+---
+
 ## 4. Integrations that fail closed
 
 Three services refuse to answer unless credentials are configured. Each has a
@@ -500,7 +534,14 @@ where a generated score gets mistaken for a real one.
 
 ---
 
-## 5. Pages that explain what they no longer show
+## 5. Pages that explain what they no longer show — re-checked 2026-08-07
+
+All seven still carry their note. One was stale and was corrected: the
+`/platform/referrals` empty state read *"none is offered until something stores
+one"*, which stopped being true the moment referral links got a table in this
+same batch. A fix that leaves the copy behind is the §6 failure repeating one
+surface over — the defect closes, the sentence describing it does not, and the
+next reader believes the sentence.
 
 Seven pages carry an on-screen note rather than a silent absence, so a reader
 does not have to wonder whether something is broken:

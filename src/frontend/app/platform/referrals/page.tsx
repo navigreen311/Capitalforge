@@ -404,9 +404,9 @@ export default function PlatformReferralsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {advisorLinks.length === 0 && (
             <p className="text-xs text-gray-500 sm:col-span-2 lg:col-span-3">
-              No advisor has a referral link. Links were generated per advisor under
-              app.capitalforge.io and resolved to nothing, so none is offered until
-              something stores one.
+              No referral link has been created yet. Links used to be generated per
+              advisor under app.capitalforge.io and resolved to nothing; they are
+              stored now, so a link created here is a real one.
             </p>
           )}
           {advisorLinks.map(([name, link]) => (
