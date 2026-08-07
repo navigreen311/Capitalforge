@@ -349,11 +349,21 @@ export function withBusinessScore<T extends ScoreType>(
 }
 
 export interface GraduationInput {
-  ficoScore:           number;
-  businessAgeMonths:   number;
-  monthlyRevenue:      number;
+  /**
+   * Each of these is null when the figure has never been recorded.
+   *
+   * They were plain numbers, and the loader collapsed an absent figure to 0.
+   * These four gate on minimums, so a zero fails — the safe direction, which
+   * is why it survived. What it cost was the reason: a client with no credit
+   * report on file was shown "Personal FICO Score — required 620, actual 0,
+   * gap 620", which tells an advisor to raise a catastrophic score rather than
+   * to pull a report.
+   */
+  ficoScore:           number | null;
+  businessAgeMonths:   number | null;
+  monthlyRevenue:      number | null;
   businessScores:      BusinessScores;
-  tradelineCount:      number;
+  tradelineCount:      number | null;
   /**
    * Revolving utilisation, or null when none has been recorded.
    *
@@ -396,7 +406,22 @@ export function resolveCurrentTrack(input: GraduationInput): GraduationTrack {
  * with no tradelines genuinely has none. Only scores that must be *pulled*
  * can be absent.
  */
-function numericGate(criterion: string, required: number, actual: number): MilestoneGate {
+function numericGate(
+  criterion: string,
+  required: number,
+  actual: number | null,
+  resolution: string,
+): MilestoneGate {
+  // Unmeasured is its own status, with no figure and no gap.
+  //
+  // A gap is the distance to a target, and there is no distance from nothing.
+  // Reporting `required - 0` told an advisor a client with no credit report
+  // was 620 points short, which is a shortfall they cannot close by improving
+  // anything — the first step is to measure it.
+  if (actual === null) {
+    return { criterion, required, actual: null, status: 'unknown', passed: false, gap: null, resolution };
+  }
+
   const passed = actual >= required;
   return {
     criterion,
@@ -514,6 +539,8 @@ export function checkTrackEligibility(
     'Personal FICO Score',
     t.minFicoScore,
     input.ficoScore,
+    'No personal FICO is on record, so this requirement has not been measured — it is not a '
+      + 'shortfall. Pull a personal credit report for this client.',
   ));
 
   // Business age gate
@@ -521,6 +548,8 @@ export function checkTrackEligibility(
     'Business Age (months)',
     t.minBusinessAgeMonths,
     input.businessAgeMonths,
+    'No formation date is recorded for this business, so its age has not been measured — it is '
+      + 'not a shortfall. Add the date of formation on the client profile.',
   ));
 
   // Revenue gate
@@ -528,6 +557,8 @@ export function checkTrackEligibility(
     'Monthly Revenue ($)',
     t.minMonthlyRevenue,
     input.monthlyRevenue,
+    'No monthly revenue is recorded for this business, so this requirement has not been measured '
+      + '— it is not a shortfall. Record revenue on the client profile.',
   ));
 
   // Business credit gate — reads the product the threshold names, and only
@@ -543,6 +574,8 @@ export function checkTrackEligibility(
     'Active Positive Tradelines',
     t.minTradelines,
     input.tradelineCount,
+    'No business credit profile has been pulled, so trade lines have not been counted — it is '
+      + 'not a shortfall. Pull a business credit report to count them.',
   ));
 
   // Utilization gate (lower is better)
@@ -619,19 +652,23 @@ export function estimateMonthsToNextTrack(
   let maxMonths = 0;
 
   // FICO improvement: ~5–8 pts/month with consistent on-time payments
-  if (input.ficoScore < t.minFicoScore) {
+  if (input.ficoScore !== null && input.ficoScore < t.minFicoScore) {
     const gap = t.minFicoScore - input.ficoScore;
     maxMonths = Math.max(maxMonths, Math.ceil(gap / 6));
   }
 
   // Business age is fixed — it just takes time
-  if (input.businessAgeMonths < t.minBusinessAgeMonths) {
+  if (input.businessAgeMonths !== null && input.businessAgeMonths < t.minBusinessAgeMonths) {
     const gap = t.minBusinessAgeMonths - input.businessAgeMonths;
     maxMonths = Math.max(maxMonths, gap);
   }
 
   // Revenue growth: assume 5% monthly growth rate
-  if (input.monthlyRevenue < t.minMonthlyRevenue && input.monthlyRevenue > 0) {
+  if (
+    input.monthlyRevenue !== null
+    && input.monthlyRevenue < t.minMonthlyRevenue
+    && input.monthlyRevenue > 0
+  ) {
     const growthRate = 0.05;
     let rev = input.monthlyRevenue;
     let months = 0;
@@ -643,7 +680,7 @@ export function estimateMonthsToNextTrack(
   }
 
   // Tradelines: 1–2 new net-30 accounts per month if actively building
-  if (input.tradelineCount < t.minTradelines) {
+  if (input.tradelineCount !== null && input.tradelineCount < t.minTradelines) {
     const gap = t.minTradelines - input.tradelineCount;
     maxMonths = Math.max(maxMonths, Math.ceil(gap / 1.5));
   }
@@ -674,6 +711,21 @@ export function estimateMonthsToNextTrack(
   // measurable gate for Full Stack with no SBSS on record, and the panel
   // offered "Estimated 0 months at the current rate."
   if (t.businessCredit !== null && input.businessScores[t.businessCredit.scoreType] === undefined) {
+    return null;
+  }
+
+  // The same rule, extended to the four numeric requirements when they were
+  // widened to nullable. Each used to arrive as 0, so an unmeasured FICO
+  // projected a 104-month climb from zero — a number, confidently wrong —
+  // and an unmeasured revenue skipped its branch silently. Neither is an
+  // estimate; both are the absence of one.
+  if (
+    input.ficoScore === null
+    || input.businessAgeMonths === null
+    || input.monthlyRevenue === null
+    || input.tradelineCount === null
+    || input.currentUtilization === null
+  ) {
     return null;
   }
 
@@ -868,20 +920,30 @@ export async function autoAssessGraduation(
   }
 
   // Derive business age in months
+  // Null when no formation date is recorded — not a business aged zero months.
   const ageMonths = business.dateOfFormation
     ? Math.floor(
-        (Date.now() - new Date(business.dateOfFormation).getTime()) /
+        (Date.now() - business.dateOfFormation.getTime()) /
           (1000 * 60 * 60 * 24 * 30.44),
       )
-    : 0;
+    : null;
 
   // Extract best personal FICO
   const personalProfiles = business.creditProfiles.filter(
     (p) => p.profileType === 'personal' && p.scoreType === 'fico',
   );
-  const ficoScore = personalProfiles.length > 0
-    ? Math.max(...personalProfiles.map((p) => p.score ?? 0))
-    : 0;
+  // The highest *recorded* FICO, or null when none is.
+  //
+  // Was `personalProfiles.length > 0 ? Math.max(...map(p => p.score ?? 0)) : 0`,
+  // which collapsed twice: `?? 0` fed an unscored profile row into the max as
+  // zero, and the empty case returned zero rather than nothing. The same
+  // expression was fixed in credit-optimizer.ts and left standing here and in
+  // the sibling service — a threshold consumer the original change did not
+  // sweep for.
+  const recordedFico = personalProfiles
+    .map((p) => p.score)
+    .filter((v): v is number => v !== null);
+  const ficoScore = recordedFico.length > 0 ? Math.max(...recordedFico) : null;
 
   // The latest score of each business product, kept apart.
   //
@@ -911,7 +973,12 @@ export async function autoAssessGraduation(
   // Tradeline count from most recent business profile
   const latestBizProfile = bizProfiles[0] ?? null;
   const tradelines = latestBizProfile?.tradelines as Record<string, unknown>[] | null;
-  const tradelineCount = Array.isArray(tradelines) ? tradelines.length : 0;
+  // Null when no business profile has been pulled at all. Zero trade lines
+  // reporting and no report to read them from are different findings, and only
+  // the first is the client's to fix.
+  const tradelineCount = latestBizProfile === null
+    ? null
+    : (Array.isArray(tradelines) ? tradelines.length : 0);
 
   // Utilization from most recent personal profile
   const latestPersonal = personalProfiles[0] ?? null;
@@ -924,9 +991,9 @@ export async function autoAssessGraduation(
   const currentUtilization =
     latestPersonal?.utilization == null ? null : Number(latestPersonal.utilization);
 
-  const monthlyRevenue = business.monthlyRevenue
-    ? Number(business.monthlyRevenue)
-    : 0;
+  // Null when none is recorded — not a business earning nothing.
+  const monthlyRevenue =
+    business.monthlyRevenue == null ? null : Number(business.monthlyRevenue);
 
   const input: GraduationInput = {
     ficoScore,

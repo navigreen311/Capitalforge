@@ -591,6 +591,65 @@ answered "just now" for any payload DocuSign sent without a date. The reported
 time and our recording time are separate now, and `timestampSource` says which
 is which.
 
+### Second sweep, 2026-08-07 — the graduation gates
+
+A follow-up pass for shapes the first sweep did not look for: vacuous truth
+(`.every()` on an empty set), optimistic string defaults, errors becoming empty
+results, and `Math.max` over a possibly-empty spread. It found one cluster.
+
+**All five numeric inputs to the graduation assessment collapsed to 0 when
+absent**, and the direction of the comparison decided whether that was safe:
+
+| Input | Gate | Collapsed to 0 | Effect |
+|---|---|---|---|
+| `ficoScore` | `>= min` | fails | safe, wrong reason |
+| `businessAgeMonths` | `>= min` | fails | safe, wrong reason |
+| `monthlyRevenue` | `>= min` | fails | safe, wrong reason |
+| `tradelineCount` | `>= min` | fails | safe, wrong reason |
+| **`currentUtilization`** | **`<= max`** | **passes** | **granted eligibility** |
+
+Four fail closed. Utilisation is a maximum, so the identical collapse inverts —
+`0 <= 0.30` is true on every track, and **a client whose utilisation nobody had
+measured cleared the requirement.** Fixed first and on its own, because it
+changes who is eligible.
+
+That contradicted the rule stated twelve lines below it in the same function:
+*"Unknown does not pass. A track is a statement that the client clears every
+requirement, and 'we did not measure that one' is not clearing it."*
+`gates.every(...)` honoured it; the inputs feeding it did not.
+
+**The fix already existed in the same file.** `MilestoneGate` has carried
+`status: 'unknown'` all along and the business-score gate has used it properly
+— `actual: null`, `gap: null`, and a resolution explaining it is *not a
+shortfall*. The numeric gates sat beside it on the old shape, because
+`numericGate` took a plain `number`, which is what forced the `?? 0`.
+
+**The visible cost was the reason, not the verdict.** A client with no credit
+report was shown *"Personal FICO Score — required 620, actual 0, gap 620"* —
+advice to raise a catastrophic score, when the work is to pull a report.
+
+**Two more instances of an already-fixed expression.**
+`Math.max(...profiles.map((p) => p.score ?? 0))` was fixed in
+`credit-optimizer.ts` and left standing in `client-graduation.service.ts` and
+`credit-builder.service.ts`. The `length > 0` ternary guarded the empty case
+and not the null-score case. A threshold consumer the original change did not
+sweep for — the CLAUDE.md rule about widening, in the other direction.
+
+**Also found: `?.utilization ? ... : 0` folded a genuine 0% in with an absent
+one**, because 0 is falsy. The same two states were being conflated from both
+ends of the same expression.
+
+**Clean this round.** The KYC beneficial-owner check guards its empty case with
+an early return before `.every()`. `workflow-engine` returns `true` for zero
+conditions explicitly and by design (a catch-all rule). `portfolio-health`
+iterates a required-types constant rather than the data, so it cannot go
+vacuous.
+
+**Latent, not fixed:** `stress-test.ts` computes `peakOutstandingBalance` as
+`Math.max(...projections.map(...))`, which is `-Infinity` on an empty
+projection set. Whether that set can be empty was not established, and a fix
+without that answer would be a guess.
+
 **Checked and clean.** `billing.routes.ts` is the model — `collectionRate` is
 null on an empty month and there is an explicit comment about not fabricating a
 growth rate from a zero base. The `?? false` hits across the codebase are

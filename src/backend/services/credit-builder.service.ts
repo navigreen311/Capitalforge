@@ -347,12 +347,22 @@ export function evaluateStackingUnlock(input: GraduationInput): StackingUnlockSt
   });
 
   if (!eligible) {
-    if (input.ficoScore < starterThreshold.minFicoScore) {
+    // Each of these advises improving a figure. Where the figure is not on
+    // record the advice is to go and get it, not to raise a zero: "Improve
+    // personal FICO to 620 (currently 0)" reads as a catastrophic score
+    // rather than an unpulled report.
+    if (input.ficoScore === null) {
+      recommendedActions.push('Pull a personal credit report — no FICO is on record for this client');
+    } else if (input.ficoScore < starterThreshold.minFicoScore) {
       recommendedActions.push(
         `Improve personal FICO to ${starterThreshold.minFicoScore} (currently ${input.ficoScore})`,
       );
     }
-    if (input.tradelineCount < starterThreshold.minTradelines) {
+    if (input.tradelineCount === null) {
+      recommendedActions.push(
+        'Pull a business credit report — no trade lines have been counted for this client',
+      );
+    } else if (input.tradelineCount < starterThreshold.minTradelines) {
       recommendedActions.push(
         `Open ${starterThreshold.minTradelines - input.tradelineCount} more Net-30 vendor accounts`,
       );
@@ -367,11 +377,17 @@ export function evaluateStackingUnlock(input: GraduationInput): StackingUnlockSt
         `Reduce personal credit utilization below ${(starterThreshold.maxUtilization * 100).toFixed(0)}%`,
       );
     }
-    if (input.businessAgeMonths < starterThreshold.minBusinessAgeMonths) {
+    if (input.businessAgeMonths === null) {
+      recommendedActions.push(
+        'Record the business formation date — its age cannot be assessed without one',
+      );
+    } else if (input.businessAgeMonths < starterThreshold.minBusinessAgeMonths) {
       const remaining = starterThreshold.minBusinessAgeMonths - input.businessAgeMonths;
       recommendedActions.push(`Wait ${remaining} more month(s) for business age requirement`);
     }
-    if (input.monthlyRevenue < starterThreshold.minMonthlyRevenue) {
+    if (input.monthlyRevenue === null) {
+      recommendedActions.push('Record monthly revenue on the client profile — none is on file');
+    } else if (input.monthlyRevenue < starterThreshold.minMonthlyRevenue) {
       recommendedActions.push(
         `Grow monthly revenue to $${starterThreshold.minMonthlyRevenue.toLocaleString()}`,
       );
@@ -487,19 +503,29 @@ export async function buildCreditRoadmapForBusiness(
     throw new Error(`Business ${businessId} not found`);
   }
 
+  // Null when no formation date is recorded — not a business aged zero months.
   const ageMonths = business.dateOfFormation
     ? Math.floor(
-        (Date.now() - new Date(business.dateOfFormation).getTime()) /
+        (Date.now() - business.dateOfFormation.getTime()) /
           (1000 * 60 * 60 * 24 * 30.44),
       )
-    : 0;
+    : null;
 
   const personalProfiles = business.creditProfiles.filter(
     (p) => p.profileType === 'personal' && p.scoreType === 'fico',
   );
-  const ficoScore = personalProfiles.length > 0
-    ? Math.max(...personalProfiles.map((p) => p.score ?? 0))
-    : 0;
+  // The highest *recorded* FICO, or null when none is.
+  //
+  // Was `personalProfiles.length > 0 ? Math.max(...map(p => p.score ?? 0)) : 0`,
+  // which collapsed twice: `?? 0` fed an unscored profile row into the max as
+  // zero, and the empty case returned zero rather than nothing. The same
+  // expression was fixed in credit-optimizer.ts and left standing here and in
+  // the sibling service — a threshold consumer the original change did not
+  // sweep for.
+  const recordedFico = personalProfiles
+    .map((p) => p.score)
+    .filter((v): v is number => v !== null);
+  const ficoScore = recordedFico.length > 0 ? Math.max(...recordedFico) : null;
 
   // The latest score of each business product, kept apart rather than reduced
   // to one number. `Math.max` over PAYDEX 0–100, Intelliscore 1–100 and SBSS
@@ -527,16 +553,21 @@ export async function buildCreditRoadmapForBusiness(
 
   const latestBizProfile = bizProfiles[0] ?? null;
   const tradelines = latestBizProfile?.tradelines as Record<string, unknown>[] | null;
-  const tradelineCount = Array.isArray(tradelines) ? tradelines.length : 0;
+  // Null when no business profile has been pulled at all. Zero trade lines
+  // reporting and no report to read them from are different findings, and only
+  // the first is the client's to fix.
+  const tradelineCount = latestBizProfile === null
+    ? null
+    : (Array.isArray(tradelines) ? tradelines.length : 0);
 
   const latestPersonal   = personalProfiles[0] ?? null;
   const currentUtilization = latestPersonal?.utilization
     ? Number(latestPersonal.utilization)
     : 0;
 
-  const monthlyRevenue = business.monthlyRevenue
-    ? Number(business.monthlyRevenue)
-    : 0;
+  // Null when none is recorded — not a business earning nothing.
+  const monthlyRevenue =
+    business.monthlyRevenue == null ? null : Number(business.monthlyRevenue);
 
   const input: GraduationInput = {
     ficoScore,
