@@ -198,9 +198,22 @@ async function collect(tenantId: string, now: Date): Promise<Notification[]> {
     items.push({
       id: `regulatory:${a.id}`,
       type: 'regulatory',
-      severity: (a.impactScore ?? 0) >= 70 ? 'HIGH' : 'MEDIUM',
+      // An unscored alert is not a moderate one.
+      //
+      // This read `(a.impactScore ?? 0) >= 70`, so a regulatory alert nobody
+      // had assessed was presented as assessed-and-MEDIUM. `impactScore` is
+      // nullable; the collapse hid the difference between "we judged this
+      // moderate" and "nobody has judged it".
+      //
+      // Unscored sorts as HIGH rather than MEDIUM: an unreviewed regulatory
+      // alert is the one that most needs looking at, and under-stating it is
+      // the failure that costs something.
+      severity: a.impactScore === null || a.impactScore >= 70 ? 'HIGH' : 'MEDIUM',
       title: a.title,
-      description: `${a.source} — not yet reviewed.`,
+      description:
+        a.impactScore === null
+          ? `${a.source} — not yet reviewed, and no impact score is on record.`
+          : `${a.source} — not yet reviewed.`,
       occurredAt: a.createdAt.toISOString(),
       href: '/regulatory',
     });

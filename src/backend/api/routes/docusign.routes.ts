@@ -208,17 +208,26 @@ export function createDocuSignRouter(
       if (envelopeId) {
         switch (event) {
           case 'envelope-completed': {
-            const completedAt = (summary['completedDateTime'] as string) ?? new Date().toISOString();
+            // Passed through as undefined when DocuSign omits it. Substituting
+            // now here is what made an unreported signing time indistinguishable
+            // from one that happened this second.
+            const completedAt = summary['completedDateTime'] as string | undefined;
             await svc.handleWebhookCompletion(envelopeId, 'completed', completedAt);
             break;
           }
           case 'envelope-declined': {
-            const declinedAt = (summary['declinedDateTime'] as string) ?? new Date().toISOString();
+            // Passed through as undefined when DocuSign omits it. Substituting
+            // now here is what made an unreported signing time indistinguishable
+            // from one that happened this second.
+            const declinedAt = summary['declinedDateTime'] as string | undefined;
             await svc.handleWebhookCompletion(envelopeId, 'declined', declinedAt);
             break;
           }
           case 'envelope-voided': {
-            const voidedAt = (summary['voidedDateTime'] as string) ?? new Date().toISOString();
+            // Passed through as undefined when DocuSign omits it. Substituting
+            // now here is what made an unreported signing time indistinguishable
+            // from one that happened this second.
+            const voidedAt = summary['voidedDateTime'] as string | undefined;
             await svc.handleWebhookCompletion(envelopeId, 'voided', voidedAt);
             break;
           }

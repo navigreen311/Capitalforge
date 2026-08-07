@@ -363,7 +363,20 @@ export class DocuSignService {
       voided:    'voided',
     };
     const signatureStatus = signatureStatusMap[status] ?? status;
-    const ts = timestamp ?? new Date().toISOString();
+    // Two different times, previously one.
+    //
+    // `timestamp ?? new Date().toISOString()` used the moment we processed the
+    // webhook as the moment the envelope was signed, so "when was this
+    // signed?" answered "just now" for any payload DocuSign sent without a
+    // date. On a signature record that is not a rounding error — it is an
+    // invented fact about the execution of a document.
+    //
+    // `recordedAt` is when we learned; the event date is only set when the
+    // provider actually reported one, and `timestampSource` says which
+    // happened so a reader is never guessing.
+    const recordedAt = new Date().toISOString();
+    const reported = timestamp ?? null;
+    const eventDate = reported === null ? {} : { [`${status === 'completed' ? 'completedAt' : status === 'declined' ? 'declinedAt' : 'voidedAt'}`]: reported };
 
     try {
       // Update the Document records linked to this envelope. The envelope is
@@ -378,10 +391,13 @@ export class DocuSignService {
           metadata: {
             envelopeId,
             signatureStatus,
-            ...(status === 'completed' ? { completedAt: ts } : {}),
-            ...(status === 'declined'  ? { declinedAt: ts }  : {}),
-            ...(status === 'voided'    ? { voidedAt: ts }    : {}),
-            updatedAt: ts,
+            ...eventDate,
+            // 'docusign' when the provider gave a date, 'unreported' when it
+            // did not. Without this the absence of `completedAt` reads as a
+            // record that has not been updated yet.
+            timestampSource: reported === null ? 'unreported' : 'docusign',
+            recordedAt,
+            updatedAt: recordedAt,
           },
         },
       });
