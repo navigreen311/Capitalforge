@@ -607,7 +607,7 @@ export function evaluateMilestoneProgress(
   const previous = [0, ...SBSS_SCORE_MILESTONES.map((m) => m.targetScore)];
 
   return SBSS_SCORE_MILESTONES.map((milestone, idx) => {
-    const rangeStart = previous[idx];
+    const rangeStart = previous[idx]!;
     const rangeEnd   = milestone.targetScore;
     const rangeSize  = rangeEnd - rangeStart;
 

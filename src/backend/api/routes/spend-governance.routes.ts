@@ -102,7 +102,7 @@ function handleError(res: Response, err: unknown, context: string): void {
 spendGovernanceRouter.post(
   '/businesses/:id/transactions',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
+    const businessId = req.params.id!;
     const tid = tenantId(req);
 
     try {
@@ -176,7 +176,7 @@ spendGovernanceRouter.post(
 spendGovernanceRouter.get(
   '/businesses/:id/transactions',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
+    const businessId = req.params.id!;
     const tid = tenantId(req);
 
     try {
@@ -223,7 +223,7 @@ spendGovernanceRouter.get(
 spendGovernanceRouter.get(
   '/businesses/:id/transactions/risk-summary',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
+    const businessId = req.params.id!;
     const tid = tenantId(req);
 
     try {
@@ -255,7 +255,7 @@ spendGovernanceRouter.get(
 spendGovernanceRouter.get(
   '/businesses/:id/business-purpose/export',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
+    const businessId = req.params.id!;
     const tid = tenantId(req);
 
     try {
@@ -303,8 +303,8 @@ spendGovernanceRouter.get(
 spendGovernanceRouter.post(
   '/businesses/:id/transactions/:txId/tag',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
-    const transactionId = req.params.txId;
+    const businessId = req.params.id!;
+    const transactionId = req.params.txId!;
     const tid = tenantId(req);
 
     try {
@@ -353,8 +353,8 @@ spendGovernanceRouter.post(
 spendGovernanceRouter.post(
   '/businesses/:id/transactions/:txId/match-invoice',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
-    const transactionId = req.params.txId;
+    const businessId = req.params.id!;
+    const transactionId = req.params.txId!;
     const tid = tenantId(req);
 
     try {
@@ -399,7 +399,7 @@ spendGovernanceRouter.post(
 spendGovernanceRouter.get(
   '/businesses/:id/business-purpose/violations',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
+    const businessId = req.params.id!;
     const tid = tenantId(req);
 
     try {

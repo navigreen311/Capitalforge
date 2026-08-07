@@ -193,7 +193,7 @@ visionAudioForgeRouter.get(
   requirePermission(PERMISSIONS.DOCUMENT_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const processingId = req.params['id'];
+      const processingId = req.params['id']!;
 
       if (!processingId) {
         throw badRequest('Processing ID is required.');

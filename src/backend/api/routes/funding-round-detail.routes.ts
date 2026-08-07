@@ -81,7 +81,7 @@ export const fundingRoundDetailRouter = Router({ mergeParams: true });
 
 // GET / — round detail with derived progress
 fundingRoundDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { roundId } = req.params;
+  const roundId = req.params.roundId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -149,7 +149,7 @@ fundingRoundDetailRouter.get('/', async (req: Request, res: Response, _next: Nex
 
 // GET /repayment — obligations and the interest shock when intro APRs lapse
 fundingRoundDetailRouter.get('/repayment', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { roundId } = req.params;
+  const roundId = req.params.roundId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -224,7 +224,7 @@ fundingRoundDetailRouter.get('/repayment', async (req: Request, res: Response, _
 
 // GET /timeline — ledger events for the round and its applications
 fundingRoundDetailRouter.get('/timeline', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { roundId } = req.params;
+  const roundId = req.params.roundId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -273,7 +273,7 @@ fundingRoundDetailRouter.get('/timeline', async (req: Request, res: Response, _n
 
 // PATCH / — update round fields
 fundingRoundDetailRouter.patch('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { roundId } = req.params;
+  const roundId = req.params.roundId!;
   const tenantId = getTenantId(req);
   const updates = (req.body ?? {}) as Record<string, unknown>;
 

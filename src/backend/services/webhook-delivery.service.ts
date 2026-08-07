@@ -306,14 +306,14 @@ export class WebhookDeliveryService {
         });
       } else {
         existing.status = 'retrying';
-        existing.nextRetryAt = new Date(Date.now() + RETRY_DELAYS_MS[attemptNumber]);
+        existing.nextRetryAt = new Date(Date.now() + RETRY_DELAYS_MS[attemptNumber]!);
       }
 
       this.deliveries.set(existing.id, existing);
       delivery = existing;
     } else {
       const nextRetryAt = (!succeeded && attemptNumber < MAX_RETRY_ATTEMPTS)
-        ? new Date(Date.now() + RETRY_DELAYS_MS[attemptNumber])
+        ? new Date(Date.now() + RETRY_DELAYS_MS[attemptNumber]!)
         : null;
 
       delivery = {

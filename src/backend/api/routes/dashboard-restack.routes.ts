@@ -29,7 +29,7 @@ function getInitials(name: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
+    .map((w) => w[0]!.toUpperCase())
     .join('');
 }
 
@@ -89,7 +89,7 @@ dashboardRestackRouter.get(
               .filter((fr) => fr.status === 'completed')
               .sort((a, b) => b.roundNumber - a.roundNumber);
 
-            const lastCompleted = completedRounds[0];
+            const lastCompleted = completedRounds[0]!;
 
             // Skip businesses with missing data
             if (!lastCompleted) return null;

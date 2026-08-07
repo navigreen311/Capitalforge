@@ -228,7 +228,7 @@ function buildStaticBenefitCatalog(
     if (card.signupBonus) {
       // Extract dollar value heuristically; default 500 if not parseable
       const match = card.signupBonus.match(/\$([\d,]+)/);
-      const dollarValue = match ? parseInt(match[1].replace(/,/g, ''), 10) : 500;
+      const dollarValue = match ? parseInt(match[1]!.replace(/,/g, ''), 10) : 500;
       defs.push({
         id:                  `${card.id}--sign_up_bonus--1`,
         cardId:              card.id,

@@ -136,7 +136,7 @@ fundingRoundRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const tenantId = getTenantId(req);
-      const businessId = req.params['id'];
+      const businessId = req.params['id']!;
       if (!businessId) {
         return next(badRequest('Business ID is required.'));
       }
@@ -173,7 +173,7 @@ fundingRoundRouter.get(
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const businessId = req.params['id'];
+      const businessId = req.params['id']!;
       if (!businessId) {
         return next(badRequest('Business ID is required.'));
       }
@@ -200,7 +200,7 @@ fundingRoundRouter.get(
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const businessId = req.params['id'];
+      const businessId = req.params['id']!;
       if (!businessId) {
         return next(badRequest('Business ID is required.'));
       }
@@ -228,7 +228,7 @@ fundingRoundRouter.get(
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const businessId = req.params['id'];
+      const businessId = req.params['id']!;
       if (!businessId) {
         return next(badRequest('Business ID is required.'));
       }
@@ -256,7 +256,7 @@ fundingRoundRouter.get(
   requirePermissions(PERMISSIONS.BUSINESS_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const roundId = req.params['id'];
+      const roundId = req.params['id']!;
       if (!roundId) {
         return next(badRequest('Round ID is required.'));
       }
@@ -287,7 +287,7 @@ fundingRoundRouter.put(
   requirePermissions(PERMISSIONS.BUSINESS_WRITE),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const roundId = req.params['id'];
+      const roundId = req.params['id']!;
       if (!roundId) {
         return next(badRequest('Round ID is required.'));
       }
@@ -333,7 +333,7 @@ fundingRoundRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const tenantId = getTenantId(req);
-      const roundId = req.params['id'];
+      const roundId = req.params['id']!;
       if (!roundId) {
         return next(badRequest('Round ID is required.'));
       }

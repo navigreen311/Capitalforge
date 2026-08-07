@@ -323,7 +323,7 @@ export class CreditOptimizerService {
       (a, b) => new Date(a.pulledAt).getTime() - new Date(b.pulledAt).getTime(),
     );
 
-    const oldestPull = new Date(sortedByPull[0].pulledAt);
+    const oldestPull = new Date(sortedByPull[0]!.pulledAt);
     const clearDate = new Date(oldestPull.getTime() + velocityResult.windowDays * 24 * 60 * 60 * 1000);
 
     // Add a 7-day buffer after window clears

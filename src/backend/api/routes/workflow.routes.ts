@@ -304,7 +304,7 @@ workflowRouter.post(
   '/rules/versions/:id/deploy',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const versionId = req.params['id'];
+    const versionId = req.params['id']!;
     const parsed = DeployVersionSchema.safeParse(req.body);
     if (!parsed.success) { handleZodError(parsed.error, res); return; }
 
@@ -336,7 +336,7 @@ workflowRouter.post(
   '/rules/versions/:id/rollback',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const versionId = req.params['id'];
+    const versionId = req.params['id']!;
     const parsed = RollbackSchema.safeParse(req.body);
     if (!parsed.success) { handleZodError(parsed.error, res); return; }
 

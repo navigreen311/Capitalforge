@@ -104,7 +104,7 @@ kybKycRouter.post(
         return;
       }
 
-      const businessId = req.params.id;
+      const businessId = req.params.id!;
       if (!businessId) {
         sendError(res, 'MISSING_BUSINESS_ID', 'Business ID is required', 400);
         return;
@@ -211,7 +211,7 @@ kybKycRouter.get(
         return;
       }
 
-      const businessId = req.params.id;
+      const businessId = req.params.id!;
       if (!businessId) {
         sendError(res, 'MISSING_BUSINESS_ID', 'Business ID is required', 400);
         return;

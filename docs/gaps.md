@@ -650,6 +650,49 @@ vacuous.
 projection set. Whether that set can be empty was not established, and a fix
 without that answer would be a guess.
 
+### Fourth sweep, 2026-08-07 — a missing compiler setting
+
+The third sweep came back thin and its most useful finding was a missing check
+rather than a bug, so this one used the type-aware linting that finding
+installed. The result was the same shape one level down.
+
+**`noUncheckedIndexedAccess` was off.** It is not part of `strict`, so every
+index access — `arr[0]`, `record[key]` — was typed as though something is
+always there. Wrong in both directions, both costly:
+
+- **A correct guard looked like dead code.** `tcpa-consent-gate.ts` checks
+  `if (!record)` after a Record lookup and `consent-gate.ts` checks
+  `if (!requiredTypes)` after a channel lookup. Both are necessary at runtime;
+  the type system reported the branches as unreachable. That is why the
+  dead-guard scan returned 90 hits — most were correct code with a lying type.
+- **A missing guard was invisible.** `rows[0].id` compiled clean and threw.
+
+Enabled over `src` only, in `tsconfig.src.json`, run as `npm run typecheck:src`
+and wired into CI. Repository-wide it costs 468 errors, 290 of them in tests
+where `rows[0]!.status` is an ordinary assertion and an undefined there fails
+the test it is written in — the system working. The 159 in shipped code are the
+ones that reach a client, and they are fixed.
+
+**What the 159 turned out to be.** Route parameters the path defines (80),
+guarded first-element reads, regex capture groups the pattern requires,
+constant lookup tables, an edit-distance matrix bounded by its own loops, and
+fallback keys that are literals in the table beside them. Every one was a place
+where the code held an invariant the type could not see — the fix is that the
+invariant is now written down as `!` rather than assumed.
+
+Two read better afterwards than before: `rate-limiter.resolveLimit` did two
+separate lookups so nothing tied its guard to the value it guarded, and the
+group-by in `applications.routes` did a create-then-push pair for the same
+reason. Both are one lookup now.
+
+**A note on the sweep's own method.** The first run of it reported *zero hits
+across five rules*. That was a broken harness — `--no-eslintrc` is invalid
+under flat config and stderr had been redirected to `/dev/null`, so the failure
+was invisible and empty output read as a clean result. The second attempt
+passed rules without the plugin in scope and eslint's explanation was counted
+as two hits, identically, for four different rules. Neither reading was
+credible on its face; both looked like answers.
+
 **Checked and clean.** `billing.routes.ts` is the model — `collectionRate` is
 null on an empty month and there is an explicit comment about not fabricating a
 growth rate from a zero base. The `?? false` hits across the codebase are

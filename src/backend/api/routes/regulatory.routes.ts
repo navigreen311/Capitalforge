@@ -192,7 +192,7 @@ regulatoryRouter.post(
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id: alertId } = req.params;
+      const alertId = req.params.id!;
       const { tenantId, userId } = req.tenant!;
 
       if (!alertId || alertId.trim().length === 0) {
@@ -257,7 +257,7 @@ regulatoryRouter.get(
   requirePermission(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { ruleId } = req.params;
+      const ruleId = req.params.ruleId!;
       const { tenantId } = req.tenant!;
 
       if (!ruleId || ruleId.trim().length === 0) {

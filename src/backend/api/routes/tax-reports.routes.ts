@@ -51,7 +51,7 @@ taxReportsRouter.use(tenantMiddleware);
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function requireBusinessAndTenant(req: Request, res: Response): { businessId: string; tenantId: string } | null {
-  const businessId = req.params['id'];
+  const businessId = req.params['id']!;
   const tenantId = req.tenant?.tenantId;
 
   if (!businessId || !tenantId) {

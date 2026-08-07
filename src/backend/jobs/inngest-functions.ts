@@ -378,7 +378,7 @@ export async function generateRestackOpportunities(
   const opportunities: RestackOpportunity[] = [];
 
   for (const biz of activeBusinesses) {
-    const latestRound = biz.fundingRounds[0];
+    const latestRound = biz.fundingRounds[0]!;
 
     // Must have at least one completed round
     if (!latestRound || latestRound.status !== 'completed') continue;

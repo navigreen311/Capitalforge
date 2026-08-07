@@ -246,7 +246,7 @@ export function recordRequest(tenantId: string, latencyMs: number, success: bool
 function percentile(sorted: number[], p: number): number {
   if (!sorted.length) return 0;
   const idx = Math.floor((p / 100) * sorted.length);
-  return sorted[Math.min(idx, sorted.length - 1)];
+  return sorted[Math.min(idx, sorted.length - 1)]!;
 }
 
 // ============================================================

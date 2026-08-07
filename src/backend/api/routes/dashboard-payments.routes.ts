@@ -64,7 +64,7 @@ function toDayLabel(date: Date, today: Date): string {
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (dateStr === tomorrow.toISOString().slice(0, 10)) return 'Tomorrow';
 
-  return DAY_LABELS[date.getDay()];
+  return DAY_LABELS[date.getDay()]!;
 }
 
 function deriveDayStatus(payments: PaymentItem[]): DayStatus {

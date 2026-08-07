@@ -207,7 +207,7 @@ voiceForgeRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const callId = req.params['id'];
+      const callId = req.params['id']!;
 
       if (!callId) {
         throw badRequest('Call ID is required.');
@@ -240,7 +240,7 @@ voiceForgeRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const callId = req.params['id'];
+      const callId = req.params['id']!;
 
       if (!callId) {
         throw badRequest('Call ID is required.');
@@ -398,7 +398,7 @@ voiceForgeRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const advisorId = req.params['advisorId'];
+      const advisorId = req.params['advisorId']!;
 
       if (!advisorId) {
         throw badRequest('advisorId is required.');

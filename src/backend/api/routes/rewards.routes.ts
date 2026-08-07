@@ -153,7 +153,7 @@ rewardsRouter.get(
   '/businesses/:id/rewards/optimization',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant     = req.tenant!;
 
     if (!businessId) {
@@ -203,7 +203,7 @@ rewardsRouter.get(
   '/businesses/:id/rewards/annual-summary',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant     = req.tenant!;
 
     if (!businessId) {
@@ -255,7 +255,7 @@ rewardsRouter.get(
   '/businesses/:id/benefits',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     if (!businessId) {
       res.status(400).json({
@@ -297,8 +297,8 @@ rewardsRouter.post(
   '/benefits/:benefitId/utilize',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
-    const benefitId  = req.params['benefitId'];
+    const businessId = req.params['id']!;
+    const benefitId  = req.params['benefitId']!;
 
     if (!businessId || !benefitId) {
       res.status(400).json({
@@ -347,7 +347,7 @@ rewardsRouter.get(
   '/benefits/renewal-recommendations',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     if (!businessId) {
       res.status(400).json({

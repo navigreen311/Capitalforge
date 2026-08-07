@@ -118,7 +118,7 @@ function getIssuerCooldownDays(issuer: string): number {
   // a researched one.
   const parsed = parseIssuer(issuer);
   const key = parsed?.id ?? issuer.toLowerCase().replace(/\s+/g, '_');
-  return ISSUER_COOLDOWN_DAYS[key] ?? ISSUER_COOLDOWN_DAYS['default'];
+  return ISSUER_COOLDOWN_DAYS[key] ?? ISSUER_COOLDOWN_DAYS['default']!;
 }
 
 function addDays(date: Date, days: number): Date {

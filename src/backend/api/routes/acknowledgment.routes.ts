@@ -44,7 +44,7 @@ export function createAcknowledgmentRouter(
 
   // ── POST /api/businesses/:id/acknowledgments ──────────────
   router.post('/', async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant = req.tenant;
 
     if (!businessId || !tenant) {
@@ -104,7 +104,7 @@ export function createAcknowledgmentRouter(
 
   // ── GET /api/businesses/:id/acknowledgments ───────────────
   router.get('/', async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant = req.tenant;
 
     if (!businessId || !tenant) {
@@ -169,7 +169,7 @@ export function createAcknowledgmentRouter(
 
   // ── GET /api/businesses/:id/acknowledgments/:type/latest ──
   router.get('/:type/latest', async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant = req.tenant;
 
     if (!businessId || !tenant) {

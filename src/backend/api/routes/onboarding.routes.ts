@@ -102,7 +102,7 @@ onboardingRouter.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const tenantId = resolveTenantId(req);
-    const { id } = req.params;
+    const id = req.params.id!;
 
     const business = await getBusinessById(tenantId, id);
 
@@ -121,7 +121,7 @@ onboardingRouter.put(
   '/:id',
   asyncHandler(async (req, res) => {
     const tenantId = resolveTenantId(req);
-    const { id } = req.params;
+    const id = req.params.id!;
 
     const parsed = updateBusinessSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -146,7 +146,7 @@ onboardingRouter.post(
   '/:id/owners',
   asyncHandler(async (req, res) => {
     const tenantId = resolveTenantId(req);
-    const { id } = req.params;
+    const id = req.params.id!;
 
     const parsed = createOwnerSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -197,7 +197,7 @@ onboardingRouter.get(
   '/:id/readiness',
   asyncHandler(async (req, res) => {
     const tenantId = resolveTenantId(req);
-    const { id } = req.params;
+    const id = req.params.id!;
 
     let readiness;
     try {

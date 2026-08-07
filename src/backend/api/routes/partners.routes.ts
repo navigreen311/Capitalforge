@@ -277,7 +277,7 @@ partnersRouter.put(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: partnerId } = req.params;
+      const partnerId = req.params.id!;
 
       const parsed = UpdatePartnerSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest('Invalid request body.', parsed.error.flatten());
@@ -303,7 +303,7 @@ partnersRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: partnerId } = req.params;
+      const partnerId = req.params.id!;
 
       const scorecard = await getPartnerService().getScorecard(partnerId, tenantId);
       if (!scorecard) throw notFound(`Partner ${partnerId}`);
@@ -328,7 +328,7 @@ partnersRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: partnerId } = req.params;
+      const partnerId = req.params.id!;
 
       const parsed = ReviewPartnerSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest('Invalid request body.', parsed.error.flatten());
@@ -365,7 +365,7 @@ partnersRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: partnerId } = req.params;
+      const partnerId = req.params.id!;
 
       const workflow = await getPartnerService().initiateRenewal(partnerId, tenantId);
 
@@ -387,7 +387,7 @@ partnersRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: partnerId } = req.params;
+      const partnerId = req.params.id!;
 
       const parsed = CompleteRenewalSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest('Invalid request body.', parsed.error.flatten());
@@ -418,7 +418,7 @@ partnersRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: partnerId } = req.params;
+      const partnerId = req.params.id!;
 
       const parsed = SubprocessorSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest('Invalid request body.', parsed.error.flatten());
@@ -452,7 +452,7 @@ partnersRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: partnerId } = req.params;
+      const partnerId = req.params.id!;
 
       const records = await getPartnerService().listSubprocessors(partnerId, tenantId);
 
@@ -474,7 +474,7 @@ partnersRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: businessId } = req.params;
+      const businessId = req.params.id!;
 
       const parsed = CreateAttributionSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest('Invalid request body.', parsed.error.flatten());
@@ -511,7 +511,7 @@ partnersRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: businessId } = req.params;
+      const businessId = req.params.id!;
 
       const attributions = await getReferralService().listAttributions(businessId, tenantId);
 
@@ -533,7 +533,7 @@ partnersRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id: attributionId } = req.params;
+      const attributionId = req.params.id!;
 
       const parsed = UpdateFeeStatusSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest('Invalid request body.', parsed.error.flatten());
@@ -622,7 +622,7 @@ partnersRouter.delete(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { consentId } = req.params;
+      const consentId = req.params.consentId!;
 
       const parsed = RevokeConsentSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest('Invalid request body.', parsed.error.flatten());

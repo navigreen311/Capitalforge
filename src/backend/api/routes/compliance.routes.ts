@@ -137,7 +137,7 @@ complianceRouter.get(
   requirePermission(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id: businessId } = req.params;
+      const businessId = req.params.id!;
       const { tenantId } = req.tenant!;
 
       const service = getService();
@@ -176,7 +176,7 @@ complianceRouter.post(
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id: businessId } = req.params;
+      const businessId = req.params.id!;
       const { tenantId } = req.tenant!;
 
       // Validate body
@@ -240,7 +240,7 @@ complianceRouter.get(
   requirePermission(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { state } = req.params;
+      const state = req.params.state!;
       const code = state.trim().toUpperCase();
 
       if (!/^[A-Z]{2}$/.test(code)) {
@@ -300,7 +300,7 @@ complianceRouter.get(
   requirePermission(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { vendorId } = req.params;
+      const vendorId = req.params.vendorId!;
       const { tenantId } = req.tenant!;
 
       if (!vendorId || vendorId.trim().length === 0) {
@@ -931,7 +931,7 @@ complianceRouter.patch(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const { id } = req.params;
+      const id = req.params.id!;
       const prismaClient = getPrisma();
 
       const complaint = await prismaClient.complaint.findFirst({

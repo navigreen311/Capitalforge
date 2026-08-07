@@ -115,7 +115,7 @@ function handleError(res: Response, err: unknown, context: string): void {
 achRouter.post(
   '/businesses/:id/ach/authorize',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
+    const businessId = req.params.id!;
     const tid = tenantId(req);
     if (tid === null) {
       missingTenant(res);
@@ -206,8 +206,8 @@ achRouter.post(
 achRouter.delete(
   '/businesses/:id/ach/:authId',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
-    const authorizationId = req.params.authId;
+    const businessId = req.params.id!;
+    const authorizationId = req.params.authId!;
     const tid = tenantId(req);
     if (tid === null) {
       missingTenant(res);
@@ -252,7 +252,7 @@ achRouter.delete(
 achRouter.get(
   '/businesses/:id/ach',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
+    const businessId = req.params.id!;
     const tid = tenantId(req);
     if (tid === null) {
       missingTenant(res);
@@ -370,7 +370,7 @@ achRouter.post(
 achRouter.get(
   '/businesses/:id/ach/alerts',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const businessId = req.params.id;
+    const businessId = req.params.id!;
     const tid = tenantId(req);
     if (tid === null) {
       missingTenant(res);

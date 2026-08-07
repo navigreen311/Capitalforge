@@ -31,7 +31,7 @@ function extractBearerToken(req: Request): string | null {
   if (!header) return null;
 
   const parts = header.split(' ');
-  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') return null;
+  if (parts.length !== 2 || parts[0]!.toLowerCase() !== 'bearer') return null;
 
   const token = parts[1];
   return token && token.length > 0 ? token : null;

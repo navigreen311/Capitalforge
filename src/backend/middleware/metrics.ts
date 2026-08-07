@@ -115,8 +115,8 @@ function observeHistogram(name: string, labels: LabelSet, value: number): void {
     entry.data.set(key, slot);
   }
   for (let i = 0; i < entry.buckets.length; i++) {
-    if (value <= entry.buckets[i]) {
-      slot.counts[i]++;
+    if (value <= entry.buckets[i]!) {
+      slot.counts[i]!++;
     }
   }
   slot.sum += value;
@@ -276,8 +276,8 @@ function renderMetrics(): string {
         // Cumulative bucket counts
         let cumulative = 0;
         for (let i = 0; i < entry.buckets.length; i++) {
-          cumulative += counts[i];
-          lines.push(`${name}_bucket${renderLabels({ ...labels, le: entry.buckets[i] })} ${cumulative}`);
+          cumulative += counts[i]!;
+          lines.push(`${name}_bucket${renderLabels({ ...labels, le: entry.buckets[i]! })} ${cumulative}`);
         }
         lines.push(`${name}_bucket${renderLabels({ ...labels, le: '+Inf' })} ${count}`);
         lines.push(`${name}_sum${renderLabels(labels)} ${sum.toFixed(6)}`);

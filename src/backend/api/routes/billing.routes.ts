@@ -61,7 +61,7 @@ billingRouter.use(tenantMiddleware);
 billingRouter.post(
   '/businesses/:id/invoices',
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenantId = req.tenant?.tenantId;
 
     if (!businessId || !tenantId) {
@@ -186,7 +186,7 @@ billingRouter.post(
 billingRouter.get(
   '/businesses/:id/invoices',
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenantId = req.tenant?.tenantId;
 
     if (!businessId || !tenantId) {
@@ -236,7 +236,7 @@ billingRouter.get(
 billingRouter.get(
   '/invoices/:id',
   async (req: Request, res: Response): Promise<void> => {
-    const invoiceId = req.params['id'];
+    const invoiceId = req.params['id']!;
     const tenantId = req.tenant?.tenantId;
 
     if (!invoiceId || !tenantId) {
@@ -360,7 +360,7 @@ async function transitionCommission(
   res: Response,
   action: CommissionAction,
 ): Promise<void> {
-  const commissionId = req.params['id'];
+  const commissionId = req.params['id']!;
   const tenantId = req.tenant?.tenantId;
 
   if (!commissionId || !tenantId) {
@@ -494,7 +494,7 @@ billingRouter.post(
   '/invoices/:id/commissions',
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = req.tenant?.tenantId;
-    const invoiceId = req.params['id'];
+    const invoiceId = req.params['id']!;
     if (!tenantId || !invoiceId) {
       const body: ApiResponse = {
         success: false,
@@ -581,7 +581,7 @@ billingRouter.post(
 billingRouter.post(
   '/invoices/:id/pay',
   async (req: Request, res: Response): Promise<void> => {
-    const invoiceId = req.params['id'];
+    const invoiceId = req.params['id']!;
     const tenantId = req.tenant?.tenantId;
 
     if (!invoiceId || !tenantId) {
@@ -678,7 +678,7 @@ billingRouter.post(
 billingRouter.post(
   '/invoices/:id/refund',
   async (req: Request, res: Response): Promise<void> => {
-    const invoiceId = req.params['id'];
+    const invoiceId = req.params['id']!;
     const tenantId = req.tenant?.tenantId;
 
     if (!invoiceId || !tenantId) {
@@ -849,7 +849,7 @@ billingRouter.post(
 billingRouter.get(
   '/tenants/:tenantId/plan',
   async (req: Request, res: Response): Promise<void> => {
-    const { tenantId } = req.params;
+    const tenantId = req.params.tenantId!;
     const callerTenantId = req.tenant?.tenantId;
 
     if (!tenantId || !callerTenantId) {
@@ -905,7 +905,7 @@ billingRouter.get(
 billingRouter.get(
   '/tenants/:tenantId/usage',
   async (req: Request, res: Response): Promise<void> => {
-    const { tenantId } = req.params;
+    const tenantId = req.params.tenantId!;
     const callerTenantId = req.tenant?.tenantId;
 
     if (!tenantId || !callerTenantId) {
@@ -948,7 +948,7 @@ billingRouter.get(
 billingRouter.post(
   '/tenants/:tenantId/usage/record',
   async (req: Request, res: Response): Promise<void> => {
-    const { tenantId } = req.params;
+    const tenantId = req.params.tenantId!;
     const callerTenantId = req.tenant?.tenantId;
 
     if (!tenantId || !callerTenantId) {

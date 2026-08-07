@@ -120,9 +120,9 @@ clientsRouter.get('/', async (req: Request, res: Response, _next: NextFunction):
 
         // APR alert
         let aprAlert: { days: number; tier: 'critical' | 'warning' } | null = null;
-        if (biz.cardApplications.length > 0 && biz.cardApplications[0].introAprExpiry) {
+        if (biz.cardApplications.length > 0 && biz.cardApplications[0]!.introAprExpiry) {
           const daysLeft = Math.ceil(
-            (new Date(biz.cardApplications[0].introAprExpiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+            (new Date(biz.cardApplications[0]!.introAprExpiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
           );
           if (daysLeft > 0 && daysLeft <= 90) {
             aprAlert = { days: daysLeft, tier: daysLeft <= 30 ? 'critical' : 'warning' };

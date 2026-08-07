@@ -196,7 +196,7 @@ export class PlaidClient {
     const env      = opts?.env      ?? getEnv('PLAID_ENV');
     this.clientId  = opts?.clientId ?? getEnv('PLAID_CLIENT_ID');
     this.secret    = opts?.secret   ?? getEnv('PLAID_SECRET');
-    this.baseUrl   = PLAID_BASE_URLS[env];
+    this.baseUrl   = PLAID_BASE_URLS[env]!;
 
     if (!this.baseUrl) {
       throw new PlaidConfigError(
@@ -462,7 +462,7 @@ export class PlaidClient {
   private mapIdentityAccounts(rawAccounts: unknown[]): PlaidIdentityResponse['accounts'] {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (rawAccounts as any[]).map((a) => ({
-      ...this.mapAccounts([a as RawAccount])[0],
+      ...this.mapAccounts([a as RawAccount])[0]!,
       owners: (a.owners ?? []).map((owner: RawOwner) => ({
         names:       owner.names ?? [],
         emails:      (owner.emails ?? []).map((e: RawEmail) => ({

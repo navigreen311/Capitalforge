@@ -606,7 +606,7 @@ export class PortfolioBenchmarkingService {
     const ficoBandsSet = new Set<string>();
 
     const cells: RiskHeatmapCell[] = [...cellMap.entries()].map(([key, data]) => {
-      const [issuer, ficoBand] = key.split('|||');
+      const [issuer, ficoBand] = key.split('|||') as [string, string];
       issuersSet.add(issuer);
       ficoBandsSet.add(ficoBand);
 

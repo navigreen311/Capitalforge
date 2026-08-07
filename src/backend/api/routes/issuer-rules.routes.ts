@@ -99,7 +99,7 @@ issuerRulesRouter.get('/issuers', async (_req: Request, res: Response) => {
 
 issuerRulesRouter.get('/issuers/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id!;
     logger.info('[issuer-rules] GET /issuers/:id', { id });
 
     const issuer = await sharedPrisma.issuer.findUnique({
@@ -131,7 +131,7 @@ issuerRulesRouter.get(
   '/issuers/:id/eligibility',
   async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id!;
       const { businessId } = req.query;
       logger.info('[issuer-rules] GET /issuers/:id/eligibility', { id, businessId });
 
@@ -208,7 +208,7 @@ issuerRulesRouter.get('/credit-unions', async (_req: Request, res: Response) => 
 
 issuerRulesRouter.get('/credit-unions/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id!;
     logger.info('[issuer-rules] GET /credit-unions/:id', { id });
 
     const creditUnion = await sharedPrisma.creditUnion.findUnique({
