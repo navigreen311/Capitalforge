@@ -7,6 +7,8 @@
 // ============================================================
 
 import { useState } from 'react';
+import { ACQUISITION_PATHS, type AcquisitionPath } from '@/lib/score-acquisition';
+import { AcquisitionPathDetail } from './AcquisitionPathDetail';
 import {
   scoreCardState,
   showsProgressToward,
@@ -86,6 +88,13 @@ interface ScoreCardProps {
   pullDate: string | null;
   obtainability: ScoreObtainability;
   /**
+   * How the client gets this score. Optional so a card can exist before its
+   * path is written, rather than forcing a placeholder — an empty expansion
+   * would read as "there is nothing to do", which for three of these four is
+   * false and for the fourth is the whole point.
+   */
+  acquisition?: AcquisitionPath;
+  /**
    * Optional, because a target only means something a client can move toward.
    * A lender-computed score has no target on this card: there is no action
    * that closes the gap, so "115 pts needed" would be a to-do list item
@@ -96,7 +105,8 @@ interface ScoreCardProps {
   thresholds: { green: number; amber: number };
 }
 
-function ScoreCard({ title, score, maxScore, pullDate, obtainability, target, targetLabel, thresholds }: ScoreCardProps) {
+function ScoreCard({ title, score, maxScore, pullDate, obtainability, target, targetLabel, thresholds, acquisition }: ScoreCardProps) {
+  const [expanded, setExpanded] = useState(false);
   const state = scoreCardState(score, obtainability);
   const obtainable = showsProgressToward(obtainability);
 
@@ -115,6 +125,12 @@ function ScoreCard({ title, score, maxScore, pullDate, obtainability, target, ta
 
   return (
     <div
+      // A stable hook per card. Selecting these by DOM shape resolved to a
+      // container holding three of them, because the cards are siblings in a
+      // grid and `filter({ hasText })` matches every ancestor that contains
+      // the text. A structural locator here is one refactor from silently
+      // targeting the wrong card.
+      data-testid={`score-card-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
       className={`rounded-xl border p-5 flex flex-col ${
         obtainable
           ? 'border-gray-800 bg-gray-900'
@@ -208,6 +224,29 @@ function ScoreCard({ title, score, maxScore, pullDate, obtainability, target, ta
             ? obtainability.action
             : obtainability.reason}
         </p>
+
+        {/* The summary above is unchanged. This adds the acquisition path
+            beneath it — collapsed, because four expanded paths would bury the
+            scoreboard the panel exists to show. */}
+        {acquisition && (
+          <>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              className={`mt-2 text-[11px] font-semibold underline decoration-dotted ${
+                obtainable ? 'text-gray-400 hover:text-gray-200' : 'text-sky-400/80 hover:text-sky-300'
+              }`}
+            >
+              {expanded
+                ? 'Show less'
+                : acquisition.kind === 'no_path'
+                  ? 'Why there is no path →'
+                  : 'How a client gets this →'}
+            </button>
+            {expanded && <AcquisitionPathDetail path={acquisition} />}
+          </>
+        )}
       </div>
     </div>
   );
@@ -305,6 +344,7 @@ export function BusinessCreditScoresPanel({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <ScoreCard
           title="D&B PAYDEX"
+          acquisition={ACQUISITION_PATHS.paydex}
           score={paydex}
           maxScore={100}
           pullDate={paydexDate}
@@ -318,6 +358,7 @@ export function BusinessCreditScoresPanel({
         />
         <ScoreCard
           title="Experian Business"
+          acquisition={ACQUISITION_PATHS.intelliscore}
           score={experianBusiness}
           maxScore={100}
           pullDate={experianDate}
@@ -333,6 +374,7 @@ export function BusinessCreditScoresPanel({
             closes the gap, and there is none — see the reason below. */}
         <ScoreCard
           title="FICO SBSS"
+          acquisition={ACQUISITION_PATHS.sbss}
           score={sbss}
           maxScore={300}
           pullDate={sbssDate}
@@ -348,6 +390,7 @@ export function BusinessCreditScoresPanel({
             the target matches that criterion rather than being invented here. */}
         <ScoreCard
           title="Equifax Business Risk"
+          acquisition={ACQUISITION_PATHS.equifax_business_risk}
           score={equifaxBusinessRisk}
           maxScore={992}
           pullDate={equifaxDate}
