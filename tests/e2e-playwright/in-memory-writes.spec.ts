@@ -186,42 +186,71 @@ test.describe('In-memory writes', () => {
     expect(JSON.stringify(body)).not.toContain('Action completed');
   });
 
-  test('referrals and report schedules refuse rather than pretend', async ({
+  test('referrals and schedules write rows, and neither invents a name', async ({
     signedInPage: page,
   }) => {
+    // Both of these refused when nothing stored them. They store now, so what
+    // is asserted moves from the status to the row — which is the assertion
+    // that would have caught the original defect either way. The 201 was
+    // never the problem; the referral resolving to nothing was.
     await page.goto('/dashboard');
     const t = await token(page);
 
     const referral = await fetch(`${API}/platform/referrals`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ advisorId: 'adv_1', advisorName: 'Sarah Chen', source: 'Email' }),
+      body: JSON.stringify({ referredName: 'Sarah Chen' }),
     });
-    expect(referral.status).toBe(501);
+    expect(referral.status).toBe(201);
+    const created = (await referral.json()) as { data: { referral: { id: string } } };
 
-    const followUp = await fetch(`${API}/platform/referrals/pref_001/follow-up`, {
+    const followUp = await fetch(
+      `${API}/platform/referrals/${created.data.referral.id}/follow-up`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'email', note: 'checked in' }),
+      },
+    );
+    expect(followUp.status).toBe(201);
+    const loggedUp = (await followUp.json()) as { data: { followUp: { loggedBy: string } } };
+    // Was the literal "current_user".
+    expect(loggedUp.data.followUp.loggedBy).not.toBe('current_user');
+    expect(loggedUp.data.followUp.loggedBy).toBeTruthy();
+
+    // A follow-up against a referral that does not exist still refuses.
+    const orphan = await fetch(`${API}/platform/referrals/pref_001/follow-up`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method: 'email', notes: 'checked in' }),
+      body: JSON.stringify({ channel: 'email' }),
     });
-    expect(followUp.status).toBe(501);
+    expect(orphan.status).toBe(404);
 
     const schedule = await fetch(`${API}/platform/reports/schedules`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        name: 'Ops monthly',
         reportType: 'monthly-summary',
         frequency: 'monthly',
         recipients: ['ops@demoadvisors.io'],
       }),
     });
-    expect(schedule.status).toBe(501);
+    expect(schedule.status).toBe(201);
+    const stored = (await schedule.json()) as {
+      data: { schedule: { lastRunAt: string | null }; delivery: { active: boolean } };
+    };
+    // Stored intent, not a delivery. Nothing runs these, and the response has
+    // to keep saying so or a schedule becomes a promise nobody kept.
+    expect(stored.data.delivery.active).toBe(false);
+    expect(stored.data.schedule.lastRunAt).toBeNull();
 
-    // And the lists carry nothing invented.
+    // And the list still carries nothing invented — the four names that used
+    // to be there regardless of what anybody created.
     const list = await fetch(`${API}/platform/referrals`, {
       headers: { Authorization: `Bearer ${t}` },
     }).then((r) => r.text());
-    for (const invented of ['Sarah Chen', 'Marcus Williams', 'Priya Nair', 'James Okafor']) {
+    for (const invented of ['Marcus Williams', 'Priya Nair', 'James Okafor']) {
       expect(list).not.toContain(invented);
     }
   });
