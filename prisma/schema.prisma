@@ -1874,3 +1874,156 @@ model HeldCard {
   @@index([tenantId, businessId])
   @@map("held_cards")
 }
+
+// ============================================================
+// CONTRACTS, REFERRALS AND REPORT SCHEDULES
+// ============================================================
+
+/**
+ * A contract somebody signed.
+ * `ContractAnalysis` already existed and is a different thing: it holds
+ * extracted clauses and risk flags *about* a document. Nothing held the
+ * agreement itself — counterparty, value, dates — so the detail endpoint had
+ * nothing to serve and returned the same $150,000 vendor agreement for every
+ * id asked for.
+ */
+model Contract {
+  id         String  @id @default(uuid())
+  tenantId   String
+  partnerId  String?
+  documentId String?
+
+  title        String
+  counterparty String
+  contractType String @default("vendor")
+  status       String @default("active")
+
+  /**
+   * Contract value, null when the agreement carries no fixed figure.
+   */
+  value    Decimal?
+  currency String   @default("USD")
+
+  startDate     DateTime?
+  endDate       DateTime?
+  /**
+   * Null means "not known", not "does not auto-renew".
+   * A contract with an unread renewal clause and one that renews on no date
+   * are different facts, and only the first is somebody's to go and find out.
+   */
+  autoRenewDate DateTime?
+  autoRenews    Boolean?
+
+  notes String?
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("contracts")
+}
+
+/**
+ * An advisor's referral link and what came of it.
+ * Distinct from `ReferralAttribution`, which attributes an existing business
+ * to a source with a fee. This is the other direction: a link an advisor hands
+ * out, its conversions, and the commission owed on them.
+ */
+model Referral {
+  id       String @id @default(uuid())
+  tenantId String
+
+  /**
+   * The advisor who owns the link.
+   */
+  referrerUserId String
+  /**
+   * URL-safe, unique across tenants because it appears in a public link.
+   */
+  code           String @unique
+
+  referredName  String?
+  referredEmail String?
+
+  status              String    @default("sent")
+  /**
+   * Set when the referral became a client, and by which business.
+   */
+  convertedAt         DateTime?
+  convertedBusinessId String?
+
+  commissionAmount Decimal?
+  commissionPaidAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  followUps ReferralFollowUp[]
+
+  @@index([tenantId, referrerUserId])
+  @@map("referrals")
+}
+
+/**
+ * A contact attempt against a referral, with who made it.
+ */
+model ReferralFollowUp {
+  id         String @id @default(uuid())
+  referralId String
+  tenantId   String
+
+  channel  String
+  note     String?
+  /**
+   * The signed-in user, never a string the caller supplied.
+   */
+  loggedBy String
+  loggedAt DateTime @default(now())
+
+  referral Referral @relation(fields: [referralId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, referralId])
+  @@map("referral_follow_ups")
+}
+
+/**
+ * A standing request for a report on a cadence.
+ * The schedule is stored; **nothing runs it yet**, and `lastRunAt` staying
+ * null is how a caller can tell. A schedule that claims a delivery it never
+ * made is the failure this table is being added carefully to avoid.
+ */
+model ReportSchedule {
+  id       String @id @default(uuid())
+  tenantId String
+
+  name        String
+  reportType  String
+  /**
+   * daily | weekly | monthly
+   */
+  frequency   String
+  /**
+   * Day of week (0-6) for weekly, day of month (1-28) for monthly.
+   */
+  dayOfPeriod Int?
+  recipients  Json
+
+  enabled Boolean @default(true)
+
+  /**
+   * Null until a runner exists and has actually run it.
+   */
+  lastRunAt DateTime?
+  /**
+   * Computed on write so a list can show it; not a promise that it will fire.
+   */
+  nextRunAt DateTime?
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, enabled])
+  @@map("report_schedules")
+}
