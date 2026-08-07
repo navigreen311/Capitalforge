@@ -40,9 +40,24 @@ export const DATABASE_URL = optional(
 export const REDIS_URL = optional('REDIS_URL', 'redis://localhost:6379');
 
 // ── Auth ─────────────────────────────────────────────────────
-export const JWT_SECRET = IS_PRODUCTION
-  ? required('JWT_SECRET')
-  : optional('JWT_SECRET', 'dev-secret-change-in-production');
+
+/**
+ * No signing secret is exported from this module. Not JWT_ACCESS_SECRET, and
+ * as of 2026-08-07 not `JWT_SECRET` either.
+ *
+ * `JWT_SECRET` was here, degrading to the literal
+ * `'dev-secret-change-in-production'` whenever `IS_PRODUCTION` was false — and
+ * `NODE_ENV` itself defaults to `'development'` twenty lines above, so an
+ * unset `NODE_ENV` on a production host selected it. It was surfaced as
+ * `config.jwt.secret`, which is exactly where somebody would reach for a
+ * signing secret, and **nothing read it**: no consumer in src, tests, scripts
+ * or prisma.
+ *
+ * A dead export is usually harmless. This one was a correct-looking answer to
+ * the right question, sitting closer to hand than the real one — with the
+ * paragraph below, in this same file, already explaining why that is
+ * dangerous.
+ */
 
 /**
  * JWT_ACCESS_SECRET is deliberately NOT exported here.
@@ -97,7 +112,9 @@ export const config = {
   databaseUrl: DATABASE_URL,
   redisUrl: REDIS_URL,
   jwt: {
-    secret: JWT_SECRET,
+    // No `secret` here. See the note above the JWT block: it degraded to a
+    // known literal off NODE_ENV and nothing read it, while sitting under the
+    // most reachable name in the file.
     expiry: JWT_EXPIRY,
     refreshExpiry: REFRESH_TOKEN_EXPIRY,
   },
