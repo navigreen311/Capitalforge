@@ -738,6 +738,44 @@ VoiceForge clients, where the payload is external and untyped at the source.
 Left alone deliberately: `any` there is defensible, and a refactor would buy
 much less than the twelve did.
 
+### Sixth sweep, 2026-08-07 — a suite nobody ran
+
+Previous sweeps audited the code. This one audited the apparatus that checks
+the code, on the grounds that a check reporting nothing has either found
+nothing or not run.
+
+**`tests/e2e` — six flow suites, 81 assertions — was run by no CI job.** A
+`test:e2e` script exists and points at it. The workflow calls `test:unit`,
+`test:integration` and `test:playwright`, and never that one. The files looked
+maintained, they passed the moment they were finally run, and nothing would
+have said otherwise if they had stopped.
+
+They need no database, so they run in the Unit job now.
+
+**A guard, not just a fix.** `tests/unit/runner-coverage.test.ts` asserts the
+mapping rather than a count: every directory under `tests/` that contains test
+files must be named by an npm script **and** reached by a script CI actually
+invokes. The second half is the one that was missing — `test:e2e` existed and
+proved nothing, because existing is not being called.
+
+Its first run flagged `tests/fixtures` and `tests/performance`, which hold
+mocks and k6 scenarios and no test files at all. Scoped to directories that
+actually contain tests; demanding a runner for the other two would have made
+the assertion noise within a week.
+
+Verified by negative control: pointing CI away from `test:e2e` fails it.
+
+**Checked and clean this round.** No `.only` anywhere — one would silently
+disable the rest of its file while CI reported green. No `.skip` or `xit`.
+And **all 3,986 `it`/`test` blocks contain an assertion**, checked by parsing
+each block rather than grepping the file, so a file with one `expect` in it
+cannot vouch for the twenty tests around it.
+
+That scan also produced a false positive worth recording: the first version
+matched `test.describe(` as though it were a test and reported 65
+assertion-free blocks. Suite blocks legitimately hold no assertions. The
+corrected pattern found zero.
+
 **Checked and clean.** `billing.routes.ts` is the model — `collectionRate` is
 null on an empty month and there is an explicit comment about not fabricating a
 growth rate from a zero base. The `?? false` hits across the codebase are

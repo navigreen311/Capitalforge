@@ -171,6 +171,13 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
+      # tests/e2e — six mocked flow suites, 81 assertions, which no CI job ran
+      # until 2026-08-07. They pass without a database, so they belong here
+      # rather than in the integration job. See tests/unit/runner-coverage.test.ts,
+      # which fails if a test directory ever goes unrun again.
+      - name: Run flow tests
+        run: npm run test:e2e
+
       - name: Upload unit test coverage
         uses: actions/upload-artifact@v4
         if: always()
