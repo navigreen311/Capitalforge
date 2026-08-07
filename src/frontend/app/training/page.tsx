@@ -105,7 +105,7 @@ export default function TrainingPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const rows = useMemo(() => standings(tracks, certs, now), [tracks, certs, now]);

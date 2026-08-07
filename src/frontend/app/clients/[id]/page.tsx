@@ -170,7 +170,7 @@ export default function ClientDetailPage() {
 
   useEffect(() => {
     if (!id) return;
-    (async () => {
+    void (async () => {
       setLoading(true);
       try {
         const [bizRes, appsRes, suitRes] = await Promise.allSettled([

@@ -167,7 +167,7 @@ export default function FairLendingPage() {
   }, [year]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const banner = coverageBanner(coverage, dashboard?.coverageStatus ?? 'below_threshold');

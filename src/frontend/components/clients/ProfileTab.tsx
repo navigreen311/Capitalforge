@@ -278,7 +278,7 @@ function AcknowledgmentCard({ clientId }: { clientId: string }) {
     setRequesting(ackId);
     try {
       await apiClient.post(`/v1/clients/${clientId}/acknowledgments/${ackId}/request-signature`);
-      refetch();
+      void refetch();
     } catch (err) {
       console.error('[AcknowledgmentCard] request signature failed:', err);
     } finally {
@@ -346,7 +346,7 @@ function AchAuthorizationCard({ clientId }: { clientId: string }) {
     try {
       await apiClient.post(`/v1/clients/${clientId}/ach-authorization/revoke`);
       setShowRevokeConfirm(false);
-      refetch();
+      void refetch();
     } catch (err) {
       console.error('[AchAuthorizationCard] revoke failed:', err);
     } finally {
@@ -497,7 +497,7 @@ function ConsentSection({ clientId }: { clientId: string }) {
           ? 'Re-consent requests are not wired up yet — nothing was sent.'
           : 'Re-consent request sent.',
       );
-      refetch();
+      void refetch();
     } catch (err) {
       console.error('[ConsentSection] re-consent request failed:', err);
       setRequestNotice('Could not send the re-consent request.');
@@ -530,7 +530,7 @@ function ConsentSection({ clientId }: { clientId: string }) {
           records={records}
           onRequestConsent={(ch) => {
             if (requesting) return; // prevent double-click
-            handleRequestConsent(ch);
+            void handleRequestConsent(ch);
           }}
         />
       )}

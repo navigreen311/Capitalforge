@@ -124,7 +124,7 @@ export default function ComplaintsPage() {
 
   // Fetch from API
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
         const data = await loadJson<Complaint[]>('/api/compliance/complaints');
         setComplaints(data ?? []);

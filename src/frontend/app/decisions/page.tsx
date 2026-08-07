@@ -128,7 +128,7 @@ export default function DecisionsPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const summary = useMemo(() => summariseDecisions(decisions), [decisions]);

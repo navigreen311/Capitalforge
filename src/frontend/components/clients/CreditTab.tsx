@@ -530,9 +530,9 @@ export default function CreditTab({ clientId, clientName }: CreditTabProps) {
       setShowConfirm(false);
 
       // Refresh all credit data
-      refetchBusiness();
-      refetchHistory();
-      refetchRecs();
+      void refetchBusiness();
+      void refetchHistory();
+      void refetchRecs();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to pull credit report.';
       setToast({ message, type: 'error' });

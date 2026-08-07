@@ -136,7 +136,7 @@ export function GenerateDocumentModal({
   }, [generatedDoc, editedContent, clientId, toast]);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(editedContent);
+    void navigator.clipboard.writeText(editedContent);
     toast.info('Copied to clipboard');
   }, [editedContent, toast]);
 

@@ -219,7 +219,7 @@ function KebabMenu({ app }: { app: Application }) {
 
   function handleItemClick(action: MenuAction) {
     if (action.onClick) {
-      action.onClick();
+      void action.onClick();
     }
     // For href actions, navigation happens via the anchor — just close
     if (!action.onClick) {

@@ -124,8 +124,23 @@ export async function disconnectPrisma(): Promise<void> {
   logger.info('Prisma client disconnected');
 }
 
-process.on('beforeExit', async () => {
-  await prisma.$disconnect();
+process.on('beforeExit', () => {
+  // Not async, and through `disconnectPrisma()` rather than the proxy.
+  //
+  // Two problems in three lines. `prisma` is a lazy Proxy that resolves a
+  // client on *any* property access, so `prisma.$disconnect()` built a client
+  // during shutdown purely to close it — the exact thing the guard in
+  // `disconnectPrisma` five lines above exists to prevent, bypassed by the
+  // handler sitting under it.
+  //
+  // And an async listener returns a promise Node does not await, so a failed
+  // disconnect became an unhandled rejection, and the pending work could keep
+  // the loop alive long enough for `beforeExit` to fire again.
+  void disconnectPrisma().catch((err: unknown) => {
+    logger.error('Prisma disconnect failed during shutdown', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 });
 
 // ── Health check helper ───────────────────────────────────────

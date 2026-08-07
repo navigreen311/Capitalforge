@@ -427,7 +427,7 @@ export default function NewClientPage() {
   // Auto-run suitability check when entering step 4
   useEffect(() => {
     if (step === 3) {
-      runSuitabilityCheck();
+      void runSuitabilityCheck();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);

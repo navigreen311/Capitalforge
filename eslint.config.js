@@ -37,6 +37,50 @@ module.exports = [
   // ── Base JS recommendations ────────────────────────────────
   js.configs.recommended,
 
+  // ── Type-aware rules ───────────────────────────────────────
+  //
+  // Everything else in this file is syntactic: it reads the source without
+  // asking the compiler what anything *is*. That makes a whole class of defect
+  // invisible, and it is the class this codebase has the worst history with —
+  // a promise nobody awaited looks identical to a completed operation, so the
+  // handler responds success and the write happens later, or not at all.
+  //
+  // `docs/gaps.md` records several endpoints that answered 200 and wrote
+  // nothing. Those were mocks rather than dropped promises, but the symptom an
+  // advisor sees is the same, and only the compiler can tell the two apart.
+  //
+  // Scoped to `src/**` and switched on as an error rather than a warning:
+  // there are 391 warnings in this repository already, and a rule that lands
+  // among them is a rule nobody will see.
+  {
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        // Resolves each file against its nearest tsconfig, which matters here:
+        // the frontend compiles under its own, and the root `tsc` does not
+        // cover it at all.
+        projectService: true,
+        tsconfigRootDir: __dirname,
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': [
+        'error',
+        {
+          // A promise-returning function passed where a void one is expected —
+          // an async Express handler whose rejection nobody catches, an async
+          // callback to forEach that the loop does not wait for.
+          checksVoidReturn: { arguments: true, attributes: false },
+        },
+      ],
+    },
+  },
+
   // ── TypeScript sources ─────────────────────────────────────
   {
     files: ['**/*.ts', '**/*.tsx'],

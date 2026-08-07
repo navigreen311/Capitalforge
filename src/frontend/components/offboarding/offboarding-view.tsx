@@ -138,11 +138,11 @@ export function OffboardingView() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
-    loadRetention(jurisdiction);
+    void loadRetention(jurisdiction);
   }, [loadRetention, jurisdiction]);
 
   const loadAudit = useCallback(
@@ -242,7 +242,7 @@ export function OffboardingView() {
                         onClick={() => {
                           const next = open ? null : row.id;
                           setExpanded(next);
-                          if (next !== null) loadAudit(row.id);
+                          if (next !== null) void loadAudit(row.id);
                         }}
                         className="cursor-pointer hover:bg-gray-900/40"
                       >

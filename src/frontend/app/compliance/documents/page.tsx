@@ -160,7 +160,7 @@ export default function DocumentVaultPage() {
 
   // Fetch from API on mount
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
         const data = await loadJson<DocumentRecord[]>('/api/compliance/documents');
         setDocs(data ?? []);
@@ -428,7 +428,7 @@ export default function DocumentVaultPage() {
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={(e) => { e.stopPropagation(); toggleHold(doc.id); }}
+                        onClick={(e) => { e.stopPropagation(); void toggleHold(doc.id); }}
                         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                           doc.legalHold ? 'bg-red-600' : 'bg-gray-700'
                         }`}

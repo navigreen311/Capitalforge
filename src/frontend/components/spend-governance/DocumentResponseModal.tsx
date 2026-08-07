@@ -174,7 +174,7 @@ export function DocumentResponseModal({
 
   function handleCopy() {
     const text = isEditing ? editableText : (isComplete ? letterText : displayed);
-    navigator.clipboard.writeText(text).then(() => {
+    void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });

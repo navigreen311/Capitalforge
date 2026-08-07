@@ -125,7 +125,7 @@ export default function ComplianceTrainingPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const complete = useCallback(
@@ -249,7 +249,7 @@ export default function ComplianceTrainingPage() {
                     }}
                     onCancel={() => setScoring(null)}
                     onSubmit={() => {
-                      if (row.certification !== null) complete(row.certification.id);
+                      if (row.certification !== null) void complete(row.certification.id);
                     }}
                   />
                 ))}

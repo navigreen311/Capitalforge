@@ -120,7 +120,7 @@ export default function CommCompliancePage() {
   }, []);
 
   useEffect(() => {
-    loadScripts();
+    void loadScripts();
   }, [loadScripts]);
 
   const runScan = useCallback(async () => {

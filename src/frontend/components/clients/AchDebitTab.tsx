@@ -178,7 +178,7 @@ export function AchDebitTab({ clientId }: AchDebitTabProps) {
       setAuthStatus('revoked');
       setShowRevokeModal(false);
       setToastMessage('ACH authorization has been revoked.');
-      refetch();
+      void refetch();
 
       setTimeout(() => setToastMessage(null), 4000);
     } catch (e) {

@@ -213,7 +213,7 @@ export function AskCapitalForge() {
       setIsOpen(true);
       if (detail?.message) {
         // Small delay so panel is visible before sending
-        setTimeout(() => sendMessage(detail.message!), 200);
+        setTimeout(() => { void sendMessage(detail.message!); }, 200);
       }
     }
 
@@ -225,7 +225,7 @@ export function AskCapitalForge() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    sendMessage(input);
+    void sendMessage(input);
   }
 
   // ── Handle Enter key (Shift+Enter for newline) ─────────────
@@ -233,7 +233,7 @@ export function AskCapitalForge() {
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage(input);
+      void sendMessage(input);
     }
   }
 

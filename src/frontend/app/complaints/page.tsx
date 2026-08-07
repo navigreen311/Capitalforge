@@ -409,7 +409,7 @@ CapitalForge Compliance Department`;
   const [text, setText] = useState(template);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
   };
 
   const handleDownload = () => {

@@ -140,7 +140,7 @@ export function ComplianceTab({ clientId }: ComplianceTabProps) {
           ? 'Compliance runs are not wired up yet — nothing was started. The checks below are unchanged.'
           : 'Compliance check started.',
       );
-      refetch();
+      void refetch();
     } catch (e) {
       const info = toLoadError(e);
       setNotice(

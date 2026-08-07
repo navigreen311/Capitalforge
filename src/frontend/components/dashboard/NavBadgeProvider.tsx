@@ -42,7 +42,15 @@ interface NavBadgeCounts {
 }
 
 interface NavBadgeContextValue extends NavBadgeCounts {
-  refresh: () => void;
+  /**
+   * Returns a promise, and says so.
+   *
+   * Declared `() => void` while the implementation was async, so a consumer
+   * could not await a refresh even when it needed to — after a write, say,
+   * where the badge should not be read until the refetch has landed. The type
+   * was hiding the asynchrony rather than the code being synchronous.
+   */
+  refresh: () => Promise<void>;
 }
 
 /**
@@ -64,7 +72,7 @@ const DEFAULT_COUNTS: NavBadgeCounts = {
 
 const NavBadgeContext = createContext<NavBadgeContextValue>({
   ...DEFAULT_COUNTS,
-  refresh: () => {},
+  refresh: () => Promise.resolve(),
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -149,10 +157,13 @@ export function NavBadgeProvider({ children }: { children: ReactNode }) {
     }
 
     // Initial fetch
-    refresh();
+    void refresh();
 
     // Auto-refresh every 60s
-    const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
+    // Wrapped rather than passed directly: setInterval does not await what it
+    // calls, so a rejected refresh became an unhandled rejection every minute
+    // rather than once.
+    const interval = setInterval(() => { void refresh(); }, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [refresh, shouldFetch]);
 

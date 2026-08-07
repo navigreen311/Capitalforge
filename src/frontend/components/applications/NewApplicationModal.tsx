@@ -106,7 +106,7 @@ export function NewApplicationModal({ isOpen, onClose, defaults }: Props) {
       }
     }
 
-    fetchClients();
+    void fetchClients();
     return () => { cancelled = true; };
   }, [isOpen]);
 
