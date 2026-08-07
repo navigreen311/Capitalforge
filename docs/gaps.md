@@ -597,14 +597,29 @@ growth rate from a zero base. The `?? false` hits across the codebase are
 option defaults, not measurements, and the `Math.max` hits are pagination
 clamps.
 
-**One loaded gun, left loaded.** `state-law-mapper.ts` exports
-`hasSpecificStateLaw(stateCode)`, which returns `false` for an unrecognised
-state — i.e. "this state has no specific commercial financing law". Nothing
-calls it: every live caller reads `profile.hasSpecificStateLaw` off a resolved
-profile, and `compliance.service` handles an unknown state properly with an
-explicit warning finding. Left as-is rather than changed, because deleting or
-re-typing an unused export is a different change from fixing a defect, and this
-one has no caller to verify against.
+**~~One loaded gun, left loaded.~~ Unloaded 2026-08-07.**
+`hasSpecificStateLaw(stateCode)` returned `false` for an unrecognised state —
+"this state has no specific commercial financing law", a legal claim about a
+jurisdiction nobody had looked up, in the unsafe direction. Nothing called it,
+which is why it was deferred; it is fixed now rather than deleted, because the
+question it answers is one somebody will eventually ask.
+
+**A three-valued boolean would not have fixed it.** `boolean | null` still
+reads as false in a condition, which is the exact misuse. `stateLawStatus`
+returns a string union — `specific_law | federal_baseline_only |
+state_not_recognised` — so `if (stateLawStatus(code))` is visibly nonsense
+rather than quietly wrong, and a `switch` has to name the third case.
+
+`isStateRecognised` was added alongside for the plain question.
+
+**The baseline fallback stays.** `getRequiredDisclosures` and
+`getComplianceSteps` still return the federal baseline for an unknown state,
+and that is correct — those requirements genuinely apply everywhere. Withholding
+them would be the wrong fix. What was missing is that the lists cannot say what
+they are, so a caller reading only `disclosures` takes a baseline packet for a
+complete one. `ComplianceService.getStateRequirements` now returns `status`,
+`stateRecognised`, and for an unknown state a caveat saying any state-specific
+obligation is **unknown, not absent**.
 
 ---
 

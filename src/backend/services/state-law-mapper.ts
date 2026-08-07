@@ -481,7 +481,12 @@ export function getStateLawProfile(stateCode: string): StateLawProfile | null {
 
 /**
  * Returns only the required disclosures for a state.
- * Useful when building disclosure packets before an interaction.
+ *
+ * Falls back to the federal baseline for a state this registry does not know,
+ * which is correct as far as it goes — those requirements genuinely do apply
+ * everywhere. What it cannot tell you is whether the state adds more. Pair it
+ * with `isStateRecognised` when building a packet somebody will rely on being
+ * complete.
  */
 export function getRequiredDisclosures(stateCode: string): RequiredDisclosure[] {
   return getStateLawProfile(stateCode)?.requiredDisclosures ?? FEDERAL_BASELINE_DISCLOSURES;
@@ -489,17 +494,54 @@ export function getRequiredDisclosures(stateCode: string): RequiredDisclosure[] 
 
 /**
  * Returns only the compliance steps for a state.
+ *
+ * Same fallback and the same caveat as `getRequiredDisclosures`.
  */
 export function getComplianceSteps(stateCode: string): ComplianceStep[] {
   return getStateLawProfile(stateCode)?.complianceSteps ?? FEDERAL_BASELINE_STEPS;
 }
 
 /**
- * Returns true when the state has enacted a specific commercial financing disclosure law
- * beyond the federal baseline.
+ * Whether this registry knows the state at all.
+ *
+ * The distinction the rest of this module is built to preserve: a state with
+ * no specific law and a state nobody has entered are different facts, and only
+ * the second is somebody's to go and fix.
  */
-export function hasSpecificStateLaw(stateCode: string): boolean {
-  return getStateLawProfile(stateCode)?.hasSpecificStateLaw ?? false;
+export function isStateRecognised(stateCode: string): boolean {
+  return getStateLawProfile(stateCode) !== null;
+}
+
+/**
+ * Whether a state has enacted a specific commercial financing disclosure law
+ * beyond the federal baseline — or whether we simply do not know.
+ *
+ * ── Why this is not a boolean
+ *
+ * It was: `hasSpecificStateLaw(stateCode)` returned
+ * `getStateLawProfile(stateCode)?.hasSpecificStateLaw ?? false`, so an
+ * unrecognised state answered **"this state has no specific law"** — a legal
+ * claim, made about a jurisdiction nobody had looked up, in the unsafe
+ * direction. `if (hasSpecificStateLaw(code))` then skips the state-specific
+ * path for a state that may well have one.
+ *
+ * A three-valued return would not have fixed it. `boolean | null` still reads
+ * as false in a condition, which is the exact misuse. A string union does not:
+ * every value is truthy, so `if (stateLawStatus(code))` is visibly nonsense
+ * rather than quietly wrong, and a `switch` has to name the third case.
+ */
+export type StateLawStatus =
+  /** The state has enacted its own commercial financing disclosure law. */
+  | 'specific_law'
+  /** Recognised, and the federal baseline is all that applies. */
+  | 'federal_baseline_only'
+  /** Not in this registry. Nothing is being claimed about it. */
+  | 'state_not_recognised';
+
+export function stateLawStatus(stateCode: string): StateLawStatus {
+  const profile = getStateLawProfile(stateCode);
+  if (profile === null) return 'state_not_recognised';
+  return profile.hasSpecificStateLaw ? 'specific_law' : 'federal_baseline_only';
 }
 
 /**
