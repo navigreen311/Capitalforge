@@ -215,8 +215,24 @@ dashboardRiskMatrixRouter.get(
       }
 
       // --- Utilization spikes ---
+      // Counted rather than dropped: a matrix that silently omits clients it
+      // could not assess understates the population it claims to cover.
+      let unmeasuredUtilization = 0;
       for (const profile of creditProfiles) {
-        const util = Number(profile.utilization ?? 0);
+        // A client with no utilisation on record is skipped, not scored.
+        //
+        // This read `Number(profile.utilization ?? 0)`, so an unmeasured
+        // client fell through every threshold into the `else` branch and was
+        // plotted as `low` risk with a detail string reading "Utilization at
+        // 0%" — an absent measurement rendered as the best possible value, on
+        // the page whose whole purpose is spotting risk. `utilization` is
+        // nullable in the schema; this database happens to have no nulls
+        // today, which is why nobody has seen it.
+        if (profile.utilization === null) {
+          unmeasuredUtilization += 1;
+          continue;
+        }
+        const util = Number(profile.utilization);
 
         let severity: Severity;
         let detail: string;
@@ -371,6 +387,11 @@ dashboardRiskMatrixRouter.get(
           },
           critical_count: criticalCount,
           critical_clients: uniqueCritical,
+          // Said out loud so a reader can tell "no client is at risk on
+          // utilisation" from "we could not look at some of them". A matrix
+          // that quietly omits what it could not assess understates the
+          // population it claims to cover.
+          unmeasured: { utilization: unmeasuredUtilization },
           last_updated: now.toISOString(),
         },
       };

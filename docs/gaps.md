@@ -533,6 +533,81 @@ claim a deletion that never ran.
 
 ---
 
+## 3c. Third-state collapses — swept 2026-08-07
+
+The `?? 9999` found while building the recovery-test table prompted a sweep for
+the same shape: an absent measurement collapsed into a number or a boolean, so
+"not known" becomes indistinguishable from a value somebody measured.
+
+Three were found and fixed. Reported by consequence rather than by count,
+because two were latent and one was firing.
+
+**Live: `compliance.service.ts` fabricated a leverage ratio, in both
+directions.**
+
+```ts
+const debtToRevenue = (input.existingDebt ?? 0) / Math.max(input.monthlyRevenue ?? 1, 1);
+```
+
+Every other input in that block is guarded with `!== undefined`, so an absent
+FICO, utilisation or business age contributes nothing. This line collapsed two
+absent inputs and computed a ratio from them.
+
+Absent debt became 0, so a client whose debt nobody recorded scored as
+unleveraged. Absent revenue divided by 1, so **the ratio became the debt
+figure** — $50,000 against unrecorded revenue produced a printed finding
+reading *"Debt-to-monthly-revenue 50000.0x — high leverage"*. A fabricated
+number in a compliance artefact, indistinguishable from a measured one by
+anybody reading it later.
+
+Now assessed only when both figures are on record, and the artefact names the
+gap — "leverage not assessed" and "leverage assessed and fine" must not look
+the same. Zero revenue is distinguished from absent revenue.
+
+**Latent: the risk matrix plotted unmeasured clients as low risk.**
+`Number(profile.utilization ?? 0)` put a client with no utilisation on record
+into the bottom threshold band with a detail string reading *"Utilization at
+0%"* — an absent measurement rendered as the best possible value, on the page
+whose purpose is spotting risk. Such clients are now skipped and counted, and
+the count is returned as `unmeasured.utilization` so a reader can tell "nobody
+is at risk" from "we could not look at some of them".
+
+**Latent: an unscored regulatory alert was labelled MEDIUM.**
+`(a.impactScore ?? 0) >= 70` presented an alert nobody had assessed as
+assessed-and-moderate. Unscored now sorts as HIGH — an unreviewed regulatory
+alert is the one that most needs looking at, and under-stating it is the
+failure that costs something.
+
+Both were latent in the sense that matters and no more: the columns are
+nullable and the code was wrong, but this database has no nulls in either, so
+neither was firing today. That is a weaker finding than the SBSS case, where
+zero rows existed *and* the collapse fired for every client, and it is recorded
+as weaker.
+
+**Also fixed, as its own change: the DocuSign webhook invented signing times.**
+`timestamp ?? new Date().toISOString()` used the moment the webhook was
+processed as the moment the envelope was signed, so "when was this signed?"
+answered "just now" for any payload DocuSign sent without a date. The reported
+time and our recording time are separate now, and `timestampSource` says which
+is which.
+
+**Checked and clean.** `billing.routes.ts` is the model — `collectionRate` is
+null on an empty month and there is an explicit comment about not fabricating a
+growth rate from a zero base. The `?? false` hits across the codebase are
+option defaults, not measurements, and the `Math.max` hits are pagination
+clamps.
+
+**One loaded gun, left loaded.** `state-law-mapper.ts` exports
+`hasSpecificStateLaw(stateCode)`, which returns `false` for an unrecognised
+state — i.e. "this state has no specific commercial financing law". Nothing
+calls it: every live caller reads `profile.hasSpecificStateLaw` off a resolved
+profile, and `compliance.service` handles an unknown state properly with an
+explicit warning finding. Left as-is rather than changed, because deleting or
+re-typing an unused export is a different change from fixing a defect, and this
+one has no caller to verify against.
+
+---
+
 ## 4. Integrations that fail closed
 
 Three services refuse to answer unless credentials are configured. Each has a

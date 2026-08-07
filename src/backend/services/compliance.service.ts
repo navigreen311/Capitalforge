@@ -263,9 +263,36 @@ export function scoreRiskRegister(input: RiskRegisterInput): RiskRegisterResult 
       factors.push(`Business age ${input.businessAgeMonths} months — seasoning risk`);
     }
 
-    const debtToRevenue = (input.existingDebt ?? 0) / Math.max(input.monthlyRevenue ?? 1, 1);
-    if (debtToRevenue > 6) { raw += 3; factors.push(`Debt-to-monthly-revenue ${debtToRevenue.toFixed(1)}x — high leverage`); }
-    else if (debtToRevenue > 3) { raw += 1; factors.push(`Debt-to-monthly-revenue ${debtToRevenue.toFixed(1)}x — moderate leverage`); }
+    // Leverage is assessed only when both figures are on record.
+    //
+    // This read `(input.existingDebt ?? 0) / Math.max(input.monthlyRevenue ?? 1, 1)`,
+    // which fabricated a ratio in both directions while every other input in
+    // this block was carefully guarded with `!== undefined`.
+    //
+    // Absent debt became 0, so a client whose debt nobody recorded scored as
+    // unleveraged. Absent revenue divided by 1, so the ratio *became the debt
+    // figure* — $50,000 of debt against unrecorded revenue produced a printed
+    // finding reading "Debt-to-monthly-revenue 50000.0x — high leverage". A
+    // fabricated number in a compliance artefact is worse than a gap in one,
+    // because the gap is visible.
+    const canAssessLeverage =
+      input.existingDebt !== undefined && input.monthlyRevenue !== undefined;
+
+    if (canAssessLeverage && input.monthlyRevenue! > 0) {
+      const debtToRevenue = input.existingDebt! / input.monthlyRevenue!;
+      if (debtToRevenue > 6) { raw += 3; factors.push(`Debt-to-monthly-revenue ${debtToRevenue.toFixed(1)}x — high leverage`); }
+      else if (debtToRevenue > 3) { raw += 1; factors.push(`Debt-to-monthly-revenue ${debtToRevenue.toFixed(1)}x — moderate leverage`); }
+    } else {
+      // Named rather than silently omitted. The neighbouring inputs drop out
+      // quietly when absent, which is fine for a score — but this is an
+      // artefact somebody reads later, and "leverage was not assessed" and
+      // "leverage was assessed and was fine" must not look the same.
+      factors.push(
+        input.monthlyRevenue === 0
+          ? 'Leverage not assessed — monthly revenue recorded as zero, so a ratio has no meaning.'
+          : 'Leverage not assessed — monthly revenue or existing debt is not on record.',
+      );
+    }
 
     scores.push({ category: 'credit_cash_flow', score: Math.min(10, raw), weight: CATEGORY_WEIGHTS.credit_cash_flow, factors });
   }
