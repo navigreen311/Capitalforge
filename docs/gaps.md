@@ -51,8 +51,8 @@ It answers `501` now.
 
 | `PATCH /api/platform/offboarding/:id/advance` | Deliberate: stage moves when the export or the deletion actually happens, not because somebody advanced it. | **None — this one should stay refused.** Advancing by hand is how a workflow claims a deletion that never ran. |
 | `POST /api/declines/:id/reminder` | Nothing schedules or delivers a reapply reminder. | **Product.** Same scheduling question as overdue reminders. |
-| `POST /api/optimizer/save-strategy` | No table stores an optimizer strategy. This answered `200` with `{ savedAt, clientId }` and wrote nothing, while the page reported "Strategy saved to *client* profile". | **Table.** A `SavedStrategy` holding the plan as JSON, including the input provenance it was built on. See `docs/backlog/saved-strategy-and-funding-round-persistence.md`. |
-| `POST /api/optimizer/create-round` | Nothing created the round. This answered `201` with an invented id — `round-<client>-<n>-<timestamp>` — reported "Funding Round N created" and navigated to `/funding-rounds`, where it was not. | **Wiring.** `FundingRound` exists; the optimizer never wrote one. Should call the same service the Funding Rounds page uses rather than adding a second creation path. |
+| ~~`POST /api/optimizer/save-strategy`~~ | **Built 2026-08-07.** A `SavedStrategy` row holds the plan whole, including its input provenance, and `hasAssumedDefaults` is denormalised so a list can tell a plan built on a credit pull from one built on constants. Saving appends; a client keeps a history. | **Done.** |
+| ~~`POST /api/optimizer/create-round`~~ | **Built 2026-08-07.** Calls `FundingRoundService.createRound` — the same path the Funding Rounds page uses — so round-number allocation and the `ROUND_STARTED` ledger event have one implementation. `FundingRound.savedStrategyId` records what a round was planned from, null when it came from no plan. | **Done.** |
 
 ---
 

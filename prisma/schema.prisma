@@ -12,26 +12,26 @@ datasource db {
 // ============================================================
 
 model Tenant {
-  id          String   @id @default(uuid())
-  name        String
-  slug        String   @unique
-  brandConfig Json?
-  plan        String   @default("starter")
+  id              String    @id @default(uuid())
+  name            String
+  slug            String    @unique
+  brandConfig     Json?
+  plan            String    @default("starter")
   /// False suspends the tenant. Enforced at login, at token refresh and on
   /// every authenticated request — see tenant-status.service.
   ///
   /// Previously read only by `register`, so setting it blocked new sign-ups
   /// and nothing else: existing sessions continued and existing users still
   /// logged in.
-  isActive    Boolean  @default(true)
+  isActive        Boolean   @default(true)
   /// Who suspended this tenant, when, and why. A boolean cannot answer the
   /// question asked after the fact, and the endpoint used to return a
   /// `suspendedAt` it had nowhere to store.
   suspendedAt     DateTime?
   suspendedBy     String?
   suspendedReason String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   users               User[]
   businesses          Business[]
@@ -289,6 +289,7 @@ model Business {
   creditBuilderSteps CreditBuilderStep[]
   graduationEvents   GraduationEvent[]
   heldCards          HeldCard[]
+  savedStrategies    SavedStrategy[]
 
   @@index([tenantId, status])
   @@map("businesses")
@@ -368,9 +369,61 @@ model CreditProfile {
 // FUNDING & APPLICATIONS
 // ============================================================
 
+/**
+ * A recommendation made at a moment, kept whole.
+ * The plan is stored as JSON rather than normalised into rows, and that is the
+ * point rather than a shortcut. A strategy is a snapshot of what was
+ * recommended and what it was built on. If card products change next month, or
+ * an input that is decorative today becomes one the scorer reads, a plan from
+ * before that must still report the system that produced it — not the system
+ * reading it. A schema modelling today's inputs would silently re-interpret
+ * yesterday's plans.
+ */
+model SavedStrategy {
+  id         String @id @default(uuid())
+  tenantId   String
+  businessId String
+
+  /**
+   * The StackingPlan as returned, including inputProvenance.
+   */
+  plan Json
+
+  // Denormalised so a list can be rendered without parsing every blob.
+  totalEstimatedCredit Decimal?
+  cardCount            Int
+  prioritizationMode   String
+
+  /**
+   * True when the plan rested on at least one assumed default.
+   * Denormalised for the same reason as the rest, and load-bearing: a list
+   * that cannot distinguish a plan built from a credit pull from one built
+   * from constants presents both as the same kind of claim.
+   */
+  hasAssumedDefaults Boolean @default(false)
+
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  business      Business       @relation(fields: [businessId], references: [id])
+  fundingRounds FundingRound[]
+
+  @@index([tenantId, businessId, createdAt])
+  @@map("saved_strategies")
+}
+
 model FundingRound {
   id              String    @id @default(uuid())
   businessId      String
+  /**
+   * The strategy this round was planned from, when it came from the optimizer.
+   * On the round rather than on the strategy: a round opened six months from
+   * now needs to say what it was planned from, and one strategy can reasonably
+   * produce more than one round. Null for rounds created directly from the
+   * Funding Rounds page, which is the honest answer — not every round comes
+   * from a plan.
+   */
+  savedStrategyId String?
   roundNumber     Int
   targetCredit    Decimal?
   targetCardCount Int?
@@ -384,8 +437,9 @@ model FundingRound {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  business     Business          @relation(fields: [businessId], references: [id])
-  applications CardApplication[]
+  business      Business          @relation(fields: [businessId], references: [id])
+  savedStrategy SavedStrategy?    @relation(fields: [savedStrategyId], references: [id])
+  applications  CardApplication[]
 
   @@unique([businessId, roundNumber])
   @@map("funding_rounds")
@@ -1815,7 +1869,7 @@ model HeldCard {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, businessId])
   @@map("held_cards")
