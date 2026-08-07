@@ -39,7 +39,6 @@ model Tenant {
   consentRecords      ConsentRecord[]
   complianceChecks    ComplianceCheck[]
   documents           Document[]
-  branding            TenantBranding?
   voiceCalls          VoiceCall[]
   callComplianceScans CallComplianceScan[]
   callQaScores        CallQaScore[]
@@ -47,25 +46,6 @@ model Tenant {
   smsMessages         SmsMessage[]
 
   @@map("tenants")
-}
-
-model TenantBranding {
-  id             String   @id @default(uuid())
-  tenantId       String   @unique
-  displayName    String?
-  logoUrl        String?
-  faviconUrl     String?
-  primaryColor   String? // hex color e.g. #C9A84C
-  customDomain   String?
-  emailFromName  String?
-  emailFromAddr  String?
-  hideCfBranding Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  @@map("tenant_brandings")
 }
 
 model User {
@@ -793,21 +773,6 @@ model SpendTransaction {
 // REWARDS & CARD BENEFITS
 // ============================================================
 
-model RewardsOptimization {
-  id                String   @id @default(uuid())
-  tenantId          String
-  businessId        String
-  cardApplicationId String
-  mccCategory       String
-  rewardsRate       Decimal
-  annualValue       Decimal?
-  isOptimalCard     Boolean  @default(false)
-  createdAt         DateTime @default(now())
-
-  @@index([tenantId, businessId])
-  @@map("rewards_optimizations")
-}
-
 model CardBenefit {
   id                String    @id @default(uuid())
   cardApplicationId String
@@ -1380,19 +1345,6 @@ model AiDecisionLog {
 // SANDBOX & SIMULATION
 // ============================================================
 
-model SandboxProfile {
-  id          String   @id @default(uuid())
-  tenantId    String
-  profileName String
-  archetype   String
-  profileData Json
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-
-  @@index([tenantId])
-  @@map("sandbox_profiles")
-}
-
 // ============================================================
 // AI GENERATION LOGGING
 // ============================================================
@@ -1419,8 +1371,18 @@ model BackupRecord {
   id              String    @id @default(uuid())
   tenantId        String?
   backupType      String
-  status          String    @default("completed")
-  sizeBytes       Int?
+  /**
+   * running | completed | failed. Nothing marks one completed yet.
+   */
+  status          String    @default("running")
+  /**
+   * BigInt, not Int.
+   * An Int tops out at 2,147,483,647 — a shade over 2GB. The service has
+   * always typed this as bigint and the column did not, which nothing noticed
+   * because nothing ever wrote a row. The first full backup of a real database
+   * to exceed 2GB would have been the test.
+   */
+  sizeBytes       BigInt?
   storageLocation String?
   retentionDays   Int       @default(90)
   expiresAt       DateTime?

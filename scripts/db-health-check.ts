@@ -156,7 +156,6 @@ async function runHealthCheck(tenantSlug?: string, outputJson?: boolean): Promis
     ['repayment_plans',             () => prisma.repaymentPlan.count()],
     ['payment_schedules',           () => prisma.paymentSchedule.count()],
     ['spend_transactions',          () => prisma.spendTransaction.count()],
-    ['rewards_optimizations',       () => prisma.rewardsOptimization.count()],
     ['card_benefits',               () => prisma.cardBenefit.count()],
     ['invoices',                    () => prisma.invoice.count()],
     ['commission_records',          () => prisma.commissionRecord.count()],
@@ -183,8 +182,11 @@ async function runHealthCheck(tenantSlug?: string, outputJson?: boolean): Promis
     ['funds_flow_classifications',  () => prisma.fundsFlowClassification.count()],
     ['offboarding_workflows',       () => prisma.offboardingWorkflow.count()],
     ['ai_decision_logs',            () => prisma.aiDecisionLog.count()],
-    ['sandbox_profiles',            () => prisma.sandboxProfile.count()],
     ['backup_records',              () => prisma.backupRecord.count()],
+    ['saved_strategies',            () => prisma.savedStrategy.count(tenantId ? { where: { tenantId } } : undefined)],
+    ['contracts',                   () => prisma.contract.count(tenantId ? { where: { tenantId } } : undefined)],
+    ['referrals',                   () => prisma.referral.count(tenantId ? { where: { tenantId } } : undefined)],
+    ['report_schedules',            () => prisma.reportSchedule.count(tenantId ? { where: { tenantId } } : undefined)],
     ['audit_logs',                  () => prisma.auditLog.count(tenantId ? { where: { tenantId } } : undefined)],
   ];
 

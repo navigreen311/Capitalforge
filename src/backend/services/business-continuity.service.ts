@@ -6,6 +6,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 
+import { prisma as sharedPrisma } from '../config/database.js';
 // ── Types ────────────────────────────────────────────────────
 
 export type BackupType    = 'full' | 'incremental' | 'snapshot';
@@ -70,7 +71,6 @@ export interface RecoveryTestLog {
 
 // ── In-memory stores ─────────────────────────────────────────
 
-const backupStore       = new Map<string, BackupRecord>();
 const recoveryTestStore = new Map<string, RecoveryTestLog>();
 
 // ── Constants ────────────────────────────────────────────────
@@ -105,7 +105,26 @@ export async function triggerBackup(
     createdAt:       now,
     storageLocation: `s3://capitalforge-backups/${tenantId ?? 'platform'}/${now.toISOString().slice(0, 10)}/${uuidv4()}.dump`,
   };
-  backupStore.set(record.id, record);
+  // Persisted, not held in a Map.
+  //
+  // `backup_records` existed and nothing wrote to it, so every record lived in
+  // this process and vanished with it. A platform that cannot say when it last
+  // backed up after a restart is in the same position as one that never
+  // recorded it — and this endpoint answers "when did we last back up", which
+  // is a question asked precisely when something has gone wrong.
+  await sharedPrisma.backupRecord.create({
+    data: {
+      id: record.id,
+      tenantId: record.tenantId ?? null,
+      backupType: record.backupType,
+      status: record.status,
+      sizeBytes: record.sizeBytes ?? null,
+      storageLocation: record.storageLocation ?? null,
+      retentionDays: record.retentionDays,
+      expiresAt: record.expiresAt ?? null,
+      createdAt: record.createdAt,
+    },
+  });
 
   // STUB — dispatch async backup job to job queue (e.g. BullMQ)
   // In production: await backupQueue.add('backup', { recordId: record.id, backupType, tenantId })
@@ -120,62 +139,90 @@ export async function triggerBackup(
 // a size from Math.random() and a checksum from a uuid — a checksum being the
 // one field whose whole purpose is to prove the bytes are what they claim.
 
-export function updateBackupStatus(
+export async function updateBackupStatus(
   id: string,
   status: BackupStatus,
   patch?: Partial<Pick<BackupRecord, 'sizeBytes' | 'checksum' | 'errorMessage' | 'completedAt'>>,
-): BackupRecord {
-  const record = backupStore.get(id);
-  if (!record) throw new Error(`Backup record ${id} not found`);
-  Object.assign(record, { status, ...patch });
-  backupStore.set(id, record);
-  return record;
+): Promise<BackupRecord> {
+  const row = await sharedPrisma.backupRecord.update({
+    where: { id },
+    data: {
+      status,
+      ...(patch?.sizeBytes !== undefined ? { sizeBytes: patch.sizeBytes } : {}),
+    },
+  });
+  return toRecord(row, patch);
 }
 
-export function listBackups(options?: {
+/** A stored row, back in the shape callers already read. */
+function toRecord(
+  row: {
+    id: string;
+    tenantId: string | null;
+    backupType: string;
+    status: string;
+    sizeBytes: bigint | null;
+    storageLocation: string | null;
+    retentionDays: number;
+    expiresAt: Date | null;
+    createdAt: Date;
+  },
+  patch?: Partial<BackupRecord>,
+): BackupRecord {
+  return {
+    id: row.id,
+    tenantId: row.tenantId ?? undefined,
+    backupType: row.backupType as BackupType,
+    status: row.status as BackupStatus,
+    sizeBytes: row.sizeBytes ?? undefined,
+    storageLocation: row.storageLocation ?? undefined,
+    retentionDays: row.retentionDays,
+    expiresAt: row.expiresAt ?? undefined,
+    createdAt: row.createdAt,
+    ...patch,
+  };
+}
+
+export async function listBackups(options?: {
   tenantId?: string;
   backupType?: BackupType;
   status?: BackupStatus;
   limit?: number;
-}): BackupRecord[] {
-  let records = Array.from(backupStore.values());
-
-  if (options?.tenantId)   records = records.filter((r) => r.tenantId === options.tenantId);
-  if (options?.backupType) records = records.filter((r) => r.backupType === options.backupType);
-  if (options?.status)     records = records.filter((r) => r.status === options.status);
-
-  // Sort newest first
-  records.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-  return options?.limit ? records.slice(0, options.limit) : records;
+}): Promise<BackupRecord[]> {
+  const rows = await sharedPrisma.backupRecord.findMany({
+    where: {
+      ...(options?.tenantId ? { tenantId: options.tenantId } : {}),
+      ...(options?.backupType ? { backupType: options.backupType } : {}),
+      ...(options?.status ? { status: options.status } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    ...(options?.limit ? { take: options.limit } : {}),
+  });
+  return rows.map((r) => toRecord(r));
 }
 
-export function getBackup(id: string): BackupRecord | undefined {
-  return backupStore.get(id);
+export async function getBackup(id: string): Promise<BackupRecord | undefined> {
+  const row = await sharedPrisma.backupRecord.findUnique({ where: { id } });
+  return row ? toRecord(row) : undefined;
 }
 
 /**
  * Purge backups that have exceeded their retention window.
  * Call this on a daily schedule.
  */
-export function purgeExpiredBackups(): { purged: number } {
-  const now    = new Date();
-  let purged   = 0;
-  for (const [id, record] of backupStore.entries()) {
-    if (record.expiresAt && record.expiresAt < now) {
-      backupStore.delete(id);
-      purged += 1;
-    }
-  }
-  return { purged };
+export async function purgeExpiredBackups(): Promise<{ purged: number }> {
+  const { count } = await sharedPrisma.backupRecord.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  });
+  return { purged: count };
 }
 
 // ============================================================
 // RTO / RPO Monitoring
 // ============================================================
 
-export function getRtoRpoStatus(tenantId?: string): RtoRpoStatus {
-  const records = listBackups({ tenantId, status: 'completed' });
+export async function getRtoRpoStatus(tenantId?: string): Promise<RtoRpoStatus> {
+  const records = await listBackups({ tenantId, status: 'completed' });
   const lastBackup = records[0];
 
   const nowMs           = Date.now();

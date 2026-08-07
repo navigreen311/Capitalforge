@@ -6,6 +6,11 @@
 // ============================================================
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { PrismaClient } from '@prisma/client';
+
+// Backup records are rows now, not a process-local Map, so the assertions
+// about them read the database.
+const prisma = new PrismaClient();
 
 // Services under test
 import {
@@ -297,28 +302,34 @@ describe('Backup Tracking', () => {
   it('lists backups and returns newest first', async () => {
     await triggerBackup('full');
     await triggerBackup('incremental');
-    const records = listBackups({ limit: 10 });
+    const records = await listBackups({ limit: 10 });
     expect(records.length).toBeGreaterThanOrEqual(2);
     // Newest first
     expect(records[0].createdAt.getTime()).toBeGreaterThanOrEqual(records[1].createdAt.getTime());
   });
 
-  it('returns RTO/RPO status', () => {
-    const status = getRtoRpoStatus();
+  it('returns RTO/RPO status', async () => {
+    const status = await getRtoRpoStatus();
     expect(typeof status.rtoTargetMinutes).toBe('number');
     expect(typeof status.rpoTargetMinutes).toBe('number');
     expect(typeof status.rpoBreached).toBe('boolean');
   });
 
   it('purges expired backups', async () => {
-    // Create a record that's already expired
-    const past    = new Date(Date.now() - 1000);
-    const record  = await triggerBackup('snapshot', T2);
-    // Manually expire it
-    (record as { expiresAt: Date }).expiresAt = past;
-    const { purged } = purgeExpiredBackups();
-    // At least 0 — seeds may or may not be expired
-    expect(purged).toBeGreaterThanOrEqual(0);
+    // Expired on the row, not on a returned object. The previous version
+    // mutated the record the service handed back and asserted `purged >= 0`,
+    // which passed whether anything was purged or not — and would have gone on
+    // passing after the store moved to the database, against a row it never
+    // touched.
+    const record = await triggerBackup('snapshot', T2);
+    await prisma.backupRecord.update({
+      where: { id: record.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    const { purged } = await purgeExpiredBackups();
+    expect(purged).toBeGreaterThanOrEqual(1);
+    expect(await prisma.backupRecord.findUnique({ where: { id: record.id } })).toBeNull();
   });
 });
 

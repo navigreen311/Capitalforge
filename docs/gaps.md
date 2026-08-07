@@ -413,22 +413,48 @@ figure drops any cancelled cards it was counting.
 
 ---
 
-## 3. Tables that exist but are never written
+## 3. ~~Tables that exist but are never written~~ — resolved 2026-08-07
 
-Four tables are in the schema and never receive a row:
+Four tables were in the schema and never received a row. Each is now either
+written or gone; none is left as a trap for somebody to write to on the
+assumption it is wired.
 
-| Table | Read by | Effect |
+| Table | Then | Now |
 |---|---|---|
-| `BackupRecord` | nothing | Backups are reported from nowhere. Until recently a module-level seeder invented seven days of completed ones on every process start. |
-| `TenantBranding` | nothing | Per-tenant branding is modelled and unused. |
-| `RewardsOptimization` | nothing | Modelled and unused. |
-| `SandboxProfile` | nothing | Modelled and unused. |
+| `BackupRecord` | nothing wrote it; the service kept records in a process-local `Map` | **Written.** `triggerBackup` persists, and list / get / purge / RTO-RPO read the table |
+| `TenantBranding` | modelled, unread, unwritten | **Dropped** |
+| `RewardsOptimization` | modelled, unread, unwritten | **Dropped** |
+| `SandboxProfile` | modelled, unread, unwritten | **Dropped** |
 
-**None of them is read by anything**, so none is currently causing a surface to
-answer emptily. They are dead weight in the schema rather than gaps in the
-product, and the only one with a live consequence is `BackupRecord`: the
-business-continuity endpoints report on backups, and with nothing writing that
-table there is nothing truthful for them to report.
+**`BackupRecord` was the one with a consequence**, and it was worse than "no
+rows". The service held every record in a `Map`, so a backup recorded before a
+restart did not exist after one — and the question these endpoints answer is
+*when did we last back up*, which is asked precisely when something has gone
+wrong. All four rows were verified empty before anything was dropped.
+
+**Found on the way in: `sizeBytes` was `Int`.** That tops out at 2,147,483,647,
+a shade over 2GB. The service has always typed it `bigint`; the column did not,
+and nothing noticed because nothing ever wrote a row. The first full backup of
+a real database over 2GB would have been the test. It is `BigInt` now.
+
+**Also found: the purge test could not fail.** It mutated the object the
+service returned and asserted `purged >= 0`. That passed whether anything was
+purged or not, and would have gone on passing after the store moved to the
+database, against a row it never touched. It now expires the row and asserts it
+is gone.
+
+**Still in memory, newly recorded:** `recoveryTestStore` in the same service.
+Recovery-test logs are process-local for the same reason backups were, and a
+recovery test is a compliance artefact — evidence that a restore was actually
+attempted. It needs a table of its own; it did not get one here because it was
+not in the section being closed, and quietly widening the scope is how a
+change stops being reviewable.
+
+The three dropped tables were removed rather than documented-and-kept. An empty
+table nobody reads is not neutral: the next person to find `TenantBranding` in
+the schema reasonably concludes branding is modelled and starts writing to it.
+The model definitions remain in git history, and the drop migration names all
+three.
 
 > **This section was wrong when first written, and the correction matters more
 > than the content.** It claimed nine unwritten tables, four of them read by
