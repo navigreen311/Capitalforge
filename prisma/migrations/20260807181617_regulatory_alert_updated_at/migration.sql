@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "regulatory_alerts" ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

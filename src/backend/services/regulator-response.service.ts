@@ -14,7 +14,7 @@
 // All state transitions emit ledger events.
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type RegulatoryAlert } from '@prisma/client';
 import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
@@ -279,8 +279,7 @@ export class RegulatorResponseService {
     ]);
 
     return {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      inquiries: rows.map((r: any) => this._toRecord(r)),
+      inquiries: rows.map((r) => this._toRecord(r)),
       total,
       page,
       pageSize,
@@ -385,8 +384,7 @@ export class RegulatorResponseService {
         where: { tenantId, businessId },
         select: { id: true },
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      preservedDocumentIds = docs.map((d: any) => d.id as string);
+      preservedDocumentIds = docs.map((d) => d.id as string);
 
       if (preservedDocumentIds.length > 0) {
         await this.prisma.document.updateMany({
@@ -495,8 +493,7 @@ export class RegulatorResponseService {
         activatedAt:          new Date(meta['legalHoldActivatedAt'] as string),
         activatedBy:          (meta['legalHoldActivatedBy'] as string) ?? undefined,
         documentCount:        documents.length,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        preservedDocumentIds: documents.map((d: any) => d.id as string),
+        preservedDocumentIds: documents.map((d) => d.id as string),
         businessId,
       };
     }
@@ -524,8 +521,7 @@ export class RegulatorResponseService {
       generatedBy: requestedBy,
       sections: {
         inquiryDetails: inquiryRecord,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        documents: documents.map((d: any) => ({
+        documents: documents.map((d) => ({
           id:              d.id,
           documentType:    d.documentType,
           title:           d.title,
@@ -535,8 +531,7 @@ export class RegulatorResponseService {
           sha256Hash:      d.sha256Hash ?? null,
           cryptoTimestamp: d.cryptoTimestamp ?? null,
         })),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        complaints: complaints.map((c: any) => ({
+        complaints: complaints.map((c) => ({
           id:          c.id,
           category:    c.category,
           status:      c.status,
@@ -545,8 +540,7 @@ export class RegulatorResponseService {
           createdAt:   c.createdAt,
           resolvedAt:  c.resolvedAt ?? null,
         })),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        consentRecords: consentRecords.map((cr: any) => ({
+        consentRecords: consentRecords.map((cr) => ({
           id:          cr.id,
           channel:     cr.channel,
           consentType: cr.consentType,
@@ -555,16 +549,14 @@ export class RegulatorResponseService {
           revokedAt:   cr.revokedAt ?? null,
           evidenceRef: cr.evidenceRef ?? null,
         })),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        complianceChecks: complianceChecks.map((cc: any) => ({
+        complianceChecks: complianceChecks.map((cc) => ({
           id:         cc.id,
           checkType:  cc.checkType,
           riskScore:  cc.riskScore ?? null,
           riskLevel:  cc.riskLevel ?? null,
           createdAt:  cc.createdAt,
         })),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        achAuthorizations: achAuths.map((a: any) => ({
+        achAuthorizations: achAuths.map((a) => ({
           id:            a.id,
           processorName: a.processorName,
           status:        a.status,
@@ -688,8 +680,14 @@ export class RegulatorResponseService {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _toRecord(row: any): RegulatorInquiryRecord {
+  /**
+   * Every caller passes a `regulatoryAlert` row, so it is typed as one.
+   *
+   * This took `any`, which meant the regulator pack assembled below was
+   * built from fields nothing checked. Renaming a column would have left
+   * `undefined` in a production going to a regulator, and compiled.
+   */
+  private _toRecord(row: RegulatoryAlert): RegulatorInquiryRecord {
     const meta = (row.metadata as Record<string, unknown>) ?? {};
 
     const responseDueDate = meta['responseDueDate']
@@ -719,7 +717,11 @@ export class RegulatorResponseService {
         ? new Date(meta['closedAt'] as string)
         : null,
       createdAt: row.createdAt,
-      updatedAt: row.updatedAt ?? row.createdAt,
+      // No `?? row.createdAt`. That fallback is what made the missing column
+      // invisible: it always won, so every record reported an updatedAt equal
+      // to its creation date and read as untouched. The column exists now, and
+      // a fallback here would only hide its removal the same way.
+      updatedAt: row.updatedAt,
       deadlineStatus: this._computeDeadlineStatus(responseDueDate),
     };
   }
