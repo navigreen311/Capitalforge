@@ -785,7 +785,7 @@ export default function PlatformWorkflowsPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   // ── 5A: Optimistic toggle with mock PATCH ─────────────────
   const handleToggle = useCallback(async (id: string, newStatus: 'active' | 'paused') => {

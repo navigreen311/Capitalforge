@@ -139,7 +139,7 @@ export default function TwoFactorPage() {
   // Auto-submit when all 6 digits are entered
   useEffect(() => {
     if (code.length === 6 && !loading) {
-      handleSubmit();
+      void handleSubmit();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);

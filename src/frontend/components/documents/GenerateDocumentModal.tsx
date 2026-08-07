@@ -47,7 +47,7 @@ export function GenerateDocumentModal({
   };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(editedContent);
+    void navigator.clipboard.writeText(editedContent);
     showToast('Copied to clipboard');
   };
 

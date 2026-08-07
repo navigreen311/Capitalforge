@@ -296,7 +296,7 @@ export default function ApplicationsPage() {
   }, []);
 
   useEffect(() => {
-    fetchApps();
+    void fetchApps();
   }, [fetchApps]);
 
   // Cards used to be draggable between columns. The drop handler moved the
@@ -604,7 +604,7 @@ export default function ApplicationsPage() {
         isOpen={isWizardOpen}
         onClose={() => setIsWizardOpen(false)}
         onSuccess={() => {
-          fetchApps();
+          void fetchApps();
         }}
       />
     </div>

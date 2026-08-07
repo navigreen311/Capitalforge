@@ -134,7 +134,7 @@ export default function DisclosuresPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const selected = useMemo(

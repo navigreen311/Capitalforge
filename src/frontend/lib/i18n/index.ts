@@ -233,7 +233,7 @@ export function I18nProvider({
   // Load translations whenever locale changes
   useEffect(() => {
     if (initialTranslations && locale === (initialLocale ?? DEFAULT_LOCALE)) return;
-    loadTranslations(locale).then(setTranslations);
+    void loadTranslations(locale).then(setTranslations);
   }, [locale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update <html dir> and <html lang> on locale change

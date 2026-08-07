@@ -76,7 +76,7 @@ export function TCPAReminderModal({ onClose, onSent }: TCPAReminderModalProps) {
       }
     }
 
-    fetchEligibility();
+    void fetchEligibility();
     return () => { cancelled = true; };
   }, []);
 

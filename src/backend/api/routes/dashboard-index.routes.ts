@@ -65,5 +65,30 @@ async function mountSubRoutes(): Promise<void> {
   }
 }
 
-// Kick off mounting (fire-and-forget; routes resolve before first request)
-mountSubRoutes();
+/**
+ * Resolves once every sub-route is mounted.
+ *
+ * This was `mountSubRoutes();` — fire-and-forget, with a comment asserting
+ * "routes resolve before first request". Nothing enforced that. The mounting
+ * is a sequence of dynamic imports, and `app.listen` runs as soon as the
+ * synchronous module graph finishes, so a request arriving in the first ticks
+ * after startup could reach this router before its children existed and get a
+ * 404 on a route that is present in the source.
+ *
+ * A rare, startup-only race, and the worst kind to debug: it disappears the
+ * moment anybody looks. Exported so the server awaits it before listening,
+ * which turns the comment's claim into something the code actually does.
+ */
+const dashboardSubRoutesReady: Promise<void> = mountSubRoutes();
+
+/**
+ * Hold requests until mounting has finished.
+ *
+ * The guarantee lives on the router rather than in the server's startup
+ * sequence, so it holds however the app is booted — including the tests, which
+ * build an app without going through `server.ts` at all. After startup the
+ * promise is already settled, so this costs one microtask per request.
+ */
+dashboardV1Router.use((_req, _res, next) => {
+  dashboardSubRoutesReady.then(() => next(), next);
+});

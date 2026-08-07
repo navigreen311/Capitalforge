@@ -649,7 +649,7 @@ export default function DeclinesPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   // Real clients for the log form, so a decline attaches to a business that
@@ -1108,7 +1108,7 @@ export default function DeclinesPage() {
           row={letterFor}
           onClose={() => setLetterFor(null)}
           onGenerated={() => {
-            load();
+            void load();
           }}
         />
       )}
@@ -1120,7 +1120,7 @@ export default function DeclinesPage() {
           onLogged={(msg) => {
             setShowLog(false);
             showToast(msg);
-            load();
+            void load();
           }}
         />
       )}

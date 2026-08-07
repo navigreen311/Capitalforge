@@ -214,11 +214,11 @@ export function ApplicationWizardShell({ children }: ApplicationWizardShellProps
   };
 
   const onSaveDraft = useCallback(() => {
-    postApplication('draft');
+    void postApplication('draft');
   }, [formData]);
 
   const onSubmit = useCallback(() => {
-    postApplication('submitted');
+    void postApplication('submitted');
   }, [formData]);
 
   // ── Render ───────────────────────────────────────────────────

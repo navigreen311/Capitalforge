@@ -92,7 +92,7 @@ export function useAuthFetch<T>(path: string, params?: Record<string, unknown>) 
     }
   }, [path, serializedParams]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { void fetchData(); }, [fetchData]);
 
   return { data, isLoading, isAuthLoading, error, refetch: fetchData };
 }

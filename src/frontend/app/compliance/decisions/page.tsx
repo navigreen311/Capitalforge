@@ -122,7 +122,7 @@ export default function ComplianceDecisionsPage() {
   }, [year]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const summary = useMemo(() => summariseDecisions(rows), [rows]);

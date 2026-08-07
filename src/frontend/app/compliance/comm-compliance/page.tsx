@@ -158,7 +158,7 @@ export default function ComplianceCommPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const summary = useMemo(() => summariseConsent(rows), [rows]);

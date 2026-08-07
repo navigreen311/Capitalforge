@@ -160,7 +160,7 @@ export default function PlatformReferralsPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const handleCopy = async (link: string) => {
     try {

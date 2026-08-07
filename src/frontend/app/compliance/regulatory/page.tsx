@@ -101,7 +101,7 @@ export default function ComplianceRegulatoryFeedPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const loadImpact = useCallback(
@@ -269,7 +269,7 @@ export default function ComplianceRegulatoryFeedPage() {
                         onClick={() => {
                           const next = open ? null : alert.id;
                           setExpandedId(next);
-                          if (next !== null) loadImpact(alert.id);
+                          if (next !== null) void loadImpact(alert.id);
                         }}
                         className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-900"
                       >

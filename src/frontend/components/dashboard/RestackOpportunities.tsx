@@ -115,7 +115,7 @@ function OpportunityRow({ opp }: { opp: RestackOpportunity }) {
   const pill = getReadinessPill(opp.readiness_score);
 
   function handleStartRound() {
-    trackRestackOutreach(opp.client_id, opp.next_round);
+    void trackRestackOutreach(opp.client_id, opp.next_round);
     window.location.href = `/applications/new?client_id=${opp.client_id}&round=${opp.next_round}`;
   }
 
