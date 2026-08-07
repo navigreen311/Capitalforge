@@ -693,6 +693,51 @@ passed rules without the plugin in scope and eslint's explanation was counted
 as two hits, identically, for four different rules. Neither reading was
 credible on its face; both looked like answers.
 
+### Fifth sweep, 2026-08-07 — a regulator record built from `any`
+
+Ran the `no-unsafe-*` family, now that type-aware linting exists. 758 hits,
+and the count is misleading: the split is what matters. Four `: any`
+annotations sit in `src/backend/integrations`, where an external payload
+genuinely has no type. **Twelve sat in domain code and discarded a type Prisma
+already provides** — `rows.map((r: any) => ...)` over a fully-typed query
+result.
+
+They were in two files, and one of them assembles document packs for a
+regulator.
+
+**One had already drifted.** `regulator-response.service._toRecord` read
+`row.updatedAt ?? row.createdAt`, and `RegulatoryAlert` had **no `updatedAt`
+column**. The fallback therefore always won: a regulator inquiry that had been
+reviewed, updated or responded to reported an `updatedAt` equal to its creation
+date and read as untouched. No crash and no null — a plausible date that was
+wrong for every record anybody had worked on.
+
+The column exists now (`@updatedAt`, so it cannot drift from the writes it
+describes), and the `?? row.createdAt` fallback is gone: it is what made the
+missing column invisible, and keeping it would hide the column's removal the
+same way.
+
+**The fix was subtraction.** Deleting the twelve annotations and the twelve
+`eslint-disable` comments that existed only to permit them left `typecheck:src`
+clean — Prisma's inferred types were sufficient the whole time. Both `_toRecord`
+mappers are typed to their models, and the last `as any` at a call site is
+gone.
+
+Verified by negative control: reading a column that does not exist is now a
+compile error in the regulator pack. It compiled before.
+
+**Checked and clean this round.** Request-body handling. 65 sites cast
+`req.body` rather than parsing it with zod, which looked like an unvalidated
+trust boundary and is not — every site sampled, including money fields,
+validates with explicit `typeof` checks and handles optional fields correctly.
+Two styles in one codebase is an inconsistency, not a defect, and it is not
+worth a refactor.
+
+The remaining 746 unsafe-`any` hits are concentrated in the Twilio and
+VoiceForge clients, where the payload is external and untyped at the source.
+Left alone deliberately: `any` there is defensible, and a refactor would buy
+much less than the twelve did.
+
 **Checked and clean.** `billing.routes.ts` is the model — `collectionRate` is
 null on an empty month and there is an explicit comment about not fabricating a
 growth rate from a zero base. The `?? false` hits across the codebase are

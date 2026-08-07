@@ -1150,6 +1150,18 @@ model RegulatoryAlert {
    */
   metadata        Json?
   createdAt       DateTime  @default(now())
+  /**
+   * When the row last changed.
+   * Absent until 2026-08-07, while `regulator-response.service` read
+   * `row.updatedAt ?? row.createdAt` through an `any`-typed mapper. The column
+   * did not exist, so the fallback always won: a regulator inquiry that had
+   * been reviewed, updated or responded to reported an `updatedAt` equal to
+   * its creation date and read as untouched. No crash and no null — just a
+   * plausible date that was wrong for every record anybody had worked on.
+   * `@updatedAt` rather than a manual assignment, so it cannot drift from the
+   * writes it describes.
+   */
+  updatedAt       DateTime  @default(now()) @updatedAt
 
   @@index([tenantId, status])
   @@map("regulatory_alerts")

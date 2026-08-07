@@ -14,7 +14,7 @@
 // All state transitions are validated and emit ledger events.
 // ============================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Complaint } from '@prisma/client';
 import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
@@ -301,8 +301,7 @@ export class ComplaintService {
 
     return {
       complaints: rows.map((r) => ({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...this._toRecord(r as any),
+        ...this._toRecord(r),
         businessName: r.businessId ? (names.get(r.businessId) ?? null) : null,
       })),
       total,
@@ -502,17 +501,14 @@ export class ComplaintService {
       avgResolutionMs !== null ? avgResolutionMs / (1000 * 60 * 60 * 24) : null;
 
     // Monthly trend — last 6 months
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const recentTrend = this._buildMonthlyTrend(allComplaints.map((c: any) => c.createdAt), 6);
+    const recentTrend = this._buildMonthlyTrend(allComplaints.map((c) => c.createdAt), 6);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const openCritical = allComplaints.filter(
-      (c: any) => c.severity === 'critical' && c.status !== 'closed',
+      (c) => c.severity === 'critical' && c.status !== 'closed',
     ).length;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const unauthorizedDebitOpenCount = allComplaints.filter(
-      (c: any) => c.category === 'unauthorized_debit' && c.status !== 'closed',
+      (c) => c.category === 'unauthorized_debit' && c.status !== 'closed',
     ).length;
 
     return {
@@ -620,10 +616,8 @@ export class ComplaintService {
     });
 
     const autoIds = qaScores
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((q: any) => q.callRecordId as string | null)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((id: any): id is string => id !== null);
+      .map((q) => q.callRecordId as string | null)
+      .filter((id): id is string => id !== null);
 
     return [...new Set([...supplied, ...autoIds])];
   }
@@ -649,8 +643,7 @@ export class ComplaintService {
       authorizedFrequency: auth.authorizedFrequency ?? undefined,
       authorizationStatus: auth.status,
       signedDocumentRef:   auth.signedDocumentRef ?? null,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      debitEvents: auth.debitEvents.map((ev: any) => ({
+      debitEvents: auth.debitEvents.map((ev) => ({
         id:               ev.id,
         amount:           Number(ev.amount),
         processedAt:      ev.processedAt,
@@ -685,8 +678,7 @@ export class ComplaintService {
 
   /** Map a Prisma row to the public ComplaintRecord shape. */
   private _toRecord(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    row: any,
+    row: Complaint,
     unauthorizedDebitBundle?: UnauthorizedDebitBundle,
   ): ComplaintRecord {
     return {
