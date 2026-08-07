@@ -776,6 +776,57 @@ matched `test.describe(` as though it were a test and reported 65
 assertion-free blocks. Suite blocks legitimately hold no assertions. The
 corrected pattern found zero.
 
+### Seventh and eighth sweeps, 2026-08-07 — the apparatus, then the setup
+
+**Seventh: `master` had no branch protection.** No required status checks at
+all. Every merge in this session was green because somebody waited for it, not
+because anything enforced it, and a direct push bypassed CI entirely. Noted in
+a CI comment on 2026-08-05 and never acted on — the docs-only path filter was
+deliberately written as a job-level `if:` rather than a workflow-level
+`paths-ignore` so that protection could be turned on later without leaving docs
+PRs stuck waiting for a check that never reports. The accommodation was built;
+the switch was never flipped.
+
+Enabled with all six checks required, `strict` (a branch must be current before
+merging, so checks describe the actual merge) and `enforce_admins`. Verified by
+attempting a direct push, which was rejected: *6 of 6 required status checks are
+expected*.
+
+Clean in the same pass: no schema/migration drift, CI does migrate + seed + run
+the seed-idempotency check, and `check-seed-idempotent.ts` documents precisely
+which failure it would *not* have caught.
+
+**Eighth: the setup file named the wrong secrets.** `.env.example` listed
+`JWT_SECRET`, which nothing in the codebase reads, and named neither
+`JWT_ACCESS_SECRET` nor `JWT_REFRESH_SECRET` — the two `config/auth.ts`
+requires and throws without. Anybody setting up from it configured a variable
+that did nothing, never learned about the two that mattered, got a server that
+booted cleanly, and hit the first login as a failure. Fail-closed, so loud
+rather than dangerous, and invisible to everyone who already had a working
+`.env`.
+
+**And `config/index.ts` exported a signing secret that degraded to a literal.**
+`JWT_SECRET` fell back to `'dev-secret-change-in-production'` whenever
+`IS_PRODUCTION` was false — and `NODE_ENV` defaults to `'development'` twenty
+lines above it, so an unset `NODE_ENV` on a production host selected it. It was
+surfaced as `config.jwt.secret`. **Nothing read it.**
+
+A dead export is usually harmless. This one was a correct-looking answer to the
+right question, sitting closer to hand than the real one — beneath a comment,
+in the same file, explaining why `JWT_ACCESS_SECRET` is deliberately not
+exported there for exactly that reason. The hazard was written down and the
+code beside it embodied it.
+
+Both fixed, and pinned by `tests/unit/services/auth-secret-config.test.ts`,
+which reads the variable names out of `auth.ts` rather than hardcoding them and
+asserts the example file names each one. It also asserts `auth.ts` never grows
+an `IS_PRODUCTION` check, since that is precisely what would reintroduce the
+export just removed.
+
+Clean in the same pass: `requireSecret` throws unconditionally with a 32-char
+minimum, and the health endpoint separates liveness from readiness, probes the
+database for real, and answers 503 when it fails.
+
 **Checked and clean.** `billing.routes.ts` is the model — `collectionRate` is
 null on an empty month and there is an explicit comment about not fabricating a
 growth rate from a zero base. The `?? false` hits across the codebase are
