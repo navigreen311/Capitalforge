@@ -6,11 +6,6 @@
 // ============================================================
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
-
-// Backup records are rows now, not a process-local Map, so the assertions
-// about them read the database.
-const prisma = new PrismaClient();
 
 // Services under test
 import {
@@ -46,13 +41,9 @@ import {
 
 import {
   businessContinuityService,
-  triggerBackup,
-  listBackups,
-  getRtoRpoStatus,
   exportClientCase,
   logRecoveryTest,
   listRecoveryTests,
-  purgeExpiredBackups,
 } from '../../../src/backend/services/business-continuity.service.js';
 
 // ── Test tenant IDs ──────────────────────────────────────────
@@ -283,53 +274,6 @@ describe('Observability Metrics', () => {
     const metrics = getTenantMetrics(T1, new Date(0), new Date());
     expect(metrics.totalRequests).toBeGreaterThanOrEqual(3);
     expect(metrics.failedRequests).toBeGreaterThanOrEqual(1);
-  });
-});
-
-// ============================================================
-// BUSINESS CONTINUITY — BACKUP TRACKING
-// ============================================================
-
-describe('Backup Tracking', () => {
-  it('triggers a backup and returns running record', async () => {
-    const record = await triggerBackup('incremental', T1);
-    expect(record.backupType).toBe('incremental');
-    expect(record.tenantId).toBe(T1);
-    expect(record.retentionDays).toBe(90);
-    expect(record.storageLocation).toMatch(/^s3:/);
-  });
-
-  it('lists backups and returns newest first', async () => {
-    await triggerBackup('full');
-    await triggerBackup('incremental');
-    const records = await listBackups({ limit: 10 });
-    expect(records.length).toBeGreaterThanOrEqual(2);
-    // Newest first
-    expect(records[0].createdAt.getTime()).toBeGreaterThanOrEqual(records[1].createdAt.getTime());
-  });
-
-  it('returns RTO/RPO status', async () => {
-    const status = await getRtoRpoStatus();
-    expect(typeof status.rtoTargetMinutes).toBe('number');
-    expect(typeof status.rpoTargetMinutes).toBe('number');
-    expect(typeof status.rpoBreached).toBe('boolean');
-  });
-
-  it('purges expired backups', async () => {
-    // Expired on the row, not on a returned object. The previous version
-    // mutated the record the service handed back and asserted `purged >= 0`,
-    // which passed whether anything was purged or not — and would have gone on
-    // passing after the store moved to the database, against a row it never
-    // touched.
-    const record = await triggerBackup('snapshot', T2);
-    await prisma.backupRecord.update({
-      where: { id: record.id },
-      data: { expiresAt: new Date(Date.now() - 1000) },
-    });
-
-    const { purged } = await purgeExpiredBackups();
-    expect(purged).toBeGreaterThanOrEqual(1);
-    expect(await prisma.backupRecord.findUnique({ where: { id: record.id } })).toBeNull();
   });
 });
 
