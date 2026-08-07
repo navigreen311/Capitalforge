@@ -485,10 +485,39 @@ Note the distinction: the SBA removed **the requirement, not the option**.
 Lenders still use SBSS by choice with their own models. SBSS is not irrelevant;
 it is no longer a universal floor, so there is no number left to aim at.
 
-### Seven places gate or project on SBSS
+### ~~Seven places gate or project on SBSS~~ — all seven closed, verified 2026-08-07
 
-Confirmed by reading, 2026-08-05. Any change here must touch all of them —
-this is the case the CLAUDE.md rule about threshold consumers was written for.
+**This section outlived the work it described.** It was written 2026-08-05 as a
+list of seven live sites; the remediation landed across the PRs of 2026-08-05
+and 2026-08-06, and the list was never struck through. Re-read site by site on
+2026-08-07 — every one is fixed, and the table below is kept as the record of
+what was changed rather than as work outstanding.
+
+That is the same failure this document warns about in the other direction. Five
+claims here have been checked against the schema and found wrong; this is the
+sixth entry to be checked and the first found *stale rather than mistaken* —
+still describing a defect after it was fixed. A closed gap left open costs a
+re-fix; the check is the same one either way, and it is cheap.
+
+| Site | Then | Now |
+|---|---|---|
+| `stacking-criteria.service.ts` `sc_004` | Tier 2 gate, SBSS ≥ 140 | Criterion removed |
+| `stacking-criteria.service.ts` `sc_008` | Tier 3 gate, SBSS ≥ 175 | Criterion removed |
+| `client-graduation.service.ts` | `{ scoreType: 'sbss', min: 50 }` | Threshold removed |
+| `client-graduation.service.ts` | `{ scoreType: 'sbss', min: 100 }` | Threshold removed |
+| `credit-builder.service.ts` | `m.targetScore > (sbss?.value ?? 0)` | Returns `null` when no SBSS is on record; the `?? 0` is gone |
+| `credit-optimizer.ts` | `Math.max(...map(p => p.score ?? 0))` | `sbssScores.length > 0 ? Math.max(...) : null` |
+| `EstimatedProgressTimeline.tsx` | `SBSS_TARGET = 175`, ~3 pts/month | Projection removed; `SBSS_TARGET` no longer exists anywhere in the tree |
+
+Also checked: `credit-builder/page.tsx` renders "No SBSS score is on record for
+this client" rather than a milestone, and `isLenderComputed` marks `sbss` as
+lender-computed so a surface can say why it is absent rather than showing a
+blank.
+
+A `scoreType = 'sbss'` count on 2026-08-07 still returns **zero rows**, which
+is the fact all of the above turns on.
+
+#### The original list, for the record
 
 | Site | What it does |
 |---|---|
