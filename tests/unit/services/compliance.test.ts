@@ -14,7 +14,7 @@ import {
   getStateLawProfile,
   getRequiredDisclosures,
   getComplianceSteps,
-  hasSpecificStateLaw,
+  stateLawStatus,
   getStatesWithSpecificLaws,
 } from '../../../src/backend/services/state-law-mapper.js';
 
@@ -217,7 +217,7 @@ describe('State Law Mapper — California (SB 1235)', () => {
   });
 
   it('marks CA as having a specific state law', () => {
-    expect(hasSpecificStateLaw('CA')).toBe(true);
+    expect(stateLawStatus('CA')).toBe('specific_law');
   });
 
   it('requires broker license in CA', () => {
@@ -256,7 +256,7 @@ describe('State Law Mapper — New York (CFDL)', () => {
   });
 
   it('marks NY as having a specific state law', () => {
-    expect(hasSpecificStateLaw('NY')).toBe(true);
+    expect(stateLawStatus('NY')).toBe('specific_law');
   });
 
   it('NY profile includes CFDL estimated APR disclosure', () => {

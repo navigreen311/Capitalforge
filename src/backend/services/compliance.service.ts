@@ -35,6 +35,7 @@ import logger from '../config/logger.js';
 import { scoreUdapRisk } from './udap-scorer.js';
 import {
   getStateLawProfile,
+  stateLawStatus,
   getRequiredDisclosures,
   getComplianceSteps,
 } from './state-law-mapper.js';
@@ -815,12 +816,28 @@ export class ComplianceService {
 
   /**
    * Return required disclosures and compliance steps for a state.
+   *
+   * `status` is returned alongside the lists because the lists alone cannot
+   * say what they are. For a state this registry does not know they hold the
+   * federal baseline — correct as far as it goes, since those requirements
+   * apply everywhere — and a caller reading only `disclosures` would take that
+   * for a complete packet. It is not; it is everything we can be sure of.
    */
   getStateRequirements(stateCode: string) {
+    const status = stateLawStatus(stateCode);
     return {
+      status,
+      stateRecognised: status !== 'state_not_recognised',
       profile:     getStateLawProfile(stateCode),
       disclosures: getRequiredDisclosures(stateCode),
       steps:       getComplianceSteps(stateCode),
+      ...(status === 'state_not_recognised'
+        ? {
+            caveat:
+              `State code "${stateCode}" is not in the registry, so these are the federal `
+              + 'baseline requirements only. Any state-specific obligation is unknown, not absent.',
+          }
+        : {}),
     };
   }
 
