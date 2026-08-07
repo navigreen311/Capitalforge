@@ -11,7 +11,7 @@
 // - "Run Optimization" action button
 // ============================================================
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
 import { loadJson, toLoadError } from '@/lib/load-json';
 import { useRouter } from 'next/navigation';
@@ -914,6 +914,33 @@ export default function OptimizerPage() {
   const [saveCardsMsg, setSaveCardsMsg] = useState<string | null>(null);
   /** Cards on the client's record, or null before they have been loaded. */
   const [recordedCards, setRecordedCards] = useState<RecordedHeldCard[] | null>(null);
+  /**
+   * True while a client's recorded cards are on their way.
+   *
+   * The section is not editable during this window. Selecting a client starts
+   * a request whose response replaces the ticked list, so a card ticked before
+   * it lands was silently discarded when it did — the advisor saw their own
+   * click undo itself, with nothing to say why. Locally the request takes a
+   * few milliseconds and it never happened; on CI it takes long enough that a
+   * browser test ticked a card, waited sixty seconds, and never saw the field
+   * that appears when a card is ticked.
+   *
+   * Disabling is the honest fix rather than merging the response into whatever
+   * the advisor has touched: a merge has to choose between their edit and the
+   * record for each card, and a save from that state replaces the whole list.
+   * Getting that choice wrong deletes a card nobody was shown.
+   */
+  const [heldCardsLoading, setHeldCardsLoading] = useState(false);
+  /**
+   * Bumped whenever the advisor changes the card list.
+   *
+   * Disabling the controls while the record loads turned out to be cosmetic —
+   * a click can still land in the gap between the response arriving and React
+   * re-rendering, and a browser driver ticked the box with `disabled` set. So
+   * the guard belongs where the damage happens: in the state update, which
+   * compares this against its value when the request started.
+   */
+  const cardEditsRef = useRef(0);
 
   // Load clients on mount
   useEffect(() => {
@@ -964,10 +991,13 @@ export default function OptimizerPage() {
     const businessId = form.selectedBusinessId;
     if (!businessId) {
       setRecordedCards(null);
+      setHeldCardsLoading(false);
       return;
     }
 
     let cancelled = false;
+    const editsAtStart = cardEditsRef.current;
+    setHeldCardsLoading(true);
     loadJson<{ cards: RecordedHeldCard[] }>(`/api/clients/${businessId}/held-cards`)
       .then((data) => {
         if (cancelled) return;
@@ -994,8 +1024,29 @@ export default function OptimizerPage() {
             openedAt: card.openedAt ? card.openedAt.slice(0, 7) : '',
           };
         }
-        setForm((f) => ({ ...f, selectedCards: labels, cardDetails: { ...f.cardDetails, ...details } }));
-        setSaveCardsMsg(null);
+        // If the advisor ticked something while this was in flight, add the
+        // record to what they entered rather than replacing it. A union cannot
+        // lose either side, and there is nothing on screen to untick during
+        // the wait — the list starts empty — so nothing they removed can come
+        // back. Replacing here is what discarded a tick: the click registered,
+        // the response landed a moment later, and the box silently cleared.
+        const touched = cardEditsRef.current !== editsAtStart;
+        setForm((f) =>
+          touched
+            ? {
+                ...f,
+                selectedCards: Array.from(new Set([...f.selectedCards, ...labels])),
+                // Theirs wins on a card they typed into; the record fills the rest.
+                cardDetails: { ...details, ...f.cardDetails },
+              }
+            : { ...f, selectedCards: labels, cardDetails: { ...f.cardDetails, ...details } },
+        );
+        setSaveCardsMsg(
+          touched
+            ? 'This client already had cards on record; they have been added to what you entered. Check the list before saving.'
+            : null,
+        );
+        setHeldCardsLoading(false);
       })
       .catch(() => {
         // Leave the ticks alone and say nothing was loaded. Clearing them
@@ -1004,6 +1055,7 @@ export default function OptimizerPage() {
         if (!cancelled) {
           setRecordedCards(null);
           setSaveCardsMsg('Could not load this client’s recorded cards; what is ticked below is not their record.');
+          setHeldCardsLoading(false);
         }
       });
 
@@ -1052,6 +1104,7 @@ export default function OptimizerPage() {
   }
 
   function toggleCard(card: string) {
+    cardEditsRef.current += 1;
     setForm((f) => ({
       ...f,
       selectedCards: f.selectedCards.includes(card)
@@ -1661,6 +1714,12 @@ export default function OptimizerPage() {
 
           {/* Existing cards */}
           <SectionCard title="Existing Cards" subtitle="Select all business cards currently open">
+            {/* Not editable until the record has answered. A tick made in that
+                window was overwritten by the response, which reads as the
+                click not registering. */}
+            {heldCardsLoading && (
+              <p className="text-xs text-gray-500 mb-2">Loading this client&rsquo;s recorded cards&hellip;</p>
+            )}
             <div className="space-y-1">
               {EXISTING_CARDS.map((card) => {
                 const isSelected = form.selectedCards.includes(card);
@@ -1677,8 +1736,9 @@ export default function OptimizerPage() {
                       <input
                         type="checkbox"
                         checked={isSelected}
+                        disabled={heldCardsLoading}
                         onChange={() => toggleCard(card)}
-                        className="w-4 h-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy/30"
+                        className="w-4 h-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy/30 disabled:opacity-40"
                       />
                       <span className="text-sm text-gray-700 group-hover:text-gray-900 transition-colors">
                         {card}

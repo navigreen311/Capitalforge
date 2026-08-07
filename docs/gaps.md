@@ -675,7 +675,23 @@ Four decisions worth keeping:
   shown as a count**, because a replacing save would otherwise delete rows an
   advisor was never shown.
 
-**Found while writing the test: Brex is not in the issuer registry.** The
+**Found while verifying it in a browser: the record's answer discarded a tick.**
+Selecting a client starts a request whose response replaced the ticked list, so
+a card ticked before it landed was thrown away when it did — the click
+registered, the box cleared itself a moment later, and nothing on screen said
+why. Invisible locally, where the request takes a few milliseconds; it showed
+up on CI, where a test ticked a card, waited sixty seconds and never saw the
+field that only appears when a card is ticked.
+
+The section is now not editable until the record has answered, and it says so.
+That closes the window for a person. The state update also merges rather than
+replaces when an edit did get through, which is what actually guarantees
+nothing is lost — a union cannot drop either side, and there is nothing to
+untick during the wait, so nothing removed can come back. That second half is
+deliberately not covered by a browser test: a click on a disabled control fires
+no change event, so a driver cannot stage the case honestly.
+
+**Found while writing the unit test: Brex is not in the issuer registry.** The
 catalogue offers a *Brex 30* checkbox, and `Brex` appears nowhere in
 `shared/constants/issuers.ts`. A recorded Brex card counts against 5/24
 correctly — that count asks only whether the issuer is a credit union — and
