@@ -357,7 +357,12 @@ export function evaluateStackingUnlock(input: GraduationInput): StackingUnlockSt
         `Open ${starterThreshold.minTradelines - input.tradelineCount} more Net-30 vendor accounts`,
       );
     }
-    if (input.currentUtilization > starterThreshold.maxUtilization) {
+    if (input.currentUtilization === null) {
+      // Not "reduce utilisation" — nobody knows what it is.
+      recommendedActions.push(
+        'Pull a personal credit report — no utilisation is on record for this client',
+      );
+    } else if (input.currentUtilization > starterThreshold.maxUtilization) {
       recommendedActions.push(
         `Reduce personal credit utilization below ${(starterThreshold.maxUtilization * 100).toFixed(0)}%`,
       );

@@ -354,7 +354,16 @@ export interface GraduationInput {
   monthlyRevenue:      number;
   businessScores:      BusinessScores;
   tradelineCount:      number;
-  currentUtilization:  number;
+  /**
+   * Revolving utilisation, or null when none has been recorded.
+   *
+   * Nullable where the other numeric inputs are not, because this is the one
+   * gate that reads as a **maximum**. Collapsing an absent figure to 0 makes
+   * every other gate fail — the safe direction — and makes this one *pass*:
+   * `0 <= 0.30` is true on every track. An unmeasured client was clearing a
+   * requirement nobody had measured.
+   */
+  currentUtilization:  number | null;
 }
 
 // ── Core Functions ────────────────────────────────────────────
@@ -537,15 +546,31 @@ export function checkTrackEligibility(
   ));
 
   // Utilization gate (lower is better)
-  const utilisationPasses = input.currentUtilization <= t.maxUtilization;
-  gates.push({
-    criterion: 'Credit Utilization (max)',
-    required:  `≤ ${(t.maxUtilization * 100).toFixed(0)}%`,
-    actual:    `${(input.currentUtilization * 100).toFixed(1)}%`,
-    status:    utilisationPasses ? 'passed' : 'failed',
-    passed:    utilisationPasses,
-    gap:       null,
-  });
+  if (input.currentUtilization === null) {
+    // Unknown, and unknown does not pass — the rule stated below this block,
+    // which the `?? 0` above it used to break in exactly one direction.
+    gates.push({
+      criterion: 'Credit Utilization (max)',
+      required:  `≤ ${(t.maxUtilization * 100).toFixed(0)}%`,
+      actual:    null,
+      status:    'unknown',
+      passed:    false,
+      gap:       null,
+      resolution:
+        'No utilisation is on record for this client, so this requirement has not been '
+        + 'measured — it is not a shortfall. Pull a personal credit report to measure it.',
+    });
+  } else {
+    const utilisationPasses = input.currentUtilization <= t.maxUtilization;
+    gates.push({
+      criterion: 'Credit Utilization (max)',
+      required:  `≤ ${(t.maxUtilization * 100).toFixed(0)}%`,
+      actual:    `${(input.currentUtilization * 100).toFixed(1)}%`,
+      status:    utilisationPasses ? 'passed' : 'failed',
+      passed:    utilisationPasses,
+      gap:       null,
+    });
+  }
 
   // Unknown does not pass. A track is a statement that the client clears every
   // requirement, and "we did not measure that one" is not clearing it.
@@ -667,8 +692,19 @@ export function buildActionRoadmap(
   const actions: RoadmapAction[] = [];
   let priority = 1;
 
-  // Utilization — fastest win, highest impact
-  if (input.currentUtilization > t.maxUtilization) {
+  // Utilization — fastest win, highest impact.
+  //
+  // No action when it has never been measured: "reduce utilisation from 0.0%"
+  // is advice built on an absence, and the honest first step is to measure it.
+  if (input.currentUtilization === null) {
+    actions.push({
+      priority: priority++,
+      category: 'utilization',
+      action:   'Pull a personal credit report — no utilisation is on record, so this requirement cannot be assessed',
+      impact:   'Utilisation gates every track; until it is measured this client cannot be cleared for one',
+      timelineEstimate: 'Immediate',
+    });
+  } else if (input.currentUtilization > t.maxUtilization) {
     const targetPct = (t.maxUtilization * 100).toFixed(0);
     const currentPct = (input.currentUtilization * 100).toFixed(1);
     actions.push({
@@ -879,9 +915,14 @@ export async function autoAssessGraduation(
 
   // Utilization from most recent personal profile
   const latestPersonal = personalProfiles[0] ?? null;
-  const currentUtilization = latestPersonal?.utilization
-    ? Number(latestPersonal.utilization)
-    : 0;
+  // Null, not 0. See the field comment on GraduationInput: this is the only
+  // gate that reads as a maximum, so an absent figure collapsed to zero was
+  // the one collapse that granted eligibility instead of withholding it.
+  //
+  // `?.utilization ? ... : 0` also treated a genuine 0% as absent, because 0
+  // is falsy — so the two states were folded together from both ends.
+  const currentUtilization =
+    latestPersonal?.utilization == null ? null : Number(latestPersonal.utilization);
 
   const monthlyRevenue = business.monthlyRevenue
     ? Number(business.monthlyRevenue)
