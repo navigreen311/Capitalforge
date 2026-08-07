@@ -48,6 +48,8 @@ import { z, ZodError } from 'zod';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
+import { randomBytes } from 'node:crypto';
+import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import {
   CREDIT_UNION_MEMBERSHIP,
   type CreditUnionIssuerId,
@@ -518,49 +520,115 @@ router.get('/issuers/:id/detail', (req: Request, res: Response) => {
 // and no conversion. Advisor referral links have no table, so nothing here
 // invents one.
 
-router.get('/referrals', (_req: Request, res: Response) => {
-  logger.info('[platform] GET /referrals');
+// Advisor referral links are a `Referral` row now, distinct from
+// `ReferralAttribution` — that attributes an existing business to a source
+// with a fee; this is the other direction, a link an advisor hands out and
+// what came of it.
+
+const ReferralCreateSchema = z.object({
+  referredName: z.string().min(1).optional(),
+  referredEmail: z.string().email().optional(),
+});
+
+const FollowUpSchema = z.object({
+  channel: z.string().min(1),
+  note: z.string().max(2000).optional(),
+});
+
+/**
+ * A URL-safe code for the public link.
+ *
+ * Not derived from the referrer's id or the referred party's email: the code
+ * appears in a link that gets forwarded, and a code that decodes to somebody's
+ * address discloses it to everyone the link reaches.
+ */
+function referralCode(): string {
+  return randomBytes(9).toString('base64url');
+}
+
+router.get('/referrals', tenantMiddleware, async (req: Request, res: Response) => {
+  const { tenantId } = req.tenant!;
+  const referrals = await sharedPrisma.referral.findMany({
+    where: { tenantId },
+    orderBy: { createdAt: 'desc' },
+    include: { followUps: { orderBy: { loggedAt: 'desc' } } },
+  });
+
   return ok(res, {
-    referrals: [],
-    total: 0,
+    referrals,
+    total: referrals.length,
     tracking: {
-      available: false,
-      why:
-        'Advisor referral tracking is not implemented. No table holds a referral link, its ' +
-        'conversions or a commission, and the five listed here were literals.',
+      available: true,
+      // Conversion is recorded when somebody sets it; nothing watches for a
+      // referred party signing up on their own. Said plainly so a zero here
+      // reads as "none recorded" rather than "none happened".
+      note:
+        'Conversions are recorded when an advisor marks one. Nothing detects a referred '
+        + 'party becoming a client on its own, so a conversion count is a floor.',
     },
   });
 });
 
-router.post('/referrals', (_req: Request, res: Response) => {
-  logger.info('[platform] POST /referrals — refused, nothing stores a referral');
-  return res.status(501).json({
-    success: false,
-    error: {
-      code: 'NOT_IMPLEMENTED',
-      message:
-        'Referral creation is not implemented. This answered 201 with a referral link that ' +
-        'resolved to nothing, held in memory until the process restarted.',
+router.post('/referrals', tenantMiddleware, async (req: Request, res: Response) => {
+  const { tenantId, userId } = req.tenant!;
+
+  const parsed = ReferralCreateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'A referred email must be a valid address.' },
+    } as ApiResponse);
+  }
+
+  const referral = await sharedPrisma.referral.create({
+    data: {
+      tenantId,
+      // The signed-in advisor owns the link, not whoever the payload names.
+      referrerUserId: userId,
+      code: referralCode(),
+      referredName: parsed.data.referredName ?? null,
+      referredEmail: parsed.data.referredEmail ?? null,
     },
-  } as ApiResponse);
+  });
+
+  logger.info('[platform] Referral created', { referralId: referral.id, tenantId });
+  return res.status(201).json({ success: true, data: { referral } } as ApiResponse);
 });
 
-// ============================================================
-// Referral Follow-Up
-// ============================================================
+router.post('/referrals/:id/follow-up', tenantMiddleware, async (req: Request, res: Response) => {
+  const { tenantId, userId } = req.tenant!;
 
+  const parsed = FollowUpSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'A follow-up needs a channel.' },
+    } as ApiResponse);
+  }
 
-router.post('/referrals/:id/follow-up', (_req: Request, res: Response) => {
-  logger.info('[platform] POST /referrals/:id/follow-up — refused, nothing stores a follow-up');
-  return res.status(501).json({
-    success: false,
-    error: {
-      code: 'NOT_IMPLEMENTED',
-      message:
-        'Logging a follow-up is not implemented. It used to answer 201 with a generated id and ' +
-        'loggedBy "current_user", against a referral that only existed in memory.',
+  const referral = await sharedPrisma.referral.findFirst({
+    where: { id: req.params['id']!, tenantId },
+  });
+  if (!referral) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'No referral with that id is on record.' },
+    } as ApiResponse);
+  }
+
+  const followUp = await sharedPrisma.referralFollowUp.create({
+    data: {
+      referralId: referral.id,
+      tenantId,
+      channel: parsed.data.channel,
+      note: parsed.data.note ?? null,
+      // Was the literal string "current_user". A log naming whoever the
+      // caller says it names is not a log.
+      loggedBy: userId,
     },
-  } as ApiResponse);
+  });
+
+  return res.status(201).json({ success: true, data: { followUp } } as ApiResponse);
 });
 
 // ============================================================

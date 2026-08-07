@@ -15,7 +15,6 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
 import { loadJson, toLoadError } from '@/lib/load-json';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { SectionCard } from '@/components/ui/card';
 import {
   CardRecommendation,
@@ -3109,58 +3108,38 @@ function OptimizerActionButtons({
   onSaveStrategy: () => void;
   onCreateRound: () => void;
 }) {
-  // Neither endpoint writes anything — both answer 501. The buttons said
-  // "Save Strategy to Client Profile" and reported success, so the only way to
-  // learn the strategy had not been saved was to go looking for it. They are
-  // disabled and labelled instead: an action that cannot happen should not be
-  // offered as though it can.
+  // Both endpoints write real rows now. They previously reported success
+  // while writing nothing — "Strategy saved to <client> profile" for a
+  // strategy that went nowhere, and "Funding Round N created" with an invented
+  // id — so they were disabled and labelled rather than left lying. Re-enabled
+  // here because there is finally something behind them.
+  const disabled = savingStrategy || creatingRound;
+  const enabledClass =
+    'inline-flex items-center justify-center gap-2 rounded-lg border border-brand-navy/20 bg-brand-navy/5 px-5 py-3 '
+    + 'text-sm font-semibold text-brand-navy shadow-sm transition-colors hover:bg-brand-navy/10 '
+    + 'disabled:cursor-not-allowed disabled:opacity-50';
+
   return (
     <div className="space-y-2 pt-2">
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        {/* Save Strategy to Client Profile — not built */}
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-gray-50 px-5 py-3 text-sm font-semibold text-gray-400 shadow-sm cursor-not-allowed"
-          disabled
-          aria-disabled="true"
-          title="Not built yet — no table stores a saved strategy."
-          onClick={onSaveStrategy}
-        >
-          <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <button type="button" className={enabledClass} disabled={disabled} onClick={onSaveStrategy}>
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
           </svg>
-          Save Strategy to Client Profile
-          <span className="ml-1 rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">
-            Not built
-          </span>
+          {savingStrategy ? 'Saving…' : 'Save Strategy to Client Profile'}
         </button>
 
-        {/* Create Funding Round from Results — not built */}
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-gray-50 px-5 py-3 text-sm font-semibold text-gray-400 shadow-sm cursor-not-allowed"
-          disabled
-          aria-disabled="true"
-          title="Not built yet — this never created a funding round."
-          onClick={onCreateRound}
-        >
-          <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <button type="button" className={enabledClass} disabled={disabled} onClick={onCreateRound}>
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          Create Funding Round from Results
-          <span className="ml-1 rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">
-            Not built
-          </span>
+          {creatingRound ? 'Creating…' : 'Create Funding Round from Results'}
         </button>
       </div>
       <p className="text-xs text-gray-500">
-        Saving a strategy and creating a funding round from these results are not
-        implemented. Both previously reported success without writing anything.
-        Create a funding round from the{' '}
-        <Link href="/funding-rounds" className="font-semibold text-gray-700 underline">
-          Funding Rounds
-        </Link>{' '}
-        page.
+        Saving keeps this plan on the client&rsquo;s record as it stands today, including
+        which inputs were measured and which were assumed. It adds to their history
+        rather than replacing the last one.
       </p>
       {(savingStrategy || creatingRound) && (
         <p className="text-xs text-gray-400">Working…</p>

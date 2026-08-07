@@ -1,6 +1,6 @@
 # Saved strategies and optimizer-created funding rounds
 
-**Status:** open, not started
+**Status:** CLOSED 2026-08-07 — both built
 **Blocks:** persisting `inputProvenance` with a plan (P0-1 item 5)
 **Related:** `docs/gaps.md` — both endpoints now answer 501
 
@@ -83,3 +83,40 @@ removing the `disabled`.
 - **Does creating a round from a plan link the two?** A `fundingRoundId` on the
   strategy, or a `strategyId` on the round, would let the round show what it was
   planned from. Worth doing while both are being built.
+
+---
+
+## How the four decisions went
+
+**Does saving replace or append?** *Append.* One strategy per client means the
+second save destroys the record of what was discussed at the first, and the
+numbers an advisor took a client through are the thing worth keeping. The list
+view is the cost, and it is built.
+
+**Who can save?** *Anyone in the tenant with `business:write`*, with `createdBy`
+recording which of them did. Restricting to "the advisor on the deal" needs a
+notion of deal ownership this system does not have; inventing one here would
+put a second, weaker answer beside the RBAC that already exists.
+
+**Does a saved strategy expire?** *No, and it is never deleted.*
+`OptimizerResult.expiresAt` exists because a live recommendation goes stale.
+A *record* of a recommendation does not go stale — it becomes historical, which
+is a different thing. Callers get `createdAt` and can say "planned in March"
+rather than being handed a plan presenting itself as current.
+
+**Does creating a round from a plan link the two?** *Yes*, and the link lives on
+the round: `FundingRound.savedStrategyId`. A round opened six months from now
+needs to say what it was planned from, one strategy can reasonably produce more
+than one round, and a round created from the Funding Rounds page carries null —
+which is honest, because not every round comes from a plan.
+
+## What was found while building it
+
+`planHasAssumedDefaults` was first written to scan `inputProvenance` for
+entries with `source === 'assumed_default'`. That was wrong twice: the
+provenance block is a **record keyed by input name, not a list**, so the scan
+would have found nothing and marked every plan as fully observed — and the
+block already publishes its own `hasAssumedDefaults`. It reads the optimizer's
+flag now. A second implementation of a rule is how a checker drifts from the
+thing it checks, which this repository has already paid for once in
+`scripts/track-migration-impact.ts`.

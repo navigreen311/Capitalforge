@@ -420,38 +420,62 @@ contractsRouter.post(
 );
 
 /**
- * Contract detail — refused.
+ * Contract detail.
  *
- * This returned a complete contract for whatever id was asked for: a vendor
- * agreement with Acme Financial Services LLC, active, worth $150,000,
+ * This used to return a complete contract for whatever id was asked for: a
+ * vendor agreement with Acme Financial Services LLC, active, worth $150,000,
  * auto-renewing on 2026-01-15, with key terms and risk flags beneath it. None
- * of it was read from anywhere, and it was the same agreement every time.
+ * of it was read from anywhere, and it was the same agreement every time — so
+ * a page showing two different contracts showed the same one twice.
  *
- * A contract detail is a statement about something somebody signed. Nothing
- * stores the counterparty, the value or the dates, so there is nothing to
- * serve.
+ * There is a `Contract` table now. An id that is not on record answers 404
+ * rather than a plausible agreement.
  */
 contractsRouter.get(
   '/contracts/:id/detail',
   tenantMiddleware,
   requirePermission(PERMISSIONS.COMPLIANCE_READ ?? 'COMPLIANCE_READ'),
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    logger.info('[contracts] detail refused — nothing stores contract terms', {
-      contractId: req.params['id'],
-      tenantId: req.tenant?.tenantId,
+    const tenantId = req.tenant!.tenantId;
+    const contract = await sharedPrisma.contract.findFirst({
+      where: { id: req.params['id']!, tenantId },
     });
 
-    const body: ApiResponse = {
-      success: false,
-      error: {
-        code: 'NOT_IMPLEMENTED',
-        message:
-          'Contract detail is not implemented. Nothing stores the terms, counterparty or value ' +
-          'of a contract, and this used to answer 200 with a vendor agreement worth $150,000 ' +
-          'for any id at all.',
+    if (!contract) {
+      res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: 'No contract with that id is on record for this tenant.',
+        },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    // Any analysis performed against this contract's partner. Kept separate in
+    // the response rather than merged into the contract: an extracted clause
+    // is a reading of the document, not a term of it, and flattening the two
+    // makes a machine's opinion look like the agreement.
+    const analyses = contract.partnerId
+      ? await sharedPrisma.contractAnalysis.findMany({
+          where: { tenantId, partnerId: contract.partnerId },
+          orderBy: { analyzedAt: 'desc' },
+          take: 5,
+        })
+      : [];
+
+    res.json({
+      success: true,
+      data: {
+        contract,
+        analyses,
+        // Stated rather than implied by an absence. `autoRenews` null means
+        // nobody has read the renewal clause; false means it does not renew.
+        // A page that shows nothing for both tells an advisor the same thing
+        // about two different situations.
+        renewalKnown: contract.autoRenews !== null,
       },
-    };
-    res.status(501).json(body);
+    } satisfies ApiResponse);
   },
 );
 

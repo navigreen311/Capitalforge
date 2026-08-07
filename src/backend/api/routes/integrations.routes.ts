@@ -323,23 +323,23 @@ integrationsRouter.post('/backups/trigger', async (req: Request, res: Response) 
 });
 
 // GET /api/backups
-integrationsRouter.get('/backups', (req: Request, res: Response) => {
+integrationsRouter.get('/backups', async (req: Request, res: Response) => {
   const tenantId = req.query['tenantId'] as string | undefined;
   const limit    = req.query['limit'] ? parseInt(req.query['limit'] as string, 10) : 30;
-  ok(res, businessContinuityService.listBackups({ tenantId, limit }));
+  ok(res, await businessContinuityService.listBackups({ tenantId, limit }));
 });
 
 // GET /api/backups/:id
-integrationsRouter.get('/backups/:id', (req: Request, res: Response) => {
-  const record = businessContinuityService.getBackup(req.params['id']);
+integrationsRouter.get('/backups/:id', async (req: Request, res: Response) => {
+  const record = await businessContinuityService.getBackup(req.params['id']);
   if (!record) return err(res, 'Backup record not found', 404);
   ok(res, record);
 });
 
 // GET /api/backups/rto-rpo
-integrationsRouter.get('/backups/rto-rpo', (req: Request, res: Response) => {
+integrationsRouter.get('/backups/rto-rpo', async (req: Request, res: Response) => {
   const tenantId = req.query['tenantId'] as string | undefined;
-  ok(res, businessContinuityService.getRtoRpoStatus(tenantId));
+  ok(res, await businessContinuityService.getRtoRpoStatus(tenantId));
 });
 
 // POST /api/backups/export/:businessId

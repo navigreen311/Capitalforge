@@ -41,18 +41,18 @@ It answers `501` now.
 | `POST /api/tax/documents/generate`<br>`GET /api/tax/documents`<br>`GET /api/tax/documents/:id/download`<br>`GET /api/tax/documents/:id/summary` | No tax document exists anywhere. These served a 1099-INT marked *final* with $2,345.67 of interest income, a $3,200 deductible fee summary and an IRC 163(j) worksheet — the same figures for every client and year. | **Product.** A 1099-INT is an IRS information return. Needs a `tax_documents` table, a generator driven by the invoices and interest actually recorded, and a status that distinguishes a draft from something filed. Somebody has to own the correctness of the numbers. |
 | `POST /api/platform/integrations/:id/connect`<br>`POST /api/platform/integrations/:id/test`<br>`POST /api/integrations/:provider/connect`<br>`DELETE /api/integrations/:provider/disconnect` | Nothing contacts Plaid, QuickBooks, Xero, DocuSign or Stripe. No table records a connection. | **Integration.** Per provider: OAuth or key exchange, a `integration_connections` table, and a sync that fetches rather than returning a fixed count. |
 | `GET /api/rewards/:clientId/points-balances` | Nothing records points or cash back, and no issuer integration reads them. | **Integration + table.** Balances come from the issuer; there is no source today. |
-| `GET /api/contracts/:id/detail` | Nothing stores a contract's terms, counterparty, value or dates. | **Table.** Contracts are referenced but never stored. |
+| ~~`GET /api/contracts/:id/detail`~~ | **Built 2026-08-07.** A `Contract` table holds title, counterparty, type, value, dates and renewal. `autoRenews` is a nullable Boolean on purpose: null means nobody has read the clause, false means it does not renew, and only the first is somebody's to go and find out. An unknown id answers 404 rather than a plausible agreement. | **Done.** |
 | `POST /api/compliance/disclosures/:id/file` | Nothing submits to a regulator, and no table records a filing. | **Product.** Filing is a real-world act with a real-world receipt; the system needs to model what "filed" means before it can claim it. |
 | `POST /api/statements/anomalies/:id/dismiss`<br>`POST /api/statements/anomalies/:id/steps/:step` | A `StatementAnomaly` is computed while reading a statement and carries no identifier, so there is nothing to key a dismissal to. | **Product then table.** Anomalies need stable identity first — deciding what makes two anomalies "the same" across reads — and then somewhere to record a dismissal. |
 | `POST /api/platform/billing/send-overdue-reminders` | Nothing queues or sends them. This system can send real SMS and email, so a reported send is consequential. | **Product.** Needs a scheduling decision (who, when, how often) before any send. |
-| `POST /api/platform/referrals`<br>`POST /api/platform/referrals/:id/follow-up` | No table holds a referral link, its conversions or a commission. | **Table.** |
-| `POST /api/platform/reports/schedules` | Nothing stores a schedule and nothing runs one. | **Table + a runner.** |
+| ~~`POST /api/platform/referrals`~~<br>~~`POST /api/platform/referrals/:id/follow-up`~~ | **Built 2026-08-07.** `Referral` and `ReferralFollowUp`, distinct from `ReferralAttribution` — that attributes an existing business to a source with a fee; this is the other direction. The link code is random rather than derived from the referred party's email, which would disclose an address to everyone the forwarded link reaches. `loggedBy` is the signed-in user, not the literal `"current_user"` it used to write. **Conversion is recorded when an advisor marks one; nothing detects it, so a conversion count is a floor and the API says so.** | **Done.** |
+| `POST /api/platform/reports/schedules` | **Half built 2026-08-07 — deliberately.** A `ReportSchedule` table stores the intent and `computeNextRunAt` is real (it answered "tomorrow" for every frequency before, including weekly). **Nothing runs them**, `lastRunAt` stays null, and every response carries `delivery.active: false` with the reason. | **A runner, and the decision it waits on.** Same question as the two reminder endpoints: who gets sent what, how often, and what happens when a send fails. This system sends real email, so a schedule that quietly began delivering is a worse outcome than one that refuses. |
 | ~~`POST /api/platform/tenants/:id/suspend`~~ | **Built 2026-08-06.** Both directions are real and enforced at login, token refresh and `tenantMiddleware`. A 30-second per-process cache keeps the middleware off a per-request query; the staleness bound is stated in `tenant-status.service`. | **Done.** See `docs/backlog/tenant-suspension.md`. |
 
 | `PATCH /api/platform/offboarding/:id/advance` | Deliberate: stage moves when the export or the deletion actually happens, not because somebody advanced it. | **None — this one should stay refused.** Advancing by hand is how a workflow claims a deletion that never ran. |
 | `POST /api/declines/:id/reminder` | Nothing schedules or delivers a reapply reminder. | **Product.** Same scheduling question as overdue reminders. |
-| `POST /api/optimizer/save-strategy` | No table stores an optimizer strategy. This answered `200` with `{ savedAt, clientId }` and wrote nothing, while the page reported "Strategy saved to *client* profile". | **Table.** A `SavedStrategy` holding the plan as JSON, including the input provenance it was built on. See `docs/backlog/saved-strategy-and-funding-round-persistence.md`. |
-| `POST /api/optimizer/create-round` | Nothing created the round. This answered `201` with an invented id — `round-<client>-<n>-<timestamp>` — reported "Funding Round N created" and navigated to `/funding-rounds`, where it was not. | **Wiring.** `FundingRound` exists; the optimizer never wrote one. Should call the same service the Funding Rounds page uses rather than adding a second creation path. |
+| ~~`POST /api/optimizer/save-strategy`~~ | **Built 2026-08-07.** A `SavedStrategy` row holds the plan whole, including its input provenance, and `hasAssumedDefaults` is denormalised so a list can tell a plan built on a credit pull from one built on constants. Saving appends; a client keeps a history. | **Done.** |
+| ~~`POST /api/optimizer/create-round`~~ | **Built 2026-08-07.** Calls `FundingRoundService.createRound` — the same path the Funding Rounds page uses — so round-number allocation and the `ROUND_STARTED` ledger event have one implementation. `FundingRound.savedStrategyId` records what a round was planned from, null when it came from no plan. | **Done.** |
 
 ---
 
@@ -311,6 +311,36 @@ point option 2 becomes available, the column has a writer, and the figure can
 mean what the page implies it means. Until then, the honest answer to "what is
 this portfolio's delinquency rate" is that this system does not know.
 
+### Re-checked 2026-08-07 — the ruling held, and a second surface was ignoring it
+
+The decision above is sound and stands. Checking it against the code found
+that it was only being honoured in one of the two places that publish the
+figure.
+
+`/api/platform/portfolio` published `delinquencyRate: null` with the reasoning
+attached. **`/api/platform/reports/generate` published `2.1`** — a literal, in
+the `portfolio-performance` template, beside an invented average credit score
+of 712 and a graduation rate of 18.6. Same tenant, same portfolio, two
+answers; and the surface an advisor exports and sends was the invented one.
+
+All five report templates were literals: `monthly-summary` reported 291
+clients, 142 applications and $2,450,000 deployed for every tenant that asked,
+and an absent date range defaulted to March 2026, so a report generated in
+August was stamped March.
+
+**Fixed by computing what can be counted and stating what cannot.** The reasons
+now live in `services/portfolio-figures.ts` and both surfaces read them, so
+they cannot drift apart again. Revenue and compliance-audit have no source at
+all and now return a reason instead of figures.
+
+**Option 1 exists after all — under a name that says what it counts.**
+`repaymentPlanMissedPayments` reports missed, observed and rate, and appears in
+the portfolio-performance report where repayment is the subject. It is never
+called a delinquency rate and never sits beside the industry benchmark, which
+was the actual objection to option 1 — not that it is false, but that placing
+it in that column makes it read as something it is not. Its `rate` is null when
+nothing was observed, for the same reason the portfolio figure is.
+
 
 ### 2c. What the graduation rate counts, and what it cannot see
 
@@ -383,22 +413,48 @@ figure drops any cancelled cards it was counting.
 
 ---
 
-## 3. Tables that exist but are never written
+## 3. ~~Tables that exist but are never written~~ — resolved 2026-08-07
 
-Four tables are in the schema and never receive a row:
+Four tables were in the schema and never received a row. Each is now either
+written or gone; none is left as a trap for somebody to write to on the
+assumption it is wired.
 
-| Table | Read by | Effect |
+| Table | Then | Now |
 |---|---|---|
-| `BackupRecord` | nothing | Backups are reported from nowhere. Until recently a module-level seeder invented seven days of completed ones on every process start. |
-| `TenantBranding` | nothing | Per-tenant branding is modelled and unused. |
-| `RewardsOptimization` | nothing | Modelled and unused. |
-| `SandboxProfile` | nothing | Modelled and unused. |
+| `BackupRecord` | nothing wrote it; the service kept records in a process-local `Map` | **Written.** `triggerBackup` persists, and list / get / purge / RTO-RPO read the table |
+| `TenantBranding` | modelled, unread, unwritten | **Dropped** |
+| `RewardsOptimization` | modelled, unread, unwritten | **Dropped** |
+| `SandboxProfile` | modelled, unread, unwritten | **Dropped** |
 
-**None of them is read by anything**, so none is currently causing a surface to
-answer emptily. They are dead weight in the schema rather than gaps in the
-product, and the only one with a live consequence is `BackupRecord`: the
-business-continuity endpoints report on backups, and with nothing writing that
-table there is nothing truthful for them to report.
+**`BackupRecord` was the one with a consequence**, and it was worse than "no
+rows". The service held every record in a `Map`, so a backup recorded before a
+restart did not exist after one — and the question these endpoints answer is
+*when did we last back up*, which is asked precisely when something has gone
+wrong. All four rows were verified empty before anything was dropped.
+
+**Found on the way in: `sizeBytes` was `Int`.** That tops out at 2,147,483,647,
+a shade over 2GB. The service has always typed it `bigint`; the column did not,
+and nothing noticed because nothing ever wrote a row. The first full backup of
+a real database over 2GB would have been the test. It is `BigInt` now.
+
+**Also found: the purge test could not fail.** It mutated the object the
+service returned and asserted `purged >= 0`. That passed whether anything was
+purged or not, and would have gone on passing after the store moved to the
+database, against a row it never touched. It now expires the row and asserts it
+is gone.
+
+**Still in memory, newly recorded:** `recoveryTestStore` in the same service.
+Recovery-test logs are process-local for the same reason backups were, and a
+recovery test is a compliance artefact — evidence that a restore was actually
+attempted. It needs a table of its own; it did not get one here because it was
+not in the section being closed, and quietly widening the scope is how a
+change stops being reviewable.
+
+The three dropped tables were removed rather than documented-and-kept. An empty
+table nobody reads is not neutral: the next person to find `TenantBranding` in
+the schema reasonably concludes branding is modelled and starts writing to it.
+The model definitions remain in git history, and the drop migration names all
+three.
 
 > **This section was wrong when first written, and the correction matters more
 > than the content.** It claimed nine unwritten tables, four of them read by
@@ -419,6 +475,40 @@ table there is nothing truthful for them to report.
 >
 > Every other claim on this page has since been checked by calling the running
 > system rather than by reading the source.
+
+---
+
+## 3b. What is deliberately still refused — reviewed 2026-08-07
+
+Everything in §1 that remains a 501 is here, with what it is waiting on. None
+of these is waiting on someone finding the time; each is waiting on something
+specific, and that is the point of listing them apart from the closed rows.
+
+**Waiting on a product decision nobody has made.**
+
+| Endpoint | The decision |
+|---|---|
+| `POST /api/tax/documents/generate` + 3 more | A 1099-INT is an IRS information return. Somebody has to own the correctness of the numbers, and no table records the interest they would be computed from. A wrong 1099 is worse than no 1099. |
+| `POST /api/compliance/disclosures/:id/file` | Filing is a real-world act with a real-world receipt. The system needs to model what "filed" means before it can claim it. |
+| `POST /api/statements/anomalies/:id/dismiss` + `/steps/:step` | A `StatementAnomaly` is computed while reading a statement and carries no identifier. Deciding what makes two anomalies "the same" across reads comes before anywhere to record a dismissal. |
+| `POST /api/platform/billing/send-overdue-reminders` | Who, when, how often — and what happens when a send fails. |
+| `POST /api/declines/:id/reminder` | The same question. Both send real messages. |
+
+The two reminder endpoints and the report-schedule runner (§1) are one
+decision, not three. Answering it once unblocks all three.
+
+**Waiting on an integration that does not exist.**
+
+| Endpoint | Missing |
+|---|---|
+| `POST /api/platform/integrations/:id/connect` + `/test`, `POST /api/integrations/:provider/connect`, `DELETE .../disconnect` | OAuth or key exchange with Plaid, QuickBooks, Xero, DocuSign or Stripe, and a table to record a connection. |
+| `GET /api/rewards/:clientId/points-balances` | Balances come from the issuer. There is no source. |
+
+**Refused on purpose, and should stay refused.**
+
+`PATCH /api/platform/offboarding/:id/advance`. A stage moves when the export or
+the deletion actually happens. Advancing it by hand is how a workflow comes to
+claim a deletion that never ran.
 
 ---
 
@@ -444,7 +534,14 @@ where a generated score gets mistaken for a real one.
 
 ---
 
-## 5. Pages that explain what they no longer show
+## 5. Pages that explain what they no longer show — re-checked 2026-08-07
+
+All seven still carry their note. One was stale and was corrected: the
+`/platform/referrals` empty state read *"none is offered until something stores
+one"*, which stopped being true the moment referral links got a table in this
+same batch. A fix that leaves the copy behind is the §6 failure repeating one
+surface over — the defect closes, the sentence describing it does not, and the
+next reader believes the sentence.
 
 Seven pages carry an on-screen note rather than a silent absence, so a reader
 does not have to wonder whether something is broken:
@@ -485,10 +582,39 @@ Note the distinction: the SBA removed **the requirement, not the option**.
 Lenders still use SBSS by choice with their own models. SBSS is not irrelevant;
 it is no longer a universal floor, so there is no number left to aim at.
 
-### Seven places gate or project on SBSS
+### ~~Seven places gate or project on SBSS~~ — all seven closed, verified 2026-08-07
 
-Confirmed by reading, 2026-08-05. Any change here must touch all of them —
-this is the case the CLAUDE.md rule about threshold consumers was written for.
+**This section outlived the work it described.** It was written 2026-08-05 as a
+list of seven live sites; the remediation landed across the PRs of 2026-08-05
+and 2026-08-06, and the list was never struck through. Re-read site by site on
+2026-08-07 — every one is fixed, and the table below is kept as the record of
+what was changed rather than as work outstanding.
+
+That is the same failure this document warns about in the other direction. Five
+claims here have been checked against the schema and found wrong; this is the
+sixth entry to be checked and the first found *stale rather than mistaken* —
+still describing a defect after it was fixed. A closed gap left open costs a
+re-fix; the check is the same one either way, and it is cheap.
+
+| Site | Then | Now |
+|---|---|---|
+| `stacking-criteria.service.ts` `sc_004` | Tier 2 gate, SBSS ≥ 140 | Criterion removed |
+| `stacking-criteria.service.ts` `sc_008` | Tier 3 gate, SBSS ≥ 175 | Criterion removed |
+| `client-graduation.service.ts` | `{ scoreType: 'sbss', min: 50 }` | Threshold removed |
+| `client-graduation.service.ts` | `{ scoreType: 'sbss', min: 100 }` | Threshold removed |
+| `credit-builder.service.ts` | `m.targetScore > (sbss?.value ?? 0)` | Returns `null` when no SBSS is on record; the `?? 0` is gone |
+| `credit-optimizer.ts` | `Math.max(...map(p => p.score ?? 0))` | `sbssScores.length > 0 ? Math.max(...) : null` |
+| `EstimatedProgressTimeline.tsx` | `SBSS_TARGET = 175`, ~3 pts/month | Projection removed; `SBSS_TARGET` no longer exists anywhere in the tree |
+
+Also checked: `credit-builder/page.tsx` renders "No SBSS score is on record for
+this client" rather than a milestone, and `isLenderComputed` marks `sbss` as
+lender-computed so a surface can say why it is absent rather than showing a
+blank.
+
+A `scoreType = 'sbss'` count on 2026-08-07 still returns **zero rows**, which
+is the fact all of the above turns on.
+
+#### The original list, for the record
 
 | Site | What it does |
 |---|---|
@@ -584,24 +710,39 @@ function, and the point is to reach someone planning work before that.
 
 ---
 
-## 6b. A signer is a business, not a person
+## 6b. ~~A signer is a business, not a person~~ — fixed 2026-08-07
 
-`BusinessOwner` records firstName, lastName, title, ownership percentage and
-KYC status — and **no email**. So when a document goes out for signature, the
-only recorded destination is `Business.businessEmail`.
+`BusinessOwner` recorded firstName, lastName, title, ownership percentage and
+KYC status — and **no email**. So a document going out for signature had only
+`Business.businessEmail` as a destination: the owner named on the envelope, the
+company's address on the outside. Usually the right envelope going to roughly
+the right place, and not the same as sending it to the person who signs.
 
-That is usually the right envelope going to roughly the right place, and it is
-not the same as sending it to the person who signs. The owner is named on the
-envelope — largest stake first — while the address belongs to the business.
+**Two columns and one rule.** `BusinessOwner.email`, and `isSignatory` for the
+case largest-stake gets wrong — a 60% owner may not be the officer authorised
+to bind the company, and that exception is now recordable rather than quietly
+incorrect.
 
-**Cost.** *Column.* `BusinessOwner.email`, plus a decision about which owner
-signs when several are recorded. Largest stake is a reasonable default and not
-obviously right for every document type.
+The selection lives in `services/signer-selection.ts`, away from the route, in
+this order:
 
-Until then the route refuses rather than substitutes: a business with no email
-gets a stated refusal. An envelope to a placeholder reaches nobody, and an
-envelope to a real wrong address is a client's contract in a stranger's inbox.
+1. an owner marked `isSignatory` who has an email;
+2. otherwise the largest stake who has an email;
+3. otherwise the largest stake, addressed at the business.
 
+**Step 3 is kept, and reported.** A business address is not a stranger's inbox,
+and refusing outright would break every client onboarded before the column
+existed. What is not kept is the silence: the result carries `addressKind`,
+`'owner'` or `'business'`, and a `reason` in words. A fallback nobody can
+distinguish from the real thing is exactly how the original defect survived —
+both paths produced a sent envelope and a success message.
+
+The rule does not depend on the caller's ordering. The query sorts by stake
+today; a refactor dropping that `orderBy` would otherwise silently change who
+signs a contract.
+
+Refusals remain for the two cases where there is genuinely nobody to send to:
+no owner recorded at all, and no address anywhere.
 ---
 
 ## 7. ~~Nothing records a card a client already held~~ — recorded 2026-08-06
