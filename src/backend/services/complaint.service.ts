@@ -677,7 +677,7 @@ export class ComplaintService {
 
     for (const d of dates) {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (key in buckets) buckets[key]++;
+      if (key in buckets) buckets[key]!++;
     }
 
     return Object.entries(buckets).map(([month, count]) => ({ month, count }));

@@ -97,7 +97,7 @@ suitabilityEngineRouter.post(
 suitabilityEngineRouter.get(
   '/:businessId',
   async (req: Request, res: Response): Promise<void> => {
-    const { businessId } = req.params;
+    const businessId = req.params.businessId!;
 
     try {
       // The dynamic import was here to avoid constructing a client at module

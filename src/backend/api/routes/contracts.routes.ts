@@ -287,7 +287,7 @@ contractsRouter.get(
   requirePermission(PERMISSIONS.COMPLIANCE_READ ?? 'COMPLIANCE_READ'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.params;
+      const id = req.params.id!;
       const tenantId = req.tenant!.tenantId;
 
       const flags = await getContractService().getRedFlags(tenantId, id);
@@ -489,7 +489,7 @@ contractsRouter.post(
   requirePermission(PERMISSIONS.COMPLIANCE_WRITE ?? 'COMPLIANCE_WRITE'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.params;
+      const id = req.params.id!;
       const tenantId = req.tenant!.tenantId;
 
       const schema = z.object({
@@ -645,7 +645,7 @@ contractsRouter.put(
       }
 
       const tenantId = req.tenant!.tenantId;
-      const { id } = req.params;
+      const id = req.params.id!;
 
       const updated = await getDisclosureService().updateTemplate(tenantId, id, {
         ...parsed.data,
@@ -685,7 +685,7 @@ contractsRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const tenantId = req.tenant!.tenantId;
-      const { id } = req.params;
+      const id = req.params.id!;
 
       const template = await getDisclosureService().submitForApproval(tenantId, id);
 
@@ -729,7 +729,7 @@ contractsRouter.post(
       }
 
       const tenantId = req.tenant!.tenantId;
-      const { id } = req.params;
+      const id = req.params.id!;
       const userId = req.tenant!.userId;
 
       if (!userId) {
@@ -775,7 +775,7 @@ contractsRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const tenantId = req.tenant!.tenantId;
-      const { id } = req.params;
+      const id = req.params.id!;
 
       const template = await getDisclosureService().getTemplate(tenantId, id);
       if (!template) {

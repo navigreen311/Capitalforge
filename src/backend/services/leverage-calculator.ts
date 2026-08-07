@@ -117,7 +117,7 @@ export function calculateMaxSafeLeverage(input: LeverageInput): LeverageResult {
   // Industry multiplier
   const normalised = industry.toLowerCase().replace(/[\s-]/g, '_');
   const industryMultiplier =
-    INDUSTRY_RISK_MULTIPLIERS[normalised] ?? INDUSTRY_RISK_MULTIPLIERS['default'];
+    INDUSTRY_RISK_MULTIPLIERS[normalised] ?? INDUSTRY_RISK_MULTIPLIERS['default']!;
 
   // Debt-service ratio: existing annual debt cost relative to annual revenue
   const annualRevenue = safeRevenue * 12;

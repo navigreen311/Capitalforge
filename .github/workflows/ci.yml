@@ -141,6 +141,11 @@ jobs:
       - name: Run TypeScript type check
         run: npx tsc --noEmit
 
+      # Shipped code is checked with noUncheckedIndexedAccess on top of the
+      # root config. Tests keep the looser settings — see tsconfig.src.json.
+      - name: Type check src with noUncheckedIndexedAccess
+        run: npm run typecheck:src
+
   # ─────────────────────────────────────────────────────────────
   # Job 2: Unit Tests
   # Fast tests that do not require database or Redis.

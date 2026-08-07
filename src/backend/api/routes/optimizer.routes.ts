@@ -166,7 +166,7 @@ optimizerRouter.post(
   '/',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant     = req.tenant!;
 
     if (!businessId) {
@@ -221,7 +221,7 @@ optimizerRouter.get(
   '/results',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant     = req.tenant!;
 
     if (!businessId) {
@@ -273,7 +273,7 @@ optimizerRouter.post(
   '/simulate',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     if (!businessId) {
       res.status(400).json({

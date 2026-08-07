@@ -587,7 +587,7 @@ export class DataLineageService {
       }
 
       if (cardApps.length > 0) {
-        const first = cardApps[0];
+        const first = cardApps[0]!;
         switch (node.id) {
           case 'cardApp.annualFee':
             enriched.currentValue = cardApps.map((c) => Number(c.annualFee ?? 0));

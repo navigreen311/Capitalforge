@@ -103,7 +103,7 @@ async function checkBucket(
 
   const result = await redis.eval(luaScript, 1, key, String(WINDOW_SECONDS)) as [number, number];
 
-  const count = result[0];
+  const count = result[0]!;
   const ttl = result[1];
   const remaining = Math.max(0, limit - count);
   const actualReset = ttl > 0 ? now + ttl : resetAt;
@@ -120,10 +120,11 @@ async function checkBucket(
 
 function resolveLimit(req: Request): number {
   const plan = (req.tenant as (typeof req.tenant & { plan?: string }) | undefined)?.plan;
-  if (plan && PLAN_LIMITS[plan.toLowerCase()]) {
-    return PLAN_LIMITS[plan.toLowerCase()];
-  }
-  return DEFAULT_LIMIT;
+  // One lookup instead of two. The guard was correct — an unrecognised plan
+  // falls back rather than going unlimited — but it read as two separate index
+  // accesses, so nothing tied the check to the value it was checking.
+  const configured = plan === undefined ? undefined : PLAN_LIMITS[plan.toLowerCase()];
+  return configured ?? DEFAULT_LIMIT;
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────

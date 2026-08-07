@@ -223,9 +223,9 @@ function parsePlainTextNotice(
     while ((match = clonedPattern.exec(text)) !== null) {
       if (match[2] !== undefined) {
         // Pattern captured both code and text (e.g. "Reason Code: 08 — Too many inquiries")
-        extractedReasons.push({ code: match[1].trim(), rawText: match[2].trim() });
+        extractedReasons.push({ code: match[1]!.trim(), rawText: match[2]!.trim() });
       } else if (match[1] !== undefined) {
-        const candidate = match[1].trim();
+        const candidate = match[1]!.trim();
         // Skip very short matches (< 5 chars) — likely noise
         if (candidate.length >= 5) {
           extractedReasons.push({ rawText: candidate });

@@ -123,7 +123,7 @@ suitabilityRouter.post(
   '/check',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant     = req.tenant!;
 
     const parsed = SuitabilityCheckBodySchema.safeParse(req.body);
@@ -171,7 +171,7 @@ suitabilityRouter.get(
   '/latest',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     try {
       const check = await getLatestSuitabilityCheck(businessId);
@@ -201,7 +201,7 @@ suitabilityRouter.post(
   requireAuth,
   requireRole(ROLES.COMPLIANCE_OFFICER),
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant     = req.tenant!;
 
     // checkId can come from query param or body

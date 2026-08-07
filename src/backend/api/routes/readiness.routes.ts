@@ -38,7 +38,7 @@ readinessRouter.get(
   '/:businessId',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const { businessId } = req.params;
+    const businessId = req.params.businessId!;
 
     try {
       // ASSUMPTION: In a full implementation this would fetch business data

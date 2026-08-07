@@ -474,7 +474,7 @@ export class CostCalculatorService {
     // Compare against the cheapest "legitimate" alternative (SBA or LOC)
     const cheapestAlt = alternatives.reduce(
       (min, alt) => (alt.totalCost < min.totalCost ? alt : min),
-      alternatives[0],
+      alternatives[0]!,
     );
 
     // Positive = stacking is cheaper; negative = stacking is more expensive
@@ -535,7 +535,7 @@ export class CostCalculatorService {
     if (stackingAdvantage !== null) {
       const cheapestAlt = alternatives.reduce(
         (min, a) => (a.totalCost < min.totalCost ? a : min),
-        alternatives[0],
+        alternatives[0]!,
       );
       if (stackingAdvantage > 0) {
         parts.push(

@@ -196,7 +196,7 @@ const FeatureFlagSchema = z.object({
 });
 
 router.patch('/tenants/:id/feature-flags', (req: Request, res: Response) => {
-  const tenantId = req.params.id;
+  const tenantId = req.params.id!;
   logger.info(`[platform] PATCH /tenants/${tenantId}/feature-flags`);
   const parsed = FeatureFlagSchema.safeParse(req.body);
   if (!parsed.success) return validationError(res, parsed.error);
@@ -210,7 +210,7 @@ router.patch('/tenants/:id/feature-flags', (req: Request, res: Response) => {
 });
 
 router.post('/tenants/:id/impersonate', (req: Request, res: Response) => {
-  const tenantId = req.params.id;
+  const tenantId = req.params.id!;
   logger.info(`[platform] POST /tenants/${tenantId}/impersonate`);
   const impersonation_token = `imp_${tenantId}_${Date.now().toString(36)}`;
   return ok(res, {
@@ -240,7 +240,7 @@ const SuspendSchema = z.object({
 // absence is what hid the original mock: nobody could try to undo a suspension
 // and discover that suspending had done nothing.
 router.post('/tenants/:id/suspend', async (req: Request, res: Response) => {
-  const tenantId = req.params.id;
+  const tenantId = req.params.id!;
   const parsed = SuspendSchema.safeParse(req.body || {});
   if (!parsed.success) return validationError(res, parsed.error);
 
@@ -269,7 +269,7 @@ router.post('/tenants/:id/suspend', async (req: Request, res: Response) => {
 });
 
 router.post('/tenants/:id/unsuspend', async (req: Request, res: Response) => {
-  const tenantId = req.params.id;
+  const tenantId = req.params.id!;
   const actor = req.tenant?.userId ?? 'unknown';
 
   try {
@@ -477,7 +477,7 @@ router.get('/issuers', (_req: Request, res: Response) => {
 });
 
 router.get('/issuers/:id/detail', (req: Request, res: Response) => {
-  const issuerId = req.params.id;
+  const issuerId = req.params.id!;
   logger.info(`[platform] GET /issuers/${issuerId}/detail`);
   const issuer = ISSUERS_DATA.find(i => i.id === issuerId);
   if (!issuer) {
@@ -998,7 +998,7 @@ router.patch('/settings/firm', (req: Request, res: Response) => {
 // wondering why no data is flowing.
 
 router.post('/integrations/:id/connect', (req: Request, res: Response) => {
-  const integrationId = req.params.id;
+  const integrationId = req.params.id!;
   logger.info(`[platform] POST /integrations/${integrationId}/connect — refused, nothing connects`);
 
   return res.status(501).json({
@@ -1015,7 +1015,7 @@ router.post('/integrations/:id/connect', (req: Request, res: Response) => {
 });
 
 router.post('/integrations/:id/test', (req: Request, res: Response) => {
-  const integrationId = req.params.id;
+  const integrationId = req.params.id!;
   logger.info(`[platform] POST /integrations/${integrationId}/test — refused, nothing is contacted`);
 
   // This reported healthy: true with a latency between 20ms and 170ms from

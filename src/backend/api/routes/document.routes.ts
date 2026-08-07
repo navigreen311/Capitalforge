@@ -120,7 +120,7 @@ documentRouter.post(
       route:      'POST /businesses/:id/documents',
     });
 
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const ctx        = req.tenant!;
 
     const { documentType, title, content, mimeType, metadata } = req.body as {
@@ -193,7 +193,7 @@ documentRouter.get(
   requireAuth,
   requirePermissions(PERMISSIONS.DOCUMENT_READ),
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const ctx        = req.tenant!;
 
     const {
@@ -259,7 +259,7 @@ documentRouter.get(
   requireAuth,
   requirePermissions(PERMISSIONS.COMPLIANCE_READ),
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['businessId'];
+    const businessId = req.params['businessId']!;
     const ctx        = req.tenant!;
 
     const { since, until } = req.query as { since?: string; until?: string };
@@ -308,7 +308,7 @@ documentRouter.get(
   requireAuth,
   requirePermissions(PERMISSIONS.DOCUMENT_READ),
   async (req: Request, res: Response): Promise<void> => {
-    const documentId = req.params['id'];
+    const documentId = req.params['id']!;
     const ctx        = req.tenant!;
 
     try {
@@ -414,7 +414,7 @@ documentRouter.patch(
   requireAuth,
   requirePermissions(PERMISSIONS.COMPLIANCE_WRITE),
   async (req: Request, res: Response): Promise<void> => {
-    const documentId = req.params['id'];
+    const documentId = req.params['id']!;
     const ctx = req.tenant!;
 
     const { legalHold } = req.body as { legalHold?: unknown };
@@ -465,7 +465,7 @@ documentRouter.delete(
   requireAuth,
   requirePermissions(PERMISSIONS.DOCUMENT_WRITE),
   async (req: Request, res: Response): Promise<void> => {
-    const documentId = req.params['id'];
+    const documentId = req.params['id']!;
     const ctx        = req.tenant!;
 
     try {

@@ -55,7 +55,7 @@ export function buildPrismaPageArgs(
   let safeSortBy = sortBy;
   if (allowedSortFields && allowedSortFields.length > 0) {
     if (!allowedSortFields.includes(sortBy)) {
-      safeSortBy = allowedSortFields[0];
+      safeSortBy = allowedSortFields[0]!;
     }
   }
 

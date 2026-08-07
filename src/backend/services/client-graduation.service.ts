@@ -622,7 +622,7 @@ export function getNextTrack(current: GraduationTrack): GraduationTrack | null {
     GRADUATION_TRACKS.LOC_SBA_BRIDGE,
   ];
   const idx = progression.indexOf(current);
-  return idx >= 0 && idx < progression.length - 1 ? progression[idx + 1] : null;
+  return idx >= 0 && idx < progression.length - 1 ? progression[idx + 1]! : null;
 }
 
 /**

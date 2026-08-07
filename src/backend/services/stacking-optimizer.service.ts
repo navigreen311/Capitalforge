@@ -487,8 +487,8 @@ export class StackingOptimizerService {
     let overflow = 4;
     for (let i = 0; i < unassigned.length; i++) {
       if (i % CARDS_PER_ROUND === 0 && i > 0) overflow++;
-      unassigned[i].round = overflow;
-      unassigned[i].positionInRound = (i % CARDS_PER_ROUND) + 1;
+      unassigned[i]!.round = overflow;
+      unassigned[i]!.positionInRound = (i % CARDS_PER_ROUND) + 1;
     }
   }
 
@@ -1261,7 +1261,7 @@ function buildApplicationContext(
   const sortedProfiles = [...business.creditProfiles].sort(
     (a, b) => b.pulledAt.getTime() - a.pulledAt.getTime(),
   );
-  const latestProfile = sortedProfiles[0];
+  const latestProfile = sortedProfiles[0]!;
 
   // Each of these used to be a bare `?? constant`. The constant is still the
   // last resort, but it is now recorded rather than silently substituted —

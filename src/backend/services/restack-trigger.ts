@@ -104,7 +104,7 @@ export async function checkRestackEligibility(
   }
 
   // 2. Days since last application
-  const lastApp = business.cardApplications[0];
+  const lastApp = business.cardApplications[0]!;
   let daysSinceLastApp: number | null = null;
   if (lastApp) {
     const appDate = lastApp.submittedAt ?? lastApp.createdAt;
@@ -122,7 +122,7 @@ export async function checkRestackEligibility(
   }
 
   // 3. Current utilization
-  const latestCredit = business.creditProfiles[0];
+  const latestCredit = business.creditProfiles[0]!;
   const currentUtilization = latestCredit?.utilization
     ? Number(latestCredit.utilization)
     : null;

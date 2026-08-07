@@ -308,7 +308,7 @@ export class RulesVersioningService {
     // Re-activate previous if available
     let restored: RuleVersion | undefined;
     if (candidates.length > 0) {
-      restored           = candidates[0];
+      restored           = candidates[0]!;
       restored.isActive  = true;
       restored.deployedAt = new Date();
     }

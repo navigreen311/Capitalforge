@@ -89,7 +89,7 @@ router.post(
   '/',
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = req.tenant?.tenantId;
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     if (!tenantId) {
       sendError(res, 401, 'UNAUTHORIZED', 'Tenant context is required.');
@@ -151,7 +151,7 @@ router.delete(
   '/:channel',
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = req.tenant?.tenantId;
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     if (!tenantId) {
       sendError(res, 401, 'UNAUTHORIZED', 'Tenant context is required.');
@@ -227,7 +227,7 @@ router.get(
   '/audit',
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = req.tenant?.tenantId;
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     if (!tenantId) {
       sendError(res, 401, 'UNAUTHORIZED', 'Tenant context is required.');
@@ -301,7 +301,7 @@ router.get(
   '/',
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = req.tenant?.tenantId;
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     if (!tenantId) {
       sendError(res, 401, 'UNAUTHORIZED', 'Tenant context is required.');

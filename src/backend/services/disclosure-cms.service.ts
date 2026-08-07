@@ -410,11 +410,11 @@ Name: {{businessLegalName}}
 function nextVersion(currentVersion: string): string {
   const parts = currentVersion.split('.').map(Number);
   if (parts.length === 3) {
-    parts[2]++;
+    parts[2]!++;
     return parts.join('.');
   }
   if (parts.length === 2) {
-    parts[1]++;
+    parts[1]!++;
     return parts.join('.');
   }
   return `${(parseInt(currentVersion, 10) || 1) + 1}`;

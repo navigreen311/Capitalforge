@@ -471,44 +471,44 @@ function detectMissingProtections(text: string, clauses: ExtractedClause[]): Mis
 
   const checks: Array<{ protection: MissingProtection; hasIt: boolean }> = [
     {
-      protection: REQUIRED_PROTECTIONS[0], // cooling-off
+      protection: REQUIRED_PROTECTIONS[0]!, // cooling-off
       hasIt: /\b(right to cancel|cancellation period|rescind|cooling.off|3.business.day|5.business.day)\b/i.test(text),
     },
     {
-      protection: REQUIRED_PROTECTIONS[1], // fee disclosure schedule
+      protection: REQUIRED_PROTECTIONS[1]!, // fee disclosure schedule
       hasIt: clauseTypes.has('fee') && /\b(fee schedule|fee disclosure|all fees|total fees|complete.{0,10}fee)\b/i.test(text),
     },
     {
-      protection: REQUIRED_PROTECTIONS[2], // refund policy
+      protection: REQUIRED_PROTECTIONS[2]!, // refund policy
       hasIt: clauseTypes.has('refund'),
     },
     {
-      protection: REQUIRED_PROTECTIONS[3], // dispute resolution
+      protection: REQUIRED_PROTECTIONS[3]!, // dispute resolution
       hasIt: clauseTypes.has('arbitration') || /\b(dispute resolution|complaint process|escalat|grievance)\b/i.test(text),
     },
     {
-      protection: REQUIRED_PROTECTIONS[4], // data privacy
+      protection: REQUIRED_PROTECTIONS[4]!, // data privacy
       hasIt: /\b(privacy|data protection|personal information|gdpr|ccpa|glba|safeguard)\b/i.test(text),
     },
     {
-      protection: REQUIRED_PROTECTIONS[5], // SLA
+      protection: REQUIRED_PROTECTIONS[5]!, // SLA
       hasIt: /\b(service level|sla|turnaround|timeline|deliver|business days?)\b/i.test(text),
     },
     {
-      protection: REQUIRED_PROTECTIONS[6], // amendment notice
+      protection: REQUIRED_PROTECTIONS[6]!, // amendment notice
       hasIt: /\b(amend(ment)?|modif(y|ication)).{0,100}\b(\d+).day[s]? notice\b/i.test(text),
     },
     {
-      protection: REQUIRED_PROTECTIONS[7], // non-disparagement carve-out
+      protection: REQUIRED_PROTECTIONS[7]!, // non-disparagement carve-out
       hasIt: !clauseTypes.has('non_disparagement') ||
         /\b(government|regulator|agency|ftc|cfpb|state attorney).{0,50}(except(ed)?|carve.?out|permitted|not covered)\b/i.test(text),
     },
     {
-      protection: REQUIRED_PROTECTIONS[8], // mutual termination
+      protection: REQUIRED_PROTECTIONS[8]!, // mutual termination
       hasIt: /\b(either party|both parties|mutual(ly)?.{0,20}terminat)\b/i.test(text),
     },
     {
-      protection: REQUIRED_PROTECTIONS[9], // personal guarantee disclosure
+      protection: REQUIRED_PROTECTIONS[9]!, // personal guarantee disclosure
       hasIt: /\b(personal guarantee|personal guaranty|personally guarantee)\b/i.test(text)
         ? /\b(separately signed|separate document|addendum|exhibit)\b/i.test(text)
         : true, // Not a problem if no personal guarantee is required

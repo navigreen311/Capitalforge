@@ -51,7 +51,7 @@ export const applicationDetailRouter = Router({ mergeParams: true });
 
 // GET /timeline — projected from the canonical ledger
 applicationDetailRouter.get('/timeline', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { appId } = req.params;
+  const appId = req.params.appId!;
   const tenantId = getTenantId(req);
 
   try {

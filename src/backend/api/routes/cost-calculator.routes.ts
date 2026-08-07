@@ -40,7 +40,7 @@ costCalculatorRouter.use(tenantMiddleware);
 costCalculatorRouter.post(
   '/calculate',
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenantId = req.tenant?.tenantId;
 
     if (!businessId || !tenantId) {
@@ -105,7 +105,7 @@ costCalculatorRouter.post(
 costCalculatorRouter.get(
   '/latest',
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenantId = req.tenant?.tenantId;
 
     if (!businessId || !tenantId) {
@@ -143,7 +143,7 @@ costCalculatorRouter.get(
 costCalculatorRouter.post(
   '/compare',
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenantId = req.tenant?.tenantId;
 
     if (!businessId || !tenantId) {

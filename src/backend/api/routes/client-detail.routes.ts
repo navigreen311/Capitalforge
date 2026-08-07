@@ -200,7 +200,7 @@ export const clientDetailRouter = Router({ mergeParams: true });
 
 // GET / — client profile
 clientDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -219,7 +219,7 @@ clientDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunct
 
 // GET /owners
 clientDetailRouter.get('/owners', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -235,7 +235,7 @@ clientDetailRouter.get('/owners', async (req: Request, res: Response, _next: Nex
 
 // GET /acknowledgments
 clientDetailRouter.get('/acknowledgments', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -250,7 +250,7 @@ clientDetailRouter.get('/acknowledgments', async (req: Request, res: Response, _
 
 // GET /ach-authorization
 clientDetailRouter.get('/ach-authorization', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -271,7 +271,7 @@ clientDetailRouter.get('/ach-authorization', async (req: Request, res: Response,
 
 // GET /credit/business
 clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -288,7 +288,7 @@ clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _
 
 // GET /credit/personal — personal bureau scores for the owners
 clientDetailRouter.get('/credit/personal', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -313,7 +313,7 @@ clientDetailRouter.get('/credit/personal', async (req: Request, res: Response, _
 
 // GET /credit/history — score movement across the pulls on record
 clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -392,7 +392,7 @@ clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _n
 
 // GET /credit/recommendations — derived from the credit profile on record
 clientDetailRouter.get('/credit/recommendations', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -408,7 +408,7 @@ clientDetailRouter.get('/credit/recommendations', async (req: Request, res: Resp
       return;
     }
 
-    const latest = profiles[0];
+    const latest = profiles[0]!;
     const recommendations = buildCreditRecommendations(latest);
 
     ok(res, recommendations, {
@@ -425,7 +425,7 @@ clientDetailRouter.get('/credit/recommendations', async (req: Request, res: Resp
 
 // GET /repayment — obligations aggregated from the plan and the cards
 clientDetailRouter.get('/repayment', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -529,7 +529,7 @@ clientDetailRouter.get('/repayment', async (req: Request, res: Response, _next: 
 
 // GET /timeline
 clientDetailRouter.get('/timeline', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -548,7 +548,7 @@ clientDetailRouter.get('/timeline', async (req: Request, res: Response, _next: N
 
 // GET /compliance — compliance checks for this business
 clientDetailRouter.get('/compliance', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -566,7 +566,7 @@ clientDetailRouter.get('/compliance', async (req: Request, res: Response, _next:
 
 // GET /compliance/status — alias for compliance status
 clientDetailRouter.get('/compliance/status', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -584,7 +584,7 @@ clientDetailRouter.get('/compliance/status', async (req: Request, res: Response,
 
 // GET /documents — documents for this business
 clientDetailRouter.get('/documents', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
@@ -602,7 +602,7 @@ clientDetailRouter.get('/documents', async (req: Request, res: Response, _next: 
 
 // POST /compliance/run — runs the compliance service and persists the result
 clientDetailRouter.post('/compliance/run', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
   const { checkType, stateCode } = (req.body ?? {}) as { checkType?: string; stateCode?: string };
 
@@ -647,7 +647,7 @@ clientDetailRouter.post('/compliance/run', async (req: Request, res: Response, _
 
 // POST /consent/request — sends a re-consent request by email
 clientDetailRouter.post('/consent/request', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
   const { channel, recipientEmail } = (req.body ?? {}) as {
     channel?: string;
@@ -667,7 +667,7 @@ clientDetailRouter.post('/consent/request', async (req: Request, res: Response, 
       return;
     }
 
-    const owner = business.owners[0];
+    const owner = business.owners[0]!;
     const to = recipientEmail?.trim() || null;
 
     if (!to) {
@@ -718,7 +718,7 @@ clientDetailRouter.post('/consent/request', async (req: Request, res: Response, 
 
 // PATCH / — update business fields
 clientDetailRouter.patch('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-  const { clientId } = req.params;
+  const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
   const updates = req.body;
 

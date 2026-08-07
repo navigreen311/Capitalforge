@@ -286,7 +286,7 @@ export class BusinessPurposeEvidenceService {
    */
   resolvePurposeCategory(mccCategory: string | null | undefined): BusinessPurposeCategory | null {
     if (!mccCategory) return null;
-    return BUSINESS_PURPOSE_CATEGORIES[mccCategory] ?? BUSINESS_PURPOSE_CATEGORIES['unclassified'];
+    return BUSINESS_PURPOSE_CATEGORIES[mccCategory] ?? BUSINESS_PURPOSE_CATEGORIES['unclassified']!;
   }
 
   /**

@@ -294,7 +294,7 @@ commComplianceRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const certId = req.params['id'];
+      const certId = req.params['id']!;
 
       if (!certId) {
         throw badRequest('Certification ID is required.');
@@ -348,7 +348,7 @@ commComplianceRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const advisorId = req.params['id'];
+      const advisorId = req.params['id']!;
 
       if (!advisorId) {
         throw badRequest('advisorId is required.');
@@ -389,7 +389,7 @@ commComplianceRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { tenantId } = req.tenant!;
-      const advisorId = req.params['id'];
+      const advisorId = req.params['id']!;
 
       if (!advisorId) {
         throw badRequest('advisorId is required.');

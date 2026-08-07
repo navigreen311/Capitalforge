@@ -286,7 +286,7 @@ export async function getCallRecording(callSid: string): Promise<CallRecordingRe
       return { recordingSid: null, callSid, status: 'not_found', duration: null, mediaUrl: null };
     }
 
-    const rec = recordings[0];
+    const rec = recordings[0]!;
     const mediaUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${rec.sid}.mp3`;
 
     return {

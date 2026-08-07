@@ -66,7 +66,7 @@ export function createCreditRouter(customPrisma?: PrismaClient): Router {
   // Returns all CreditProfile records for a business, latest first.
 
   router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const { id: businessId } = req.params;
+    const businessId = req.params.id!;
 
     try {
       const ctx = getTenantContext(req);
@@ -101,7 +101,7 @@ export function createCreditRouter(customPrisma?: PrismaClient): Router {
   //   { bureaus: Bureau[], profileType: 'personal'|'business', useCache?: boolean }
 
   router.post('/pull', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const { id: businessId } = req.params;
+    const businessId = req.params.id!;
 
     try {
       const ctx = getTenantContext(req);
@@ -162,7 +162,7 @@ export function createCreditRouter(customPrisma?: PrismaClient): Router {
   // Returns a prioritized credit optimization roadmap.
 
   router.get('/roadmap', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const { id: businessId } = req.params;
+    const businessId = req.params.id!;
 
     try {
       const ctx = getTenantContext(req);

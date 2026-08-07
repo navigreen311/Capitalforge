@@ -224,7 +224,7 @@ integrationsRouter.post('/api-keys', (req: Request, res: Response) => {
 // DELETE /api/api-keys/:id  (revoke)
 integrationsRouter.delete('/api-keys/:id', (req: Request, res: Response) => {
   try {
-    const key = apiPortalService.revokeApiKey(req.params['id']);
+    const key = apiPortalService.revokeApiKey(req.params['id']!);
     ok(res, key);
   } catch (e) {
     err(res, (e as Error).message, 404);
@@ -256,7 +256,7 @@ integrationsRouter.post('/webhooks', (req: Request, res: Response) => {
 // DELETE /api/webhooks/:id
 integrationsRouter.delete('/webhooks/:id', (req: Request, res: Response) => {
   try {
-    apiPortalService.deleteWebhookSubscription(req.params['id']);
+    apiPortalService.deleteWebhookSubscription(req.params['id']!);
     ok(res, { deleted: true });
   } catch (e) {
     err(res, (e as Error).message, 404);
@@ -335,7 +335,7 @@ integrationsRouter.get('/backups', async (req: Request, res: Response) => {
 
 // GET /api/backups/:id
 integrationsRouter.get('/backups/:id', async (req: Request, res: Response) => {
-  const record = await businessContinuityService.getBackup(req.params['id']);
+  const record = await businessContinuityService.getBackup(req.params['id']!);
   if (!record) return err(res, 'Backup record not found', 404);
   ok(res, record);
 });
@@ -349,7 +349,7 @@ integrationsRouter.get('/backups/rto-rpo', async (req: Request, res: Response) =
 // POST /api/backups/export/:businessId
 integrationsRouter.post('/backups/export/:businessId', async (req: Request, res: Response) => {
   const tenantId    = getTenantId(req);
-  const businessId  = req.params['businessId'];
+  const businessId  = req.params['businessId']!;
   const requestedBy = req.body.requestedBy ?? 'system';
 
   try {

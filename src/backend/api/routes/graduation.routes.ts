@@ -130,7 +130,7 @@ graduationRouter.get(
   '/graduation/status',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
     const tenant     = req.tenant!;
 
     try {
@@ -183,7 +183,7 @@ graduationRouter.post(
   '/graduation/assess',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     const parsed = GraduationAssessSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -240,7 +240,7 @@ graduationRouter.get(
   '/credit-builder/roadmap',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     try {
       const roadmap = await buildCreditRoadmapForBusiness(businessId);
@@ -276,7 +276,7 @@ graduationRouter.post(
   '/credit-builder/milestones',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params['id'];
+    const businessId = req.params['id']!;
 
     const parsed = MilestoneBodySchema.safeParse(req.body);
     if (!parsed.success) {

@@ -177,22 +177,22 @@ const DATE_PATTERNS: Array<{ regex: RegExp; parse: (m: RegExpMatchArray) => stri
   // ISO: 2026-01-15
   {
     regex: /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/,
-    parse: (m) => `${m[1]}-${m[2]}-${m[3]}`,
+    parse: (m) => `${m[1]!}-${m[2]!}-${m[3]!}`,
   },
   // MM/DD/YYYY
   {
     regex: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
-    parse: (m) => `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`,
+    parse: (m) => `${m[3]!}-${m[1]!.padStart(2, '0')}-${m[2]!.padStart(2, '0')}`,
   },
   // MM-DD-YYYY
   {
     regex: /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
-    parse: (m) => `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`,
+    parse: (m) => `${m[3]!}-${m[1]!.padStart(2, '0')}-${m[2]!.padStart(2, '0')}`,
   },
   // MM/DD/YY
   {
     regex: /^(\d{1,2})\/(\d{1,2})\/(\d{2})$/,
-    parse: (m) => `20${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`,
+    parse: (m) => `20${m[3]!}-${m[1]!.padStart(2, '0')}-${m[2]!.padStart(2, '0')}`,
   },
   // DD MMM YYYY e.g. "15 Jan 2026"
   {
@@ -202,8 +202,8 @@ const DATE_PATTERNS: Array<{ regex: RegExp; parse: (m: RegExpMatchArray) => stri
         jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
         jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
       };
-      const month = months[m[2].toLowerCase().slice(0, 3)] ?? '01';
-      return `${m[3]}-${month}-${m[1].padStart(2, '0')}`;
+      const month = months[m[2]!.toLowerCase().slice(0, 3)] ?? '01';
+      return `${m[3]!}-${month}-${m[1]!.padStart(2, '0')}`;
     },
   },
 ];
@@ -279,7 +279,7 @@ function detectCurrency(raw: string | number | null | undefined, defaultCurrency
   }
   // Look for 3-letter currency code prefix/suffix
   const match = raw.match(/\b([A-Z]{3})\b/);
-  if (match) return match[1];
+  if (match) return match[1]!;
   return defaultCurrency;
 }
 

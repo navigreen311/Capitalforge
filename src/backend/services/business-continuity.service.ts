@@ -250,7 +250,7 @@ export async function purgeExpiredBackups(): Promise<{ purged: number }> {
 
 export async function getRtoRpoStatus(tenantId?: string): Promise<RtoRpoStatus> {
   const records = await listBackups({ tenantId, status: 'completed' });
-  const lastBackup = records[0];
+  const lastBackup = records[0]!;
 
   const nowMs           = Date.now();
   const lastBackupMs    = lastBackup?.completedAt?.getTime() ?? lastBackup?.createdAt.getTime();

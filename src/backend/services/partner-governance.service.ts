@@ -695,7 +695,7 @@ export class PartnerGovernanceService {
     if (renewalIdx === -1) return null;
 
     renewalHistory[renewalIdx] = {
-      ...renewalHistory[renewalIdx],
+      ...renewalHistory[renewalIdx]!,
       status:      approved ? 'completed' : 'overdue',
       reviewedBy,
       completedAt: new Date(),
@@ -719,7 +719,7 @@ export class PartnerGovernanceService {
       payload: { partnerId, renewalId: currentId, approved, reviewedBy },
     });
 
-    return renewalHistory[renewalIdx];
+    return renewalHistory[renewalIdx]!;
   }
 
   // ── Subprocessor registry ─────────────────────────────────────

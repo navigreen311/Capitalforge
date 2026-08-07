@@ -357,7 +357,7 @@ export class WorkflowEngineService {
     riskTier: string,
     completedApprovals?: DealContext['approvals'],
   ): ApprovalStep[] {
-    const chain = (APPROVAL_CHAINS[riskTier] ?? APPROVAL_CHAINS['medium']).map((s) => ({ ...s }));
+    const chain = (APPROVAL_CHAINS[riskTier] ?? APPROVAL_CHAINS['medium']!).map((s) => ({ ...s }));
 
     if (!completedApprovals) return chain;
 

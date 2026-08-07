@@ -8,6 +8,7 @@
     "dev:backend": "cd src/backend && tsx watch server.ts",
     "dev:frontend": "cd src/frontend && next dev",
     "build": "npm run build:backend && npm run build:frontend",
+    "typecheck:src": "tsc --noEmit -p tsconfig.src.json",
     "build:backend": "cd src/backend && tsc",
     "build:frontend": "cd src/frontend && next build",
     "build:frontend:prod": "tsx scripts/next-prod.ts build",

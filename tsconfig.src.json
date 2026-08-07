@@ -1,0 +1,29 @@
+// ============================================================
+// Stricter checking for shipped code than for tests
+//
+// `strict: true` does NOT include `noUncheckedIndexedAccess`, so every index
+// access — `arr[0]`, `record[key]` — is typed as though something is always
+// there. That is wrong in both directions and both are costly:
+//
+//   - a correct runtime guard looks like dead code. `tcpa-consent-gate.ts`
+//     checks `if (!record)` after a Record lookup, and the type system reports
+//     that branch as unreachable. It is not; the type is lying.
+//   - a *missing* guard is invisible. `rows[0].id` compiles clean and throws
+//     at runtime.
+//
+// Turning it on repository-wide costs 468 errors, 290 of them in tests where
+// `rows[0]!.status` is an ordinary assertion and an undefined there fails the
+// test it is written in — which is the system working. The 158 in shipped
+// backend code are the ones that reach a client.
+//
+// So it is enabled here, over `src` only, and run as its own check.
+// `tsc --noEmit` against the root config still covers tests and scripts with
+// the settings they had.
+// ============================================================
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["src/backend/**/*.ts", "src/shared/**/*.ts"]
+}

@@ -208,7 +208,7 @@ function buildStubTradelines(count: number): NormalisedTradeline[] {
   const types = ['revolving', 'installment', 'auto', 'business_line', 'mortgage'];
   return Array.from({ length: count }, (_, i): NormalisedTradeline => ({
     creditor:      `Stub Creditor ${i + 1}`,
-    accountType:   types[i % types.length],
+    accountType:   types[i % types.length]!,
     creditLimit:   5_000 + i * 2_500,
     balance:       Math.floor(Math.random() * (4_000 + i * 500)),
     paymentStatus: Math.random() > 0.12 ? 'current' : '30_days_late',

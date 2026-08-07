@@ -141,8 +141,9 @@ router.get(
       if (groupByStatus === 'true') {
         const grouped: Record<string, typeof items> = {};
         for (const item of items) {
-          if (!grouped[item.status]) grouped[item.status] = [];
-          grouped[item.status].push(item);
+          // One lookup, not three. The create-then-push pair read as two
+          // separate index accesses, so nothing connected the guard to the use.
+          (grouped[item.status] ??= []).push(item);
         }
         ok(res, grouped, { page: pageNum, pageSize: size, total });
         return;
@@ -166,7 +167,7 @@ router.get(
 
     try {
       const ctx = getTenantContext(req);
-      const { businessId } = req.params;
+      const businessId = req.params.businessId!;
 
       // Verify business belongs to tenant
       const business = await prisma.business.findFirst({
@@ -280,7 +281,7 @@ router.get(
 
     try {
       const ctx = getTenantContext(req);
-      const { businessId } = req.params;
+      const businessId = req.params.businessId!;
 
       // Count recent applications per issuer (last 90 days)
       const ninetyDaysAgo = new Date();
@@ -485,7 +486,7 @@ router.patch(
 
     try {
       const ctx = getTenantContext(req);
-      const { id } = req.params;
+      const id = req.params.id!;
       const updates = req.body;
 
       if (!updates || Object.keys(updates).length === 0) {
@@ -557,7 +558,7 @@ router.post(
 
     try {
       const ctx = getTenantContext(req);
-      const { id } = req.params;
+      const id = req.params.id!;
       const { declarations } = req.body;
 
       // Verify application
