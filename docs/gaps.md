@@ -443,12 +443,33 @@ purged or not, and would have gone on passing after the store moved to the
 database, against a row it never touched. It now expires the row and asserts it
 is gone.
 
-**Still in memory, newly recorded:** `recoveryTestStore` in the same service.
-Recovery-test logs are process-local for the same reason backups were, and a
-recovery test is a compliance artefact — evidence that a restore was actually
-attempted. It needs a table of its own; it did not get one here because it was
-not in the section being closed, and quietly widening the scope is how a
-change stops being reviewable.
+**~~Still in memory: `recoveryTestStore`.~~ Built 2026-08-07.** A
+`recovery_tests` table, and three things a table alone would not have fixed.
+
+**Two people, not one.** The handler took a single `testedBy` string from the
+request body, so the log named whoever the caller said it named. `performedBy`
+is who ran the drill — often an infrastructure engineer, sometimes an external
+vendor — and `loggedBy` is the signed-in user recording it. A record that
+cannot tell those apart is not evidence.
+
+**A pass is not the same as meeting the objective.** `rtoAchievedMinutes` sits
+beside the outcome rather than folded into it, and `withinRto` is computed from
+it. A restore can succeed and still take longer than the business agreed to
+tolerate, and those are the drills worth finding.
+
+**`?? 9999` was hiding a third state.** `getRtoRpoStatus` substituted 9999 for
+an unmeasured restore time, so a drill that passed without anyone timing it
+reported the objective as *missed*. That is the mirror of the `rpoBreached`
+defect fixed in the same function earlier, and the same collapse. `withinRto`
+is null when nothing was measured, and `rtoMeasurable` lets a caller tell that
+from a genuine miss.
+
+Duration is derived from the two timestamps and has no column. A stored
+duration is a third fact that can drift from the two it comes from, and the one
+that drifts is the one an auditor reads. A `backupId` citing a backup that is
+not on record is refused with a 400 rather than a foreign-key error, and a
+`completedAt` before `startedAt` is refused too — stored as-is it produces a
+restore that took less than no time.
 
 The three dropped tables were removed rather than documented-and-kept. An empty
 table nobody reads is not neutral: the next person to find `TenantBranding` in

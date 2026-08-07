@@ -1388,8 +1388,79 @@ model BackupRecord {
   expiresAt       DateTime?
   createdAt       DateTime  @default(now())
 
+  recoveryTests RecoveryTest[]
+
   @@index([backupType, createdAt])
   @@map("backup_records")
+}
+
+/**
+ * Evidence that a restore was actually attempted.
+ * Held in a process-local `Map` until now, which is the worst place for it: a
+ * recovery test is the artefact an auditor asks for, and one that disappears
+ * on restart is indistinguishable from a drill nobody ran.
+ * Two people, not one. `performedBy` is who ran the drill — often an
+ * infrastructure engineer, sometimes an external vendor — and `loggedBy` is
+ * the signed-in user who recorded it. The old handler took a single
+ * `testedBy` string from the request body, so the log named whoever the caller
+ * said it named, which is not evidence of anything.
+ */
+model RecoveryTest {
+  id       String  @id @default(uuid())
+  /**
+   * Null for a platform-wide drill, set when the test covered one tenant.
+   */
+  tenantId String?
+  /**
+   * The backup restored from, when the drill restored one.
+   */
+  backupId String?
+
+  /**
+   * full_restore | partial_restore | failover_drill | tabletop
+   */
+  testType String
+
+  startedAt   DateTime
+  /**
+   * Null when no end time was recorded.
+   * Not defaulted to `startedAt` or to now: a drill whose duration nobody
+   * wrote down and one that took no time are different facts, and duration is
+   * derived from this rather than stored, so an absent end time reports an
+   * absent duration instead of zero.
+   */
+  completedAt DateTime?
+
+  /**
+   * pass | fail | partial
+   */
+  outcome            String
+  /**
+   * Minutes taken to restore service, when it was measured.
+   * Separate from the outcome on purpose. A drill can pass and still miss the
+   * recovery time objective, and those are the tests worth finding — an
+   * outcome alone cannot say so.
+   */
+  rtoAchievedMinutes Int?
+
+  notes String?
+
+  /**
+   * Who ran the drill. Free text: it may name a vendor, not a user.
+   */
+  performedBy String
+  /**
+   * The signed-in user who recorded it. Never a value the caller supplied.
+   */
+  loggedBy    String
+
+  createdAt DateTime @default(now())
+
+  backup BackupRecord? @relation(fields: [backupId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([outcome])
+  @@map("recovery_tests")
 }
 
 // ============================================================

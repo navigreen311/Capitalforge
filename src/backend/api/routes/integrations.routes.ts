@@ -20,7 +20,8 @@
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { integrationLayerService, type IntegrationProvider, IntegrationNotImplementedError } from '../../services/integration-layer.service.js';
+import { integrationLayerService, type IntegrationProvider, IntegrationNotImplementedError } from '../../services/integration-layer.service.js';
+import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import {
   apiPortalService,
 } from '../../services/api-portal.service.js';
@@ -301,6 +302,9 @@ integrationsRouter.put('/observability/rate-limits', (req: Request, res: Respons
 // BACKUP / DR ROUTES
 // ============================================================
 
+const VALID_TEST_TYPES = ['full_restore', 'partial_restore', 'failover_drill', 'tabletop'];
+const VALID_OUTCOMES = ['pass', 'fail', 'partial'];
+
 // POST /api/backups/trigger
 integrationsRouter.post('/backups/trigger', async (req: Request, res: Response) => {
   const tenantId  = req.body.scope === 'tenant' ? getTenantId(req) : undefined;
@@ -363,27 +367,70 @@ integrationsRouter.post('/backups/export/:businessId', async (req: Request, res:
 });
 
 // POST /api/backups/recovery-tests
-integrationsRouter.post('/backups/recovery-tests', (req: Request, res: Response) => {
-  const { testedBy, testType, backupId, startedAt, completedAt, outcome, rtoAchievedMinutes, notes } = req.body;
-  if (!testedBy || !testType || !outcome) {
-    return err(res, 'testedBy, testType, and outcome are required');
-  }
-  const log = businessContinuityService.logRecoveryTest({
-    testedBy,
-    testType,
-    backupId,
-    startedAt:           startedAt  ? new Date(startedAt)  : new Date(),
-    completedAt:         completedAt ? new Date(completedAt) : undefined,
-    outcome,
-    rtoAchievedMinutes,
-    notes: notes ?? '',
-  });
-  ok(res, log, 201);
-});
+//
+// A recovery test is the artefact an auditor asks for. Two changes from the
+// version that wrote to a Map:
+//
+// `performedBy` names who ran the drill and may be a vendor; `loggedBy` is the
+// signed-in user recording it, taken from the session rather than the body.
+// The old handler accepted a single `testedBy` string from the caller, so the
+// log named whoever the request said it named — which is not evidence.
+//
+// And a `backupId` is checked. A test claiming to restore a backup that is not
+// on record is either a typo or a fiction, and both are worth a 400 rather
+// than a foreign-key error at the database.
+integrationsRouter.post(
+  '/backups/recovery-tests',
+  tenantMiddleware,
+  async (req: Request, res: Response) => {
+    const { performedBy, testType, backupId, startedAt, completedAt, outcome, rtoAchievedMinutes, notes } =
+      req.body ?? {};
+
+    if (!performedBy || !testType || !outcome) {
+      return err(res, 'performedBy, testType, and outcome are required');
+    }
+    if (!VALID_TEST_TYPES.includes(testType)) {
+      return err(res, `testType must be one of: ${VALID_TEST_TYPES.join(', ')}`);
+    }
+    if (!VALID_OUTCOMES.includes(outcome)) {
+      return err(res, `outcome must be one of: ${VALID_OUTCOMES.join(', ')}`);
+    }
+
+    if (backupId) {
+      const backup = await businessContinuityService.getBackup(backupId);
+      if (!backup) {
+        return err(res, `No backup with id ${backupId} is on record, so a test cannot cite it.`);
+      }
+    }
+
+    const started = startedAt ? new Date(startedAt) : new Date();
+    const finished = completedAt ? new Date(completedAt) : null;
+    // A drill cannot finish before it started. Stored as-is, this produces a
+    // negative duration on read, which reads as a restore that took less than
+    // no time.
+    if (finished && finished < started) {
+      return err(res, 'completedAt cannot be earlier than startedAt.');
+    }
+
+    const log = await businessContinuityService.logRecoveryTest({
+      tenantId: req.body?.scope === 'tenant' ? getTenantId(req) : null,
+      backupId: backupId ?? null,
+      testType,
+      startedAt: started,
+      completedAt: finished,
+      outcome,
+      rtoAchievedMinutes: rtoAchievedMinutes ?? null,
+      notes: notes ?? null,
+      performedBy,
+      loggedBy: req.tenant!.userId,
+    });
+    ok(res, log, 201);
+  },
+);
 
 // GET /api/backups/recovery-tests
-integrationsRouter.get('/backups/recovery-tests', (req: Request, res: Response) => {
+integrationsRouter.get('/backups/recovery-tests', async (req: Request, res: Response) => {
   const limit   = req.query['limit'] ? parseInt(req.query['limit'] as string, 10) : 20;
   const outcome = req.query['outcome'] as 'pass' | 'fail' | 'partial' | undefined;
-  ok(res, businessContinuityService.listRecoveryTests({ limit, outcome }));
+  ok(res, await businessContinuityService.listRecoveryTests({ limit, outcome }));
 });

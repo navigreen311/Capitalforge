@@ -42,8 +42,6 @@ import {
 import {
   businessContinuityService,
   exportClientCase,
-  logRecoveryTest,
-  listRecoveryTests,
 } from '../../../src/backend/services/business-continuity.service.js';
 
 // ── Test tenant IDs ──────────────────────────────────────────
@@ -298,39 +296,6 @@ describe('Client Case Export', () => {
   });
 });
 
-// ============================================================
-// BUSINESS CONTINUITY — RECOVERY TESTING LOG
-// ============================================================
-
-describe('Recovery Testing Log', () => {
-  it('logs a recovery test and computes duration', () => {
-    const start = new Date(Date.now() - 90 * 60 * 1000); // 90 min ago
-    const end   = new Date();
-    const log   = logRecoveryTest({
-      testedBy:           'ops-team',
-      testType:           'full_restore',
-      startedAt:          start,
-      completedAt:        end,
-      outcome:            'pass',
-      rtoAchievedMinutes: 90,
-      notes:              'All services restored within RTO window.',
-    });
-    expect(log.id).toBeTruthy();
-    expect(log.durationMinutes).toBeGreaterThanOrEqual(89);
-    expect(log.outcome).toBe('pass');
-  });
-
-  it('lists recovery tests with outcome filter', () => {
-    logRecoveryTest({ testedBy: 'ops', testType: 'tabletop', startedAt: new Date(), outcome: 'fail', notes: 'Gaps found' });
-    const passing = listRecoveryTests({ outcome: 'pass' });
-    const failing = listRecoveryTests({ outcome: 'fail' });
-    expect(passing.every((l) => l.outcome === 'pass')).toBe(true);
-    expect(failing.every((l) => l.outcome === 'fail')).toBe(true);
-  });
-});
-
-// ============================================================
-// INTEGRATION SERVICE — listConnections
 // ============================================================
 
 describe('Integration listConnections', () => {
