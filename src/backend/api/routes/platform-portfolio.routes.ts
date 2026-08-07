@@ -9,7 +9,8 @@ import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
-import { prisma as sharedPrisma } from '../../config/database.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
+import { UNMEASURABLE } from '../../services/portfolio-figures.js';
 import {
   trackDirection,
   type GraduationTrack,
@@ -316,10 +317,10 @@ platformPortfolioRouter.get('/benchmarks', async (req: Request, res: Response) =
         // denominator from different populations and read as near zero beside
         // the industry figure this page prints next to it. Ruled 2026-08-05;
         // docs/gaps.md 2b carries the reasoning and what would change it.
-        delinquencyRate:
-          'Not measured. Delinquency is recorded only as a missed payment on a repayment plan, '
-          + 'which observes clients already on one rather than the portfolio. Publishing that as '
-          + 'a portfolio rate would understate it structurally. See docs/gaps.md section 2b.',
+        // One reason, one place. This surface and the portfolio-performance
+        // report both print it; when they held their own copies they drifted,
+        // and the report ended up publishing 2.1 while this published null.
+        delinquencyRate: UNMEASURABLE.delinquencyRate,
         ...(graduation.unavailableBecause
           ? { graduationRate: graduation.unavailableBecause }
           : {}),

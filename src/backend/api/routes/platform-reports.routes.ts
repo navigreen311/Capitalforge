@@ -15,6 +15,10 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
+import {
+  UNMEASURABLE,
+  summariseRepaymentMissedPayments,
+} from '../../services/portfolio-figures.js';
 
 export const platformReportsRouter = Router();
 
@@ -51,69 +55,157 @@ const GenerateReportSchema = z.object({
   }).optional(),
 });
 
-const REPORT_TEMPLATES: Record<string, Record<string, unknown>> = {
-  'monthly-summary': {
-    title: 'Monthly Summary Report',
-    period: new Date().toISOString().slice(0, 7),
-    metrics: {
-      totalClients: 291,
-      newClients: 18,
-      totalApplications: 142,
-      approvalRate: 68.5,
-      totalFundingDeployed: '$2,450,000',
-      avgReadinessScore: 72,
-    },
-  },
-  'client-funding': {
-    title: 'Client Funding Report',
-    totalFunded: 148,
-    totalPending: 42,
-    fundingByIssuer: [
-      { issuer: 'Chase', count: 42, amount: '$1,190,000' },
-      { issuer: 'Amex', count: 38, amount: '$1,330,000' },
-      { issuer: 'Capital One', count: 28, amount: '$616,000' },
-    ],
-  },
-  'compliance-audit': {
-    title: 'Compliance Audit Report',
-    checksCompleted: 342,
-    findingsByRisk: { low: 180, medium: 102, high: 48, critical: 12 },
-    resolutionRate: 94.2,
-    openItems: 20,
-  },
-  revenue: {
-    title: 'Revenue Report',
-    totalRevenue: 142_500,
-    programFees: 89_200,
-    fundingFees: 38_100,
-    platformFees: 15_200,
-    growthVsPrior: 12.4,
-  },
-  'portfolio-performance': {
-    title: 'Portfolio Performance Report',
-    avgCreditScore: 712,
-    avgUtilization: 28.4,
-    avgCreditLimit: 45_000,
-    delinquencyRate: 2.1,
-    graduationRate: 18.6,
-  },
+// ── Reports are computed, or they say what is missing ────────
+//
+// This was five blocks of literals. `monthly-summary` reported 291 clients,
+// 142 applications and $2,450,000 deployed for every tenant that asked;
+// `portfolio-performance` reported a delinquency rate of 2.1 — while
+// `/api/platform/portfolio` published null for the same figure with a
+// paragraph explaining why it cannot be derived. Two surfaces, one portfolio,
+// two different answers, and the one an advisor exports and sends was the
+// invented one.
+//
+// Everything below is either counted from this tenant's rows or absent with a
+// reason. `services/portfolio-figures.ts` holds the reasons so the dashboard
+// and the report cannot drift apart again.
+
+/** Titles, so a report still names itself when its figures are unavailable. */
+const REPORT_TITLES: Record<string, string> = {
+  'monthly-summary': 'Monthly Summary Report',
+  'client-funding': 'Client Funding Report',
+  'compliance-audit': 'Compliance Audit Report',
+  revenue: 'Revenue Report',
+  'portfolio-performance': 'Portfolio Performance Report',
 };
 
-platformReportsRouter.post('/generate', (req: Request, res: Response) => {
-  logger.info('[platform-reports] POST /generate');
-  const parsed = GenerateReportSchema.safeParse(req.body);
-  if (!parsed.success) return validationError(res, parsed.error);
+async function buildReport(
+  type: string,
+  tenantId: string,
+): Promise<Record<string, unknown>> {
+  const title = REPORT_TITLES[type] ?? type;
 
-  const { type, dateRange } = parsed.data;
-  const data = {
-    ...REPORT_TEMPLATES[type],
-    type,
-    dateRange: dateRange ?? { from: '2026-03-01', to: '2026-03-31' },
-    generatedAt: new Date().toISOString(),
-  };
+  if (type === 'monthly-summary') {
+    const [totalClients, applications] = await Promise.all([
+      sharedPrisma.business.count({ where: { tenantId } }),
+      sharedPrisma.cardApplication.findMany({
+        where: { business: { tenantId } },
+        select: { status: true },
+      }),
+    ]);
+    const decided = applications.filter((a) => a.status === 'approved' || a.status === 'denied');
+    const approved = decided.filter((a) => a.status === 'approved');
 
-  return ok(res, data);
-});
+    return {
+      title,
+      period: new Date().toISOString().slice(0, 7),
+      metrics: {
+        totalClients,
+        totalApplications: applications.length,
+        // Null rather than 0 when nothing has been decided: a 0% approval rate
+        // is a statement about a portfolio, and "none decided yet" is not.
+        approvalRate:
+          decided.length === 0
+            ? null
+            : Number(((approved.length / decided.length) * 100).toFixed(1)),
+        decidedApplications: decided.length,
+      },
+      unavailable: {
+        totalFundingDeployed: UNMEASURABLE.revenue,
+      },
+    };
+  }
+
+  if (type === 'client-funding') {
+    const applications = await sharedPrisma.cardApplication.findMany({
+      where: { business: { tenantId } },
+      select: { status: true, issuer: true, creditLimit: true },
+    });
+
+    const byIssuer = new Map<string, { count: number; approvedLimit: number }>();
+    for (const app of applications) {
+      if (app.status !== 'approved') continue;
+      const entry = byIssuer.get(app.issuer) ?? { count: 0, approvedLimit: 0 };
+      entry.count += 1;
+      entry.approvedLimit += app.creditLimit ? Number(app.creditLimit) : 0;
+      byIssuer.set(app.issuer, entry);
+    }
+
+    return {
+      title,
+      totalFunded: applications.filter((a) => a.status === 'approved').length,
+      totalPending: applications.filter((a) => a.status === 'submitted').length,
+      // Approved credit limits, named as such. The literal version called this
+      // "amount", which reads as money deployed rather than credit extended.
+      approvedCreditByIssuer: [...byIssuer.entries()]
+        .map(([issuer, v]) => ({ issuer, count: v.count, approvedCreditLimit: v.approvedLimit }))
+        .sort((a, b) => b.approvedCreditLimit - a.approvedCreditLimit),
+    };
+  }
+
+  if (type === 'portfolio-performance') {
+    const applications = await sharedPrisma.cardApplication.findMany({
+      where: { business: { tenantId }, status: 'approved' },
+      select: { creditLimit: true },
+    });
+    const limits = applications
+      .map((a) => (a.creditLimit ? Number(a.creditLimit) : null))
+      .filter((v): v is number => v !== null);
+
+    // The true, narrower figure — reported under a name that says what it
+    // counts, and never as a delinquency rate. See portfolio-figures.ts.
+    const schedules = await sharedPrisma.paymentSchedule.findMany({
+      where: { repaymentPlan: { business: { tenantId } } },
+      select: { status: true },
+    });
+
+    return {
+      title,
+      avgCreditLimit:
+        limits.length === 0
+          ? null
+          : Number((limits.reduce((a, b) => a + b, 0) / limits.length).toFixed(0)),
+      approvedCards: applications.length,
+      repaymentPlanMissedPayments: summariseRepaymentMissedPayments(schedules),
+      unavailable: {
+        delinquencyRate: UNMEASURABLE.delinquencyRate,
+        avgCreditScore: UNMEASURABLE.avgCreditScore,
+      },
+    };
+  }
+
+  if (type === 'revenue') {
+    // Nothing records a fee. A revenue report that cannot be computed should
+    // not be a revenue report with figures in it.
+    return { title, unavailable: { revenue: UNMEASURABLE.revenue } };
+  }
+
+  return { title, unavailable: { complianceFindings: UNMEASURABLE.complianceFindings } };
+}
+
+platformReportsRouter.post(
+  '/generate',
+  tenantMiddleware,
+  async (req: Request, res: Response) => {
+    const parsed = GenerateReportSchema.safeParse(req.body);
+    if (!parsed.success) return validationError(res, parsed.error);
+
+    const { tenantId } = req.tenant!;
+    const { type, dateRange } = parsed.data;
+
+    const report = await buildReport(type, tenantId);
+    logger.info('[platform-reports] Report generated', { type, tenantId });
+
+    return ok(res, {
+      ...report,
+      type,
+      // Echoed, not defaulted to a fixed March window. The old handler filled
+      // in 2026-03-01 to 2026-03-31 when none was given, so a report generated
+      // in August was stamped March.
+      dateRange: dateRange ?? null,
+      generatedAt: new Date().toISOString(),
+    });
+  },
+);
 
 // ============================================================
 // POST /api/platform/reports/export
@@ -130,7 +222,7 @@ platformReportsRouter.post('/export', (req: Request, res: Response) => {
   if (!parsed.success) return validationError(res, parsed.error);
 
   const { type, format } = parsed.data;
-  const title = REPORT_TEMPLATES[type]?.title ?? type;
+  const title = REPORT_TITLES[type] ?? type;
   const placeholder =
     `[No ${format.toUpperCase()} generator is implemented for "${title}". ` +
     `This is a placeholder, not a report — generated ${new Date().toISOString()}]`;

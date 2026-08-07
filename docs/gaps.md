@@ -311,6 +311,36 @@ point option 2 becomes available, the column has a writer, and the figure can
 mean what the page implies it means. Until then, the honest answer to "what is
 this portfolio's delinquency rate" is that this system does not know.
 
+### Re-checked 2026-08-07 — the ruling held, and a second surface was ignoring it
+
+The decision above is sound and stands. Checking it against the code found
+that it was only being honoured in one of the two places that publish the
+figure.
+
+`/api/platform/portfolio` published `delinquencyRate: null` with the reasoning
+attached. **`/api/platform/reports/generate` published `2.1`** — a literal, in
+the `portfolio-performance` template, beside an invented average credit score
+of 712 and a graduation rate of 18.6. Same tenant, same portfolio, two
+answers; and the surface an advisor exports and sends was the invented one.
+
+All five report templates were literals: `monthly-summary` reported 291
+clients, 142 applications and $2,450,000 deployed for every tenant that asked,
+and an absent date range defaulted to March 2026, so a report generated in
+August was stamped March.
+
+**Fixed by computing what can be counted and stating what cannot.** The reasons
+now live in `services/portfolio-figures.ts` and both surfaces read them, so
+they cannot drift apart again. Revenue and compliance-audit have no source at
+all and now return a reason instead of figures.
+
+**Option 1 exists after all — under a name that says what it counts.**
+`repaymentPlanMissedPayments` reports missed, observed and rate, and appears in
+the portfolio-performance report where repayment is the subject. It is never
+called a delinquency rate and never sits beside the industry benchmark, which
+was the actual objection to option 1 — not that it is false, but that placing
+it in that column makes it read as something it is not. Its `rate` is null when
+nothing was observed, for the same reason the portfolio figure is.
+
 
 ### 2c. What the graduation rate counts, and what it cannot see
 
