@@ -217,8 +217,16 @@ export interface DisputePath {
   readonly cost: Statement;
   readonly whatTheFileIsBuiltFrom: readonly Statement[];
   readonly whyCorrectBeforeBuild: Statement;
-  /** Copy an advisor may have learned elsewhere and should stop repeating. */
-  readonly caution: Statement;
+  /**
+   * Copy an advisor may have learned elsewhere and should stop repeating.
+   *
+   * A `Claim`, not a `Statement`. A caution is an instruction to contradict
+   * something the advisor already believes, and one without provenance is just
+   * a competing assertion — the advisor has no way to tell which of the two to
+   * trust. If we cannot source the correction, we have not earned the right to
+   * issue it.
+   */
+  readonly caution: Claim;
 }
 
 export const INTELLISCORE_PATH: DisputePath = {
