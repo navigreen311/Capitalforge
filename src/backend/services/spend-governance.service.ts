@@ -123,6 +123,22 @@ export interface TransactionRiskAssessment {
   suspiciousRail: boolean;
 }
 
+/**
+ * Why this shape has no ratio field.
+ *
+ * It carried `chargebackRatio`, which was `flagged / total` — not a
+ * chargeback rate. No chargeback data exists anywhere in this system
+ * (grep the Prisma schema; there is no such column). Rendered to an
+ * advisor it asserted that a client had chargebacks, from a numerator
+ * that counted something else entirely.
+ *
+ * It is not renamed to `flaggedRatio` because `flaggedCount` and
+ * `totalTransactions` are both already here and the ratio is derivable
+ * from them. A bare scalar with its denominator detached is the form
+ * that invited the misread in the first place: 0.5 from a denominator
+ * of 2 rendered identically to 0.5 from a denominator of 200. Callers
+ * render "N of M", so the denominator travels with the number.
+ */
 export interface RiskSummary {
   businessId: string;
   totalTransactions: number;
@@ -130,12 +146,51 @@ export interface RiskSummary {
   flaggedCount: number;
   cashLikeCount: number;
   cashLikeAmount: number;
-  averageRiskScore: number;
-  chargebackRatio: number;
+  highRiskCount: number;
+  suspiciousRailCount: number;
+
+  /**
+   * Rows are `null` on `riskScore` until something scores them, and the
+   * seed writes them that way. Summing with `?? 0` made an unscored book
+   * average to 0 — the lowest possible risk — so "nothing has been
+   * scored" and "everything is safe" produced the same number.
+   *
+   * Both are `null` when no row carries a score, and `scoredCount` says
+   * how many of `totalTransactions` are behind them.
+   */
+  averageRiskScore: number | null;
+  maxRiskScore: number | null;
+  scoredCount: number;
+
+  /**
+   * The rows behind `flaggedCount`.
+   *
+   * The three category arrays below do not cover it: each keys off a
+   * different field (`riskScore`, `isCashLike`, `mcc`) and `flagged` is
+   * a fourth, independent one. `assessTransactionRisk` can flag on
+   * merchant name alone — a $50 Zelle transfer at MCC 5812 scores 40,
+   * is not cash-like and is not on a suspicious rail, so it appears in
+   * none of the three. Without this array, that flag is a number on a
+   * screen with no row an advisor can open.
+   */
+  flaggedTransactions: SpendTransaction[];
+
   highRiskTransactions: SpendTransaction[];
   cashLikeTransactions: SpendTransaction[];
   suspiciousRailTransactions: SpendTransaction[];
+
+  /** Sample cap applied to every array above; the `*Count` fields are exact. */
+  sampleLimit: number;
+
   riskLevel: 'low' | 'moderate' | 'high' | 'critical';
+
+  /**
+   * The terms that fired, in the order tested. A level with no evidence
+   * beside it is a verdict an advisor cannot check, and the sample it
+   * rests on belongs next to it: `critical` off one cash-like row is a
+   * real finding, but the reader has to be able to see that it is one row.
+   */
+  riskLevelBasis: string[];
 }
 
 export interface TransactionListFilters {
@@ -160,11 +215,19 @@ export interface TransactionListResult {
 
 // ── Thresholds ────────────────────────────────────────────────
 
-/** Chargeback ratio above which we alert (Visa standard: 1 %). */
-const CHARGEBACK_RATIO_THRESHOLD = 0.01;
-
 /** Risk score above which we flag a transaction for review. */
 const RISK_SCORE_FLAG_THRESHOLD = 60;
+
+/** Risk score above which a single transaction lifts the book to moderate. */
+const RISK_SCORE_MODERATE_THRESHOLD = 40;
+
+/**
+ * Rows returned per category array. The `*Count` fields alongside them are
+ * exact and uncapped, and `sampleLimit` ships in the response so a caller
+ * can say "showing 10 of 34" rather than silently presenting a sample as
+ * the whole set.
+ */
+const SUMMARY_SAMPLE_LIMIT = 10;
 
 // ── Service ───────────────────────────────────────────────────
 
@@ -435,11 +498,16 @@ export class SpendGovernanceService {
 
   /**
    * Compute an aggregate risk summary for a business covering:
-   *   • Total / flagged / cash-like transaction counts and amounts
-   *   • Average risk score
-   *   • Chargeback ratio (flagged / total) as a proxy metric
-   *   • Worst-case transactions for each risk category
-   *   • Overall risk level determination
+   *   • Total / flagged / cash-like / high-risk / suspicious-rail counts
+   *   • Average and maximum risk score over *scored* rows, with the
+   *     scored count so the reader knows the denominator
+   *   • The rows behind each count, capped at `sampleLimit`
+   *   • Overall risk level, with the terms that produced it
+   *
+   * Every count in here ships with the rows behind it. A count an
+   * advisor cannot trace to a transaction is an accusation with no
+   * evidence attached, and this summary previously reported
+   * `flaggedCount: 1` with no array containing that row.
    *
    * IRS substantiation readiness: a high cash-like ratio indicates
    * inadequate business-purpose records that could trigger an audit.
@@ -465,42 +533,100 @@ export class SpendGovernanceService {
     const cashLike = all.filter((t) => t.isCashLike);
     const cashLikeAmount = cashLike.reduce((sum, t) => sum + Number(t.amount), 0);
 
-    const avgRiskScore =
-      totalTransactions > 0
-        ? all.reduce((sum, t) => sum + (t.riskScore ?? 0), 0) / totalTransactions
-        : 0;
-
-    // Chargeback ratio: flagged-to-total ratio (proxy — replace with
-    // actual chargeback data when issuer webhook integration is live)
-    const chargebackRatio = totalTransactions > 0
-      ? flagged.length / totalTransactions
-      : 0;
-
-    if (chargebackRatio > CHARGEBACK_RATIO_THRESHOLD) {
-      logger.warn('Chargeback ratio threshold exceeded', {
-        tenantId,
-        businessId,
-        chargebackRatio: chargebackRatio.toFixed(4),
-        threshold: CHARGEBACK_RATIO_THRESHOLD,
-      });
-    }
-
     const suspiciousRail = all.filter(
       (t) => t.mcc != null && SUSPICIOUS_RAIL_MCCS.has(t.mcc),
     );
 
-    const highRisk = all
-      .filter((t) => (t.riskScore ?? 0) >= RISK_SCORE_FLAG_THRESHOLD)
-      .slice(0, 10);
+    // Scored rows only. An unscored row is absent evidence, not a zero, and
+    // averaging `?? 0` over it moves the result toward "safe" — the one
+    // direction a risk figure must never drift on its own.
+    const scores = all
+      .map((t) => t.riskScore)
+      .filter((s): s is number => s != null);
 
-    // Determine aggregate risk level
+    const averageRiskScore =
+      scores.length > 0
+        ? parseFloat(
+            (scores.reduce((sum, s) => sum + s, 0) / scores.length).toFixed(2),
+          )
+        : null;
+    const maxRiskScore = scores.length > 0 ? Math.max(...scores) : null;
+
+    const highRisk = all.filter(
+      (t) => t.riskScore != null && t.riskScore >= RISK_SCORE_FLAG_THRESHOLD,
+    );
+
+    // ── Risk level ────────────────────────────────────────────
+    //
+    // Every term is a count of a categorically-defined event, or a single
+    // transaction's own score. None is a rate. A rate needs a denominator
+    // the reader cannot see, and the two that used to be here — a
+    // flagged-to-total ratio measured against the Visa *chargeback*
+    // standard of 1 %, and a mean polluted by unscored rows — produced a
+    // level that was neither checkable nor, in the seed's case, true.
+    //
+    // Counts mean the same thing at n=1 as at n=200. One cash-like
+    // withdrawal on a two-week-old account is critical on its first day,
+    // which is exactly when a minimum-sample rule would have hidden it.
+    // The sample travels in `riskLevelBasis` instead, so the reader
+    // discounts it themselves.
+    const basis: string[] = [];
     let riskLevel: RiskSummary['riskLevel'] = 'low';
-    if (cashLike.length > 0 || chargebackRatio > CHARGEBACK_RATIO_THRESHOLD) {
+
+    if (cashLike.length > 0) {
       riskLevel = 'critical';
-    } else if (suspiciousRail.length > 0 || avgRiskScore >= 60) {
+      basis.push(
+        `${cashLike.length} cash-like transaction${cashLike.length === 1 ? '' : 's'} — violates card network commercial-use rules`,
+      );
+    } else if (suspiciousRail.length > 0 || (maxRiskScore ?? 0) >= RISK_SCORE_FLAG_THRESHOLD) {
       riskLevel = 'high';
-    } else if (avgRiskScore >= 40 || flagged.length > totalTransactions * 0.1) {
+      if (suspiciousRail.length > 0) {
+        basis.push(
+          `${suspiciousRail.length} transaction${suspiciousRail.length === 1 ? '' : 's'} on a suspicious payment rail`,
+        );
+      }
+      if ((maxRiskScore ?? 0) >= RISK_SCORE_FLAG_THRESHOLD) {
+        basis.push(
+          `highest transaction risk score ${maxRiskScore}/100 (threshold ${RISK_SCORE_FLAG_THRESHOLD})`,
+        );
+      }
+    } else if (flagged.length > 0 || (maxRiskScore ?? 0) >= RISK_SCORE_MODERATE_THRESHOLD) {
       riskLevel = 'moderate';
+      if (flagged.length > 0) {
+        basis.push(
+          `${flagged.length} of ${totalTransactions} transaction${totalTransactions === 1 ? '' : 's'} flagged`,
+        );
+      }
+      if ((maxRiskScore ?? 0) >= RISK_SCORE_MODERATE_THRESHOLD) {
+        basis.push(
+          `highest transaction risk score ${maxRiskScore}/100 (threshold ${RISK_SCORE_MODERATE_THRESHOLD})`,
+        );
+      }
+    } else if (totalTransactions === 0) {
+      basis.push('No transaction is on record');
+    } else {
+      basis.push(
+        `No cash-like, suspicious-rail or flagged transaction among ${totalTransactions}`,
+      );
+    }
+
+    // The score-driven terms are the ones that go quiet on unscored rows,
+    // so say when they could not have fired rather than letting `low` read
+    // as a measurement that was taken.
+    if (scores.length < totalTransactions) {
+      basis.push(
+        `${totalTransactions - scores.length} of ${totalTransactions} transaction${totalTransactions === 1 ? '' : 's'} carry no risk score`,
+      );
+    }
+
+    if (flagged.length > 0) {
+      logger.info('Flagged transactions present in risk summary', {
+        tenantId,
+        businessId,
+        flaggedCount: flagged.length,
+        totalTransactions,
+        riskLevel,
+      });
     }
 
     return {
@@ -510,12 +636,18 @@ export class SpendGovernanceService {
       flaggedCount: flagged.length,
       cashLikeCount: cashLike.length,
       cashLikeAmount,
-      averageRiskScore: parseFloat(avgRiskScore.toFixed(2)),
-      chargebackRatio: parseFloat(chargebackRatio.toFixed(4)),
-      highRiskTransactions: highRisk,
-      cashLikeTransactions: cashLike.slice(0, 10),
-      suspiciousRailTransactions: suspiciousRail.slice(0, 10),
+      highRiskCount: highRisk.length,
+      suspiciousRailCount: suspiciousRail.length,
+      averageRiskScore,
+      maxRiskScore,
+      scoredCount: scores.length,
+      flaggedTransactions: flagged.slice(0, SUMMARY_SAMPLE_LIMIT),
+      highRiskTransactions: highRisk.slice(0, SUMMARY_SAMPLE_LIMIT),
+      cashLikeTransactions: cashLike.slice(0, SUMMARY_SAMPLE_LIMIT),
+      suspiciousRailTransactions: suspiciousRail.slice(0, SUMMARY_SAMPLE_LIMIT),
+      sampleLimit: SUMMARY_SAMPLE_LIMIT,
       riskLevel,
+      riskLevelBasis: basis,
     };
   }
 
