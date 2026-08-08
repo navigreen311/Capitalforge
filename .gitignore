@@ -2,8 +2,12 @@ node_modules/
 dist/
 .next/
 # The production server's own build directory, so `next start` stops fighting
-# `next dev` over one distDir. See scripts/next-prod.mjs.
+# `next dev` over one distDir. See scripts/next-prod.ts.
 .next-prod/
+# Where `npm run build:frontend` writes locally, so a build stops fighting
+# `next dev` over one distDir from the other side. See scripts/next-build.ts.
+# Docker and CI set NEXT_DIST_DIR=.next because they copy from that name.
+.next-build/
 .env
 .env.local
 .env.*.local
