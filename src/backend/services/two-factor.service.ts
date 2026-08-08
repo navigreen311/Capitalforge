@@ -30,7 +30,15 @@ const STEP_SECONDS = 30;
  * and proportionally weaker: every extra step is another code an attacker may
  * present.
  */
-const WINDOW_STEPS = 1;
+/**
+ * Clock-skew tolerance, in seconds — one step either side.
+ *
+ * Standard for TOTP: a user reading a code at second 29 and submitting it at
+ * second 31 must not be told it is invalid, and their device clock may differ
+ * from ours. With the previous (ignored) setting the tolerance was zero, so
+ * both cases failed.
+ */
+const TOLERANCE_SECONDS = STEP_SECONDS;
 
 const RECOVERY_CODE_COUNT = 10;
 
@@ -70,7 +78,31 @@ export class TwoFactorError extends Error {
 interface OtpLib {
   generateSecret: () => string;
   generateSync: (opts: { secret: string }) => string;
-  verifySync: (opts: { secret: string; token: string; window?: number }) => { valid: boolean };
+  /**
+   * `epochTolerance`, in SECONDS — not `window`, in steps.
+   *
+   * This interface previously declared `window?: number`, which otplib v13 does
+   * not have. The option was accepted by the compiler because this interface is
+   * where the shape was declared, and ignored at runtime, so the intended
+   * tolerance never existed: a code was valid only inside its own 30-second
+   * step, with no allowance for a user's typing latency or a device clock a few
+   * seconds off ours.
+   *
+   * A hand-written interface describing somebody else's library is a model, and
+   * a model can drift from the thing it models. The compiler checks calls
+   * against the model, so it cannot be the thing that catches the drift.
+   * Verified against otplib 13.4.0.
+   *
+   * `timeStep` on the result is the step the TOKEN came from, which is not the
+   * step we are verifying in once tolerance is allowed. `afterTimeStep` rejects
+   * a token whose own step is <= the one given. Both matter below.
+   */
+  verifySync: (opts: {
+    secret: string;
+    token: string;
+    epochTolerance?: number | [number, number];
+    afterTimeStep?: number;
+  }) => { valid: false } | { valid: true; timeStep: number; delta: number };
   generateURI: (opts: {
     issuer: string;
     label: string;
@@ -203,7 +235,7 @@ export function createTwoFactorService(prisma: PrismaClient) {
       throw new TwoFactorError('Start enrolment before confirming it.', 'MFA_NOT_STARTED');
     }
 
-    if (!lib.verifySync({ secret: decrypt(user.mfaSecret), token: code, window: WINDOW_STEPS }).valid) {
+    if (!lib.verifySync({ secret: decrypt(user.mfaSecret), token: code, epochTolerance: TOLERANCE_SECONDS }).valid) {
       throw new TwoFactorError('That code is not valid.', 'MFA_CODE_INVALID', 401);
     }
 
@@ -259,18 +291,27 @@ export function createTwoFactorService(prisma: PrismaClient) {
     // TOTP first, then recovery. A recovery code is longer and cannot collide
     // with a six-digit code, so the order costs nothing.
     if (/^\d{6}$/.test(trimmed)) {
-      const step = currentStep();
-      // Replay guard. A code is valid for its whole window, so one observed
-      // over a shoulder or in a log works until the window closes.
-      if (user!.mfaLastUsedStep !== null && step <= user!.mfaLastUsedStep) {
-        await recordFailure(user!);
-        throw new TwoFactorError('That code has already been used.', 'MFA_CODE_REUSED', 401);
-      }
+      // Replay guard, keyed on the step the TOKEN came from — not the step we
+      // happen to be verifying in. Those were the same thing while tolerance was
+      // zero, so comparing against the clock worked by accident. With one step
+      // of tolerance they diverge: a code from step N stays verifiable during
+      // step N+1, and a guard reading the clock would see N+1 > N, call it
+      // fresh, and admit the replay. The token carries its own step, so use it.
+      const result = lib.verifySync({
+        secret: decrypt(user!.mfaSecret!),
+        token: trimmed,
+        epochTolerance: TOLERANCE_SECONDS,
+      });
 
-      if (lib.verifySync({ secret: decrypt(user!.mfaSecret!), token: trimmed, window: WINDOW_STEPS }).valid) {
+      if (result.valid) {
+        if (user!.mfaLastUsedStep !== null && result.timeStep <= user!.mfaLastUsedStep) {
+          await recordFailure(user!);
+          throw new TwoFactorError('That code has already been used.', 'MFA_CODE_REUSED', 401);
+        }
+
         await prisma.user.update({
           where: { id: userId },
-          data: { mfaLastUsedStep: step, mfaFailedAttempts: 0, mfaLockedUntil: null },
+          data: { mfaLastUsedStep: result.timeStep, mfaFailedAttempts: 0, mfaLockedUntil: null },
         });
         return;
       }
