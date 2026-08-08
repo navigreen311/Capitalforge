@@ -18,6 +18,9 @@ import { seedCardProducts } from './seeds/card-products.js';
 // rather than copied: a disclosure is legal text, and two copies of it that
 // can drift is the wrong shape for something a client is handed.
 import { SEED_TEMPLATES } from '../src/backend/services/disclosure-cms.service.js';
+// Held cards are written through the service that records an attestation,
+// not with a bare create — see the note at the seed block itself.
+import { createHeldCardsService } from '../src/backend/services/held-cards.service.js';
 
 const prisma = new PrismaClient();
 
@@ -733,6 +736,99 @@ const SEED_PHONES = {
       create: benefit,
     });
   }
+
+  // ── Held cards ───────────────────────────────────────────────
+  //
+  // Cards biz1 is on record as holding. Written through
+  // `createHeldCardsService(...).record` — the same path the attestation
+  // endpoint uses — rather than a direct `heldCard.create`. A fixture
+  // built by hand can encode a shape the service would never produce,
+  // and then the test that reads it passes forever without exercising
+  // anything. `seed-txn-002` in this same file is that mistake;
+  // `docs/backlog/spend-governance-underived-flags.md` describes it.
+  //
+  // `record` generates its own ids, so re-running is guarded on the
+  // (business, issuer, productName) triple rather than upserted on a key
+  // the service does not accept.
+  //
+  // The third row is the one worth having. "Business Cash Preferred" is
+  // not a Chase product and resolves to nothing, so the page carries a
+  // live example of the unmatched state — the common case against
+  // open-ended advisor typing, and the state most likely to be quietly
+  // dropped by a later change. A fixture covering only the happy path
+  // cannot fail when that happens.
+  //
+  // NOT `Ink Business Preferred`, deliberately. That card and the month
+  // 2025-03 are the fixture `tests/e2e-playwright/held-cards-persist.spec.ts`
+  // uses, and its negative half asserts the card is *not* on the record
+  // before it saves one — proving that ticking a checkbox does not write to
+  // a client's file. Seeding the same card for the same client made that
+  // precondition false, and the assertion failed for the right reason: the
+  // box really was ticked, because the card really was on the record.
+  //
+  // Ink Business Cash is also the better fixture. Its three tiers — 5% on
+  // office supplies capped at $25,000, 2% on gas and restaurants, 1% on
+  // everything else — are exactly the structure a single `rewardsRate`
+  // cannot express, which is what this page exists to show.
+  const heldCardSeeds = [
+    {
+      issuer: 'Chase',
+      productName: 'Ink Business Cash',
+      openedAt: d('2025-01-09'),
+      creditLimit: 25000,
+    },
+    {
+      issuer: 'American Express',
+      productName: 'Blue Business Cash',
+      // Dated, though the undated case is the more interesting one.
+      //
+      // This started as `null` to exercise the card a client holds without
+      // recalling the month — unplaceable in the 24-month window, so 5/24
+      // reads as an upper bound. But biz1 is the client the held-cards e2e
+      // test works against, and the optimizer's save message branches on
+      // whether any *ticked* card is undated: with one, it reports "5/24 will
+      // read as an upper bound" instead of "counting toward 5/24", and the
+      // test asserts the second. A card on the record comes back ticked, so
+      // seeding an undated one here silently changed what that flow reports.
+      //
+      // The undated path is covered where it belongs — by
+      // `tallyHeldCardsForFiveTwentyFour` in the unit tests, which assert the
+      // arithmetic directly rather than through a rendered sentence.
+      openedAt: d('2024-06-20'),
+      creditLimit: 15000,
+    },
+    {
+      issuer: 'Chase',
+      productName: 'Business Cash Preferred',
+      openedAt: d('2024-11-02'),
+      creditLimit: 8000,
+    },
+  ];
+
+  const heldCardsService = createHeldCardsService(prisma);
+  for (const seed of heldCardSeeds) {
+    const existing = await prisma.heldCard.findFirst({
+      where: {
+        businessId: biz1.id,
+        tenantId: tenant.id,
+        issuer: seed.issuer,
+        productName: seed.productName,
+      },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    await heldCardsService.record({
+      tenantId: tenant.id,
+      businessId: biz1.id,
+      issuer: seed.issuer,
+      productName: seed.productName,
+      openedAt: seed.openedAt,
+      creditLimit: seed.creditLimit,
+      attestedBy: advisorUser.id,
+    });
+  }
+  console.log(`  ✓ Held cards: ${heldCardSeeds.length} attested for ${biz1.legalName}`);
 
   await prisma.cardApplication.upsert({
     where: { id: 'seed-app-003' },

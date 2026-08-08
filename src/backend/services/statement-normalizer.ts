@@ -132,7 +132,20 @@ const ISSUER_SLUG_MAP: Record<string, string> = {
   synchrony: 'synchrony',
 };
 
-function normalizeIssuerSlug(raw?: string): string {
+/**
+ * Fold an issuer as a human typed it onto a stable slug.
+ *
+ * Exported because the held-card catalogue matcher needs exactly this
+ * mapping, and a second copy of it would drift from this one without
+ * anything failing — the shape that put `lake_michigan` in the rules engine
+ * against `lake_michigan_cu` in the card catalogue, where a Record lookup
+ * resolved the mismatch to `undefined` and read as "no special handling".
+ *
+ * The fallback is deliberate and load-bearing for callers: an issuer absent
+ * from the map becomes its own whitespace-collapsed slug rather than
+ * `unknown`, which is how `td_bank` and `pnc` resolve without being listed.
+ */
+export function normalizeIssuerSlug(raw?: string): string {
   if (!raw) return 'unknown';
   const key = raw.toLowerCase().trim();
   return ISSUER_SLUG_MAP[key] ?? key.replace(/\s+/g, '_');

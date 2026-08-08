@@ -93,7 +93,34 @@ router.get(
     }
 
     const cards = await heldCards.listForBusiness(businessId, tenantId);
-    res.json({ success: true, data: { cards } } satisfies ApiResponse);
+
+    // `creditLimit` is a Prisma Decimal, which serialises to a JSON *string*.
+    // This handler returned rows unchanged, so a numeric column crossed the
+    // wire as "25000" — and the POST schema below, correctly, wants a number.
+    //
+    // The round trip is not hypothetical: the optimizer reads this list,
+    // keeps the cards its own catalogue cannot show, and sends them back
+    // untouched on save precisely so they are not deleted on behalf of an
+    // advisor who was never shown them. That payload failed validation, so
+    // saving the form 400'd for any client holding a card outside
+    // `EXISTING_CARD_CATALOGUE` with a limit on it.
+    //
+    // It had never happened because `held_cards` was empty in every tenant:
+    // with no rows, nothing is ever unrepresented, and the branch could not
+    // run. The first three seeded rows reached it immediately.
+    //
+    // Fixed here rather than at the caller because a numeric field should not
+    // leave the API as a string — the same `Number(...)` this repo already
+    // applies wherever a Decimal is serialised.
+    res.json({
+      success: true,
+      data: {
+        cards: cards.map((card) => ({
+          ...card,
+          creditLimit: card.creditLimit == null ? null : Number(card.creditLimit),
+        })),
+      },
+    } satisfies ApiResponse);
   },
 );
 
