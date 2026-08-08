@@ -27,6 +27,13 @@ module.exports = [
       // above, so a new dist directory has to be added here as well — leaving
       // it out puts several thousand generated files through the linter.
       'src/frontend/.next-prod/**',
+      // Where `npm run build:frontend` writes locally, added in the build /
+      // dev-server distDir split. It was left out of this list when that
+      // landed, and the note above had already said what would happen: a
+      // local build followed by `npm run lint` reported 3,680 errors, all of
+      // them in generated chunks. CI never saw it, because CI sets
+      // NEXT_DIST_DIR=.next and this directory is never created there.
+      'src/frontend/.next-build/**',
       'prisma/migrations/**',
       '**/*.d.ts',
       // Generated Prisma client output, if ever emitted in-tree
