@@ -1,5 +1,15 @@
 # CapitalForge — All 61 Modules Reference
 
+> **SUPERSEDED — 2026-08-08.** This document's module count and pillar taxonomy
+> describe a plan, not the codebase. It claimed 61 modules; the repository holds 95 route
+> files and 72 page files, and no pillar name appears in any path.
+>
+> See `docs/specification.md`, which counts what ships and records this
+> disagreement in Appendix B. This file is kept rather than deleted, because what
+> was previously claimed is worth being able to read.
+
+
+
 This document describes all 61 modules across the four system pillars: their business purpose, key features, data models involved, events emitted, and API routes.
 
 ---
