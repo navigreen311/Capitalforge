@@ -757,11 +757,24 @@ const SEED_PHONES = {
   // open-ended advisor typing, and the state most likely to be quietly
   // dropped by a later change. A fixture covering only the happy path
   // cannot fail when that happens.
+  //
+  // NOT `Ink Business Preferred`, deliberately. That card and the month
+  // 2025-03 are the fixture `tests/e2e-playwright/held-cards-persist.spec.ts`
+  // uses, and its negative half asserts the card is *not* on the record
+  // before it saves one — proving that ticking a checkbox does not write to
+  // a client's file. Seeding the same card for the same client made that
+  // precondition false, and the assertion failed for the right reason: the
+  // box really was ticked, because the card really was on the record.
+  //
+  // Ink Business Cash is also the better fixture. Its three tiers — 5% on
+  // office supplies capped at $25,000, 2% on gas and restaurants, 1% on
+  // everything else — are exactly the structure a single `rewardsRate`
+  // cannot express, which is what this page exists to show.
   const heldCardSeeds = [
     {
       issuer: 'Chase',
-      productName: 'Ink Business Preferred',
-      openedAt: d('2025-03-14'),
+      productName: 'Ink Business Cash',
+      openedAt: d('2025-01-09'),
       creditLimit: 25000,
     },
     {
