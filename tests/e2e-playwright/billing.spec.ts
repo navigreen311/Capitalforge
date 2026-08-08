@@ -124,9 +124,22 @@ test.describe('Billing', () => {
     await expect(page.getByRole('heading', { name: 'What is not here' })).toBeVisible({
       timeout: 30000,
     });
-    // The commissions note changed when commission_records was wired.
-    await expect(page.getByText('rows in commission_records now', { exact: false })).toBeVisible();
-    await expect(page.getByText('It does not charge anything', { exact: false })).toBeVisible();
+    // Asserted as state rather than as wording. These three facts used to be
+    // three identical grey paragraphs; they are now three markers, and what
+    // matters is that the page still distinguishes them — commissions is a
+    // capability that works with nothing in it, while metering and taking
+    // payment are capabilities that do not exist.
+    const marker = (title: string) => page.locator(`[data-capability-title="${title}"]`);
+
+    await expect(marker('Commissions')).toHaveAttribute('data-capability-state', 'no_data');
+    await expect(marker('Usage metering')).toHaveAttribute('data-capability-state', 'not_built');
+    await expect(marker('Taking payment')).toHaveAttribute('data-capability-state', 'not_built');
+
+    // The substance, not the sentence: no money moves, and the reason given
+    // is the mechanism rather than a claim that the capability is absent.
+    await expect(marker('Taking payment')).toContainText('no money moves');
+    await expect(marker('Taking payment')).toContainText('STRIPE_SECRET_KEY');
+    await expect(marker('Commissions')).toContainText('commission_records');
   });
 });
 

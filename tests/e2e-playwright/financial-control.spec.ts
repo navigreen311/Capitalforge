@@ -122,9 +122,14 @@ test.describe('Financial control', () => {
 
   test('tax reports that nothing is generated', async ({ signedInPage: page }) => {
     await page.goto('/financial-control/tax');
-    await expect(
-      page.getByRole('heading', { name: 'No tax document is produced by this system' }),
-    ).toBeVisible({ timeout: 30000 });
+    // Was a heading reading "No tax document is produced by this system".
+    // That sentence is still on the page, but it is now the detail on a
+    // not-built marker rather than an amber heading — amber being what a
+    // warning looks like, on a page that is working correctly.
+    const marker = page.locator('[data-capability-title="Tax document generation"]');
+    await expect(marker).toBeVisible({ timeout: 30000 });
+    await expect(marker).toHaveAttribute('data-capability-state', 'not_built');
+    await expect(marker).toContainText('No tax document is produced by this system');
 
     const t = await token(page);
     const body = (await fetch(`${API}/financial/tax-documents`, {

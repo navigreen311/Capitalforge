@@ -139,9 +139,14 @@ test.describe('Statements', () => {
       .then((b) => (b as { data: { totalAnomalies: number } }).data.totalAnomalies);
 
     if (total === 0) {
-      await expect(
-        page.getByText('the result of a check that ran', { exact: false }),
-      ).toBeVisible();
+      // The distinction this guards: a check that ran and found nothing is a
+      // result, not an absence of checking. It is now carried by a no-data
+      // marker as well as by the sentence, so assert the state and the
+      // substance rather than the exact phrasing.
+      const marker = page.locator('[data-capability-title="No anomaly found"]');
+      await expect(marker).toBeVisible();
+      await expect(marker).toHaveAttribute('data-capability-state', 'no_data');
+      await expect(marker).toContainText('not a statement that no issue exists');
     }
     await expect(
       page.getByText('No remediation instruction is shown', { exact: false }),

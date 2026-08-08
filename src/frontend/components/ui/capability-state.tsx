@@ -121,6 +121,18 @@ export function CapabilityState({
   return (
     <div
       className={`rounded-lg ${CONTAINER[state]} ${pad}`}
+      // A stable hook for tests, so they can assert *which state a surface is
+      // in* rather than matching a sentence.
+      //
+      // Three end-to-end tests broke when this component replaced the prose
+      // they were reading — `getByText('It does not charge anything')`,
+      // `getByText('the result of a check that ran')`, and a heading that no
+      // longer exists. Every one of those pages still said exactly what it
+      // said before; only the wording moved. A test pinned to a sentence
+      // fails on a rewrite and passes on a regression that keeps the
+      // sentence, which is the wrong way round.
+      data-capability-state={state}
+      data-capability-title={title}
       // `status` for the two states a reader may be waiting on. `not_built`
       // is a standing property of the system rather than an event, so it is
       // not announced as one.
