@@ -38,6 +38,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { apiClient } from '@/lib/api-client';
+import { CapabilityState } from '@/components/ui/capability-state';
 import {
   toComplianceOverview,
   riskShare,
@@ -393,23 +394,34 @@ export default function CompliancePage() {
           </div>
 
           {/* ── What this page no longer claims ────────────────── */}
-          <div className="rounded-xl border border-gray-800 bg-gray-950 p-5 space-y-2">
+          <div className="rounded-xl border border-gray-800 bg-gray-950 p-5 space-y-3">
             <h2 className="text-sm font-semibold text-gray-300">Not shown here</h2>
-            <ul className="text-xs text-gray-500 space-y-1.5 list-disc pl-4">
-              <li>
-                <strong className="text-gray-400">A recommended next filing.</strong> A
-                &quot;top priority&quot; and three &quot;quick wins&quot; told an operator
-                which regulatory filings to make, with point values attached, naming
-                businesses that do not exist. What a firm owes a regulator is advice, and
-                nothing here computes it.
-              </li>
-              <li>
-                <strong className="text-gray-400">A per-category score.</strong> UDAP 0 of
-                25, State Disclosures 5 of 25 and four more were written into the page, as
-                was the endpoint behind them. Scores now come from the checks that ran, and
-                a category nothing has scored shows no score.
-              </li>
-            </ul>
+
+            <CapabilityState
+              tone="dark"
+              state="not_built"
+              size="section"
+              title="A recommended next filing"
+              detail={`A "top priority" and three "quick wins" told an operator which regulatory filings to make, with point values attached, naming businesses that do not exist.`}
+              unblock={{
+                kind: 'unblocked_by',
+                text: 'something that derives a filing obligation from the firm’s actual position. What a firm owes a regulator is advice, and nothing here computes it.',
+              }}
+            />
+
+            {/* Not a gap. This bullet describes a defect that was FIXED — the
+                per-category scores are computed from the checks that ran, and
+                a category nothing has scored correctly shows no score. Marking
+                it `not_built` would re-open a closed entry in the register and
+                misreport working code as missing, which is the §6 failure in
+                the other direction. */}
+            <CapabilityState
+              tone="dark"
+              state="no_data"
+              size="section"
+              title="A score for a category nothing has scored"
+              detail="UDAP 0 of 25, State Disclosures 5 of 25 and four more were written into the page, as was the endpoint behind them. Scores now come from the checks that ran, so a category nothing has scored shows no score rather than a zero."
+            />
           </div>
         </>
       )}

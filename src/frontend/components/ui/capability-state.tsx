@@ -63,6 +63,21 @@ export interface CapabilityStateProps {
   unblock?: CapabilityUnblock;
   /** `page` sits under the page title; `section` sits inside a card. */
   size?: 'page' | 'section';
+  /**
+   * Which ground the marker sits on.
+   *
+   * This app has both light and dark surfaces — `/billing` and `/statements`
+   * are white; `/card-benefits`, `/compliance` and `/multi-tenant` are
+   * near-black. A slate-50 box on a gray-950 page does not read as a subdued
+   * marker, it reads as a rendering fault, which is the exact impression this
+   * component exists to remove.
+   *
+   * Only the palette changes. The grammar — solid with a heavy left rule for
+   * `not_built`, dashed for `no_data`, red for `failed` — is identical in
+   * both tones, because the recognition being built has to survive moving
+   * between pages.
+   */
+  tone?: 'light' | 'dark';
 }
 
 const LABEL: Record<CapabilityStateKind, string> = {
@@ -81,32 +96,64 @@ const GLYPH: Record<CapabilityStateKind, string> = {
   failed: '⚠',
 };
 
-const CONTAINER: Record<CapabilityStateKind, string> = {
-  // Solid, filled, heavy left rule: a wall.
-  not_built:
-    'border border-slate-300 border-l-4 border-l-slate-500 bg-slate-50',
-  // Dashed, white, no rule: a frame with nothing in it yet.
-  no_data: 'border border-dashed border-gray-300 bg-white',
-  // A wall, in the colour of an error.
-  failed: 'border border-red-300 border-l-4 border-l-red-500 bg-red-50',
+type ToneMap = Record<'light' | 'dark', Record<CapabilityStateKind, string>>;
+
+const CONTAINER: ToneMap = {
+  light: {
+    // Solid, filled, heavy left rule: a wall.
+    not_built: 'border border-slate-300 border-l-4 border-l-slate-500 bg-slate-50',
+    // Dashed, white, no rule: a frame with nothing in it yet.
+    no_data: 'border border-dashed border-gray-300 bg-white',
+    // A wall, in the colour of an error.
+    failed: 'border border-red-300 border-l-4 border-l-red-500 bg-red-50',
+  },
+  dark: {
+    not_built: 'border border-slate-700 border-l-4 border-l-slate-400 bg-slate-900/40',
+    // Still dashed, still the lightest ground of the three relative to its
+    // page — the contrast that carries "empty, not broken" is preserved by
+    // inverting it rather than by keeping the same hex.
+    no_data: 'border border-dashed border-gray-700 bg-transparent',
+    failed: 'border border-red-800 border-l-4 border-l-red-500 bg-red-950/40',
+  },
 };
 
-const CHIP: Record<CapabilityStateKind, string> = {
-  not_built: 'bg-slate-200 text-slate-800',
-  no_data: 'bg-gray-100 text-gray-600',
-  failed: 'bg-red-200 text-red-900',
+const CHIP: ToneMap = {
+  light: {
+    not_built: 'bg-slate-200 text-slate-800',
+    no_data: 'bg-gray-100 text-gray-600',
+    failed: 'bg-red-200 text-red-900',
+  },
+  dark: {
+    not_built: 'bg-slate-700 text-slate-100',
+    no_data: 'bg-gray-800 text-gray-300',
+    failed: 'bg-red-900 text-red-100',
+  },
 };
 
-const TITLE_TEXT: Record<CapabilityStateKind, string> = {
-  not_built: 'text-slate-900',
-  no_data: 'text-gray-700',
-  failed: 'text-red-900',
+const TITLE_TEXT: ToneMap = {
+  light: {
+    not_built: 'text-slate-900',
+    no_data: 'text-gray-700',
+    failed: 'text-red-900',
+  },
+  dark: {
+    not_built: 'text-slate-100',
+    no_data: 'text-gray-300',
+    failed: 'text-red-100',
+  },
 };
 
-const DETAIL_TEXT: Record<CapabilityStateKind, string> = {
-  not_built: 'text-slate-700',
-  no_data: 'text-gray-500',
-  failed: 'text-red-800',
+const DETAIL_TEXT: ToneMap = {
+  light: {
+    not_built: 'text-slate-700',
+    no_data: 'text-gray-500',
+    failed: 'text-red-800',
+  },
+  dark: {
+    not_built: 'text-slate-300',
+    no_data: 'text-gray-500',
+    failed: 'text-red-300',
+  },
 };
 
 export function CapabilityState({
@@ -115,12 +162,13 @@ export function CapabilityState({
   detail,
   unblock,
   size = 'page',
+  tone = 'light',
 }: CapabilityStateProps) {
   const pad = size === 'page' ? 'px-4 py-3' : 'px-3 py-2.5';
 
   return (
     <div
-      className={`rounded-lg ${CONTAINER[state]} ${pad}`}
+      className={`rounded-lg ${CONTAINER[tone][state]} ${pad}`}
       // A stable hook for tests, so they can assert *which state a surface is
       // in* rather than matching a sentence.
       //
@@ -139,23 +187,23 @@ export function CapabilityState({
       {...(state === 'not_built' ? {} : { role: 'status' })}
     >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span aria-hidden="true" className={DETAIL_TEXT[state]}>
+        <span aria-hidden="true" className={DETAIL_TEXT[tone][state]}>
           {GLYPH[state]}
         </span>
         <span
-          className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${CHIP[state]}`}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${CHIP[tone][state]}`}
         >
           {LABEL[state]}
         </span>
-        <span className={`text-sm font-semibold ${TITLE_TEXT[state]}`}>{title}</span>
+        <span className={`text-sm font-semibold ${TITLE_TEXT[tone][state]}`}>{title}</span>
       </div>
 
       {detail !== undefined && (
-        <p className={`mt-1 text-xs leading-relaxed ${DETAIL_TEXT[state]}`}>{detail}</p>
+        <p className={`mt-1 text-xs leading-relaxed ${DETAIL_TEXT[tone][state]}`}>{detail}</p>
       )}
 
       {state === 'not_built' && unblock !== undefined && (
-        <p className="mt-1.5 text-xs text-slate-700">
+        <p className={`mt-1.5 text-xs ${tone === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
           <span className="font-semibold">
             {unblock.kind === 'deliberate' ? 'Deliberate: ' : 'Unblocked by: '}
           </span>

@@ -1018,13 +1018,41 @@ are different answers to a reader deciding whether to keep asking.
 
 ### Converted so far
 
-`/billing` · `/financial-control/tax` (aliased as `/tax`) · `/rewards` ·
-`/statements`
+**First batch** — `/billing` · `/financial-control/tax` (aliased as `/tax`) ·
+`/rewards` · `/statements`
+
+**Second batch, the seven this section originally listed** —
+`/card-benefits` · `/compliance` · `/funding-rounds/[id]` · `/multi-tenant` ·
+`/platform/visionaudioforge` · `/referrals` · `/sandbox`
+
+Two things came out of the second batch worth recording, because both would
+have been invisible in a mechanical conversion.
+
+**Three of the seven are dark surfaces.** `/card-benefits`, `/compliance` and
+`/multi-tenant` are near-black pages; the first four were white. A slate-50
+box on a `gray-950` page does not read as a subdued marker, it reads as a
+rendering fault — the exact impression this component exists to remove. The
+component took a `tone` prop rather than a second component: the grammar
+(solid with a heavy left rule, dashed, red) is identical in both tones,
+because the recognition being built has to survive moving between pages. Only
+the palette flips.
+
+**One bullet was not a gap at all.** `/compliance` listed *"A per-category
+score"* under "Not shown here", but its own text says scores now come from the
+checks that ran and a category nothing has scored shows no score. That is a
+**fixed** defect and a `no_data` state — marking it `not_built` would have
+re-opened a closed entry in the register and reported working code as missing.
+It is the §6 stale-claim failure pointing the other way, and the only defence
+against it is reading each item rather than converting the list.
+
+`/multi-tenant`'s impersonation entry is the one to look at first if any of
+these get built: the endpoint returned a token, started no session and wrote
+no audit record, **while the dialog told the operator that impersonation was
+logged and audited**. A control described but not implemented is worse than an
+absent one.
 
 ### Still prose-only — to convert
 
-`/card-benefits` · `/compliance` · `/funding-rounds/[id]` · `/multi-tenant` ·
-`/platform/visionaudioforge` · `/referrals` · `/sandbox` ·
 `/spend-governance` · `/portfolio` · `/training` · `/platform/crm` ·
 `/platform/referrals` · `/compliance/deal-committee` ·
 `/compliance/disclosures` · `/compliance/regulatory` · `/compliance/training`
@@ -1046,8 +1074,15 @@ request, not of the product, and there is nothing about them to enumerate.
 
 <!-- capability-state:not-built:begin -->
 - `/billing` — usage metering; taking payment
+- `/card-benefits` — logging a cancellation; keep/negotiate/cancel advice
+- `/compliance` — a recommended next filing
 - `/financial-control/tax` — tax document generation
+- `/funding-rounds/[id]` — advisor and target close date; round economics
+- `/multi-tenant` — subscription invoices; advisor and client counts; activity log; impersonation
+- `/platform/visionaudioforge` — document and audio analysis
+- `/referrals` — advisor referral tracking
 - `/rewards` — best card per category
+- `/sandbox` — sandbox mode
 <!-- capability-state:not-built:end -->
 
 ---

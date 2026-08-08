@@ -8,6 +8,8 @@
 // pretending.
 // ============================================================
 
+import { CapabilityState } from '@/components/ui/capability-state';
+
 export default function Page() {
   return (
     <div className="space-y-6">
@@ -16,20 +18,25 @@ export default function Page() {
         <p className="text-sm text-gray-500 mt-1">Advisor referral tracking.</p>
       </div>
 
-      <section
-        aria-label="Not implemented"
-        className="rounded-xl border border-amber-300 bg-amber-50 p-5 space-y-2"
-      >
-        <h2 className="text-sm font-semibold text-amber-900">Not implemented</h2>
-        <p className="text-xs text-amber-900 leading-relaxed">
-          No table holds a referral link, its conversions or a commission, and no endpoint
-          creates one — POST /api/platform/referrals answers 501. The five advisors listed here,
-          with links under app.capitalforge.io and commissions of $1,500 and $2,200, were
-          literals.
-        </p>
-        <p className="text-xs text-amber-900 leading-relaxed">
-          referral_attributions exists but is a different thing: it attributes a business to a
-          source with a fee, and carries no advisor link, conversion or commission.
+      <CapabilityState
+        state="not_built"
+        title="Advisor referral tracking"
+        detail="No table holds a referral link, its conversions or a commission, and no endpoint creates one — POST /api/platform/referrals answers 501. The five advisors listed here, with links under app.capitalforge.io and commissions of $1,500 and $2,200, were literals."
+        unblock={{
+          kind: 'unblocked_by',
+          text: 'a table for referral links, conversions and commissions, and an implementation behind the endpoints that currently answer 501.',
+        }}
+      />
+
+      <section aria-label="A table that is not this one" className="rounded-xl border border-gray-200 bg-white p-5">
+        {/* Kept as prose rather than made a second marker. It is not another
+            absent capability — it is a warning against mistaking a table that
+            does exist for this one, which is how a reader concludes the
+            feature is half-built. */}
+        <p className="text-xs text-gray-600 leading-relaxed">
+          <strong className="text-gray-700">referral_attributions is a different thing.</strong>{' '}
+          It attributes a business to a source with a fee, and carries no advisor link,
+          conversion or commission. It is not a partial version of what this page showed.
         </p>
       </section>
     </div>
