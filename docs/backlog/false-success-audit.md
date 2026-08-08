@@ -474,3 +474,63 @@ The reasoning it rests on, so it can be revisited on its merits:
 without a human editing them first — auto-attached, auto-sent, auto-filed — the
 fallback stops being a convenience and becomes fabricated content in a record.
 The `model` field is the check to write the guard against.
+
+## A seventh instance: fabricated and real rendering identically
+
+**Found:** 2026-08-08, auditing five pages at once.
+
+The other entries are about a system claiming an action happened. This one is
+about a system claiming a *number is real*. It is the same failure — a
+confident report with nothing behind it — and it is harder to catch, because
+there is no moment of action to check.
+
+Three pages render invented figures beside figures from the database, in the
+same table, same typography, same weight. Nothing on screen separates them.
+
+| page | fabricated | rendered next to |
+|---|---|---|
+| `/platform/issuers` | `ISSUERS_DATA` — Chase `totalApps: 342`, 14 issuers, approval rates, average limits | nothing real; the entire page is constants |
+| `/platform/workflows` | `MOCK_EXECUTION_LOG` — three executions naming workflows that do not exist and a client by number | a live count of configured workflows, which was zero |
+| `/compliance/complaints` | `PLACEHOLDER_COMPLAINTS` — six invented clients, and a synthesized `slaDeadline` | three real complaints from the register |
+
+**The measure of it:** `/platform/issuers` reports 342 applications for Chase
+alone. `/portfolio`, which counts the applications table, reports **7 in
+total**. Both pages are in the same navigation, one click apart, and neither
+says which one is counting anything.
+
+The workflows case is the sharpest. The page showed **0 workflows configured**
+and **3 executions** on the same screen. An execution log is a record of things
+that happened; this one described a past that could not have occurred, next to
+a counter correctly reporting the present. Nothing marked the difference.
+
+### Why this is its own entry
+
+The defect is not that the data is fake. Placeholders are a legitimate way to
+build a page before its endpoint exists.
+
+The defect is that **fake and real are indistinguishable on the same screen**.
+An advisor reading `/platform/issuers` has no way to know that "Chase, 74.0%
+approval, 342 applications" is a constant in a route file, while the client
+list two pages over is a database read. Both are rendered as fact, and the
+system offers no way to tell them apart.
+
+That makes every real number on those pages worth less, because the reader
+cannot trust any of them without checking the source — and if they must check
+the source, the page has not told them anything.
+
+### What to look for
+
+Not "is there mock data" — that is a normal state during development. Ask:
+
+1. Does this page mix a value from an endpoint with a value from a constant?
+2. If so, would a reader be able to tell which is which, from the page alone?
+3. Does a number here contradict a number elsewhere in the product? A
+   contradiction between two pages is the cheapest detector, and it found this
+   one: 342 against 7.
+
+### Status
+
+`MOCK_EXECUTION_LOG` and `PLACEHOLDER_COMPLAINTS` are deleted.
+`ISSUERS_DATA` and the synthesized SLA are open — see Track 1C and
+`complaint-status-vocabularies.md`.
+
