@@ -19,6 +19,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { loadJson, toLoadError } from '@/lib/load-json';
+import { CapabilityState } from '@/components/ui/capability-state';
 
 interface TaxState {
   documents: unknown[];
@@ -68,15 +69,28 @@ export default function TaxDocumentsPage() {
 
       {!loading && error === null && state !== null && (
         <>
+          {/* The marker carries the state; the prose below carries the
+              detail. Before this, the amber card was the only signal, and
+              amber is what a warning looks like — so a page that is working
+              correctly and has nothing to generate read as a page in
+              trouble. */}
+          <CapabilityState
+            state="not_built"
+            title="Tax document generation"
+            detail="No tax document is produced by this system."
+            unblock={{
+              kind: 'unblocked_by',
+              text:
+                'form generation, document storage and filing — none of the three exists today.',
+            }}
+          />
+
           <section
             aria-label="No tax documents are generated"
-            className="rounded-xl border border-amber-300 bg-amber-50 p-5 space-y-2"
+            className="rounded-xl border border-gray-200 bg-white p-5 space-y-2"
           >
-            <h2 className="text-sm font-semibold text-amber-900">
-              No tax document is produced by this system
-            </h2>
-            <p className="text-xs text-amber-900 leading-relaxed">{state.why}</p>
-            <p className="text-xs text-amber-900 leading-relaxed">
+            <p className="text-xs text-gray-600 leading-relaxed">{state.why}</p>
+            <p className="text-xs text-gray-600 leading-relaxed">
               This page used to list 1099-INT, 1099-MISC, 1099-K, K-1 and annual summary forms
               for &ldquo;Acme Holdings LLC&rdquo;, EIN 12-3456789, across four tax years, marked
               generated, with file sizes, generation timestamps, download buttons and a bulk

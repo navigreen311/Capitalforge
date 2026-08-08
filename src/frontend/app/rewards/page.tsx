@@ -29,6 +29,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { loadJson, toLoadError } from '@/lib/load-json';
+import { CapabilityState } from '@/components/ui/capability-state';
 
 interface ClientOption {
   id: string;
@@ -298,17 +299,15 @@ export default function RewardsPage() {
           </div>
 
           {heldError !== null && (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {heldError}
-            </p>
+            <CapabilityState state="failed" title="The cards this client holds could not be read" detail={heldError} />
           )}
 
           {heldError === null && (held?.heldCards ?? []).length === 0 && (
-            <p className="text-sm text-gray-500">
-              No card is on record as held by this client. Held cards are advisor-attested;
-              none is inferred from an application, because an approved application does not
-              say a card was opened, or is still open.
-            </p>
+            <CapabilityState
+              state="no_data"
+              title="No card on record as held by this client"
+              detail="Held cards are advisor-attested; none is inferred from an application, because an approved application does not say a card was opened, or is still open. Attest one and its earn rates appear here."
+            />
           )}
 
           {(held?.heldCards ?? []).length > 0 && (
@@ -367,16 +366,18 @@ export default function RewardsPage() {
             className="rounded-xl border border-gray-200 bg-white p-5 space-y-2"
           >
             <h2 className="text-sm font-semibold text-gray-900">What is not here</h2>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              A best card per category. The cards above are the ones this client holds and what
-              each earns — not a recommendation about where to put spend. Routing needs
-              per-category annual spend, and the categories recorded against transactions come
-              from a different vocabulary than the optimiser&apos;s: mapping one onto the other
-              carelessly would produce confident routing advice computed from mis-bucketed
-              spend, which is worse than none. The optimisation endpoint ranks the whole card
-              catalogue from categories and amounts a caller supplies, so its answer is about
-              the market rather than about this client.
-            </p>
+
+            <CapabilityState
+              state="not_built"
+              size="section"
+              title="Best card per category"
+              detail="The cards above are the ones this client holds and what each earns — not a recommendation about where to put spend. The optimisation endpoint ranks the whole card catalogue from categories and amounts a caller supplies, so its answer is about the market rather than about this client."
+              unblock={{
+                kind: 'unblocked_by',
+                text: "mapping the transaction categories in MCC_RISK_MAP onto the optimiser's thirteen MccCategory values. They are different vocabularies, and mapping them carelessly produces confident routing advice computed from mis-bucketed spend, which is worse than none.",
+              }}
+            />
+
             <p className="text-xs text-gray-600 leading-relaxed">
               Rates for a card whose product name does not match the catalogue. Those cards are
               listed with the reason rather than dropped, and no default rate is substituted.

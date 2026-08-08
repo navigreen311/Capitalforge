@@ -224,6 +224,41 @@ reason stated, because a zero would be a claim.
 | ~~`businessAgeMonths` (credit builder)~~ | ~~No formation date is recorded for a business.~~ **This was wrong.** `Business.dateOfFormation` exists (`schema.prisma:171`) and is populated for every seeded business. Nothing surfaced it: the credit-builder page passed `null` to the progress timeline, which rendered "Formation date not recorded". | **Done 2026-08-05.** No column was needed. The age is computed in `credit-facts.ts` and reaches both the Tier 3 criterion and the timeline. |
 | `estimatedUnusedValue` (card benefits) | Null only when no unused benefit carries a value — this is working as intended. | **None.** |
 | Compliance score, when no checks have run | A score of 100 from an empty check table is a clean bill of health derived from never having looked. | **None.** |
+| Usage metering (billing) | **Nothing meters usage.** No counter, no plan record, no table — see 2e. | **A meter, plus a plan to count against.** |
+
+### 2e. Usage metering, and the quota figures it used to invent
+
+Recorded 2026-08-07. Absent from this document until then, though the
+`/billing` page has carried a note about it.
+
+Nothing counts API calls, deals or seats. There is no meter, no plan record
+and no table to hold either. `/billing` states this, and now marks it
+`not built` rather than leaving it as prose.
+
+**What the page used to show, and why it is worth writing down:**
+
+> 87,400 of 100,000 API calls · 48 of 50 deals · 12 of 12 seats — against a
+> named **Enterprise** plan.
+
+Every figure was a literal. Note the shape rather than the fact of the
+fabrication: these are not round invented numbers, they are *quotas with
+denominators, against a named tier, two of them near their limit*. 87,400 of
+100,000 reads as a meter that has been running. 12 of 12 seats reads as a
+customer who needs to buy more — a number a salesperson would act on and a
+customer would be billed against.
+
+A fabricated total is obvious once questioned. A fabricated **ratio** carries
+an implied history: someone counted, repeatedly, over time. That is the
+version that survives scrutiny, and it is the version this page shipped.
+
+Same family as the `/statements` anomaly instructing an advisor to call Amex
+about a duplicate $695 annual fee that was never charged, and as the
+`/portfolio` benchmark block the tenant beat on every axis. The pattern worth
+naming: **invented data is most dangerous when it is specific, plausible, and
+slightly unflattering** — because all three are what real data looks like.
+
+**Cost.** A meter is not large, but it is not the whole job: usage is only
+meaningful against a plan, and no plan record exists. Both, or neither.
 
 ### 2b. Delinquency is recorded, but not of the portfolio
 
@@ -530,6 +565,61 @@ decision, not three. Answering it once unblocks all three.
 `PATCH /api/platform/offboarding/:id/advance`. A stage moves when the export or
 the deletion actually happens. Advancing it by hand is how a workflow comes to
 claim a deletion that never ran.
+
+### "No money moves" is true for reasons that can change without anyone noticing
+
+Recorded 2026-08-07. **Nothing is broken today. The concern is what the claim
+rests on.**
+
+`/billing` tells an advisor, correctly, that marking an invoice paid records a
+payment and does not take one — *"no card is debited and no money moves."*
+Verified end to end: `POST /api/businesses/:id/invoices` validates, computes a
+fee schedule and writes a row. The mark-paid handler returns an explicit
+**`charged: false`**, and `stripePaymentId` is a reference the caller supplies
+rather than one this system obtained. No payment call anywhere in the flow.
+
+**But the capability is present, not absent.** `src/backend/integrations/stripe/`
+holds a complete Stripe client — `paymentIntents.create`, `refunds.create`,
+`subscriptions.create`, `invoices.create` — and `stripeRouter` **is mounted** at
+`/api/stripe`. Two things, and only two, stop money moving:
+
+1. **Nothing outside `integrations/stripe/` imports the client.** Verified by
+   grep; the billing flow cannot reach it.
+2. **`STRIPE_SECRET_KEY` is unset**, so `getStripeClient()` throws
+   `STRIPE_NOT_CONFIGURED`. No `STRIPE_*` variable exists in `.env` at all.
+
+So the truest statement of the page's claim is *"no billing code calls
+Stripe, and Stripe is unconfigured"* — not *"this system cannot take
+payments."* It plainly can; it is one import and one environment variable
+away.
+
+**Why that distinction is the whole entry.** A copy claim resting on a config
+value goes stale in silence. Setting `STRIPE_SECRET_KEY` in an environment —
+an ordinary act, done to enable something else entirely, in a file no reviewer
+reads as product surface — moves this system one import from debiting a card,
+while every reassuring sentence on `/billing` still renders unchanged. Nothing
+fails. No test covers it, because there is nothing incorrect to catch: the
+assertion and the reality diverge without either changing shape.
+
+This is the §6 failure with the arrow reversed. There, sentences outlived the
+defects they described. Here a sentence would outlive the *safety* it
+describes, which is worse, because the sentence is what an advisor trusts
+before telling a client no money will move.
+
+The `not_built` marker on `/billing` therefore states the mechanism rather
+than the conclusion — it names the unfollowed import and the unset key
+explicitly, so a reader who changes either can see what they are changing.
+
+**What would close this properly** (none done, all cheap):
+
+- A test asserting no module under `src/backend/services/` or
+  `src/backend/api/routes/billing*` imports `integrations/stripe`. That
+  converts an invariant currently held by nobody into one held by CI.
+- A startup assertion, or a check in the billing router, that refuses to serve
+  the mark-paid endpoint if a Stripe key is configured **and** a payment path
+  is wired — failing loudly rather than letting the copy go quietly false.
+- Deciding whether the mounted `/api/stripe` router should exist at all while
+  no product surface uses it.
 
 ---
 
@@ -881,20 +971,84 @@ where a generated score gets mistaken for a real one.
 
 ---
 
-## 5. Pages that explain what they no longer show — re-checked 2026-08-07
+## 5. Pages that explain what they no longer show — corrected 2026-08-07
 
-All seven still carry their note. One was stale and was corrected: the
-`/platform/referrals` empty state read *"none is offered until something stores
-one"*, which stopped being true the moment referral links got a table in this
-same batch. A fix that leaves the copy behind is the §6 failure repeating one
-surface over — the defect closes, the sentence describing it does not, and the
-next reader believes the sentence.
+> **This section listed seven pages and presented that as the set. It was a
+> subset.** A scan of `src/frontend/app/**/page.tsx` for honest-absence copy
+> returns **at least nineteen** pages carrying such a note — the seven below
+> plus `/billing`, `/rewards`, `/statements`, `/financial-control/tax`,
+> `/spend-governance`, `/portfolio`, `/training`, `/platform/crm`,
+> `/platform/referrals`, `/compliance/deal-committee`,
+> `/compliance/disclosures`, `/compliance/regulatory` and
+> `/compliance/training`.
+>
+> That matters because of how the omission was found. Four of the missing
+> pages — Rewards, Statements, Billing, Tax — were filed as bugs, repeatedly,
+> **by the person who wrote them**. This document was the place to check
+> whether a blank page was expected, and it said those pages were not in the
+> category. It was consulted and it answered wrongly.
+>
+> Same failure as the §6 defects table going stale twice, in a third form: not
+> a claim that rotted, but a list that was never complete and read as though it
+> were. A count stated with confidence — *"all seven"* — is the tell. Nothing
+> produced that seven; it was the length of a list somebody wrote once.
+>
+> Also corrected here: the entry `/referrals` appears to name the wrong page.
+> The note this section describes correcting lives on `/platform/referrals`.
+> Both routes exist. Both are listed below, separately, rather than one being
+> assumed to mean the other.
 
-Seven pages carry an on-screen note rather than a silent absence, so a reader
-does not have to wonder whether something is broken:
+### The distinction these pages must draw
+
+Three facts used to render identically as grey prose:
+
+1. **Not built** — the capability does not exist.
+2. **No data** — it works; this client has nothing to show.
+3. **Failed** — the read did not complete.
+
+`components/ui/capability-state.tsx` gives each a structurally distinct
+marker, so the difference survives a glance: `not_built` is a solid box with a
+heavy left rule, `no_data` is **dashed**, `failed` is a solid red box. The
+explanatory prose stays — it is good and has caught real defects — but it is
+no longer the only signal.
+
+`not_built` carries a modifier saying either what would **unblock** it or that
+it is **deliberate**, because "waiting on something" and "will not be built"
+are different answers to a reader deciding whether to keep asking.
+
+### Converted so far
+
+`/billing` · `/financial-control/tax` (aliased as `/tax`) · `/rewards` ·
+`/statements`
+
+### Still prose-only — to convert
 
 `/card-benefits` · `/compliance` · `/funding-rounds/[id]` · `/multi-tenant` ·
-`/platform/visionaudioforge` · `/referrals` · `/sandbox`
+`/platform/visionaudioforge` · `/referrals` · `/sandbox` ·
+`/spend-governance` · `/portfolio` · `/training` · `/platform/crm` ·
+`/platform/referrals` · `/compliance/deal-committee` ·
+`/compliance/disclosures` · `/compliance/regulatory` · `/compliance/training`
+
+### The register, and why it is checkable
+
+Every page rendering `CapabilityState` with `state="not_built"` must appear in
+the block below. `tests/unit/frontend/capability-state-register.test.ts` reads
+the source tree and this file and fails when they disagree — so a page
+declaring an unbuilt capability cannot go unlisted, and a listed route cannot
+quietly stop declaring one.
+
+This is the mechanism the section lacked. The previous list was maintained by
+remembering to update it, which is how it came to be missing twelve pages
+while asserting completeness.
+
+The check covers `not_built` only. `no_data` and `failed` are properties of a
+request, not of the product, and there is nothing about them to enumerate.
+
+<!-- capability-state:not-built:begin -->
+- `/billing` — usage metering; taking payment
+- `/financial-control/tax` — tax document generation
+- `/rewards` — best card per category
+<!-- capability-state:not-built:end -->
 
 ---
 
