@@ -333,9 +333,32 @@ this document was first written.
 | `EstimatedProgressTimeline.tsx` coaching `c3-1` | *"Schedule credit review at SBSS 160"* — a third inconsistent threshold, telling a client to wait for a number they cannot see. | **Fixed** 2026-08-05 |
 | `credit-builder.service.ts` roadmap | *"SBA Express loan pre-qualification"* at SBSS 140 and *"SBA 7(a) loan ($500K–$5M)"* at 200. Express sat outside the prescreen; it never touched loans above $350K. | **Fixed** 2026-08-05 |
 | `credit-optimizer.ts` | Titled itself *"SBA Threshold: 155"*, tested against 160, reported impact `160 - score`. Also read a null-score row as an SBSS of **0**. | **Fixed** 2026-08-05 |
-| `stacking-criteria.service.ts` `sc_004` | Gates Tier 2 on **SBSS ≥ 140** — two official revisions stale on a requirement that no longer exists. | Open |
-| `stacking-criteria.service.ts` `sc_008` | Gates Tier 3 on **SBSS ≥ 175**. No SBA basis found for this number. | Open |
-| `BusinessCreditScoresPanel.tsx` | Renders **"Not yet pulled"** for SBSS, implying a retrievable record and an omission by the advisor. Neither is true. | Open |
+| `stacking-criteria.service.ts` `sc_004` | Gates Tier 2 on **SBSS ≥ 140** — two official revisions stale on a requirement that no longer exists. | **Fixed** 2026-08-05 — criterion removed; re-verified 2026-08-07 |
+| `stacking-criteria.service.ts` `sc_008` | Gates Tier 3 on **SBSS ≥ 175**. No SBA basis found for this number. | **Fixed** 2026-08-05 — criterion removed; re-verified 2026-08-07 |
+| `BusinessCreditScoresPanel.tsx` | Renders **"Not yet pulled"** for SBSS, implying a retrievable record and an omission by the advisor. Neither is true. | **Fixed** — `scoreCardState` returns `not_obtainable`, card reads "Not obtainable on demand"; verified 2026-08-07 |
+
+**Every row above was re-checked on 2026-08-07, in both directions.** The three
+marked Open were all closed — two on 2026-08-05, one at an unrecorded date. The
+five marked Fixed were checked for regression and none had: the only surviving
+occurrence of "155" is in the threshold history, where it is correct.
+
+### This table has now gone stale twice
+
+The first time, per-row status was the fix. It was not enough, and the reason
+is worth stating: **a status column records what was true when somebody last
+looked, and nothing makes anybody look.** A row saying `Open` is indistinguish-
+able from a row saying `Open, checked yesterday`.
+
+So each row now carries the date it was verified, not just its state — the same
+rule this document already applies to every factual claim about a bureau. A row
+whose verification date is older than the fix it describes is visibly stale,
+which is the property `Open` alone never had.
+
+The deeper point, and the reason this keeps happening here specifically: this
+document warns about staleness in its own opening lines. Being *about* a
+failure mode confers no immunity from it. The `sc_004` and `sc_008` rows sat
+marked Open for two days after the criteria were deleted, inside the document
+whose first paragraph says a claim without a date is a defect.
 
 **The 504 error was a sample, not the population.** It was the only visible
 instance — on the page, in front of an advisor. Checking it surfaced two more
