@@ -45,7 +45,18 @@ test.describe('Never-wired pages', () => {
       await expect(page.getByRole('heading', { name: heading }).first()).toBeVisible({
         timeout: 30000,
       });
-      await expect(page.getByRole('heading', { name: 'Not implemented' })).toBeVisible();
+      // Was a heading reading "Not implemented". These three now carry a
+      // not-built marker instead, so the assertion is on the state rather
+      // than on the words — a test pinned to a sentence fails on a rewrite
+      // and passes on a regression that keeps the sentence.
+      //
+      // The `unblock` check is the part worth keeping: saying a capability
+      // is absent is cheap, and saying what would change that is the thing
+      // a reader actually needs. A marker that lost it would still look
+      // right here without it.
+      const marker = page.locator('[data-capability-state="not_built"]').first();
+      await expect(marker).toBeVisible();
+      await expect(marker).toContainText('Unblocked by:');
     });
   }
 

@@ -39,6 +39,7 @@ import { useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { toFundingRoundDetail, aprDaysRemaining } from '@/lib/funding-round-detail-view';
+import { CapabilityState } from '@/components/ui/capability-state';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -264,22 +265,33 @@ export default function FundingRoundDetailPage() {
       </div>
 
       {/* What this page no longer claims */}
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 space-y-2">
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 space-y-3">
         <h2 className="text-sm font-semibold text-gray-700">Not shown here</h2>
-        <ul className="text-xs text-gray-500 space-y-1.5 list-disc pl-4">
-          <li>
-            <strong className="text-gray-600">An advisor and a target close date.</strong>{' '}
-            Both were literals. A business carries an advisor, the round does not, and there
-            is no target close field on a funding round at all.
-          </li>
-          <li>
-            <strong className="text-gray-600">Round economics.</strong> A program fee, a
-            funding fee, net capital and an effective rate were shown per round. Cost
-            calculations are real but are keyed to a business rather than a round, so
-            attributing one here would invent the attribution even where the figures are
-            genuine.
-          </li>
-        </ul>
+
+        <CapabilityState
+          state="not_built"
+          size="section"
+          title="An advisor and a target close date"
+          detail="Both were literals. A business carries an advisor; the round does not, and there is no target close field on a funding round at all."
+          unblock={{
+            kind: 'unblocked_by',
+            text: 'a target-close column on the round, and a decision about whether an advisor belongs to the round or is inherited from the business.',
+          }}
+        />
+
+        <CapabilityState
+          state="not_built"
+          size="section"
+          title="Round economics"
+          detail="A program fee, a funding fee, net capital and an effective rate were shown per round. Cost calculations are real, but they are keyed to a business rather than a round."
+          unblock={{
+            kind: 'unblocked_by',
+            // Worth stating as a hazard rather than a gap: the figures exist
+            // and are correct, so showing them here would look right. What
+            // would be invented is the attribution, not the number.
+            text: 'attributing a cost calculation to a round. The figures are genuine today — what is missing is the link, so putting them here would invent the attribution rather than the amount.',
+          }}
+        />
       </div>
     </div>
   );

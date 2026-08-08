@@ -33,6 +33,7 @@ import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { apiClient } from '@/lib/api-client';
 import { toCardBenefitsView, type BenefitView } from '@/lib/card-benefits-view';
 import { toCreditBuilderClients } from '@/lib/credit-view';
+import { CapabilityState } from '@/components/ui/capability-state';
 
 // ─── Issuer contact reference ────────────────────────────────────────────────
 //
@@ -405,20 +406,32 @@ export default function CardBenefitsPage() {
       )}
 
       {/* ── What this page no longer claims ────────────────────── */}
-      <div className="rounded-xl border border-gray-800 bg-gray-950 p-5 space-y-2">
+      <div className="rounded-xl border border-gray-800 bg-gray-950 p-5 space-y-3">
         <h2 className="text-sm font-semibold text-gray-300">Not shown here</h2>
-        <ul className="text-xs text-gray-500 space-y-1.5 list-disc pl-4">
-          <li>
-            <strong className="text-gray-400">Logging a cancellation.</strong> The button
-            posted to an endpoint that does not exist, ignored the failure and updated the
-            screen anyway, so a card showed as cancelled with nothing recorded.
-          </li>
-          <li>
-            <strong className="text-gray-400">Keep, negotiate or cancel advice.</strong>{' '}
-            Those recommendations were fixed strings in the fixture. Whether a client should
-            keep paying an annual fee is advice about their money, and nothing computes it.
-          </li>
-        </ul>
+
+        <CapabilityState
+          tone="dark"
+          state="not_built"
+          size="section"
+          title="Logging a cancellation"
+          detail="The button posted to an endpoint that does not exist, ignored the failure and updated the screen anyway — so a card showed as cancelled with nothing recorded."
+          unblock={{
+            kind: 'unblocked_by',
+            text: 'an endpoint that records a cancellation, and a button that reports a failed write instead of painting success over it.',
+          }}
+        />
+
+        <CapabilityState
+          tone="dark"
+          state="not_built"
+          size="section"
+          title="Keep, negotiate or cancel advice"
+          detail="Those recommendations were fixed strings in the fixture."
+          unblock={{
+            kind: 'unblocked_by',
+            text: 'a computation over the fee actually charged and the benefits actually used. Whether a client should keep paying an annual fee is advice about their money, so it waits on real inputs rather than a plausible default.',
+          }}
+        />
       </div>
     </div>
   );

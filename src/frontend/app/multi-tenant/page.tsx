@@ -41,6 +41,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { apiClient } from '@/lib/api-client';
+import { CapabilityState } from '@/components/ui/capability-state';
 import {
   toTenantAdminRows,
   toUsageRows,
@@ -397,37 +398,59 @@ export default function MultiTenantPage() {
               </div>
 
               {/* ── What this page no longer claims ─────────────── */}
-              <div className="rounded-xl border border-gray-800 bg-gray-950 p-5 space-y-2">
+              <div className="rounded-xl border border-gray-800 bg-gray-950 p-5 space-y-3">
                 <h3 className="text-sm font-semibold text-gray-300">Not shown here</h3>
-                <ul className="text-xs text-gray-500 space-y-1.5 list-disc pl-4">
-                  <li>
-                    <strong className="text-gray-400">
-                      Subscription invoices and billing status.
-                    </strong>{' '}
-                    Invoices are keyed to a business, not a tenant — they are what a
-                    tenant bills its clients. Nothing records what the platform bills the
-                    tenant, so the invoice rows and the paid and overdue badges are gone
-                    rather than recreated.
-                  </li>
-                  <li>
-                    <strong className="text-gray-400">Advisor and client counts.</strong>{' '}
-                    Both are countable, but this endpoint does not return them, and
-                    counting them from the browser would mean reading records outside
-                    this tenant.
-                  </li>
-                  <li>
-                    <strong className="text-gray-400">Activity log.</strong> Audit records
-                    exist and are tenant-scoped, but nothing serves them per tenant to an
-                    administrator yet.
-                  </li>
-                  <li>
-                    <strong className="text-gray-400">Impersonation.</strong> The endpoint
-                    behind it returns a token string, starts no session and writes no
-                    audit record, while the dialog stated that impersonation is logged and
-                    audited. A control described but not implemented is worse than an
-                    absent one.
-                  </li>
-                </ul>
+
+                <CapabilityState
+                  tone="dark"
+                  state="not_built"
+                  size="section"
+                  title="Subscription invoices and billing status"
+                  detail="Invoices are keyed to a business, not a tenant — they are what a tenant bills its clients. The invoice rows and the paid and overdue badges are gone rather than recreated."
+                  unblock={{
+                    kind: 'unblocked_by',
+                    text: 'a record of what the platform bills the tenant. Nothing holds that today, and reusing the client-facing invoices would report the wrong party’s money.',
+                  }}
+                />
+
+                <CapabilityState
+                  tone="dark"
+                  state="not_built"
+                  size="section"
+                  title="Advisor and client counts"
+                  detail="Both are countable; this endpoint does not return them."
+                  unblock={{
+                    kind: 'unblocked_by',
+                    text: 'the endpoint returning the counts. Doing it in the browser instead would mean reading records outside this tenant, which is why it is not the shortcut it looks like.',
+                  }}
+                />
+
+                <CapabilityState
+                  tone="dark"
+                  state="not_built"
+                  size="section"
+                  title="Activity log"
+                  detail="Audit records exist and are tenant-scoped."
+                  unblock={{
+                    kind: 'unblocked_by',
+                    text: 'an endpoint that serves them per tenant to an administrator. The records are already there — this is a read path, not a new store.',
+                  }}
+                />
+
+                <CapabilityState
+                  tone="dark"
+                  state="not_built"
+                  size="section"
+                  title="Impersonation"
+                  // The one on this page that was actively dangerous rather
+                  // than merely absent: the dialog asserted an audit trail
+                  // that no code wrote.
+                  detail="The endpoint returns a token string, starts no session and writes no audit record — while the dialog stated that impersonation is logged and audited. A control described but not implemented is worse than an absent one."
+                  unblock={{
+                    kind: 'unblocked_by',
+                    text: 'a real session exchange and an audit write, in that order. Until both exist the control stays absent rather than described, because the description was the harm.',
+                  }}
+                />
               </div>
             </div>
           )}
