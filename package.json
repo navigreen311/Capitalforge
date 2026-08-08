@@ -11,7 +11,7 @@
     "typecheck:src": "tsc --noEmit -p tsconfig.src.json",
     "check:prod-imports": "tsx scripts/check-production-imports.ts",
     "build:backend": "cd src/backend && tsc",
-    "build:frontend": "cd src/frontend && next build",
+    "build:frontend": "tsx scripts/next-build.ts",
     "build:frontend:prod": "tsx scripts/next-prod.ts build",
     "start:frontend:prod": "tsx scripts/next-prod.ts start -p 3000",
     "test": "vitest run",
