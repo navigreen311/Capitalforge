@@ -146,6 +146,19 @@ jobs:
       - name: Type check src with noUncheckedIndexedAccess
         run: npm run typecheck:src
 
+      # This job installs with a plain `npm ci`, so devDependencies are
+      # present and a runtime import of one resolves here exactly as it
+      # does on a developer's machine. The production image installs with
+      # `npm ci --omit=dev` and does not. Nothing else in CI can see that
+      # difference, which is why a broken /api/docs/openapi.json survived
+      # every job for as long as it did.
+      #
+      # A step in this job rather than a job of its own: branch protection
+      # requires a fixed set of named checks, and a new job would not be
+      # among them, so its failures would not block a merge.
+      - name: Check production imports resolve without devDependencies
+        run: npm run check:prod-imports
+
   # ─────────────────────────────────────────────────────────────
   # Job 2: Unit Tests
   # Fast tests that do not require database or Redis.
