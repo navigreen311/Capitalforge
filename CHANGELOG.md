@@ -74,7 +74,81 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rots. Three options are set out with trade-offs; the doc asks for the
   disagreement to be enumerated before any of them is chosen.
 
+### Removed
+
+- **`chargebackRatio` is gone from the spend-governance risk summary.**
+  ⚠️ **Breaking change** to `GET /api/businesses/:id/transactions/risk-summary`.
+  The field was `flagged / total` — not a chargeback rate. **No chargeback
+  data exists anywhere in this system**; there is no such column in the Prisma
+  schema. Rendered to an advisor it asserted that a client had chargebacks on
+  half their transactions, from a numerator counting something else entirely.
+  It is not renamed to `flaggedRatio`, because `flaggedCount` and
+  `totalTransactions` are both already in the shape and a bare scalar with its
+  denominator detached is the form that invited the misread: 0.5 from a
+  denominator of 2 rendered identically to 0.5 from 200. Callers render
+  "N of M". The only consumer was one unit-test assertion.
+
+- **`CHARGEBACK_RATIO_THRESHOLD` no longer drives `riskLevel`.** Comparing a
+  flag rate against the Visa chargeback standard of 1 % is not a mis-tuned
+  threshold — the two are different quantities and 0.01 means nothing about
+  flag rates. Its practical effect was that **any single flagged transaction
+  in a book of fewer than 100 forced `critical`**, making the level nearly
+  constant. `riskLevel` is now driven only by counts of categorically-defined
+  events and by a single transaction's own worst-case score, never by a rate:
+  `cashLikeCount > 0` → critical; `suspiciousRailCount > 0` or
+  `maxRiskScore >= 60` → high; `flaggedCount > 0` or `maxRiskScore >= 40` →
+  moderate. Counts mean the same thing at n=1 as at n=200, so no
+  minimum-sample suppression was added — one cash-like withdrawal on a
+  two-week-old account is critical on its first day, which is exactly when a
+  minimum would have blanked the screen. The sample travels in the new
+  `riskLevelBasis` instead.
+
+### Added
+
+- **`flaggedTransactions` on the risk summary — the rows behind
+  `flaggedCount`.** The three existing category arrays are non-exhaustive
+  over flagged rows *by construction*, not by fixture accident: each keys off
+  a different field (`riskScore`, `isCashLike`, `mcc`) while `flagged` is a
+  fourth, independent one. A $50 Zelle transfer at MCC 5812 flags on the
+  merchant-name heuristic, scores 40, and appears in none of the three. The
+  summary reported `flaggedCount: 1` with no array containing that row.
+  `highRiskCount` and `suspiciousRailCount` are added for the same reason —
+  those arrays are capped samples, and the counts beside them are exact. The
+  cap now ships as `sampleLimit` rather than being applied silently.
+  See `docs/backlog/spend-governance-underived-flags.md`.
+
+- **`riskLevelBasis` — the terms that produced the risk level.** A verdict
+  with no evidence beside it cannot be checked, and on this surface the
+  verdict concerned an arithmetic artifact rather than a network-rule
+  violation. The basis carries the sample it rests on, so a reader discounts
+  a small book themselves instead of the system hiding it from them.
+
 ### Fixed
+
+- **`averageRiskScore: 0` no longer reports "safest possible" when nothing has
+  been scored.** `riskScore` is nullable and the seed writes it null, but the
+  mean summed with `?? 0` over *every* row — so an unscored book averaged to
+  the lowest value the scale can express. The drift was in the dangerous
+  direction: one transaction scored 95 among nine unscored averaged 9.5 and
+  read low. The average and the new `maxRiskScore` are now computed over
+  scored rows only, are `null` when none is scored, and ship with
+  `scoredCount` so the denominator is visible. The page renders "Not scored",
+  not a number.
+
+- **The flagged transaction is visible on `/spend-governance`.** Three of the
+  table's six columns read field names present on no transaction record —
+  `description` and `category` (both belong to the `Complaint` model) and
+  `riskFlag` (which existed nowhere in the repository but the two lines
+  referencing it). They rendered "—" over data sitting in the response. The
+  record carries `merchantName`, `mccCategory` and `flagged`/`flagReason`, and
+  the table now reads those: **the flagged row is marked, with the reason
+  text that explains the accusation**, alongside its MCC and cash-like status.
+
+- **The risk summary renders as a summary, not as `JSON.stringify` output.**
+  Same defect as `/simulator`: the service returned a structured object and
+  the page printed it. Now a risk-level banner carrying its own basis, plus
+  stat tiles for transactions, flagged, cash-like and risk score — with every
+  count shown against its denominator at every sample size.
 
 - **`cancelled` no longer counts as an active application.** The dashboard's
   headline "applications" figure was `status NOT IN (approved, declined)`, so
