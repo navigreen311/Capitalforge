@@ -185,6 +185,70 @@ describe('what the form saves is what the record holds', () => {
   });
 });
 
+describe('what this endpoint returns can be sent straight back to it', () => {
+  // The optimizer reads this list, keeps the cards its own catalogue cannot
+  // show, and posts them back untouched on save — deliberately, because the
+  // save replaces the record and dropping them would delete cards on behalf
+  // of an advisor who was never shown them.
+  //
+  // That round trip was broken from the day it was written. `creditLimit` is
+  // a Prisma Decimal, so the GET returned "25000" as a string while the POST
+  // schema wants a number; the save 400'd with "Invalid held-card list" for
+  // any client holding an unrepresented card with a limit on it.
+  //
+  // Nothing caught it because `held_cards` was empty in every tenant. With no
+  // rows nothing is ever unrepresented, the branch never ran, and the tests
+  // above only ever posted numbers they had written themselves — never the
+  // strings this endpoint hands out. The first seeded rows hit it at once.
+  //
+  // Asserted as a round trip rather than as a type, so it still fails if the
+  // two sides drift apart again for some other reason.
+  it('round-trips its own GET payload through POST', async () => {
+    await api(`/clients/${businessId}/held-cards`, {
+      method: 'POST',
+      body: JSON.stringify({
+        cards: [
+          {
+            issuer: 'Chase',
+            productName: 'Ink Business Cash',
+            openedAt: '2025-01-09T00:00:00.000Z',
+            creditLimit: 25000,
+          },
+        ],
+      }),
+    });
+
+    const read = await api(`/clients/${businessId}/held-cards`);
+    expect(read.status).toBe(200);
+
+    const asReturned = read.body.data.cards as Array<Record<string, unknown>>;
+    expect(asReturned).toHaveLength(1);
+
+    // A numeric column must not leave the API as a string.
+    expect(typeof asReturned[0]!['creditLimit']).toBe('number');
+
+    const replay = await api(`/clients/${businessId}/held-cards`, {
+      method: 'POST',
+      body: JSON.stringify({
+        cards: asReturned.map((c) => ({
+          issuer: c['issuer'],
+          productName: c['productName'] ?? undefined,
+          openedAt: c['openedAt'] ?? null,
+          creditLimit: c['creditLimit'] ?? null,
+        })),
+        replace: true,
+      }),
+    });
+
+    expect(replay.status, 'the GET payload must be valid input to the POST').toBe(200);
+    expect(replay.body.data.written).toBe(1);
+
+    const rows = await readBack();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.creditLimit?.toString()).toBe('25000');
+  });
+});
+
 describe('refusals', () => {
   it('rejects a malformed card without touching the record', async () => {
     await api(`/clients/${businessId}/held-cards`, {

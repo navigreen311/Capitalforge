@@ -780,10 +780,21 @@ const SEED_PHONES = {
     {
       issuer: 'American Express',
       productName: 'Blue Business Cash',
-      // Null on purpose: a client often knows they hold a card without
-      // recalling the month, and such a card is unplaceable in the 5/24
-      // window rather than counted or ignored.
-      openedAt: null,
+      // Dated, though the undated case is the more interesting one.
+      //
+      // This started as `null` to exercise the card a client holds without
+      // recalling the month — unplaceable in the 24-month window, so 5/24
+      // reads as an upper bound. But biz1 is the client the held-cards e2e
+      // test works against, and the optimizer's save message branches on
+      // whether any *ticked* card is undated: with one, it reports "5/24 will
+      // read as an upper bound" instead of "counting toward 5/24", and the
+      // test asserts the second. A card on the record comes back ticked, so
+      // seeding an undated one here silently changed what that flow reports.
+      //
+      // The undated path is covered where it belongs — by
+      // `tallyHeldCardsForFiveTwentyFour` in the unit tests, which assert the
+      // arithmetic directly rather than through a rendered sentence.
+      openedAt: d('2024-06-20'),
       creditLimit: 15000,
     },
     {

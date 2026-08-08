@@ -54,10 +54,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   — rather than a bare `create`, because a hand-built fixture can encode a
   shape the service would never produce and then pass forever without
   exercising anything (`seed-txn-002` is that mistake; see
-  `docs/backlog/spend-governance-underived-flags.md`). One row has no opening
-  date, which is the unplaceable-in-5/24 case, and one deliberately fails to
-  resolve so the unmatched state is exercised by the fixture rather than only
-  by a unit test.
+  `docs/backlog/spend-governance-underived-flags.md`). One row deliberately
+  fails to resolve, so the unmatched state is exercised by the fixture rather
+  than only by a unit test.
+
+  All three rows carry an opening date, and the card chosen is not the one
+  `held-cards-persist.spec.ts` uses. Neither is incidental: that spec works
+  against this same client, and its assertions are sensitive to the client's
+  held-card state. Seeding its fixture card falsified the precondition that
+  ticking a checkbox does not write to a record; seeding an undated card
+  changed which message the save flow reports, because the optimizer branches
+  on whether any ticked card lacks a date. Both failed for the right reason —
+  the seed was wrong, not the test — and both are the same lesson: **seed data
+  landing on a client an end-to-end test works against is an input to that
+  test.**
 
 ### Changed
 
