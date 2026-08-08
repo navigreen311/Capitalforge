@@ -210,6 +210,90 @@ describe('replay, lockout and recovery', () => {
   });
 });
 
+// Placed here deliberately. These tests reset `mfaLastUsedStep`, and the replay
+// block above asserts on the step left behind by the successful exchange before
+// it, so sitting between the two breaks that chain. Ending on a failed
+// verification leaves the row at null, which is what the disabling block wants.
+describe('clock skew', () => {
+  // The defect this exists for, and it was live in production code rather than
+  // only in tests.
+  //
+  // The service asked otplib for `window: 1`, intending one step of tolerance
+  // either side. otplib v13 has no `window` option — the tolerance option is
+  // `epochTolerance`, in seconds, defaulting to 0 — so the request was ignored
+  // and a code was valid only inside its own 30-second step. A user reading a
+  // code at second 29 and submitting it at second 31 was told it was invalid,
+  // and no allowance existed for a device clock differing from the server's.
+  //
+  // It surfaced as an intermittent CI failure: the enrolment code straddled a
+  // step boundary about once in eight runs on a loaded machine, and nine tests
+  // failed downstream of the one that mattered.
+  //
+  // The type never caught it because the service declares otplib's shape in a
+  // hand-written interface, and that interface named `window`. The compiler
+  // checked the call against our model of the library rather than the library.
+  it('accepts a code minted one step ago', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const previousStep = totp({ secret, epoch: nowSeconds - 30 });
+
+    // Enrolled and not yet used this step, so only tolerance decides this.
+    await prisma.user.update({
+      where: { id: userId },
+      data: { mfaLastUsedStep: null, mfaFailedAttempts: 0, mfaLockedUntil: null },
+    });
+
+    await expect(twoFactor.verifyCode(userId, previousStep)).resolves.toBeUndefined();
+  });
+
+  // Tolerance and the replay guard are coupled, and adding the first without
+  // revisiting the second opens a hole rather than closing one.
+  //
+  // The guard used to record `currentStep()` — the step we verified in. While
+  // tolerance was zero that was always the token's own step too, so the guard
+  // was right for a reason it did not state. With one step of tolerance the two
+  // come apart: a code from step N is still verifiable during step N+1, and a
+  // guard reading the clock sees N+1 > N, concludes the code is fresh, and lets
+  // an observed code through a second time.
+  //
+  // This asserts the recorded step is the TOKEN's, which is the difference
+  // between the two implementations. Asserting only that a replay is refused
+  // would pass under both, because a same-step replay is caught either way.
+  it('records the step the token came from, not the step it was verified in', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const tokenStep = Math.floor((nowSeconds - 30) / 30);
+    const previousStep = totp({ secret, epoch: nowSeconds - 30 });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { mfaLastUsedStep: null, mfaFailedAttempts: 0, mfaLockedUntil: null },
+    });
+
+    await twoFactor.verifyCode(userId, previousStep);
+
+    const row = await readUser();
+    expect(row.mfaLastUsedStep).toBe(tokenStep);
+    expect(row.mfaLastUsedStep).not.toBe(currentStep());
+
+    // And the code is now spent, though the clock has moved past its step.
+    await expect(twoFactor.verifyCode(userId, previousStep)).rejects.toThrow(/already been used/i);
+  });
+
+  it('still refuses a code from far outside the tolerance', async () => {
+    // Tolerance is one step, not unlimited. A code from five minutes ago is a
+    // replayed code, and widening the window to hide a flake would have traded
+    // a test failure for a security hole.
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const longExpired = totp({ secret, epoch: nowSeconds - 300 });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { mfaLastUsedStep: null, mfaFailedAttempts: 0, mfaLockedUntil: null },
+    });
+
+    await expect(twoFactor.verifyCode(userId, longExpired)).rejects.toThrow(/not valid/i);
+  });
+});
+
 describe('disabling requires a code', () => {
   it('refuses to disable on a wrong code', async () => {
     await prisma.user.update({
