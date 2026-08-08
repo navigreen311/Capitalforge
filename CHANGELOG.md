@@ -11,6 +11,79 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Three page states are now structurally distinguishable.**
+  `components/ui/capability-state.tsx` renders `not_built`, `no_data` and
+  `failed` with different **shape**, not only different colour or wording:
+  `not_built` is a solid box with a heavy left rule, `no_data` is **dashed**,
+  `failed` is a solid red box. The dashed border is the load-bearing choice —
+  it is the only one that reads as "this works, there is nothing in it",
+  which is precisely the state that was being misread as breakage. The state
+  label is real text, so it reaches a screen reader as a word rather than as
+  a colour.
+
+  Four working pages — Rewards, Statements, Billing, Tax — were filed as bugs,
+  repeatedly, **by the person who wrote them**, because "this capability is
+  not built" and "this client has no invoices" rendered as the same grey
+  paragraph. An advisor, who did not build the system, would do worse. The
+  explanatory prose stays exactly where it was; it is good and has caught real
+  defects. It is simply no longer the only signal.
+
+  `not_built` carries a modifier stating either what would **unblock** it or
+  that it is **deliberate** — a fourth fact without a fourth colour, because a
+  fourth colour would dilute the recognition the component exists to create.
+
+  **Billing is the page that proves the design.** Its "What is not here" card
+  held three identically-styled paragraphs saying three different things:
+  commissions (`no_data` — table wired, no rows), usage metering (`not_built`),
+  and taking payment (`not_built`, deliberate). The page-level defect,
+  reproduced inside a single card.
+
+- **The unbuilt-capability register cannot drift.**
+  `tests/unit/frontend/capability-state-register.test.ts` reads the app tree
+  and `docs/gaps.md`, and fails when they disagree in either direction: a page
+  rendering `state="not_built"` that is unlisted, or a listed route that no
+  longer renders one. Comment-stripping is load-bearing rather than hygiene —
+  several scanned files discuss `not_built` in prose, and matching raw text
+  would count an explanation of the rule as an instance of it. All three
+  failure modes were verified red before the change was committed, including
+  deletion of the register block itself.
+
+### Changed
+
+- **`gaps.md` §5 listed seven pages and presented that as the set — it was a
+  subset of at least nineteen.** The four pages filed as bugs were all absent
+  from it, so the document that existed to answer "is this page broken or
+  empty?" was consulted and answered wrongly. Same failure as the §6 defects
+  table going stale twice, in a third form: not a claim that rotted, but a
+  list that was never complete and read as though it were. The confident count
+  — *"all seven"* — is the tell; nothing produced that number but the length
+  of a list somebody wrote once. Also corrected: the `/referrals` entry appears
+  to have named the wrong page, since the note it describes lives on
+  `/platform/referrals`. Both are now listed separately.
+
+- **`gaps.md` §3b records that "no money moves" is true for reasons that can
+  change silently.** `/billing`'s claim is accurate and was verified end to
+  end — the mark-paid handler returns an explicit `charged: false`. But the
+  capability is *present*, not absent: a complete Stripe client
+  (`paymentIntents`, `refunds`, `subscriptions`) sits in
+  `integrations/stripe/` with its router mounted, stopped only by nothing
+  importing it and `STRIPE_SECRET_KEY` being unset. Setting that key in an
+  environment — an ordinary act, in a file no reviewer reads as product
+  surface — would put this system one import from debiting a card while every
+  reassuring sentence still rendered unchanged. Nothing would fail. The
+  `not_built` marker on that page therefore names the unfollowed import and
+  the unset key rather than implying the capability does not exist.
+
+- **`gaps.md` §2e records usage metering**, absent from the document until
+  now, with the quota figures the page used to invent: 87,400 of 100,000 API
+  calls, 48 of 50 deals, 12 of 12 seats against a named Enterprise plan. The
+  shape is the point — not round invented totals but *ratios with
+  denominators against a named tier, two near their limit*. A fabricated total
+  is obvious once questioned; a fabricated ratio implies someone counted,
+  repeatedly, over time.
+
+### Added
+
 - **`/rewards` shows the cards a client holds and what each earns.** The page
   was correctly empty — the gap was data, not rendering — but "correct and
   blank" is indistinguishable from broken, which is what made it worth

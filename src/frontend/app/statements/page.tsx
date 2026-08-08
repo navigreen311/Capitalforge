@@ -24,6 +24,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { loadJson, toLoadError } from '@/lib/load-json';
+import { CapabilityState } from '@/components/ui/capability-state';
 import {
   toStatementRows,
   toAnomalyRows,
@@ -174,10 +175,17 @@ export default function StatementsPage() {
           </div>
 
           {rows.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No statement has been imported for this client. Statements arrive through the
-              import endpoint; nothing is fetched from an issuer.
-            </p>
+            // No data, not a missing capability. The import endpoint and the
+            // detector both work; this client has simply had nothing put
+            // through them. "Nothing is fetched from an issuer" read as a
+            // hole in the product and is really a statement about how data
+            // arrives, so the marker says which of the two this is before
+            // the sentence gets a chance to be misread.
+            <CapabilityState
+              state="no_data"
+              title="No statement imported for this client"
+              detail="Statements arrive through the import endpoint; nothing is fetched from an issuer. Import one and it will appear here, with whatever the detector finds on it."
+            />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
               <table className="w-full text-sm">
@@ -219,10 +227,15 @@ export default function StatementsPage() {
             </h2>
 
             {anomalies.length === 0 ? (
-              <p className="text-sm text-gray-500">
-                The check found nothing on the statements imported for this client. That is the
-                result of a check that ran, not a statement that no issue exists.
-              </p>
+              // A check that ran and found nothing is a result, not an
+              // absence — the distinction the existing sentence already
+              // draws, now visible before it is read.
+              <CapabilityState
+                state="no_data"
+                size="section"
+                title="No anomaly found"
+                detail="The check ran against the statements imported for this client and found nothing. That is the result of a check, not a statement that no issue exists."
+              />
             ) : (
               <ul className="space-y-2">
                 {anomalies.map(({ statementId, anomaly }, i) => (

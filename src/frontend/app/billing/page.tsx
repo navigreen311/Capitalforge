@@ -22,6 +22,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { loadJson, toLoadError } from '@/lib/load-json';
+import { CapabilityState } from '@/components/ui/capability-state';
 import {
   toInvoiceRows,
   isOverdue,
@@ -249,10 +250,11 @@ export default function BillingPage() {
           )}
 
           {invoices.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No invoice has been raised for this client. Invoices are generated through the
-              billing API against a deal structure and its fee schedule.
-            </p>
+            <CapabilityState
+              state="no_data"
+              title="No invoice raised for this client"
+              detail="Invoices are generated through the billing API against a deal structure and its fee schedule. The Generate Invoice button above does exactly that."
+            />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
               <table className="w-full text-sm">
@@ -306,21 +308,45 @@ export default function BillingPage() {
             className="rounded-xl border border-gray-200 bg-white p-5 space-y-2"
           >
             <h2 className="text-sm font-semibold text-gray-900">What is not here</h2>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              <strong>Commissions.</strong> The page showed amounts owed to named partners and
-              advisors, with approval statuses and due dates, from literals. They are rows in
-              commission_records now — created against an invoice through the API and listed at
-              /api/commissions — and none has been created for this tenant, which is why none
-              appears.
-            </p>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              <strong>Usage metering.</strong> It reported 87,400 of 100,000 API calls, 48 of 50
-              deals and 12 of 12 seats against an Enterprise plan. Nothing meters usage.
-            </p>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              <strong>Taking payment.</strong> Marking an invoice paid records that it was paid.
-              It does not charge anything — no card is debited and no money moves.
-            </p>
+
+            {/* Three paragraphs used to sit here, identically styled, saying
+                three different things: one capability that works and has no
+                rows, one that does not exist, and one that is absent on
+                purpose. That collapse is the page-level defect reproduced
+                inside a single card. */}
+
+            <CapabilityState
+              state="no_data"
+              size="section"
+              title="Commissions"
+              detail="Rows in commission_records, created against an invoice through the API and listed at /api/commissions. None has been created for this tenant, which is why none appears. The page used to show amounts owed to named partners and advisors, with approval statuses and due dates, from literals."
+            />
+
+            <CapabilityState
+              state="not_built"
+              size="section"
+              title="Usage metering"
+              detail="Nothing meters usage. The page used to report 87,400 of 100,000 API calls, 48 of 50 deals and 12 of 12 seats against an Enterprise plan."
+              unblock={{
+                kind: 'unblocked_by',
+                text: 'something that counts API calls, deals and seats, and a plan record to count them against.',
+              }}
+            />
+
+            <CapabilityState
+              state="not_built"
+              size="section"
+              title="Taking payment"
+              detail="Marking an invoice paid records that it was paid. No card is debited and no money moves — the mark-paid endpoint returns charged: false, and stripePaymentId is a reference the caller supplies rather than one this system obtained."
+              unblock={{
+                kind: 'deliberate',
+                // Precise about WHY it cannot happen, because the reason is
+                // not "the capability is absent". A configured key and one
+                // import would make every reassuring sentence on this page
+                // false without changing a line of this file.
+                text: 'no billing code calls Stripe. A full Stripe client exists at integrations/stripe (paymentIntents, refunds, subscriptions) and its router is mounted, but nothing outside that folder imports it and STRIPE_SECRET_KEY is unset — getStripeClient() throws STRIPE_NOT_CONFIGURED. Setting the key and adding one import would make this claim false silently; see gaps.md.',
+              }}
+            />
           </section>
         </>
       )}
