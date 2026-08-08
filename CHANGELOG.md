@@ -9,6 +9,71 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`/rewards` shows the cards a client holds and what each earns.** The page
+  was correctly empty — the gap was data, not rendering — but "correct and
+  blank" is indistinguishable from broken, which is what made it worth
+  flagging. `GET /api/businesses/:id/rewards/held-cards` returns each
+  `HeldCard` resolved against the rate catalogue, with its full per-category
+  tier structure and caps. A cap is part of a rate: 5% on the first $25,000 is
+  not 5%, and omitting it overstates the earn on exactly the category a client
+  spends most in.
+
+  **An unmatched card is listed with the reason, never dropped and never given
+  a default rate.** `HeldCard.issuer` and `productName` are free text with no
+  foreign key to any catalogue, so resolution is string matching and
+  non-resolution is the common case, not the edge case — eighteen catalogue
+  entries against open-ended advisor typing. Dropping an unresolved card makes
+  it invisible on the client's own page, because a list always looks complete;
+  substituting a flat rate states a number about their money produced by a
+  failed lookup. Matching is conservative in the same spirit: a product name
+  matching two cards from one issuer equally well is reported ambiguous, naming
+  both, rather than resolved to whichever sorted first.
+
+  Issuer folding reuses `normalizeIssuerSlug` from `statement-normalizer.ts`
+  — now exported rather than copied, because a second issuer map would drift
+  from the first without anything failing. `catalogIssuerSlugs()` exists so a
+  test asserts the two vocabularies still agree; that exact drift already
+  happened once between the rules engine and the card catalogue
+  (`lake_michigan` against `lake_michigan_cu`), where a `Record` lookup
+  resolved the mismatch to `undefined` and read as "no special handling".
+
+  **Not included, deliberately: best-card-per-category.** The optimisation
+  endpoint ranks the entire catalogue — every card on the market — which
+  answers a shopping question, and framed as advice for a named client it
+  implies they hold cards they do not. Routing over cards they *do* hold needs
+  per-category spend, and `SpendTransaction.mccCategory` comes from
+  `MCC_RISK_MAP`, a different vocabulary from the optimiser's thirteen
+  `MccCategory` values. Mapping one onto the other carelessly produces
+  confident routing advice computed from mis-bucketed spend.
+
+- **Three attested `HeldCard` rows for the seeded client.** The table had zero
+  rows, tenant-wide. They are written through
+  `createHeldCardsService(...).record` — the path the attestation endpoint uses
+  — rather than a bare `create`, because a hand-built fixture can encode a
+  shape the service would never produce and then pass forever without
+  exercising anything (`seed-txn-002` is that mistake; see
+  `docs/backlog/spend-governance-underived-flags.md`). One row has no opening
+  date, which is the unplaceable-in-5/24 case, and one deliberately fails to
+  resolve so the unmatched state is exercised by the fixture rather than only
+  by a unit test.
+
+### Changed
+
+- `docs/backlog/two-card-catalogues.md` scopes a problem found on the way in
+  and **not fixed**: two card catalogues with overlapping-but-unequal sets and
+  nothing keeping them honest. 23 rows in `prisma.CardProduct` carry one flat
+  `rewardsRate` with the tier structure trapped in unparseable prose
+  (`"4x on top 2 eligible spend categories each billing cycle (first $150K/yr)"`);
+  18 cards in `CARD_CATALOG` carry real `rewardsTiers` with `annualCap`s. The
+  optimizer and held-card matching read the constant; the card list and
+  eligibility read the table; no test, constraint or build step compares them.
+  Same shape as `scripts/track-migration-impact.ts` — a copy with nothing
+  checking it against the original, which keeps answering plausibly after it
+  rots. Three options are set out with trade-offs; the doc asks for the
+  disagreement to be enumerated before any of them is chosen.
+
 ### Fixed
 
 - **`cancelled` no longer counts as an active application.** The dashboard's

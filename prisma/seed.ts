@@ -18,6 +18,9 @@ import { seedCardProducts } from './seeds/card-products.js';
 // rather than copied: a disclosure is legal text, and two copies of it that
 // can drift is the wrong shape for something a client is handed.
 import { SEED_TEMPLATES } from '../src/backend/services/disclosure-cms.service.js';
+// Held cards are written through the service that records an attestation,
+// not with a bare create — see the note at the seed block itself.
+import { createHeldCardsService } from '../src/backend/services/held-cards.service.js';
 
 const prisma = new PrismaClient();
 
@@ -733,6 +736,75 @@ const SEED_PHONES = {
       create: benefit,
     });
   }
+
+  // ── Held cards ───────────────────────────────────────────────
+  //
+  // Cards biz1 is on record as holding. Written through
+  // `createHeldCardsService(...).record` — the same path the attestation
+  // endpoint uses — rather than a direct `heldCard.create`. A fixture
+  // built by hand can encode a shape the service would never produce,
+  // and then the test that reads it passes forever without exercising
+  // anything. `seed-txn-002` in this same file is that mistake;
+  // `docs/backlog/spend-governance-underived-flags.md` describes it.
+  //
+  // `record` generates its own ids, so re-running is guarded on the
+  // (business, issuer, productName) triple rather than upserted on a key
+  // the service does not accept.
+  //
+  // The third row is the one worth having. "Business Cash Preferred" is
+  // not a Chase product and resolves to nothing, so the page carries a
+  // live example of the unmatched state — the common case against
+  // open-ended advisor typing, and the state most likely to be quietly
+  // dropped by a later change. A fixture covering only the happy path
+  // cannot fail when that happens.
+  const heldCardSeeds = [
+    {
+      issuer: 'Chase',
+      productName: 'Ink Business Preferred',
+      openedAt: d('2025-03-14'),
+      creditLimit: 25000,
+    },
+    {
+      issuer: 'American Express',
+      productName: 'Blue Business Cash',
+      // Null on purpose: a client often knows they hold a card without
+      // recalling the month, and such a card is unplaceable in the 5/24
+      // window rather than counted or ignored.
+      openedAt: null,
+      creditLimit: 15000,
+    },
+    {
+      issuer: 'Chase',
+      productName: 'Business Cash Preferred',
+      openedAt: d('2024-11-02'),
+      creditLimit: 8000,
+    },
+  ];
+
+  const heldCardsService = createHeldCardsService(prisma);
+  for (const seed of heldCardSeeds) {
+    const existing = await prisma.heldCard.findFirst({
+      where: {
+        businessId: biz1.id,
+        tenantId: tenant.id,
+        issuer: seed.issuer,
+        productName: seed.productName,
+      },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    await heldCardsService.record({
+      tenantId: tenant.id,
+      businessId: biz1.id,
+      issuer: seed.issuer,
+      productName: seed.productName,
+      openedAt: seed.openedAt,
+      creditLimit: seed.creditLimit,
+      attestedBy: advisorUser.id,
+    });
+  }
+  console.log(`  ✓ Held cards: ${heldCardSeeds.length} attested for ${biz1.legalName}`);
 
   await prisma.cardApplication.upsert({
     where: { id: 'seed-app-003' },

@@ -26,6 +26,12 @@
 //
 //   GET  /api/businesses/:id/benefits/renewal-recommendations
 //        Keep vs cancel / negotiate recommendation per card.
+//
+//   GET  /api/businesses/:id/rewards/held-cards
+//        The cards this client is on record as holding, each with
+//        its earn rates where the product resolves against the rate
+//        catalogue — and with the reason it did not, where it does
+//        not. No routing advice; see the note on that handler.
 // ============================================================
 
 import { Router, type Response, type NextFunction } from 'express';
@@ -33,6 +39,8 @@ import type { Request } from '../../types/http.js';
 import { z, type ZodError } from 'zod';
 import { RewardsOptimizationService, MCC_CATEGORIES, type MccCategory, type SpendProfile } from '../../services/rewards-optimization.service.js';
 import { CardBenefitsService } from '../../services/card-benefits.service.js';
+import { createHeldCardsService } from '../../services/held-cards.service.js';
+import { matchHeldCardToCatalog } from '../../services/held-card-catalog-match.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
@@ -41,6 +49,7 @@ import logger from '../../config/logger.js';
 
 const rewardsOptimizer = new RewardsOptimizationService();
 const cardBenefits     = new CardBenefitsService();
+const heldCards        = createHeldCardsService(sharedPrisma);
 
 // ============================================================
 // Validation helpers
@@ -242,6 +251,84 @@ rewardsRouter.get(
       } satisfies ApiResponse);
     } catch (err) {
       handleUnexpectedError(err, res, 'GET /rewards/annual-summary');
+    }
+  },
+);
+
+// ── GET /api/businesses/:id/rewards/held-cards ───────────────
+//
+// The cards this client is on record as holding, each resolved to its
+// earn rates where the product name matches the rate catalogue.
+//
+// What this deliberately does NOT do is rank them or name a best card
+// per category. The optimisation endpoint above ranks the entire
+// catalogue — every card on the market — which answers "what is the
+// best business card for office supplies", a shopping question. Framed
+// as advice for a named client it implies they hold cards they do not.
+// Routing across the cards a client *does* hold needs per-category
+// spend, and the categories on `SpendTransaction` come from
+// `MCC_RISK_MAP` — a different vocabulary from the optimiser's thirteen
+// `MccCategory` values. Mapping one onto the other carelessly yields
+// confident routing advice computed from mis-bucketed spend, so it is
+// not done here at all rather than done approximately.
+//
+// Every held card appears in the response. One that does not resolve
+// carries `match.status === 'unmatched'` with a reason; it is never
+// omitted and never given a rate.
+// ─────────────────────────────────────────────────────────────
+rewardsRouter.get(
+  '/businesses/:id/rewards/held-cards',
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const businessId = req.params['id']!;
+    const tenant     = req.tenant!;
+
+    if (!businessId) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'businessId path parameter is required.' },
+      } satisfies ApiResponse);
+      return;
+    }
+
+    try {
+      const cards = await heldCards.listForBusiness(businessId, tenant.tenantId);
+
+      const resolved = cards.map((card) => ({
+        id: card.id,
+        issuer: card.issuer,
+        productName: card.productName,
+        openedAt: card.openedAt?.toISOString() ?? null,
+        closedAt: card.closedAt?.toISOString() ?? null,
+        creditLimit: card.creditLimit != null ? Number(card.creditLimit) : null,
+        source: card.source,
+        attestedBy: card.attestedBy,
+        attestedAt: card.attestedAt.toISOString(),
+        match: matchHeldCardToCatalog(card.issuer, card.productName),
+      }));
+
+      const matchedCount = resolved.filter((c) => c.match.status === 'matched').length;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          businessId,
+          heldCards: resolved,
+          totalHeld: resolved.length,
+          // Both counts ship so a caller renders "2 of 3 matched" rather
+          // than presenting the matched ones as though they were the list.
+          matchedCount,
+          unmatchedCount: resolved.length - matchedCount,
+          // Every rate here is an attestation resolved against a static
+          // catalogue, not a rate read from an issuer. Saying so beside
+          // the figures costs less than a reader assuming otherwise.
+          provenance:
+            'Cards are advisor-attested, not bureau-pulled. Earn rates come from the ' +
+            'static rate catalogue and are not read from the issuer.',
+        },
+      } satisfies ApiResponse);
+    } catch (err) {
+      handleUnexpectedError(err, res, 'GET /rewards/held-cards');
     }
   },
 );
