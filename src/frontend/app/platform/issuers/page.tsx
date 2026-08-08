@@ -71,10 +71,24 @@ interface Issuer {
   logo: string;
   issuerType: 'bank' | 'credit_union';
   velocityRules: string;
-  velocityRulesList: VelocityRule[];
   approvalCriteria: string;
-  approvalCriteriaDetail: ApprovalCriteriaDetail;
-  declineReasons: DeclineReason[];
+  /**
+   * Four fields the API does not send.
+   *
+   * GET /api/platform/issuers returns ISSUERS_DATA, whose rows carry
+   * velocityRules and approvalCriteria as strings and nothing else of this
+   * shape. Declaring them required told the compiler they were always there,
+   * so `issuer.velocityRulesList.length` type-checked and threw on every row
+   * expansion — the whole page to the error boundary, on any issuer, bank or
+   * credit union.
+   *
+   * Optional here because a response may not carry them. Same as
+   * riskLevelBasis on spend-governance and the otplib adapter: a hand-written
+   * type describing data the compiler never sees is a claim, not a check.
+   */
+  velocityRulesList?: VelocityRule[];
+  approvalCriteriaDetail?: ApprovalCriteriaDetail;
+  declineReasons?: DeclineReason[];
   totalApps: number;
   approved: number;
   declined: number;
@@ -265,7 +279,10 @@ function CuExpandedDetail({ cuMeta }: { cuMeta: CuMeta }) {
 // ── Edit Rules Modal ────────────────────────────────────────
 
 function buildInitialRules(issuer: Issuer): EditableRule[] {
-  return issuer.velocityRulesList.map((r, i) => ({
+  // A second crash site, in the Edit Rules modal rather than the expanded row.
+  // It was found by making velocityRulesList optional and letting the compiler
+  // point at it — reading the expand panel alone would have missed it.
+  return (issuer.velocityRulesList ?? []).map((r, i) => ({
     id: `rule_${i}_${Date.now()}`,
     name: r.name,
     value: r.value,
@@ -502,7 +519,7 @@ function IssuerRow({ issuer }: { issuer: Issuer }) {
             {/* Velocity Rules List (3A) */}
             <div>
               <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">Velocity Rules</h4>
-              {issuer.velocityRulesList.length > 0 ? (
+              {Array.isArray(issuer.velocityRulesList) && issuer.velocityRulesList.length > 0 ? (
                 <div className="space-y-1.5">
                   {issuer.velocityRulesList.map((rule, i) => (
                     <div key={i} className="flex items-start gap-3 rounded-lg bg-gray-800/50 border border-gray-700/40 px-3 py-2">
@@ -520,29 +537,37 @@ function IssuerRow({ issuer }: { issuer: Issuer }) {
             {/* Approval Criteria (3A) */}
             <div>
               <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">Approval Criteria</h4>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-lg bg-gray-800/50 border border-gray-700/40 p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase">Min FICO</p>
-                  <p className="text-lg font-bold text-white mt-0.5">{issuer.approvalCriteriaDetail.minFICO}</p>
+              {issuer.approvalCriteriaDetail ? (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-lg bg-gray-800/50 border border-gray-700/40 p-3 text-center">
+                    <p className="text-[10px] text-gray-500 uppercase">Min FICO</p>
+                    <p className="text-lg font-bold text-white mt-0.5">{issuer.approvalCriteriaDetail.minFICO}</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-800/50 border border-gray-700/40 p-3 text-center">
+                    <p className="text-[10px] text-gray-500 uppercase">Min Years</p>
+                    <p className="text-lg font-bold text-white mt-0.5">{issuer.approvalCriteriaDetail.minYears}yr+</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-800/50 border border-gray-700/40 p-3 text-center">
+                    <p className="text-[10px] text-gray-500 uppercase">Min Revenue</p>
+                    <p className="text-lg font-bold text-white mt-0.5">
+                      {issuer.approvalCriteriaDetail.minRevenue > 0 ? money(issuer.approvalCriteriaDetail.minRevenue) : 'N/A'}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-lg bg-gray-800/50 border border-gray-700/40 p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase">Min Years</p>
-                  <p className="text-lg font-bold text-white mt-0.5">{issuer.approvalCriteriaDetail.minYears}yr+</p>
-                </div>
-                <div className="rounded-lg bg-gray-800/50 border border-gray-700/40 p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase">Min Revenue</p>
-                  <p className="text-lg font-bold text-white mt-0.5">
-                    {issuer.approvalCriteriaDetail.minRevenue > 0 ? money(issuer.approvalCriteriaDetail.minRevenue) : 'N/A'}
-                  </p>
-                </div>
-              </div>
+              ) : (
+                /* The API sends approvalCriteria as one string and no
+                   approvalCriteriaDetail at all. Rendering the string is what
+                   the row already has; inventing the three numbers would not
+                   be. */
+                <p className="text-sm text-gray-400">{issuer.approvalCriteria}</p>
+              )}
             </div>
 
             {/* Common Decline Reasons (3A) */}
             <div>
               <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">Common Decline Reasons</h4>
               <div className="space-y-1.5">
-                {issuer.declineReasons.map((dr, i) => (
+                {(issuer.declineReasons ?? []).map((dr, i) => (
                   <div key={i} className="flex items-center gap-3">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-0.5">
