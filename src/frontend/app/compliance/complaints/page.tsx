@@ -1,3 +1,47 @@
+'use client';
+
+// ============================================================
+// /compliance/complaints — Complaints Management
+// Intake form, status workflow, 30-day SLA tracker,
+// complaint log table with filters.
+// ============================================================
+
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { loadJson, toLoadError } from '@/lib/load-json';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/**
+ * The statuses the database actually holds.
+ *
+ * This was 'Received' | 'Under Review' | 'Responded' | 'Resolved' |
+ * 'Escalated'. No row ever held any of them. The list endpoint returns
+ * `c.status` straight from the column — 'open', 'investigating', 'escalated',
+ * 'resolved', 'closed' — so every comparison against this type was checked by
+ * the compiler against data none of it matched.
+ *
+ * Storage stays canonical and lower case; the capitals are a label, applied at
+ * render by STATUS_LABEL below.
+ */
+type ComplaintStatus = 'open' | 'investigating' | 'escalated' | 'resolved' | 'closed';
+type ComplaintType = 'Billing' | 'Disclosure' | 'Fair Lending' | 'Product Mismatch' | 'Advisor Conduct' | 'Data Privacy' | 'Other';
+type Channel = 'Phone' | 'Email' | 'Web Portal' | 'In-Person' | 'Mail' | 'Social Media';
+
+interface Complaint {
+  id: string;
+  businessName: string;
+  complaintType: ComplaintType;
+  channel: Channel;
+  status: ComplaintStatus;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  assignee: string;
+  slaDeadline: string; // synthesized server-side as createdAt + 30 days
+}
+
 
 
 
@@ -296,7 +340,7 @@ export default function ComplaintsPage() {
                       <td className="px-4 py-3 text-xs text-gray-400">{c.channel}</td>
                       <td className="px-4 py-3">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${statusBadge(c.status)}`}>
-                          {c.status}
+                          {STATUS_LABEL[c.status]}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -317,7 +361,7 @@ export default function ComplaintsPage() {
                             className="rounded-lg bg-[#0A1628] border border-gray-700 text-gray-300 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#C9A84C]/50"
                           >
                             <option value="">Move to...</option>
-                            {STATUSES.filter((s) => s !== c.status).map((s) => (
+                            {ALLOWED_NEXT[c.status].map((s) => (
                               <option key={s} value={s}>{STATUS_LABEL[s]}</option>
                             ))}
                           </select>
