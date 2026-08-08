@@ -9,6 +9,7 @@ import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { load } from 'js-yaml';
 
 // ── Path resolution ───────────────────────────────────────────
 // This module builds to CommonJS (tsconfig "module": "NodeNext" with no
@@ -27,22 +28,19 @@ function getSpecJson(): Record<string, unknown> {
 
   const raw = readFileSync(SPEC_PATH, 'utf-8');
 
-  // Parse YAML → JS object using a minimal inline parser shim.
-  // In production the js-yaml package is preferred; we fall back to
-  // a dynamic require so the file works even if the package is absent
-  // (the JSON route will return a 503 in that edge case).
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const yaml = require('js-yaml') as { load: (src: string) => unknown };
-    _specJson = yaml.load(raw) as Record<string, unknown>;
-  } catch {
-    // js-yaml not available — fall back to serving raw YAML text via the
-    // YAML content-type endpoint; the JSON endpoint returns an error.
-    _specJson = {
-      error: 'js-yaml package not installed. Run: npm install js-yaml',
-      hint:  'GET /api/docs/openapi.yaml is available as an alternative.',
-    };
-  }
+  // js-yaml is a declared production dependency and imported statically.
+  //
+  // It used to be a `require` inside a try/catch, described as a fallback
+  // for the edge case where the package was absent. The edge case was
+  // production. js-yaml was declared nowhere in package.json and reached
+  // the tree only as a transitive dependency of eslint, so the image
+  // built with `npm ci --omit=dev` never had it, and this route served
+  // the fallback every time while dev and CI served the real spec.
+  //
+  // The catch also swallowed genuine parse failures. Anything that goes
+  // wrong here now throws, and the route turns that into the 503 the old
+  // comment claimed — rather than a 200 whose body is an error object.
+  _specJson = load(raw) as Record<string, unknown>;
 
   return _specJson;
 }

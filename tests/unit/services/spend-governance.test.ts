@@ -383,7 +383,85 @@ describe('SpendGovernanceService', () => {
       expect(summary.cashLikeCount).toBe(1);
     });
 
-    it('computes correct chargeback ratio', async () => {
+    // A single cash-like transaction is a network-rule violation on its own
+    // terms. Suppressing the level below a minimum transaction count would
+    // blank the screen precisely when it matters most: a first-week account
+    // with one $5,000 ATM withdrawal.
+    it('reports critical from a single cash-like transaction and says so', async () => {
+      prisma.spendTransaction.findMany.mockResolvedValue([
+        makeTx({ isCashLike: true, flagged: true, riskScore: 95, mcc: '6011' }),
+      ]);
+
+      const summary = await service.getRiskSummary(TENANT_ID, BUSINESS_ID);
+
+      expect(summary.riskLevel).toBe('critical');
+      expect(summary.totalTransactions).toBe(1);
+      expect(summary.riskLevelBasis.join(' ')).toContain('1 cash-like transaction');
+    });
+
+    // The defect this shape was rebuilt around: flaggedCount was reported
+    // with no array containing the row it counted.
+    it('returns the rows behind flaggedCount', async () => {
+      const txs = [
+        makeTx({ id: 'tx-001', flagged: true, flagReason: 'Personal-likely merchant.' }),
+        makeTx({ id: 'tx-002', flagged: false }),
+      ];
+      prisma.spendTransaction.findMany.mockResolvedValue(txs);
+
+      const summary = await service.getRiskSummary(TENANT_ID, BUSINESS_ID);
+
+      expect(summary.flaggedCount).toBe(1);
+      expect(summary.flaggedTransactions).toHaveLength(1);
+      expect(summary.flaggedTransactions[0]!.id).toBe('tx-001');
+      expect(summary.flaggedTransactions[0]!.flagReason).toBe('Personal-likely merchant.');
+    });
+
+    // A merchant-name flag lands in none of the three category arrays:
+    // not cash-like, not on a suspicious-rail MCC, and scored below the
+    // high-risk threshold. Before flaggedTransactions existed it was
+    // invisible to every consumer of this summary.
+    it('traces a flag that belongs to none of the three categories', async () => {
+      prisma.spendTransaction.findMany.mockResolvedValue([
+        makeTx({
+          id: 'tx-zelle',
+          merchantName: 'Zelle Transfer',
+          mcc: '5812',
+          riskScore: 40,
+          isCashLike: false,
+          flagged: true,
+          flagReason: 'Merchant name matches known P2P payment rail patterns.',
+        }),
+      ]);
+
+      const summary = await service.getRiskSummary(TENANT_ID, BUSINESS_ID);
+
+      expect(summary.flaggedCount).toBe(1);
+      expect(summary.highRiskTransactions).toHaveLength(0);
+      expect(summary.cashLikeTransactions).toHaveLength(0);
+      expect(summary.suspiciousRailTransactions).toHaveLength(0);
+      expect(summary.flaggedTransactions.map((t) => t.id)).toEqual(['tx-zelle']);
+    });
+
+    // The count is exact; the array is a sample. A caller that renders the
+    // array as the whole set would under-report, so the cap is declared.
+    it('caps the sample arrays without capping the counts', async () => {
+      const txs = Array.from({ length: 14 }, (_, i) =>
+        makeTx({ id: `tx-${i}`, flagged: true }),
+      );
+      prisma.spendTransaction.findMany.mockResolvedValue(txs);
+
+      const summary = await service.getRiskSummary(TENANT_ID, BUSINESS_ID);
+
+      expect(summary.flaggedCount).toBe(14);
+      expect(summary.flaggedTransactions).toHaveLength(summary.sampleLimit);
+      expect(summary.sampleLimit).toBe(10);
+    });
+
+    // `flagged / total` was reported as `chargebackRatio` and measured
+    // against the Visa chargeback standard. No chargeback data exists in
+    // this system. The counts carry the same information with the
+    // denominator attached and no claim about chargebacks.
+    it('reports flagged as a count against a visible denominator, not a ratio', async () => {
       const txs = [
         makeTx({ flagged: true }),
         makeTx({ id: 'tx-002', flagged: false }),
@@ -394,7 +472,61 @@ describe('SpendGovernanceService', () => {
 
       const summary = await service.getRiskSummary(TENANT_ID, BUSINESS_ID);
 
-      expect(summary.chargebackRatio).toBe(0.25); // 1 / 4
+      expect(summary.flaggedCount).toBe(1);
+      expect(summary.totalTransactions).toBe(4);
+      expect(summary).not.toHaveProperty('chargebackRatio');
+    });
+
+    // One flagged low-score transaction used to clear
+    // `flagged/total > 0.01` and report critical. It is a documentation
+    // gap, not a network-rule violation.
+    it('does not escalate to critical on flag rate alone', async () => {
+      const txs = [
+        makeTx({ id: 'tx-001', riskScore: null, flagged: true, isCashLike: false, mcc: '5712' }),
+        makeTx({ id: 'tx-002', riskScore: null, flagged: false, isCashLike: false, mcc: '5111' }),
+      ];
+      prisma.spendTransaction.findMany.mockResolvedValue(txs);
+
+      const summary = await service.getRiskSummary(TENANT_ID, BUSINESS_ID);
+
+      expect(summary.riskLevel).toBe('moderate');
+      expect(summary.riskLevelBasis.join(' ')).toContain('1 of 2 transactions flagged');
+    });
+
+    // An unscored row is absent evidence. Averaging `?? 0` over it made
+    // "nothing has been scored" and "everything is safe" the same number.
+    it('reports no average when nothing is scored, rather than zero', async () => {
+      const txs = [
+        makeTx({ id: 'tx-001', riskScore: null }),
+        makeTx({ id: 'tx-002', riskScore: null }),
+      ];
+      prisma.spendTransaction.findMany.mockResolvedValue(txs);
+
+      const summary = await service.getRiskSummary(TENANT_ID, BUSINESS_ID);
+
+      expect(summary.averageRiskScore).toBeNull();
+      expect(summary.maxRiskScore).toBeNull();
+      expect(summary.scoredCount).toBe(0);
+      expect(summary.riskLevelBasis.join(' ')).toContain('carry no risk score');
+    });
+
+    // The dangerous direction: unscored rows used to drag the mean down,
+    // so a book with one 95 and nine nulls averaged 9.5 and read low.
+    it('averages over scored rows only, and keeps the worst case visible', async () => {
+      const txs = [
+        makeTx({ id: 'tx-001', riskScore: 95, isCashLike: false, mcc: '5999' }),
+        ...Array.from({ length: 9 }, (_, i) =>
+          makeTx({ id: `tx-null-${i}`, riskScore: null, mcc: '5999' }),
+        ),
+      ];
+      prisma.spendTransaction.findMany.mockResolvedValue(txs);
+
+      const summary = await service.getRiskSummary(TENANT_ID, BUSINESS_ID);
+
+      expect(summary.averageRiskScore).toBe(95);
+      expect(summary.maxRiskScore).toBe(95);
+      expect(summary.scoredCount).toBe(1);
+      expect(summary.riskLevel).toBe('high');
     });
 
     it('returns zero totals for empty transaction history', async () => {
@@ -404,7 +536,8 @@ describe('SpendGovernanceService', () => {
 
       expect(summary.totalTransactions).toBe(0);
       expect(summary.totalAmount).toBe(0);
-      expect(summary.averageRiskScore).toBe(0);
+      expect(summary.averageRiskScore).toBeNull();
+      expect(summary.scoredCount).toBe(0);
       expect(summary.riskLevel).toBe('low');
     });
   });

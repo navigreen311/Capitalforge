@@ -22,9 +22,17 @@
 // it is a command name, and it fails. `cross-env` would also solve it; this
 // avoids adding a dependency for two scripts.
 //
-// The default stays `.next` everywhere else: the Dockerfile copies
-// `src/frontend/.next/standalone` and CI archives `src/frontend/.next/` under
-// that name, and neither should change because a local convenience needed it.
+// The two consumers that need the output at `src/frontend/.next` —
+// Dockerfile.frontend, which copies `.next/standalone` and `.next/static`, and
+// the CI build job, which uploads `src/frontend/.next/` — now say so by setting
+// NEXT_DIST_DIR=.next themselves.
+//
+// This file covered the production *server*. It did not cover the *build*,
+// which is the same collision from the other side and happened again on
+// 2026-08-07: `npm run build` cleaned `.next` under a running `next dev`, and
+// every page rendered unstyled because the stylesheet 404'd while the HTML
+// still referenced it. See scripts/next-build.ts, which is the other half of
+// this.
 // ============================================================
 
 import { spawn } from 'node:child_process';

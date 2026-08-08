@@ -32,6 +32,14 @@ COPY src/shared ./src/shared/
 ENV NEXT_OUTPUT=standalone
 ENV NODE_ENV=production
 
+# build:frontend defaults to .next-build, which no dev server ever owns.
+# The COPY steps below name .next, so this image asks for it explicitly.
+# Stated here rather than inferred from NODE_ENV or CI inside the build
+# script: if that inference were ever wrong, this image would build to a
+# path the COPY does not read and the failure would be a missing file at
+# runtime. Named here, the two stay in sync or the COPY fails at build.
+ENV NEXT_DIST_DIR=.next
+
 RUN npm run build:frontend
 
 

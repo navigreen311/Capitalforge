@@ -150,6 +150,51 @@ Every feature or significant change follows this sequence:
   was assumed to hold. Ask what the signal actually observed, and whether that
   is the question being asked of it.
 
+- **A hand-written type for someone else's library is a model, and the compiler
+  checks your calls against the model.** It cannot be the thing that catches the
+  model being wrong.
+
+  `two-factor.service.ts` declared otplib's verify options itself, including
+  `window?: number`. otplib v13 has no `window` — tolerance is `epochTolerance`,
+  in seconds, defaulting to 0. So `window: WINDOW_STEPS` type-checked, was
+  ignored at runtime, and every TOTP code was valid only inside its own
+  30-second step: no allowance for typing latency or a device clock a few
+  seconds off. It surfaced as an intermittent CI failure and had been a live
+  defect the whole time.
+
+  Where the package is installed, derive the type instead of writing one —
+  `require('crypto') as typeof import('crypto')`, the pattern already used in
+  `security-headers.ts` and `server.ts`, cannot drift. Reserve hand-written
+  shapes for genuinely optional dependencies, and treat them as claims to
+  re-verify, not as facts.
+
+  A second lesson from the same fix: **tolerance and replay protection are
+  coupled.** The guard recorded `currentStep()`, which was the token's own step
+  only because tolerance was zero — correct for a reason it never stated.
+  Widening tolerance without revisiting it would have admitted a replay one
+  step later. When you relax a bound, re-read whatever was silently relying on
+  it being tight.
+
+- **CI installs devDependencies; production does not. Nothing in CI can see
+  that difference by construction.**
+
+  `openapi.routes.ts` did `require('js-yaml')` in a try/catch, commented as a
+  fallback for the edge case where the package was absent. The edge case was
+  production: js-yaml was declared nowhere in `package.json` and reached the
+  tree only as a transitive dependency of eslint, a devDependency, while the
+  image builds with `npm ci --omit=dev`.
+
+  It stayed invisible because **the failure answered 200** — the catch wrote an
+  error object into the cache and the handler served it with a 60-second
+  Cache-Control, so the 503 the comment promised could never fire. A route that
+  returns 200 is not a route that works.
+
+  `npm run check:prod-imports` now resolves every runtime import against
+  `dependencies` alone. It runs as a step inside Lint & Type Check rather than
+  as its own job, because branch protection requires a fixed set of named
+  checks and a new job would not be among them — an unrequired check does not
+  block anything.
+
 - **A tool that reimplements the rule it checks will drift from that rule and
   keep answering.** Prefer calling the real engine over modelling it.
 

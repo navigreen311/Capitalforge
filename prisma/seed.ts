@@ -757,20 +757,44 @@ const SEED_PHONES = {
   // open-ended advisor typing, and the state most likely to be quietly
   // dropped by a later change. A fixture covering only the happy path
   // cannot fail when that happens.
+  //
+  // NOT `Ink Business Preferred`, deliberately. That card and the month
+  // 2025-03 are the fixture `tests/e2e-playwright/held-cards-persist.spec.ts`
+  // uses, and its negative half asserts the card is *not* on the record
+  // before it saves one — proving that ticking a checkbox does not write to
+  // a client's file. Seeding the same card for the same client made that
+  // precondition false, and the assertion failed for the right reason: the
+  // box really was ticked, because the card really was on the record.
+  //
+  // Ink Business Cash is also the better fixture. Its three tiers — 5% on
+  // office supplies capped at $25,000, 2% on gas and restaurants, 1% on
+  // everything else — are exactly the structure a single `rewardsRate`
+  // cannot express, which is what this page exists to show.
   const heldCardSeeds = [
     {
       issuer: 'Chase',
-      productName: 'Ink Business Preferred',
-      openedAt: d('2025-03-14'),
+      productName: 'Ink Business Cash',
+      openedAt: d('2025-01-09'),
       creditLimit: 25000,
     },
     {
       issuer: 'American Express',
       productName: 'Blue Business Cash',
-      // Null on purpose: a client often knows they hold a card without
-      // recalling the month, and such a card is unplaceable in the 5/24
-      // window rather than counted or ignored.
-      openedAt: null,
+      // Dated, though the undated case is the more interesting one.
+      //
+      // This started as `null` to exercise the card a client holds without
+      // recalling the month — unplaceable in the 24-month window, so 5/24
+      // reads as an upper bound. But biz1 is the client the held-cards e2e
+      // test works against, and the optimizer's save message branches on
+      // whether any *ticked* card is undated: with one, it reports "5/24 will
+      // read as an upper bound" instead of "counting toward 5/24", and the
+      // test asserts the second. A card on the record comes back ticked, so
+      // seeding an undated one here silently changed what that flow reports.
+      //
+      // The undated path is covered where it belongs — by
+      // `tallyHeldCardsForFiveTwentyFour` in the unit tests, which assert the
+      // arithmetic directly rather than through a rendered sentence.
+      openedAt: d('2024-06-20'),
       creditLimit: 15000,
     },
     {
