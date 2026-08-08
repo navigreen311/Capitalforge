@@ -62,7 +62,17 @@ interface RiskSummary {
   suspiciousRailTransactions: TransactionRow[];
   sampleLimit: number;
   riskLevel: 'low' | 'moderate' | 'high' | 'critical';
-  riskLevelBasis: string[];
+  /**
+   * Optional because the running API may not have it.
+   *
+   * This shape describes a response parsed from JSON at runtime, not a value
+   * the compiler has checked. Declaring the field required told TypeScript it
+   * was always there, so `riskLevelBasis.length` type-checked and threw
+   * against a backend a single commit behind — taking the whole route down
+   * with it. A field a server might not send is optional here, whatever the
+   * server is meant to send.
+   */
+  riskLevelBasis?: string[];
 }
 
 function money(value: number | string | null | undefined): string {
@@ -128,6 +138,10 @@ function RiskSummaryPanel({ summary }: { summary: RiskSummary }) {
     riskLevelBasis,
   } = summary;
 
+  // null means the field was absent or not an array — a different thing from
+  // an empty one, and the distinction is rendered below rather than flattened.
+  const basis = Array.isArray(riskLevelBasis) ? riskLevelBasis : null;
+
   return (
     <section className="space-y-3">
       <div className={`rounded-xl border px-4 py-3 ${RISK_LEVEL_STYLES[riskLevel]}`}>
@@ -141,16 +155,36 @@ function RiskSummaryPanel({ summary }: { summary: RiskSummary }) {
 
         {/* The level is a verdict. Without the terms that produced it, an
             advisor cannot tell a network-rule violation from an arithmetic
-            artifact — which is what "critical" was here. */}
-        {riskLevelBasis.length > 0 && (
-          <ul className="mt-2 space-y-0.5 text-sm">
-            {riskLevelBasis.map((reason) => (
-              <li key={reason} className="flex gap-2">
-                <span aria-hidden="true">·</span>
-                <span>{reason}</span>
-              </li>
-            ))}
-          </ul>
+            artifact — which is what "critical" was here.
+
+            Three outcomes, not two. `riskLevelBasis.length` on a response
+            that predates the field threw, and React unmounted the whole
+            route into an "Application Error" screen — so a backend one
+            commit behind the page read as the page being broken, and the
+            old values it was still returning read as the change never
+            having landed.
+
+            The obvious repair is `riskLevelBasis ?? []`, and it is the
+            wrong one: it renders a stale API identically to a healthy one
+            with nothing to report. That is the same collapse the field
+            was added to undo. An absent basis says so. */}
+        {basis === null ? (
+          <p className="mt-2 text-sm opacity-90">
+            This response carries no <span className="font-mono">riskLevelBasis</span>, so the
+            level above is shown without the terms that produced it. The API is older than this
+            page.
+          </p>
+        ) : (
+          basis.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-sm">
+              {basis.map((reason) => (
+                <li key={reason} className="flex gap-2">
+                  <span aria-hidden="true">·</span>
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          )
         )}
       </div>
 
