@@ -22,6 +22,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { loadJson, toLoadError } from '@/lib/load-json';
+import { ScenarioResultView } from '@/components/simulator/ScenarioResultView';
 
 interface ClientOption {
   id: string;
@@ -187,23 +188,7 @@ export default function SimulatorPage() {
         </p>
       )}
 
-      {result !== null && (
-        <section aria-label="Result" className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-gray-900 mb-3">Result</h2>
-          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {Object.entries(result).map(([key, value]) => (
-              <div key={key} className="border-b border-gray-100 pb-2">
-                <dt className="text-xs text-gray-500">{key.replace(/([A-Z])/g, ' $1')}</dt>
-                <dd className="text-sm text-gray-900">
-                  {typeof value === 'object' && value !== null
-                    ? JSON.stringify(value)
-                    : String(value)}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      )}
+      {result !== null && <ScenarioResultView result={result} />}
     </div>
   );
 }
