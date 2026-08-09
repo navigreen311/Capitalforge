@@ -31,6 +31,7 @@ export type ComplaintCategory =
 export type ComplaintStatus =
   | 'open'
   | 'investigating'
+  | 'escalated'
   | 'resolved'
   | 'closed';
 
@@ -172,9 +173,26 @@ export interface RootCauseAnalytics {
 
 // ── Valid lifecycle transitions ────────────────────────────────────
 
+// Escalation is a state, not only an assignment. `escalatedTo` records to
+// whom; this records whether and — through the event trail — when. "What was
+// escalated, and when" is a question a regulator asks of the register, and it
+// cannot be answered from an assignee column alone.
+//
+// Anything unresolved can escalate: severity or delay can force it before an
+// investigation has started, so `open` reaches it directly.
+//
+// `escalated` cannot go to `closed`. A complaint that closes without passing
+// through `resolved` carries no recorded outcome, and an outcome is exactly
+// what an escalated complaint is asked for. Where a regulator closes one, that
+// is still an outcome — record it as `resolved` with the resolution naming who
+// closed it and why, then `closed`. One extra step, complete record.
+//
+// It cannot return to `open` either: going back to untriaged after escalating
+// is not a real state.
 const VALID_TRANSITIONS: Record<ComplaintStatus, ComplaintStatus[]> = {
-  open:          ['investigating', 'closed'],
-  investigating: ['resolved', 'open'],
+  open:          ['investigating', 'escalated', 'closed'],
+  investigating: ['resolved', 'escalated', 'open'],
+  escalated:     ['investigating', 'resolved'],
   resolved:      ['closed', 'investigating'],
   closed:        [],
 };

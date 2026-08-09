@@ -874,8 +874,19 @@ complianceRouter.get(
 );
 
 // ─────────────────────────────────────────────────────────────────
-// POST /api/compliance/complaints
-// Create a new complaint.
+// The status update lives on /api/complaints, not here.
+//
+// This file carried its own PATCH for the same table, going straight to
+// prisma.complaint with no transition check and no event emission. It could
+// move a complaint closed -> open, which VALID_TRANSITIONS forbids, and could
+// mark one resolved without emitting complaint.resolved. Two write paths to
+// one regulatory register, and the page used the unvalidated one.
+// PUT /api/complaints/:id goes through ComplaintService and does both.
+//
+// The POST below stays. The intake form sends complaintType and channel, which
+// are not the canonical category and source enums, and mapping them is a
+// separate decision — see docs/backlog/complaint-status-vocabularies.md. What
+// it no longer does is write `status: 'Received'`.
 // ─────────────────────────────────────────────────────────────────
 complianceRouter.post(
   '/compliance/complaints',
@@ -905,7 +916,10 @@ complianceRouter.post(
           category: parsed.data.complaintType,
           source: parsed.data.channel,
           description: parsed.data.description,
-          status: 'Received',
+          // No status. The column defaults to 'open', which the state machine,
+          // the open-count badge and the resolution events all read. This wrote
+          // 'Received', so a complaint logged here entered the register in a
+          // state nothing else in the system could see.
           severity: 'medium',
         },
       });
@@ -914,57 +928,6 @@ complianceRouter.post(
 
       const body: ApiResponse<typeof complaint> = { success: true, data: complaint };
       res.status(201).json(body);
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────
-// PATCH /api/compliance/complaints/:id
-// Update complaint status.
-// ─────────────────────────────────────────────────────────────────
-complianceRouter.patch(
-  '/compliance/complaints/:id',
-  tenantMiddleware,
-  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { tenantId } = req.tenant!;
-      const id = req.params.id!;
-      const prismaClient = getPrisma();
-
-      const complaint = await prismaClient.complaint.findFirst({
-        where: { id, tenantId },
-      });
-      if (!complaint) {
-        throw notFound(`Complaint ${id}`);
-      }
-
-      const schema = z.object({
-        status: z.enum(['Received', 'Under Review', 'Responded', 'Resolved', 'Escalated']).optional(),
-        assignedTo: z.string().optional(),
-        resolution: z.string().optional(),
-      });
-
-      const parsed = schema.safeParse(req.body);
-      if (!parsed.success) {
-        throw badRequest('Invalid update data.', parsed.error.flatten());
-      }
-
-      const updated = await prismaClient.complaint.update({
-        where: { id },
-        data: {
-          ...(parsed.data.status && { status: parsed.data.status }),
-          ...(parsed.data.assignedTo && { assignedTo: parsed.data.assignedTo }),
-          ...(parsed.data.resolution && { resolution: parsed.data.resolution }),
-        },
-      });
-
-      logger.info('Compliance complaint updated', { requestId: req.requestId, tenantId, complaintId: id, status: parsed.data.status });
-
-      const body: ApiResponse<typeof updated> = { success: true, data: updated };
-      res.status(200).json(body);
     } catch (err) {
       next(err);
     }
