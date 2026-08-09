@@ -13,7 +13,19 @@ import { loadJson, toLoadError } from '@/lib/load-json';
 // Types
 // ---------------------------------------------------------------------------
 
-type ComplaintStatus = 'Received' | 'Under Review' | 'Responded' | 'Resolved' | 'Escalated';
+/**
+ * The statuses the database actually holds.
+ *
+ * This was 'Received' | 'Under Review' | 'Responded' | 'Resolved' |
+ * 'Escalated'. No row ever held any of them. The list endpoint returns
+ * `c.status` straight from the column — 'open', 'investigating', 'escalated',
+ * 'resolved', 'closed' — so every comparison against this type was checked by
+ * the compiler against data none of it matched.
+ *
+ * Storage stays canonical and lower case; the capitals are a label, applied at
+ * render by STATUS_LABEL below.
+ */
+type ComplaintStatus = 'open' | 'investigating' | 'escalated' | 'resolved' | 'closed';
 type ComplaintType = 'Billing' | 'Disclosure' | 'Fair Lending' | 'Product Mismatch' | 'Advisor Conduct' | 'Data Privacy' | 'Other';
 type Channel = 'Phone' | 'Email' | 'Web Portal' | 'In-Person' | 'Mail' | 'Social Media';
 
@@ -27,36 +39,50 @@ interface Complaint {
   createdAt: string;
   updatedAt: string;
   assignee: string;
-  slaDeadline: string; // 30 days from createdAt
+  slaDeadline: string; // synthesized server-side as createdAt + 30 days
 }
 
-// ---------------------------------------------------------------------------
-// Placeholder data
-// ---------------------------------------------------------------------------
 
-function slaFromCreated(created: string): string {
-  const d = new Date(created);
-  d.setDate(d.getDate() + 30);
-  return d.toISOString();
-}
+
+
+const STATUSES: ComplaintStatus[] = ['open', 'investigating', 'escalated', 'resolved', 'closed'];
 
 /**
- * Sample rows, no longer rendered. See the note on `complaints` below — these
- * must never reach the register again.
+ * Whether the complaint is finished with.
+ *
+ * The open count, the SLA cell and the Move-to menu all asked
+ * `status !== 'Resolved'` against a column holding 'resolved', so a resolved
+ * complaint counted as open, showed an SLA countdown and offered a status
+ * change. Three symptoms, one comparison — they resolve together or not at
+ * all, which is why this is a function and not three inline checks.
  */
-const PLACEHOLDER_COMPLAINTS: Complaint[] = [
-  { id: 'CMP-001', businessName: 'Apex Ventures LLC',       complaintType: 'Billing',          channel: 'Email',       status: 'Under Review', description: 'Client disputes fee charged on March statement. Claims no disclosure.',                  createdAt: '2026-03-15T10:00:00Z', updatedAt: '2026-03-20T14:00:00Z', assignee: 'Sarah Chen',      slaDeadline: slaFromCreated('2026-03-15T10:00:00Z') },
-  { id: 'CMP-002', businessName: 'NovaTech Solutions Inc.',  complaintType: 'Fair Lending',     channel: 'Web Portal',  status: 'Escalated',    description: 'Alleges discriminatory denial based on ZIP code. ECOA review initiated.',               createdAt: '2026-03-10T08:00:00Z', updatedAt: '2026-03-25T16:00:00Z', assignee: 'Michael Torres',  slaDeadline: slaFromCreated('2026-03-10T08:00:00Z') },
-  { id: 'CMP-003', businessName: 'Horizon Retail Partners',  complaintType: 'Disclosure',       channel: 'Phone',       status: 'Received',     description: 'Client claims APR disclosure was not visible on mobile application.',                    createdAt: '2026-04-01T09:30:00Z', updatedAt: '2026-04-01T09:30:00Z', assignee: '',                slaDeadline: slaFromCreated('2026-04-01T09:30:00Z') },
-  { id: 'CMP-004', businessName: 'Summit Capital Group',     complaintType: 'Advisor Conduct',  channel: 'Email',       status: 'Responded',    description: 'Client unhappy with advisor communication frequency and tone.',                         createdAt: '2026-02-20T11:00:00Z', updatedAt: '2026-03-10T13:00:00Z', assignee: 'Emily Park',      slaDeadline: slaFromCreated('2026-02-20T11:00:00Z') },
-  { id: 'CMP-005', businessName: 'Blue Ridge Consulting',    complaintType: 'Product Mismatch', channel: 'In-Person',   status: 'Resolved',     description: 'Product terms did not match initial proposal. Resolved with adjustment.',               createdAt: '2026-01-15T14:00:00Z', updatedAt: '2026-02-05T10:00:00Z', assignee: 'Sarah Chen',      slaDeadline: slaFromCreated('2026-01-15T14:00:00Z') },
-  { id: 'CMP-006', businessName: 'Crestline Medical LLC',    complaintType: 'Data Privacy',     channel: 'Mail',        status: 'Under Review', description: 'Request for data deletion under CCPA. Processing confirmation pending.',                createdAt: '2026-03-25T16:00:00Z', updatedAt: '2026-03-28T09:00:00Z', assignee: 'Michael Torres',  slaDeadline: slaFromCreated('2026-03-25T16:00:00Z') },
-];
+function isClosedOut(status: ComplaintStatus): boolean {
+  return status === 'resolved' || status === 'closed';
+}
 
-const STATUSES: ComplaintStatus[] = ['Received', 'Under Review', 'Responded', 'Resolved', 'Escalated'];
+/** Presentation only. The value written to the register is the key. */
+const STATUS_LABEL: Record<ComplaintStatus, string> = {
+  open:          'Open',
+  investigating: 'Investigating',
+  escalated:     'Escalated',
+  resolved:      'Resolved',
+  closed:        'Closed',
+};
+
+/**
+ * Mirrors VALID_TRANSITIONS in complaint.service.ts. Offering a move the
+ * server will reject is a promise the register cannot keep, so the menu shows
+ * only what the state machine allows from here.
+ */
+const ALLOWED_NEXT: Record<ComplaintStatus, ComplaintStatus[]> = {
+  open:          ['investigating', 'escalated', 'closed'],
+  investigating: ['resolved', 'escalated', 'open'],
+  escalated:     ['investigating', 'resolved'],
+  resolved:      ['closed', 'investigating'],
+  closed:        [],
+};
 const COMPLAINT_TYPES: ComplaintType[] = ['Billing', 'Disclosure', 'Fair Lending', 'Product Mismatch', 'Advisor Conduct', 'Data Privacy', 'Other'];
 const CHANNELS: Channel[] = ['Phone', 'Email', 'Web Portal', 'In-Person', 'Mail', 'Social Media'];
-const STATUS_ORDER: Record<ComplaintStatus, number> = { 'Received': 0, 'Under Review': 1, 'Responded': 2, 'Resolved': 3, 'Escalated': 4 };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,14 +95,14 @@ function daysRemaining(slaDeadline: string): number {
 }
 
 function slaColor(days: number, status: ComplaintStatus): string {
-  if (status === 'Resolved') return 'text-green-400';
+  if (isClosedOut(status)) return 'text-green-400';
   if (days < 0) return 'text-red-400';
   if (days <= 5) return 'text-amber-400';
   return 'text-green-400';
 }
 
 function slaBg(days: number, status: ComplaintStatus): string {
-  if (status === 'Resolved') return 'bg-green-900/20';
+  if (isClosedOut(status)) return 'bg-green-900/20';
   if (days < 0) return 'bg-red-900/20';
   if (days <= 5) return 'bg-amber-900/20';
   return 'bg-green-900/20';
@@ -84,11 +110,11 @@ function slaBg(days: number, status: ComplaintStatus): string {
 
 function statusBadge(s: ComplaintStatus): string {
   switch (s) {
-    case 'Received':     return 'bg-blue-900/50 text-blue-300 border border-blue-700';
-    case 'Under Review': return 'bg-yellow-900/50 text-yellow-300 border border-yellow-700';
-    case 'Responded':    return 'bg-purple-900/50 text-purple-300 border border-purple-700';
-    case 'Resolved':     return 'bg-green-900/50 text-green-300 border border-green-700';
-    case 'Escalated':    return 'bg-red-900/50 text-red-300 border border-red-700';
+    case 'open':          return 'bg-blue-900/50 text-blue-300 border border-blue-700';
+    case 'investigating': return 'bg-yellow-900/50 text-yellow-300 border border-yellow-700';
+    case 'escalated':     return 'bg-red-900/50 text-red-300 border border-red-700';
+    case 'resolved':      return 'bg-green-900/50 text-green-300 border border-green-700';
+    case 'closed':        return 'bg-gray-800 text-gray-400 border border-gray-700';
   }
 }
 
@@ -113,6 +139,10 @@ export default function ComplaintsPage() {
   const [statusFilter, setStatusFilter] = useState<ComplaintStatus | 'All'>('All');
   const [showIntakeForm, setShowIntakeForm] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // A failed write needs its own banner. loadError only renders inside the
+  // empty-table cell, so with rows on screen a rejected status change would
+  // have had nowhere to appear.
+  const [writeError, setWriteError] = useState<string | null>(null);
 
   // Intake form
   const [form, setForm] = useState({
@@ -150,43 +180,83 @@ export default function ComplaintsPage() {
 
   const handleSubmitComplaint = useCallback(() => {
     if (!form.businessName.trim() || !form.description.trim()) return;
-    const now = new Date().toISOString();
-    const newComplaint: Complaint = {
-      id: `CMP-${String(complaints.length + 1).padStart(3, '0')}`,
-      businessName: form.businessName,
-      complaintType: form.complaintType,
-      channel: form.channel,
-      status: 'Received',
-      description: form.description,
-      createdAt: now,
-      updatedAt: now,
-      assignee: '',
-      slaDeadline: slaFromCreated(now),
-    };
-    setComplaints((prev) => [newComplaint, ...prev]);
     setShowIntakeForm(false);
-    setForm({ businessName: '', complaintType: 'Billing', channel: 'Email', description: '' });
-    setToast(`Complaint ${newComplaint.id} created`);
-    void loadJson('/api/compliance/complaints', {
-      method: 'POST',
-      body: newComplaint,
-    }).catch(() => {});
-  }, [form, complaints.length]);
 
-  const handleStatusChange = useCallback((id: string, newStatus: ComplaintStatus) => {
+    void (async () => {
+      try {
+        await loadJson('/api/compliance/complaints', {
+          method: 'POST',
+          body: {
+            complaintType: form.complaintType,
+            channel: form.channel,
+            description: form.description,
+          },
+        });
+        // Re-read rather than trusting the optimistic row: the server assigns
+        // the id, the status and the timestamps, and this page used to invent
+        // all three — a CMP-00N id that no row ever had, and a status of
+        // 'Received' that nothing else understood.
+        const rows = await loadJson<Complaint[]>('/api/compliance/complaints');
+        setComplaints(rows);
+        setWriteError(null);
+        setForm({ businessName: '', complaintType: 'Billing', channel: 'Email', description: '' });
+        setToast('Complaint logged');
+      } catch (e) {
+        setWriteError(`The complaint was not logged. ${toLoadError(e).message}`);
+      }
+    })();
+  }, [form]);
+
+  /**
+   * Move a complaint to another status.
+   *
+   * This used to set state, raise a success toast, fire the request and
+   * swallow whatever came back:
+   *
+   *   setToast(`${id} status updated to ${newStatus}`);
+   *   void loadJson(...).catch(() => {});
+   *
+   * The toast fired before the server answered and regardless of what it
+   * said, so a rejected write — a forbidden transition, a validation error, a
+   * dropped connection — was reported as success and reverted on the next
+   * reload. On a complaints register that is silent loss of a regulatory
+   * record.
+   *
+   * Now: optimistic update for the click to feel immediate, awaited response,
+   * toast only once the server has confirmed, and the previous status put back
+   * with the error surfaced if it has not.
+   *
+   * The request goes to PUT /api/complaints/:id, which runs through
+   * ComplaintService — transition validated against VALID_TRANSITIONS, events
+   * emitted. The PATCH this used to call went straight to prisma and did
+   * neither.
+   */
+  const handleStatusChange = useCallback(async (id: string, newStatus: ComplaintStatus): Promise<void> => {
+    const previous = complaints.find((c) => c.id === id);
+    if (!previous) return;
+
     setComplaints((prev) =>
       prev.map((c) => c.id === id ? { ...c, status: newStatus, updatedAt: new Date().toISOString() } : c)
     );
-    setToast(`${id} status updated to ${newStatus}`);
-    void loadJson(`/api/compliance/complaints/${id}`, {
-      method: 'PATCH',
-      body: { status: newStatus },
-    }).catch(() => {});
-  }, []);
+
+    try {
+      await loadJson(`/api/complaints/${id}`, {
+        method: 'PUT',
+        body: { status: newStatus },
+      });
+      setWriteError(null);
+      setToast(`${id} moved to ${STATUS_LABEL[newStatus]}`);
+    } catch (e) {
+      setComplaints((prev) =>
+        prev.map((c) => c.id === id ? { ...c, status: previous.status, updatedAt: previous.updatedAt } : c)
+      );
+      setWriteError(`${id} was not moved to ${STATUS_LABEL[newStatus]}. ${toLoadError(e).message}`);
+    }
+  }, [complaints]);
 
   // Summary
-  const open = complaints.filter((c) => c.status !== 'Resolved').length;
-  const breached = complaints.filter((c) => c.status !== 'Resolved' && daysRemaining(c.slaDeadline) < 0).length;
+  const open = complaints.filter((c) => !isClosedOut(c.status)).length;
+  const breached = complaints.filter((c) => !isClosedOut(c.status) && daysRemaining(c.slaDeadline) < 0).length;
 
   return (
     <div className="min-h-screen bg-[#0A1628] text-gray-100 p-6">
@@ -270,29 +340,29 @@ export default function ComplaintsPage() {
                       <td className="px-4 py-3 text-xs text-gray-400">{c.channel}</td>
                       <td className="px-4 py-3">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${statusBadge(c.status)}`}>
-                          {c.status}
+                          {STATUS_LABEL[c.status]}
                         </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className={`rounded-lg px-2 py-1 inline-block ${slaBg(days, c.status)}`}>
                           <span className={`text-xs font-bold ${slaColor(days, c.status)}`}>
-                            {c.status === 'Resolved' ? 'Closed' : days < 0 ? `${Math.abs(days)}d overdue` : `${days}d left`}
+                            {isClosedOut(c.status) ? STATUS_LABEL[c.status] : days < 0 ? `${Math.abs(days)}d overdue` : `${days}d left`}
                           </span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500">{formatDate(c.createdAt)}</td>
                       <td className="px-4 py-3">
-                        {c.status !== 'Resolved' && (
+                        {ALLOWED_NEXT[c.status].length > 0 && (
                           <select aria-label="Change complaint status"
                             value=""
                             onChange={(e) => {
-                              if (e.target.value) handleStatusChange(c.id, e.target.value as ComplaintStatus);
+                              if (e.target.value) void handleStatusChange(c.id, e.target.value as ComplaintStatus);
                             }}
                             className="rounded-lg bg-[#0A1628] border border-gray-700 text-gray-300 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#C9A84C]/50"
                           >
                             <option value="">Move to...</option>
-                            {STATUSES.filter((s) => s !== c.status).map((s) => (
-                              <option key={s} value={s}>{s}</option>
+                            {ALLOWED_NEXT[c.status].map((s) => (
+                              <option key={s} value={s}>{STATUS_LABEL[s]}</option>
                             ))}
                           </select>
                         )}
@@ -384,6 +454,16 @@ export default function ComplaintsPage() {
       )}
 
       {/* Toast */}
+      {writeError !== null && (
+        <div
+          role="alert"
+          data-testid="complaint-write-error"
+          className="mb-4 rounded-lg border border-red-700 bg-red-900/40 px-4 py-3 text-sm text-red-200"
+        >
+          {writeError}
+        </div>
+      )}
+
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 max-w-sm bg-[#0A1628] border border-[#C9A84C]/30 text-gray-100 text-sm rounded-xl shadow-2xl px-5 py-3 flex items-center gap-3">
           <span className="flex-1">{toast}</span>
