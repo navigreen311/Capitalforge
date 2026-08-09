@@ -1385,6 +1385,53 @@ catalogue entry with an unrecognised issuer fails rather than joining quietly.
 
 ---
 
+## 8. A wrong quantity under a right-sounding name — `CardApplication.creditLimit`
+
+Recorded 2026-08-08, while asking whether the Issuer Directory could show a
+real average approved limit.
+
+`CardApplication.creditLimit` holds the amount **requested at draft**. It is
+written once by `create()` and never touched by the decision transition, which
+sets only `decidedAt` and `declineReason`.
+
+So it is populated on declined applications:
+
+```
+Bank of America   status=declined   creditLimit=20000
+US Bank           status=declined   creditLimit=18000
+Wells Fargo       status=declined   creditLimit=12000
+```
+
+None of those was granted. Averaging the column produces an "average approved
+limit" made largely of amounts nobody received.
+
+**Why this is worse than an absent column.** A missing field announces itself:
+the query fails, or there is nothing to select. A wrong quantity under a
+right-sounding name passes every check — the column exists, it is populated, it
+is a number, and it is called `creditLimit` on a table of card applications.
+Nothing about reading the schema suggests it is not the granted limit. The name
+invites the mistake, and the mistake produces a plausible figure.
+
+This is the same family as the seventh entry in `false-success-audit.md`, one
+level lower: there, fabricated and real data rendered identically on screen;
+here, the wrong quantity and the right one would be indistinguishable in a
+query.
+
+**Resolution.** The column is kept and documented in `schema.prisma` as
+requested-at-draft — every existing reader means "requested", and renaming it
+would break them to fix a comment. `approvedCreditLimit` is the new column,
+captured at the approval transition, guarded by a CHECK constraint so a granted
+limit cannot sit on a decline, and by
+`tests/integration/approved-credit-limit-constraint.test.ts` because Prisma
+cannot express that constraint and a generated migration could otherwise drop
+it silently.
+
+**What to look for elsewhere.** Not "is this field populated" but "is this field
+the quantity its name implies". The test that found this one was noticing a
+value on a row where it could not logically exist — a limit on a decline. That
+is the cheap detector: find a field on a record whose state should make it
+impossible, and ask what it actually means.
+
 ## The original entry
 
 **Chase 5/24 is counted from applications made through CapitalForge.** There is

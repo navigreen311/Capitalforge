@@ -399,6 +399,26 @@ export class ApplicationPipelineService {
       updateData.decidedAt = now;
     }
 
+    // The granted limit is captured here, at the moment of approval, because
+    // there is no later point that knows it and no way to derive it. Every
+    // approval decided without it loses the number permanently.
+    //
+    // Null is left as null: an approval recorded without a limit is normal,
+    // and must stay distinguishable from a limit of zero.
+    if (targetStatus === 'approved' && input.approvedCreditLimit != null) {
+      updateData.approvedCreditLimit = new Prisma.Decimal(input.approvedCreditLimit);
+    }
+
+    // Refused rather than ignored. A caller sending a granted limit with a
+    // decline has misunderstood the field, and silently dropping it would
+    // leave them believing it was recorded.
+    if (targetStatus !== 'approved' && input.approvedCreditLimit != null) {
+      throw new ApplicationWorkflowError(
+        `approvedCreditLimit can only be set when approving; target status is "${targetStatus}".`,
+        'APPROVED_LIMIT_REQUIRES_APPROVAL',
+      );
+    }
+
     if (targetStatus === 'declined') {
       updateData.declineReason = input.declineReason ?? null;
     }

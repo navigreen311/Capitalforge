@@ -111,6 +111,16 @@ export const TransitionStatusSchema = z
       .max(2000)
       .optional(),
 
+    /**
+     * The limit actually granted. Only meaningful when approving.
+     *
+     * Distinct from CardApplication.creditLimit, which is the amount requested
+     * at draft and stays on the row whatever the decision — it is populated on
+     * declines, so it is not an approved limit and averaging it does not
+     * produce one.
+     */
+    approvedCreditLimit: z.number().positive().optional(),
+
     /** Free-form note that gets appended to the audit trail */
     note: z.string().max(2000).optional(),
   })
@@ -120,6 +130,19 @@ export const TransitionStatusSchema = z
         code: z.ZodIssueCode.custom,
         path: ['approvedByUserId'],
         message: 'approvedByUserId is required when submitting (maker-checker)',
+      });
+    }
+    // A granted limit on anything but an approval is the defect this field
+    // was added to end: creditLimit already sits on declined rows, and a
+    // second column repeating that would have been worse than none. The
+    // database refuses it too — see the approved_limit_requires_approval
+    // CHECK constraint — but a validation error names the problem, where a
+    // constraint violation surfaces as a raw Postgres error.
+    if (data.approvedCreditLimit !== undefined && data.status !== 'approved') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['approvedCreditLimit'],
+        message: `approvedCreditLimit can only be set when approving; status is "${data.status}"`,
       });
     }
     if (data.status === 'declined' && !data.declineReason) {

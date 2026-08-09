@@ -49,6 +49,7 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import { randomBytes } from 'node:crypto';
+import { parseIssuer } from '../../../shared/constants/issuers.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import {
   CREDIT_UNION_MEMBERSHIP,
@@ -292,6 +293,95 @@ router.post('/tenants/:id/unsuspend', async (req: Request, res: Response) => {
 // ============================================================
 // Issuers
 // ============================================================
+
+// ── Application counts by issuer ─────────────────────────────
+//
+// This tenant's own book. Counts only — no rates below MIN_DECIDED_FOR_RATE,
+// and no average limit at all until approvedCreditLimit has been captured for
+// long enough to mean something.
+//
+// CardApplication.issuer is free text, not a foreign key, so it is resolved
+// through parseIssuer — which returns null rather than guessing, and whose own
+// doc records why: "the habit of defaulting is what put a 30-day cooldown on
+// issuers nobody had looked up." The resolved registry id joins Issuer.registryId.
+//
+// Two ways an application can fail to land on an issuer, kept apart because
+// they are different facts:
+//
+//   unmatched      — parseIssuer returned null; the string names nothing the
+//                    registry knows.
+//   notInDirectory — resolved to a real registry id with no Issuer row. e.g.
+//                    an application against Discover, which is a known issuer
+//                    nobody has entered.
+//
+// Collapsing them would hide the second, which is the actionable one. Neither
+// is dropped: the response carries counted = placed + unmatched + notInDirectory
+// so the page can state the arithmetic rather than leaving a short total to be
+// noticed.
+router.get('/issuers/application-counts', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const [apps, issuers] = await Promise.all([
+      sharedPrisma.cardApplication.findMany({
+        select: { issuer: true, status: true },
+      }),
+      sharedPrisma.issuer.findMany({ select: { registryId: true, slug: true } }),
+    ]);
+
+    const bySlug = new Map<string, { applications: number; approved: number; declined: number; pending: number }>();
+    const registryToSlug = new Map<string, string>();
+    for (const i of issuers) {
+      if (i.registryId !== null) registryToSlug.set(i.registryId, i.slug);
+    }
+
+    const unmatched = new Map<string, number>();
+    const notInDirectory = new Map<string, number>();
+
+    for (const app of apps) {
+      const identity = parseIssuer(app.issuer);
+      if (identity === null) {
+        unmatched.set(app.issuer, (unmatched.get(app.issuer) ?? 0) + 1);
+        continue;
+      }
+      const slug = registryToSlug.get(identity.id);
+      if (slug === undefined) {
+        notInDirectory.set(identity.id, (notInDirectory.get(identity.id) ?? 0) + 1);
+        continue;
+      }
+      const row = bySlug.get(slug) ?? { applications: 0, approved: 0, declined: 0, pending: 0 };
+      row.applications += 1;
+      if (app.status === 'approved') row.approved += 1;
+      else if (app.status === 'declined') row.declined += 1;
+      else row.pending += 1;
+      bySlug.set(slug, row);
+    }
+
+    const placed = [...bySlug.values()].reduce((n, r) => n + r.applications, 0);
+    const unmatchedTotal = [...unmatched.values()].reduce((n, c) => n + c, 0);
+    const notInDirectoryTotal = [...notInDirectory.values()].reduce((n, c) => n + c, 0);
+
+    return ok(res, {
+      /**
+       * Below this many DECIDED applications for an issuer, no percentage is
+       * shown — not greyed, not asterisked, absent. At n < 20 a single decision
+       * moves the rate five points or more, which reads as signal and is not.
+       * An advisor reading counts loses nothing; an advisor steered by a rate
+       * built on four decisions costs a client an inquiry.
+       */
+      minDecidedForRate: 20,
+      byIssuer: [...bySlug.entries()].map(([slug, r]) => ({ slug, ...r })),
+      unmatched: [...unmatched.entries()].map(([issuer, count]) => ({ issuer, count })),
+      notInDirectory: [...notInDirectory.entries()].map(([registryId, count]) => ({ registryId, count })),
+      totals: {
+        counted: apps.length,
+        placed,
+        unmatched: unmatchedTotal,
+        notInDirectory: notInDirectoryTotal,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 // ── Issuer directory ─────────────────────────────────────────
 //

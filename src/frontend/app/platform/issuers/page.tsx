@@ -72,6 +72,22 @@ interface Issuer {
 
 type FilterMode = 'all' | 'bank' | 'credit_union';
 
+interface IssuerCounts {
+  slug: string;
+  applications: number;
+  approved: number;
+  declined: number;
+  pending: number;
+}
+
+interface CountsResponse {
+  minDecidedForRate: number;
+  byIssuer: IssuerCounts[];
+  unmatched: { issuer: string; count: number }[];
+  notInDirectory: { registryId: string; count: number }[];
+  totals: { counted: number; placed: number; unmatched: number; notInDirectory: number };
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 /**
@@ -320,10 +336,127 @@ function Group({ title, issuers }: { title: string; issuers: Issuer[] }): React.
   );
 }
 
+// ── Our book ─────────────────────────────────────────────────
+//
+// Deliberately a different surface from the rules table above: this is what
+// this tenant has placed, not reference data about issuers, and the two must
+// not read alike. It is where the deleted volume figures would try to come
+// back, so it states its own scope and its own arithmetic.
+
+function CountsSection({ counts, issuers }: { counts: CountsResponse; issuers: Issuer[] }): React.JSX.Element {
+  const nameFor = (slug: string): string => issuers.find((i) => i.slug === slug)?.name ?? slug;
+  const rows = [...counts.byIssuer].sort((a, b) => b.applications - a.applications);
+  const { totals } = counts;
+
+  return (
+    <section
+      aria-label="Applications placed"
+      data-testid="counts-section"
+      className="rounded-xl border border-blue-900/50 bg-blue-950/10 p-5 space-y-4"
+    >
+      <div>
+        <h2 className="text-sm font-semibold text-gray-100">Applications this tenant has placed</h2>
+        <p className="mt-1 text-xs leading-relaxed text-gray-400">
+          Our book, not market data. No other tenant&rsquo;s applications are counted, and nothing
+          here says how an issuer treats applicants generally.
+        </p>
+      </div>
+
+      {/* The arithmetic, on the page rather than only in the code: a future
+          silent drop is then legible instead of a total quietly running short. */}
+      <p className="text-xs text-gray-500" data-testid="counts-reconciliation">
+        {totals.counted} application{totals.counted === 1 ? '' : 's'}: {totals.placed} matched to an
+        issuer, {totals.unmatched} unmatched, {totals.notInDirectory} not in the directory.
+      </p>
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-400">No applications on record.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-xs uppercase tracking-wider text-gray-500">
+                <th scope="col" className="py-2 pr-4 font-semibold">Issuer</th>
+                <th scope="col" className="py-2 pr-4 font-semibold">Applications</th>
+                <th scope="col" className="py-2 pr-4 font-semibold">Decided</th>
+                <th scope="col" className="py-2 font-semibold">Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const decided = r.approved + r.declined;
+                return (
+                  <tr key={r.slug} className="border-t border-gray-800" data-testid={`counts-${r.slug}`}>
+                    <th scope="row" className="py-2 pr-4 text-left font-normal text-gray-200">
+                      {nameFor(r.slug)}
+                    </th>
+                    <td className="py-2 pr-4 text-gray-300">{r.applications}</td>
+                    <td className="py-2 pr-4 text-gray-300">{decided}</td>
+                    <td className="py-2 text-gray-300">
+                      {/* Always the denominator, never a bare percentage. At
+                          n=1 a rate reads identically to one from n=200. */}
+                      {r.approved} of {r.applications} approved
+                      {r.declined > 0 && <span className="text-gray-500"> · {r.declined} declined</span>}
+                      {r.pending > 0 && <span className="text-gray-500"> · {r.pending} pending</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {counts.unmatched.length > 0 && (
+        <div className="rounded-lg border border-amber-700/50 bg-amber-900/10 px-4 py-3" data-testid="counts-unmatched">
+          <p className="text-xs font-semibold text-amber-300">Unmatched issuer names</p>
+          <p className="mt-1 text-xs text-amber-200/80">
+            These application records name an issuer the registry does not recognise, so they are
+            counted here rather than dropped.
+          </p>
+          <ul className="mt-1.5 space-y-0.5">
+            {counts.unmatched.map((u) => (
+              <li key={u.issuer} className="text-xs text-gray-300">
+                &ldquo;{u.issuer}&rdquo; — {u.count}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {counts.notInDirectory.length > 0 && (
+        <div className="rounded-lg border border-gray-700 bg-gray-900/60 px-4 py-3" data-testid="counts-not-in-directory">
+          <p className="text-xs font-semibold text-gray-200">Known issuers not in the directory</p>
+          <p className="mt-1 text-xs text-gray-400">
+            The name resolves to an issuer the registry knows, and no row for it exists in the
+            issuers table. Adding it would move these into the table above.
+          </p>
+          <ul className="mt-1.5 space-y-0.5">
+            {counts.notInDirectory.map((n) => (
+              <li key={n.registryId} className="text-xs text-gray-300">
+                <span className="font-mono">{n.registryId}</span> — {n.count}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-500">
+        No approval rate is shown for an issuer with fewer than {counts.minDecidedForRate} decided
+        applications: below that, one decision moves the rate by five points or more. Average
+        approved limit is not shown at all — the limit granted has only just started being
+        recorded, and the older column holds the amount requested at draft, which sits on declined
+        applications too.
+      </p>
+    </section>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────
 
 export default function IssuersPage(): React.JSX.Element {
   const [issuers, setIssuers] = useState<Issuer[]>([]);
+  const [counts, setCounts] = useState<CountsResponse | null>(null);
   const [error, setError] = useState<AuthFetchError | null>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<FilterMode>('all');
@@ -331,8 +464,12 @@ export default function IssuersPage(): React.JSX.Element {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await loadJson<Issuer[] | null>('/api/platform/issuers');
+      const [data, countData] = await Promise.all([
+        loadJson<Issuer[] | null>('/api/platform/issuers'),
+        loadJson<CountsResponse | null>('/api/platform/issuers/application-counts'),
+      ]);
       setIssuers(data ?? []);
+      setCounts(countData ?? null);
       setError(null);
     } catch (e) {
       setError(toLoadError(e));
@@ -434,6 +571,8 @@ export default function IssuersPage(): React.JSX.Element {
           everything this system has ever recorded. Those figures are not repeated here.
         </p>
       </section>
+
+      {counts !== null && <CountsSection counts={counts} issuers={issuers} />}
 
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>

@@ -449,7 +449,25 @@ model CardApplication {
   issuer              String
   cardProduct         String
   status              String    @default("draft")
+  /// The limit REQUESTED at draft. Written once by create() and never touched
+  /// by the decision transition, so it is populated on declined applications
+  /// too — amounts nobody was granted. Averaging it produces an "average
+  /// approved limit" made mostly of requests. Not renamed, because every
+  /// reader of it means "requested"; see approvedCreditLimit below.
   creditLimit         Decimal?
+  /// The limit actually GRANTED, captured when an application is approved.
+  ///
+  /// A CHECK constraint enforces that this is null unless status = 'approved'.
+  /// Prisma's schema language cannot express CHECK constraints, so it exists
+  /// only in the migration and is invisible to `prisma migrate diff` — a
+  /// generated migration could drop it without anyone noticing.
+  ///
+  ///   constraint: approved_limit_requires_approval
+  ///   migration:  prisma/migrations/20260808150000_card_application_approved_credit_limit
+  ///   guarded by: tests/integration/approved-credit-limit-constraint.test.ts
+  ///
+  /// If you remove the constraint, that test fails. That is deliberate.
+  approvedCreditLimit Decimal?
   introApr            Decimal?
   introAprExpiry      DateTime?
   regularApr          Decimal?
