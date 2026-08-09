@@ -9,6 +9,25 @@ on:
     branches:
       - master
       - main
+    # All four are listed because naming `types` REPLACES the default set
+    # rather than adding to it. The defaults are opened, synchronize and
+    # reopened; writing `types: [edited]` alone would stop CI running when a
+    # branch is pushed to, which is the case that matters most.
+    #
+    # `edited` is here for stacked pull requests. A PR based on another branch
+    # does not match the `branches` filter above, so it gets no run at all —
+    # and retargeting it to master fires `edited`, which is not a default type,
+    # so it got no run then either. #75 reached a merge attempt having never
+    # been tested once, carrying a test that failed the first time it ran.
+    #
+    # Cost: `edited` also fires on title and body edits, so editing a
+    # description queues a full run. The concurrency group above cancels the
+    # previous one, so rapid edits collapse rather than stack.
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
 
 concurrency:
   group: ci-${{ github.ref }}
