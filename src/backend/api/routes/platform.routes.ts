@@ -293,213 +293,68 @@ router.post('/tenants/:id/unsuspend', async (req: Request, res: Response) => {
 // Issuers
 // ============================================================
 
-const ISSUERS_DATA = [
-  {
-    id: 'iss_001', name: 'Chase', logo: '🏦',
-    issuerType: 'bank' as const,
-    velocityRules: '2/30, 5/24 rule; no more than 2 apps per 30 days',
-    approvalCriteria: 'Min 700 FICO, 1yr+ business history, $50k+ revenue',
-    totalApps: 342, approved: 253, declined: 72, pending: 17,
-    approvalRate: 74.0, avgCreditLimit: 28500,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: null,
-  },
-  {
-    id: 'iss_002', name: 'Amex', logo: '💳',
-    issuerType: 'bank' as const,
-    velocityRules: '1/5 rule; one app per 5 days, 2/90 for charge cards',
-    approvalCriteria: 'Min 680 FICO, no recent Amex closures, $25k+ revenue',
-    totalApps: 298, approved: 212, declined: 68, pending: 18,
-    approvalRate: 71.1, avgCreditLimit: 35000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: null,
-  },
-  {
-    id: 'iss_003', name: 'Capital One', logo: '🏛️',
-    issuerType: 'bank' as const,
-    velocityRules: '1/6mo for business cards; sensitive to recent inquiries',
-    approvalCriteria: 'Min 660 FICO, limited recent inquiries, $15k+ revenue',
-    totalApps: 264, approved: 180, declined: 72, pending: 12,
-    approvalRate: 68.2, avgCreditLimit: 22000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: null,
-  },
-  {
-    id: 'iss_004', name: 'Citi', logo: '🏢',
-    issuerType: 'bank' as const,
-    velocityRules: '1/8 rule; one Citi app per 8 days, 2/65 for AA cards',
-    approvalCriteria: 'Min 700 FICO, 5yr+ credit history, no Citi closures in 24mo',
-    totalApps: 218, approved: 131, declined: 74, pending: 13,
-    approvalRate: 60.1, avgCreditLimit: 26000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: null,
-  },
-  {
-    id: 'iss_005', name: 'Bank of America', logo: '🏦',
-    issuerType: 'bank' as const,
-    velocityRules: '2/3/4 rule; 2 cards per 30 days, 3/12, 4/24',
-    approvalCriteria: 'Min 700 FICO, existing BofA relationship preferred',
-    totalApps: 186, approved: 121, declined: 54, pending: 11,
-    approvalRate: 65.1, avgCreditLimit: 24000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: null,
-  },
-  {
-    id: 'iss_006', name: 'US Bank', logo: '🏛️',
-    issuerType: 'bank' as const,
-    velocityRules: '0/6 rule for business cards; very inquiry-sensitive',
-    approvalCriteria: 'Min 720 FICO, 0 new accounts in 6mo, strong existing relationship',
-    totalApps: 142, approved: 77, declined: 56, pending: 9,
-    approvalRate: 54.2, avgCreditLimit: 20000,
-    doNotApply: true, doNotApplyReason: 'Temporarily paused — policy change under review',
-    cuMeta: null,
-  },
-  {
-    id: 'iss_007', name: 'Wells Fargo', logo: '🏦',
-    issuerType: 'bank' as const,
-    velocityRules: '1/12 for business cards; prefers existing customers',
-    approvalCriteria: 'Min 680 FICO, WF checking account required, $25k+ deposits',
-    totalApps: 158, approved: 95, declined: 52, pending: 11,
-    approvalRate: 60.1, avgCreditLimit: 18000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: null,
-  },
-  {
-    id: 'iss_008', name: 'Navy Federal Credit Union', logo: '⚓',
-    issuerType: 'credit_union' as const,
-    velocityRules: 'No 5/24 equivalent; lenient velocity rules for members',
-    approvalCriteria: 'Military/DoD affiliation required; TransUnion pull; min 650 FICO',
-    totalApps: 87, approved: 72, declined: 10, pending: 5,
-    approvalRate: 82.8, avgCreditLimit: 32000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: {
-      membershipRequirement: 'Active duty military, veterans, DoD civilians, and their family members',
-      membershipType: 'Restricted' as const,
-      membershipCost: membershipCostFor('navy_federal'),
-      bureauPull: 'TransUnion',
-    },
-  },
-  {
-    id: 'iss_009', name: 'Alliant Credit Union', logo: '🏦',
-    issuerType: 'credit_union' as const,
-    velocityRules: 'No strict velocity rules; open membership via $10 donation',
-    approvalCriteria: 'Anyone can join ($10 Foster Care to Success donation); min 660 FICO; $25k+ revenue',
-    totalApps: 54, approved: 41, declined: 9, pending: 4,
-    approvalRate: 75.9, avgCreditLimit: 25000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: {
-      membershipRequirement: 'Open to anyone via $10 Foster Care to Success donation',
-      membershipType: 'Open' as const,
-      membershipCost: membershipCostFor('alliant'),
-      bureauPull: 'TransUnion',
-    },
-  },
-  {
-    id: 'iss_010', name: 'PenFed Credit Union', logo: '🛡️',
-    issuerType: 'credit_union' as const,
-    velocityRules: 'No velocity rules; open membership via savings account',
-    approvalCriteria: 'Open to anyone; Equifax + TransUnion pull; min 670 FICO',
-    totalApps: 43, approved: 31, declined: 8, pending: 4,
-    approvalRate: 72.1, avgCreditLimit: 22000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: {
-      membershipRequirement: 'Open to anyone via $17 Voices for Americas Troops donation',
-      membershipType: 'Open' as const,
-      membershipCost: membershipCostFor('penfed'),
-      bureauPull: 'Equifax + TransUnion',
-    },
-  },
-  {
-    id: 'iss_011', name: 'First Tech Federal Credit Union', logo: '💻',
-    issuerType: 'credit_union' as const,
-    velocityRules: 'No strict velocity rules; less inquiry-sensitive than banks',
-    approvalCriteria: 'Tech industry or Computer History Museum member; min 680 FICO',
-    totalApps: 38, approved: 28, declined: 7, pending: 3,
-    approvalRate: 73.7, avgCreditLimit: 20000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: {
-      membershipRequirement: 'Tech industry employees or Computer History Museum / Financial Fitness Association members ($15)',
-      membershipType: 'Restricted' as const,
-      membershipCost: membershipCostFor('first_tech'),
-      bureauPull: 'TransUnion',
-    },
-  },
-  {
-    id: 'iss_012', name: 'DCU (Digital Federal Credit Union)', logo: '🔵',
-    issuerType: 'credit_union' as const,
-    velocityRules: 'Max 1 new DCU card per 6 months; primary savings account required',
-    approvalCriteria: 'Open to anyone ($10 Reach Out for Schools donation); min 620 FICO; lowest APR at 13.50%',
-    totalApps: 62, approved: 49, declined: 9, pending: 4,
-    approvalRate: 79.0, avgCreditLimit: 28000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: {
-      membershipRequirement: 'Open to anyone via $10 Reach Out for Schools donation',
-      membershipType: 'Open' as const,
-      membershipCost: { kind: 'unconfirmed' as const, note: 'Not in the membership registry; join cost not sourced.' },
-      bureauPull: 'TransUnion',
-    },
-  },
-  {
-    id: 'iss_013', name: 'BECU (Boeing Employees Credit Union)', logo: '✈️',
-    issuerType: 'credit_union' as const,
-    velocityRules: 'Max 1 new BECU card per 12 months; WA state residency verified',
-    approvalCriteria: 'WA state residents, Boeing employees, or BECU family members; min 630 FICO',
-    totalApps: 29, approved: 21, declined: 5, pending: 3,
-    approvalRate: 72.4, avgCreditLimit: 18000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: {
-      membershipRequirement: 'Washington state residents, Boeing employees/retirees, or family members of existing BECU members',
-      membershipType: 'Restricted' as const,
-      membershipCost: membershipCostFor('becu'),
-      bureauPull: 'Equifax',
-    },
-  },
-  {
-    id: 'iss_014', name: 'Lake Michigan Credit Union', logo: '🏦',
-    issuerType: 'credit_union' as const,
-    velocityRules: 'No strict velocity rules; open membership via $5 ALS donation',
-    approvalCriteria: 'Open to anyone ($5 ALS donation); min 640 FICO; lowest APR available',
-    totalApps: 21, approved: 16, declined: 3, pending: 2,
-    approvalRate: 76.2, avgCreditLimit: 12000,
-    doNotApply: false, doNotApplyReason: null,
-    cuMeta: {
-      membershipRequirement: 'Open to anyone via $5 ALS Foundation donation',
-      membershipType: 'Open' as const,
-      membershipCost: membershipCostFor('lake_michigan_cu'),
-      bureauPull: 'Equifax',
-    },
-  },
-];
-
-router.get('/issuers', (_req: Request, res: Response) => {
-  logger.info('[platform] GET /issuers');
-  return ok(res, ISSUERS_DATA);
-});
-
-router.get('/issuers/:id/detail', (req: Request, res: Response) => {
-  const issuerId = req.params.id!;
-  logger.info(`[platform] GET /issuers/${issuerId}/detail`);
-  const issuer = ISSUERS_DATA.find(i => i.id === issuerId);
-  if (!issuer) {
-    return res.status(404).json({
-      success: false,
-      error: { code: 'NOT_FOUND', message: 'Issuer not found' },
-      statusCode: 404,
+// ── Issuer directory ─────────────────────────────────────────
+//
+// Reads the issuers and issuer_rules tables. It used to return ISSUERS_DATA,
+// a literal of fourteen issuers carrying totalApps, approved, declined,
+// pending, approvalRate, avgCreditLimit and an approvalTrend sparkline — 1,942
+// applications in total, against seven CardApplication rows in the entire
+// database. None of those figures described this tenant, or any tenant.
+//
+// They are gone rather than recomputed. What is left is reference data about
+// the issuers themselves: what each one's rules are, and where each rule came
+// from. issuer_rules already records sourceUrl and lastVerified per rule, so a
+// rule can state its citation and when it was last checked — which is the
+// opposite of what this endpoint was doing.
+//
+// The /issuers/:id/detail endpoint went with it. Nothing called it, and it
+// manufactured declinePatterns by multiplying fixed percentages against the
+// invented decline count.
+router.get('/issuers', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const issuers = await sharedPrisma.issuer.findMany({
+      where: { isActive: true },
+      orderBy: [{ type: 'asc' }, { name: 'asc' }],
+      include: {
+        rules: {
+          where: { isActive: true },
+          orderBy: [{ severity: 'asc' }, { name: 'asc' }],
+        },
+      },
     });
+
+    logger.info('[platform] GET /issuers', { count: issuers.length });
+
+    return ok(res, issuers.map((i) => ({
+      id: i.id,
+      name: i.name,
+      slug: i.slug,
+      // 'bank' | 'credit_union' | 'fintech' — the column is free text, so it
+      // is passed through rather than narrowed to the two the page used to
+      // assume.
+      issuerType: i.type,
+      logoUrl: i.logoUrl,
+      phoneRecon: i.phoneRecon,
+      notes: i.notes,
+      rules: i.rules.map((r) => ({
+        id: r.id,
+        ruleType: r.ruleType,
+        name: r.name,
+        description: r.description,
+        value: r.value,
+        periodDays: r.periodDays,
+        severity: r.severity,
+        // The provenance pair. A rule with neither is still shown — it is in
+        // the table and an advisor may rely on it — but the page says so
+        // rather than leaving the gap to be read as verified.
+        sourceUrl: r.sourceUrl,
+        sourceNote: r.sourceNote,
+        lastVerified: r.lastVerified ? r.lastVerified.toISOString() : null,
+      })),
+    })));
+  } catch (err) {
+    return next(err);
   }
-  const declinePatterns = [
-    { reason: 'Too many recent inquiries', percentage: 34.2, count: Math.round(issuer.declined * 0.342) },
-    { reason: 'Insufficient credit history', percentage: 22.8, count: Math.round(issuer.declined * 0.228) },
-    { reason: 'High utilization ratio', percentage: 18.5, count: Math.round(issuer.declined * 0.185) },
-    { reason: 'Too many new accounts', percentage: 14.1, count: Math.round(issuer.declined * 0.141) },
-    { reason: 'Other / undisclosed', percentage: 10.4, count: Math.round(issuer.declined * 0.104) },
-  ];
-  return ok(res, {
-    ...issuer,
-    velocityRules: issuer.velocityRules,
-    approvalCriteria: issuer.approvalCriteria,
-    declinePatterns,
-  });
 });
 
 // ============================================================
