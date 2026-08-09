@@ -45,7 +45,7 @@ const EDGE: SimulatorProfile = {
 };
 
 function recommend(profile: SimulatorProfile) {
-  return fundingSimulator.runScenario(profile, undefined, 'test').alternativeComparison;
+  return fundingSimulator.runScenario(profile, 'test').alternativeComparison;
 }
 
 describe('a tie is reported as a tie', () => {
