@@ -449,7 +449,25 @@ model CardApplication {
   issuer              String
   cardProduct         String
   status              String    @default("draft")
+  /// The limit REQUESTED at draft. Written once by create() and never touched
+  /// by the decision transition, so it is populated on declined applications
+  /// too — amounts nobody was granted. Averaging it produces an "average
+  /// approved limit" made mostly of requests. Not renamed, because every
+  /// reader of it means "requested"; see approvedCreditLimit below.
   creditLimit         Decimal?
+  /// The limit actually GRANTED, captured when an application is approved.
+  ///
+  /// A CHECK constraint enforces that this is null unless status = 'approved'.
+  /// Prisma's schema language cannot express CHECK constraints, so it exists
+  /// only in the migration and is invisible to `prisma migrate diff` — a
+  /// generated migration could drop it without anyone noticing.
+  ///
+  ///   constraint: approved_limit_requires_approval
+  ///   migration:  prisma/migrations/20260808150000_card_application_approved_credit_limit
+  ///   guarded by: tests/integration/approved-credit-limit-constraint.test.ts
+  ///
+  /// If you remove the constraint, that test fails. That is deliberate.
+  approvedCreditLimit Decimal?
   introApr            Decimal?
   introAprExpiry      DateTime?
   regularApr          Decimal?
@@ -1482,7 +1500,14 @@ model RecoveryTest {
 model Issuer {
   id         String   @id @default(uuid())
   name       String   @unique
+  /// URL and display key. Hyphenated, for consistency across the column.
   slug       String   @unique
+  /// Canonical id in src/shared/constants/issuers.ts, which uses underscores
+  /// (us_bank, first_tech). The two spellings already diverged for every bank
+  /// before credit unions were added; recording the mapping makes it data
+  /// rather than a convention each reader has to infer. Nullable because an
+  /// issuer need not appear in the registry.
+  registryId String?  @unique
   type       String // bank | credit_union | fintech
   logoUrl    String?
   phoneRecon String?
@@ -1506,7 +1531,11 @@ model IssuerRule {
   periodDays    Int?
   severity      String    @default("hard") // hard | soft
   effectiveDate DateTime  @default(now())
+  /// A citation that is a URL. Rendered as a link.
   sourceUrl     String?
+  /// A citation that is not a URL — a published document, a policy note, a
+  /// registry entry. Rendered as text. A rule carrying either is sourced.
+  sourceNote    String?
   lastVerified  DateTime?
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())

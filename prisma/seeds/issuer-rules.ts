@@ -35,6 +35,19 @@ function registryJoinFee(slug: CreditUnionIssuerId): number | null {
 }
 
 
+/** One seeded rule. sourceNote is part of the shape so it cannot be dropped. */
+interface SeedRule {
+  issuerId: string;
+  ruleType: string;
+  name: string;
+  description: string;
+  value: number | null;
+  periodDays: number | null;
+  severity: string;
+  sourceUrl: string | null;
+  sourceNote?: string | null;
+}
+
 export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
   console.log('  🏦 Seeding issuers and rules...');
 
@@ -44,10 +57,11 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
 
   const chase = await prisma.issuer.upsert({
     where: { slug: 'chase' },
-    update: {},
+    update: { registryId: 'chase' },
     create: {
       name: 'Chase',
       slug: 'chase',
+      registryId: 'chase',
       type: 'bank',
       logoUrl: 'https://cdn.capitalforge.io/issuers/chase.svg',
       phoneRecon: '1-888-270-2127',
@@ -58,10 +72,11 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
 
   const amex = await prisma.issuer.upsert({
     where: { slug: 'american-express' },
-    update: {},
+    update: { registryId: 'amex' },
     create: {
       name: 'American Express',
       slug: 'american-express',
+      registryId: 'amex',
       type: 'bank',
       logoUrl: 'https://cdn.capitalforge.io/issuers/amex.svg',
       phoneRecon: '1-800-567-1083',
@@ -72,10 +87,11 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
 
   const capitalOne = await prisma.issuer.upsert({
     where: { slug: 'capital-one' },
-    update: {},
+    update: { registryId: 'capital_one' },
     create: {
       name: 'Capital One',
       slug: 'capital-one',
+      registryId: 'capital_one',
       type: 'bank',
       logoUrl: 'https://cdn.capitalforge.io/issuers/capital-one.svg',
       phoneRecon: '1-800-625-7866',
@@ -86,10 +102,11 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
 
   const citi = await prisma.issuer.upsert({
     where: { slug: 'citi' },
-    update: {},
+    update: { registryId: 'citi' },
     create: {
       name: 'Citi',
       slug: 'citi',
+      registryId: 'citi',
       type: 'bank',
       logoUrl: 'https://cdn.capitalforge.io/issuers/citi.svg',
       phoneRecon: '1-800-695-5171',
@@ -100,10 +117,11 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
 
   const bofa = await prisma.issuer.upsert({
     where: { slug: 'bank-of-america' },
-    update: {},
+    update: { registryId: 'bank_of_america' },
     create: {
       name: 'Bank of America',
       slug: 'bank-of-america',
+      registryId: 'bank_of_america',
       type: 'bank',
       logoUrl: 'https://cdn.capitalforge.io/issuers/bofa.svg',
       phoneRecon: '1-800-481-8277',
@@ -114,10 +132,11 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
 
   const usbank = await prisma.issuer.upsert({
     where: { slug: 'us-bank' },
-    update: {},
+    update: { registryId: 'us_bank' },
     create: {
       name: 'US Bank',
       slug: 'us-bank',
+      registryId: 'us_bank',
       type: 'bank',
       logoUrl: 'https://cdn.capitalforge.io/issuers/usbank.svg',
       phoneRecon: '1-800-947-1444',
@@ -128,10 +147,11 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
 
   const wells = await prisma.issuer.upsert({
     where: { slug: 'wells-fargo' },
-    update: {},
+    update: { registryId: 'wells_fargo' },
     create: {
       name: 'Wells Fargo',
       slug: 'wells-fargo',
+      registryId: 'wells_fargo',
       type: 'bank',
       logoUrl: 'https://cdn.capitalforge.io/issuers/wells-fargo.svg',
       phoneRecon: '1-800-967-9521',
@@ -143,6 +163,91 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
   console.log('    ✓ 7 issuers created');
 
   // ============================================================
+  // CREDIT UNIONS
+  // ============================================================
+  //
+  // Six institutions, and — as of this seed — zero velocity rules between
+  // them. That is the finding, not a gap in the seed.
+  //
+  // ISSUER_COOLDOWNS in stacking-optimizer.service.ts already records why:
+  // all six are 'unresearched_default' because none of their product notes
+  // states an application velocity or cooldown rule, only membership
+  // eligibility and APR ranges. Nothing published was found to record, so
+  // nothing is recorded. On the Issuers page they read "0 of 0 sourced",
+  // which is a true statement about six institutions with nothing published.
+  //
+  // What they do carry is a membership requirement, and that is genuinely
+  // sourced — CREDIT_UNION_MEMBERSHIP holds a path, a description and a cost
+  // with its own citation for each. Those citations are prose, not URLs,
+  // which is what sourceNote exists for.
+  //
+  // slug is hyphenated to match the column; registryId carries the underscored
+  // canonical id from src/shared/constants/issuers.ts.
+
+  // Collected here and created with every other rule below, after the
+  // deleteMany that clears the table on re-seed. Created before it, they were
+  // silently wiped — the seed reported success and the six rules were gone.
+  const creditUnionRules: SeedRule[] = [];
+
+  const creditUnions: { slug: string; registryId: CreditUnionIssuerId; name: string }[] = [
+    { slug: 'alliant',          registryId: 'alliant',          name: 'Alliant Credit Union' },
+    { slug: 'becu',             registryId: 'becu',             name: 'BECU' },
+    { slug: 'first-tech',       registryId: 'first_tech',       name: 'First Tech Federal Credit Union' },
+    { slug: 'lake-michigan-cu', registryId: 'lake_michigan_cu', name: 'Lake Michigan Credit Union' },
+    { slug: 'navy-federal',     registryId: 'navy_federal',     name: 'Navy Federal Credit Union' },
+    { slug: 'penfed',           registryId: 'penfed',           name: 'PenFed Credit Union' },
+  ];
+
+  for (const cu of creditUnions) {
+    const membership = CREDIT_UNION_MEMBERSHIP[cu.registryId];
+    const fee = registryJoinFee(cu.registryId);
+
+    const issuer = await prisma.issuer.upsert({
+      where: { slug: cu.slug },
+      update: { registryId: cu.registryId },
+      create: {
+        name: cu.name,
+        slug: cu.slug,
+        registryId: cu.registryId,
+        type: 'credit_union',
+        isActive: true,
+      },
+    });
+
+    // The cost sentence keeps the registry's own distinction. A confirmed $5
+    // and an unconfirmed figure are different claims, and First Tech's is
+    // unconfirmed — saying so on the page is the point of carrying it at all.
+    const cost = membership.cost;
+    const costSentence =
+      cost.kind === 'confirmed' ? `Join fee ${'$'}${String(cost.amount)}.`
+      : cost.kind === 'none'    ? 'No join fee.'
+      : 'Join fee not confirmed.';
+
+    creditUnionRules.push({
+      issuerId: issuer.id,
+      ruleType: 'membership_required',
+      name: 'Membership required',
+      description: `${membership.description} ${costSentence}`,
+      value: fee,
+      periodDays: null,
+      severity: 'hard',
+      sourceUrl: null,
+      // Not a URL, so not sourceUrl — writing it there renders a broken link,
+      // and leaving both null renders "No source recorded" for a rule that has
+      // one.
+      sourceNote:
+        cost.kind === 'confirmed'
+          ? `CREDIT_UNION_MEMBERSHIP — ${cost.source}`
+          : cost.kind === 'none'
+            ? 'CREDIT_UNION_MEMBERSHIP — no join fee on record'
+            : 'CREDIT_UNION_MEMBERSHIP — membership path recorded; join cost unconfirmed',
+    });
+  }
+
+  console.log(`    ✓ ${String(creditUnions.length)} credit unions created (0 velocity rules — none published)`);
+
+
+  // ============================================================
   // ISSUER RULES
   // ============================================================
 
@@ -152,11 +257,22 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
       issuerId: chase.id,
       ruleType: 'velocity_max_apps_per_period',
       name: 'Chase 5/24 Rule',
-      description: 'Chase will auto-decline applicants who have opened 5 or more new credit cards (any issuer) in the past 24 months.',
+      // "any issuer" was wrong, and wrong in a way that contradicted this
+      // system's own arithmetic. held-cards.service.ts excludes credit-union
+      // cards from the 5/24 tally deliberately, so the Issuer Directory told
+      // an advisor a client's Alliant card had burned a slot while the
+      // optimizer correctly said it had not. Two surfaces, one client,
+      // opposite answers.
+      description:
+        'Chase will auto-decline applicants who have opened 5 or more new credit cards in the past 24 months. '
+        + 'Counts cards from any bank issuer, not only Chase. Credit-union cards are excluded.',
       value: 5,
       periodDays: 730,
       severity: 'hard',
       sourceUrl: 'https://www.doctorofcredit.com/chase-5-24-rule/',
+      sourceNote:
+        'Credit-union exclusion enforced in held-cards.service.ts '
+        + '(tallyHeldCardsForFiveTwentyFour) and issuer-rules.routes.ts.',
     },
     {
       issuerId: chase.id,
@@ -395,7 +511,7 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
   ];
 
   // Bulk create all rules
-  const allRules = [
+  const allRules: SeedRule[] = [
     ...chaseRules,
     ...amexRules,
     ...capitalOneRules,
@@ -403,6 +519,7 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
     ...bofaRules,
     ...usbankRules,
     ...wellsRules,
+    ...creditUnionRules,
   ];
 
   // Delete existing rules to avoid duplicates on re-seed
@@ -419,6 +536,7 @@ export async function seedIssuerRules(prisma: PrismaClient): Promise<void> {
         periodDays: rule.periodDays,
         severity: rule.severity,
         sourceUrl: rule.sourceUrl,
+        sourceNote: rule.sourceNote ?? null,
         lastVerified: new Date(),
         isActive: true,
       },

@@ -36,6 +36,7 @@ import type {
   ComplaintRecord,
   ComplaintListResult,
   RootCauseAnalytics,
+  ComplaintStatus,
 } from '../../services/complaint.service.js';
 import type {
   CreateInquiryInput,
@@ -103,8 +104,20 @@ const CreateComplaintSchema = z.object({
   initialCallRecordIds:  z.array(z.string()).max(50).optional(),
 });
 
+// Derived from the service's ComplaintStatus rather than restated. These two
+// schemas listed the states as literals and did not gain 'escalated' when the
+// state machine did — a validator that repeats a rule drifts from it silently,
+// and the compiler cannot see the difference between the two lists.
+const COMPLAINT_STATUSES = [
+  'open',
+  'investigating',
+  'escalated',
+  'resolved',
+  'closed',
+] as const satisfies readonly ComplaintStatus[];
+
 const UpdateComplaintSchema = z.object({
-  status:      z.enum(['open', 'investigating', 'resolved', 'closed']).optional(),
+  status:      z.enum(COMPLAINT_STATUSES).optional(),
   severity:    z.enum(['low', 'medium', 'high', 'critical']).optional(),
   assignedTo:  z.string().max(255).optional(),
   escalatedTo: z.string().max(255).optional(),
@@ -128,7 +141,7 @@ const AttachEvidenceSchema = z.object({
 const ComplaintListQuerySchema = z.object({
   businessId: z.string().min(1).max(255).optional(),
   category:   z.enum(['billing', 'service', 'unauthorized_debit', 'compliance', 'other']).optional(),
-  status:     z.enum(['open', 'investigating', 'resolved', 'closed']).optional(),
+  status:     z.enum(COMPLAINT_STATUSES).optional(),
   severity:   z.enum(['low', 'medium', 'high', 'critical']).optional(),
   page:       z.coerce.number().int().positive().optional(),
   pageSize:   z.coerce.number().int().positive().max(100).optional(),
