@@ -36,11 +36,37 @@ import { PrismaClient, Prisma } from '@prisma/client';
 const prisma = new PrismaClient();
 
 let businessId: string;
+let tenantId: string;
 const created: string[] = [];
 
+// A suffix per run, so two runs against the same database cannot collide on
+// the unique tenant slug.
+const SUFFIX = `${String(Date.now())}-${String(Math.floor(Math.random() * 1e6))}`;
+
+// The fixtures are created here rather than read from the database.
+//
+// The first version of this file did `prisma.business.findFirst()` and threw
+// "seed the database first" when it found nothing. It passed locally, because
+// the dev database happened to be seeded, and failed the moment CI ran it: the
+// integration job runs `prisma migrate deploy` and no seed, so the schema is
+// present and every table is empty.
+//
+// A test that depends on ambient state is not testing what it claims. This one
+// asserts a database constraint, so the only rows it needs are the ones it
+// makes.
 beforeAll(async () => {
-  const business = await prisma.business.findFirst({ select: { id: true } });
-  if (!business) throw new Error('no business on record — seed the database first');
+  const tenant = await prisma.tenant.create({
+    data: { name: `ACL Tenant ${SUFFIX}`, slug: `acl-${SUFFIX}` },
+  });
+  tenantId = tenant.id;
+
+  const business = await prisma.business.create({
+    data: {
+      tenantId,
+      legalName: `ACL Business ${SUFFIX}`,
+      entityType: 'llc',
+    },
+  });
   businessId = business.id;
 });
 
@@ -48,6 +74,8 @@ afterAll(async () => {
   if (created.length > 0) {
     await prisma.cardApplication.deleteMany({ where: { id: { in: created } } });
   }
+  await prisma.business.deleteMany({ where: { id: businessId } });
+  await prisma.tenant.deleteMany({ where: { id: tenantId } });
   await prisma.$disconnect();
 });
 
