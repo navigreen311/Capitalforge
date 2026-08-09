@@ -163,6 +163,51 @@ export interface ProductOption {
   suitabilityScore: number;
 }
 
+/**
+ * Why a product was recommended, not only which one.
+ *
+ * The rationale used to be one template asserting that the chosen product
+ * "offers the highest suitability score (N/100)". It was not always true.
+ * `_pickBestProduct` overrides the ranking for a business under 600 FICO and
+ * under a year old, and on a real profile that emitted "Merchant Cash Advance
+ * offers the highest suitability score (30/100)" while card stacking sat at 60
+ * in the same response — a false justification for the product carrying a ~98%
+ * effective APR, which is where a false justification does the most harm.
+ *
+ * Scores also saturate at 100 and ties broke on the order the options were
+ * built, so three products at the cap reported a single winner with nothing to
+ * say a tie had happened. A scoring function that cannot separate its top
+ * options is not choosing between them, it is ordering them, and the caller
+ * could not tell the difference.
+ *
+ * A discriminated union rather than a flag, so a caller cannot read
+ * `primaryChoice` without meeting the reason it was picked.
+ */
+export type RecommendationDecision =
+  | {
+      basis: 'ranking';
+      primaryChoice: ProductOption['productType'];
+      rationale: string;
+      warnings: string[];
+    }
+  | {
+      /** Top score shared. The pick is the first of several, not the best. */
+      basis: 'tie';
+      primaryChoice: ProductOption['productType'];
+      tiedWith: ProductOption['productType'][];
+      rationale: string;
+      warnings: string[];
+    }
+  | {
+      /** A rule overrode the ranking. The pick is not the top scorer. */
+      basis: 'override';
+      primaryChoice: ProductOption['productType'];
+      outscoredBy: ProductOption['productType'][];
+      overrideReason: string;
+      rationale: string;
+      warnings: string[];
+    };
+
 export interface AlternativeComparison {
   profileSummary: {
     ficoScore: number;
@@ -171,11 +216,7 @@ export interface AlternativeComparison {
     debtServiceRatio: number;
   };
   options: ProductOption[];
-  recommendation: {
-    primaryChoice: ProductOption['productType'];
-    rationale: string;
-    warnings: string[];
-  };
+  recommendation: RecommendationDecision;
 }
 
 // ── Scenario result ──────────────────────────────────────────
@@ -230,6 +271,74 @@ const MCA_TIMELINE_DAYS = 3;
 // ============================================================
 // FundingSimulatorService
 // ============================================================
+
+/**
+ * The rationale, written from the reason the product was chosen.
+ *
+ * One sentence per basis rather than one template for all three. The template
+ * asserted "offers the highest suitability score" unconditionally, which was
+ * false whenever the override fired against the ranking, and silent about ties
+ * when the top score was shared.
+ */
+function buildRecommendation(
+  decision: {
+    primaryChoice: ProductOption['productType'];
+    basis: 'ranking' | 'tie' | 'override';
+    tiedWith: ProductOption['productType'][];
+    outscoredBy: ProductOption['productType'][];
+    overrideReason: string | null;
+  },
+  chosen: ProductOption,
+  profile: SimulatorProfile,
+  nameOf: (t: ProductOption['productType']) => string,
+  warnings: string[],
+): RecommendationDecision {
+  const context =
+    `FICO ${String(profile.ficoScore)}, ` +
+    `$${profile.annualRevenue.toLocaleString()} revenue, ` +
+    `${String(profile.yearsInOperation)} years in operation`;
+
+  if (decision.basis === 'override') {
+    return {
+      basis: 'override',
+      primaryChoice: decision.primaryChoice,
+      outscoredBy: decision.outscoredBy,
+      overrideReason: decision.overrideReason ?? '',
+      rationale:
+        `${chosen.productName} is recommended by rule, not by score. ` +
+        `It scores ${String(chosen.suitabilityScore)}/100; ` +
+        `${decision.outscoredBy.map(nameOf).join(' and ')} ` +
+        `score${decision.outscoredBy.length === 1 ? 's' : ''} higher. ` +
+        `${decision.overrideReason ?? ''} Profile: ${context}.`,
+      warnings,
+    };
+  }
+
+  if (decision.basis === 'tie') {
+    return {
+      basis: 'tie',
+      primaryChoice: decision.primaryChoice,
+      tiedWith: decision.tiedWith,
+      rationale:
+        `${chosen.productName} scores ${String(chosen.suitabilityScore)}/100, ` +
+        `and so ${decision.tiedWith.length === 1 ? 'does' : 'do'} ` +
+        `${decision.tiedWith.map(nameOf).join(' and ')}. ` +
+        `The score does not separate them, so this is the first of ` +
+        `${String(decision.tiedWith.length + 1)} equally scored products rather than ` +
+        `the best of them. Profile: ${context}.`,
+      warnings,
+    };
+  }
+
+  return {
+    basis: 'ranking',
+    primaryChoice: decision.primaryChoice,
+    rationale:
+      `${chosen.productName} has the highest suitability score ` +
+      `(${String(chosen.suitabilityScore)}/100) for this profile: ${context}.`,
+    warnings,
+  };
+}
 
 export class FundingSimulatorService {
   private readonly optimizer: StackingOptimizerService;
@@ -588,8 +697,10 @@ export class FundingSimulatorService {
     ];
 
     // Determine best recommendation
-    const primaryChoice = this._pickBestProduct(profile, options);
-    const chosen = options.find((o) => o.productType === primaryChoice)!;
+    const decision = this._pickBestProduct(profile, options);
+    const chosen = options.find((o) => o.productType === decision.primaryChoice)!;
+    const nameOf = (t: ProductOption['productType']): string =>
+      options.find((o) => o.productType === t)?.productName ?? t;
 
     const warnings: string[] = [];
     if (profile.ficoScore < 620) {
@@ -610,11 +721,7 @@ export class FundingSimulatorService {
         debtServiceRatio: parseFloat(((profile.existingDebt / Math.max(profile.annualRevenue, 1)) * 100).toFixed(1)),
       },
       options,
-      recommendation: {
-        primaryChoice,
-        rationale: `${chosen.productName} offers the highest suitability score (${chosen.suitabilityScore}/100) for this profile given FICO ${profile.ficoScore}, $${profile.annualRevenue.toLocaleString()} revenue, and ${profile.yearsInOperation} years in operation.`,
-        warnings,
-      },
+      recommendation: buildRecommendation(decision, chosen, profile, nameOf, warnings),
     };
   }
 
@@ -795,18 +902,65 @@ export class FundingSimulatorService {
     };
   }
 
+  /**
+   * Which product, and on what basis.
+   *
+   * Returns the reason alongside the choice so the rationale can describe what
+   * actually happened rather than assuming a ranking. See
+   * RecommendationDecision for what each basis means.
+   */
   private _pickBestProduct(
     profile: SimulatorProfile,
     options: ProductOption[],
-  ): ProductOption['productType'] {
-    // If desperate situation: FICO < 600 and short tenure → MCA may be only option
+  ): {
+    primaryChoice: ProductOption['productType'];
+    basis: 'ranking' | 'tie' | 'override';
+    tiedWith: ProductOption['productType'][];
+    outscoredBy: ProductOption['productType'][];
+    overrideReason: string | null;
+  } {
+    const top = options.reduce(
+      (best, o) => (o.suitabilityScore > best ? o.suitabilityScore : best),
+      Number.NEGATIVE_INFINITY,
+    );
+
+    // A business under 600 FICO and under a year old may have no other route,
+    // so the rule stands. What changes is that it is reported as a rule rather
+    // than dressed up as the outcome of a ranking it ignored.
     if (profile.ficoScore < 600 && profile.yearsInOperation < 1) {
-      return 'mca';
+      const chosen = options.find((o) => o.productType === 'mca');
+      const outscoredBy = options
+        .filter((o) => chosen !== undefined && o.suitabilityScore > chosen.suitabilityScore)
+        .map((o) => o.productType);
+
+      return {
+        primaryChoice: 'mca',
+        // Only an override when it actually contradicts the scores. Where the
+        // rule and the ranking agree, this is an ordinary ranking result and
+        // saying otherwise would be its own overstatement.
+        basis: outscoredBy.length > 0 ? 'override' : 'ranking',
+        tiedWith: [],
+        outscoredBy,
+        overrideReason:
+          outscoredBy.length > 0
+            ? 'FICO below 600 with under a year in operation: a merchant cash advance is recommended regardless of score, because other products are unlikely to be available.'
+            : null,
+      };
     }
 
-    // Sort by suitability score descending
     const sorted = [...options].sort((a, b) => b.suitabilityScore - a.suitabilityScore);
-    return sorted[0]!.productType;
+    const primaryChoice = sorted[0]!.productType;
+    const tiedWith = options
+      .filter((o) => o.productType !== primaryChoice && o.suitabilityScore === top)
+      .map((o) => o.productType);
+
+    return {
+      primaryChoice,
+      basis: tiedWith.length > 0 ? 'tie' : 'ranking',
+      tiedWith,
+      outscoredBy: [],
+      overrideReason: null,
+    };
   }
 
   // ── Private — helpers ─────────────────────────────────────
