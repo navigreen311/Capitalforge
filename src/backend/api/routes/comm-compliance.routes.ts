@@ -80,9 +80,18 @@ function requirePermission(permission: string) {
 
 // ── Validation schemas ────────────────────────────────────────────
 
+// `video_script` is the text a video is generated FROM, scanned before render.
+// It is a distinct channel value rather than being folded into `document`
+// because the compliance record is read later to answer "what was checked, and
+// what was it": a script recorded as a document would misdescribe both the
+// artefact that was scanned and the audience it reaches.
+//
+// Naming it `video_script` rather than `video` is deliberate and is the honest
+// name. Nothing here has inspected a video. See AnimaForge's
+// marketingComplianceGate for what that scan does and does not cover.
 const ScanBodySchema = z.object({
   advisorId: z.string().uuid('advisorId must be a valid UUID'),
-  channel:   z.enum(['voice', 'email', 'sms', 'chat', 'document']),
+  channel:   z.enum(['voice', 'email', 'sms', 'chat', 'document', 'video_script']),
   content:   z.string().min(1, 'content is required').max(100_000, 'content exceeds 100 000 character limit'),
 });
 

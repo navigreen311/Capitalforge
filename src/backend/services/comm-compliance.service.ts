@@ -38,7 +38,18 @@ export type BannedClaimCategory =
   | 'coaching_misrepresentation'
   | 'upfront_fee_concealment'
   | 'credit_certainty'
-  | 'sba_affiliation';
+  | 'sba_affiliation'
+  // ── Added for the marketing-compliance surface ──────────────────
+  // These exist because AnimaForge now scans generation scripts through this
+  // same list before rendering video. The categories above were written for
+  // an advisor talking to one client; a marketing video reaches an audience,
+  // and the two claim types below are the ones a video is most likely to make
+  // and the ones this list could not previously see.
+  //
+  // They live HERE, in the one library, and not in AnimaForge. A second
+  // banned-phrase list drifts from the first, and the drift is silent.
+  | 'rate_or_term_claim'
+  | 'credit_improvement_claim';
 
 export interface BannedClaim {
   id: string;
@@ -254,6 +265,119 @@ export const BANNED_CLAIMS: BannedClaim[] = [
     legalCitation: 'FTC Act § 5',
     severityWeight: 10,
   },
+
+  // ── Rate and term claims (TILA / Regulation Z) ─────────────────
+  //
+  // A stated rate or term is a "trigger term": once one appears in an
+  // advertisement, Regulation Z obliges the full set of disclosures alongside
+  // it. A video that says "0% APR" and stops has made an incomplete
+  // disclosure, which is the violation — not the number itself.
+  //
+  // These patterns therefore catch the ABSOLUTE and PERMANENT framings, not
+  // every mention of a rate. "0% APR for 12 months, then 18.99% variable" is
+  // compliant and must pass; "0% APR forever" must not.
+  {
+    id: 'banned-020',
+    category: 'rate_or_term_claim',
+    pattern: /(0|zero)\s*%?\s*(apr|interest|rate)\s+(forever|for life|permanently|always|guaranteed)/i,
+    label: 'Permanent zero-rate claim',
+    rationale:
+      'A promotional rate has a defined period. Presenting it as permanent misstates the cost of credit.',
+    legalCitation: 'TILA 15 U.S.C. § 1601; Regulation Z 12 C.F.R. § 1026.16 (trigger terms)',
+    severityWeight: 10,
+    compliantAlternative:
+      '0% intro APR for 12 months, then the standard variable rate — currently 18.99%–24.99%.',
+  },
+  {
+    id: 'banned-021',
+    category: 'rate_or_term_claim',
+    pattern: /\b(no|zero)\s+interest\b(?!\s+(for|during|until|through))/i,
+    label: 'Unqualified no-interest claim',
+    rationale:
+      'A no-interest claim without the period it applies to is an incomplete Regulation Z disclosure.',
+    legalCitation: 'TILA 15 U.S.C. § 1601; Regulation Z 12 C.F.R. § 1026.16',
+    severityWeight: 8,
+    compliantAlternative: 'No interest for the first 12 billing cycles on qualifying purchases.',
+  },
+  {
+    id: 'banned-022',
+    category: 'rate_or_term_claim',
+    pattern: /(guaranteed|locked[- ]in|fixed)\s+(rate|apr)\b/i,
+    label: 'Guaranteed rate claim',
+    rationale:
+      'The rate offered is set by the issuer at underwriting. Promising one in advance misstates the terms.',
+    legalCitation: 'TILA; Regulation Z 12 C.F.R. § 1026.16; FTC Act § 5',
+    severityWeight: 9,
+    compliantAlternative: 'Rates start at 9.99% APR and depend on your credit profile.',
+  },
+  {
+    id: 'banned-023',
+    category: 'rate_or_term_claim',
+    pattern: /(lowest|best)\s+(rate|apr)s?\s+(in the|on the|anywhere|guaranteed|available)/i,
+    label: 'Superlative rate claim',
+    rationale:
+      'An unsubstantiated superlative about price is a deceptive comparative claim.',
+    legalCitation: 'FTC Act § 5; FTC Guides Concerning Use of Endorsements 16 C.F.R. § 255',
+    severityWeight: 7,
+  },
+
+  // ── Credit improvement claims (CROA) ───────────────────────────
+  //
+  // The Credit Repair Organizations Act attaches to anyone who represents
+  // that they will improve a consumer's credit record. Burkham Wickmont is
+  // not a credit repair organization, and design principle 1 says no feature
+  // may recharacterize it as one. A video making any of these claims does
+  // exactly that, in writing, to an audience.
+  {
+    id: 'banned-024',
+    category: 'credit_improvement_claim',
+    pattern: /(remove|delete|erase|wipe|clear)\s+(negative|derogatory|bad)\s+(items?|marks?|accounts?|entries)/i,
+    label: 'Derogatory removal claim',
+    rationale:
+      'Promising removal of accurate negative information is a CROA-prohibited representation and false.',
+    legalCitation: 'CROA 15 U.S.C. § 1679b(a); FTC Act § 5',
+    severityWeight: 10,
+    compliantAlternative:
+      'We do not repair credit. Accurate information stays on your report for the statutory period.',
+  },
+  {
+    id: 'banned-025',
+    category: 'credit_improvement_claim',
+    pattern: /(fix|repair|restore|rebuild|boost|raise)\s+your\s+credit\b/i,
+    label: 'Credit repair representation',
+    rationale:
+      'Representing that the firm will improve a consumer credit record is the definition of a credit repair organization under CROA.',
+    legalCitation: 'CROA 15 U.S.C. § 1679a(3), § 1679b(a)',
+    severityWeight: 10,
+    compliantAlternative:
+      'We structure business credit. We do not offer credit repair and are not a credit repair organization.',
+  },
+  {
+    id: 'banned-026',
+    category: 'credit_improvement_claim',
+    // `credit` alone is included, not only `credit score`. "Boost your credit
+    // by 120 points" is the quantified claim in ordinary speech, and the first
+    // version of this pattern required the word "score" — so the phrase was
+    // caught by banned-025 as a generic repair claim and recorded under the
+    // wrong category. Still blocked, but described wrongly, and the category is
+    // what a reviewer reads.
+    pattern: /(raise|increase|boost|add)\s+(your\s+)?(credit\s+score|credit|score|fico)\s+(by\s+)?\d+\s*(\+|points?)/i,
+    label: 'Quantified score improvement claim',
+    rationale:
+      'A numeric score-increase promise cannot be substantiated and is a CROA-prohibited representation.',
+    legalCitation: 'CROA 15 U.S.C. § 1679b(a)(3); FTC Act § 5',
+    severityWeight: 10,
+  },
+  {
+    id: 'banned-027',
+    category: 'credit_improvement_claim',
+    pattern: /(new|second|clean)\s+credit\s+(file|identity|profile)|credit\s+privacy\s+number|\bcpn\b/i,
+    label: 'File segregation / CPN claim',
+    rationale:
+      'Advising a consumer to obtain a new credit identity is expressly prohibited and is criminal conduct.',
+    legalCitation: 'CROA 15 U.S.C. § 1679b(a)(1)-(2); 18 U.S.C. § 1028',
+    severityWeight: 10,
+  },
 ];
 
 // ── Disclosure templates for insertion engine ─────────────────────
@@ -434,6 +558,17 @@ function selectRequiredDisclosures(
     }
     if (v.category === 'no_risk_claim') {
       triggered.add('disc-003');
+    }
+    // A rate or term claim is a Regulation Z trigger term: the intro-APR
+    // disclosure is what makes the statement complete rather than misleading.
+    if (v.category === 'rate_or_term_claim') {
+      triggered.add('disc-004');
+    }
+    // A credit-improvement claim is answered by saying what this firm is not.
+    // disc-005 is the no-affiliation text and is always present anyway; naming
+    // it here records WHY it was required rather than leaving it to the default.
+    if (v.category === 'credit_improvement_claim') {
+      triggered.add('disc-005');
     }
   }
 
