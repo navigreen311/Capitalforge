@@ -221,7 +221,13 @@ function scan(): Violation[] {
       // switch statement and passes the exact shape it exists to catch.
       const expanded = [body, ...calleeBodies(src, mask, body)].join('\n');
 
-      if (REFUSES.test(expanded)) continue;
+      // A refusal exempts only a handler that ONLY refuses.
+      //
+      // document-gen refuses one document type and generates fifteen others, and
+      // testing `expanded` for a 501 exempted the whole endpoint the moment that
+      // first refusal was added — silently un-checking fifteen templates as a
+      // side effect of making one of them honest. Exactly the wrong direction.
+      if (REFUSES.test(expanded) && !BUILDS_TEXT.test(expanded)) continue;
       if (ASKS_SOMETHING.test(expanded)) continue;
       if (!BUILDS_TEXT.test(expanded)) continue;
 
@@ -256,26 +262,24 @@ function scan(): Violation[] {
 /**
  * Real: a document built from figures nobody queried.
  *
- * document-gen is here because following the GENERATORS dispatch table brought
- * its sixteen templates into scope and three of them assert figures:
+ * document-gen holds one remaining instance, and it is the weakest of the three
+ * that following the dispatch table exposed:
  *
- *   generateBusinessPurposeStatement  a fixed use-of-funds allocation —
- *     Inventory 40%, Marketing 25%, Equipment 20%, Working capital 15% — in the
- *     document that evidences credit is for business rather than personal use.
- *     Identical for every client, and a factual claim about how they will spend.
+ *   generateAprExpiryWarningLetter tells the client "one or more of your
+ *   business credit cards have 0% introductory APR periods expiring soon" as
+ *   prose, rather than from the cards on file. It is product language rather
+ *   than a figure, and it is still an assertion about this client's accounts in
+ *   a letter addressed to them.
  *
- *   generateFeeDisclosureLetter  "Expedited Processing Fee: $0", "Document
- *     Preparation Fee: $0", "Restack Analysis Fee: $0 for first restack". A fee
- *     disclosure stating amounts that were not read from any fee schedule. If
- *     the real schedule differs, the disclosure understates what is charged.
+ * The other two are fixed:
  *
- *   generateAprExpiryWarningLetter  asserts the client's cards "have 0%
- *     introductory APR periods expiring soon" as prose rather than from the
- *     cards on file. Weaker than the other two — it is product language, not a
- *     figure — and listed because the same letter goes to a client.
+ *   generateBusinessPurposeStatement asserted a fixed use-of-funds allocation —
+ *   Inventory 40%, Marketing 25%, Equipment 20%, Working capital 15% — in every
+ *   statement it produced. It now renders the client's stated allocation, or a
+ *   bracket saying the section must be completed with them.
  *
- * The other thirteen are clean: they interpolate caller context and fall back to
- * visible placeholders.
+ *   generateFeeDisclosureLetter listed three fees at $0 under a sentence
+ *   promising all fees were disclosed. It refuses; see UNPRICED_DOCUMENTS.
  */
 const KNOWN_FABRICATED = new Set<string>([
   'src/backend/api/routes/document-gen.routes.ts::POST /documents/generate',

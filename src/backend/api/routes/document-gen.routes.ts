@@ -144,6 +144,39 @@ function generateBusinessPurposeStatement(ctx: Record<string, unknown>): string 
   const purpose = (ctx.purpose as string) ?? 'working capital and operational expenses';
   const revenue = (ctx.annual_revenue as string) ?? '[annual revenue]';
 
+  // The allocation comes from the client or it is a bracket.
+  //
+  // It was four fixed lines — Inventory 40%, Marketing 25%, Equipment 20%,
+  // Working capital 15% — identical in every statement this system produced.
+  // A Business Purpose Statement is the document that evidences credit is for
+  // business rather than personal use, and the allocation is the part doing that
+  // evidencing. Nobody here knows how a given client will spend the money, and
+  // the document whose purpose is proving business use is the wrong place to
+  // guess at it.
+  //
+  // `use_of_funds` is an array of {purpose, percent} when the client has stated
+  // one. When they have not, the section says so in a form nobody will mistake
+  // for an answer — and a statement that goes out with the bracket still in it
+  // is a statement somebody has to fill in before it means anything, which is
+  // the correct outcome.
+  const useOfFunds = Array.isArray(ctx.use_of_funds) ? ctx.use_of_funds : null;
+  const allocation =
+    useOfFunds && useOfFunds.length > 0
+      ? useOfFunds
+          .map((u) => {
+            const item = u as { purpose?: unknown; percent?: unknown };
+            const purposeText =
+              typeof item.purpose === 'string' && item.purpose.trim()
+                ? item.purpose
+                : '[purpose]';
+            const pct =
+              typeof item.percent === 'number' ? ` (${item.percent}%)` : '';
+            return `- ${purposeText}${pct}`;
+          })
+          .join('\n')
+      : '[The client has not stated an allocation. This section must be completed '
+        + 'with the client before the statement is used.]';
+
   return `BUSINESS PURPOSE STATEMENT
 
 Business Name: ${businessName}
@@ -157,10 +190,7 @@ ${businessName} is seeking a total credit facility of ${creditAmount} for the pu
 INTENDED USE OF FUNDS
 
 The requested credit will be allocated as follows:
-- Inventory and supply chain management (40%)
-- Marketing and client acquisition (25%)
-- Equipment and technology upgrades (20%)
-- Working capital reserve (15%)
+${allocation}
 
 REPAYMENT STRATEGY
 
@@ -829,6 +859,47 @@ ${advisorName}
 CapitalForge`;
 }
 
+// ── Documents that cannot be generated honestly yet ──────────
+//
+// A generator that states a figure nobody can check is worse than no generator,
+// and worst of all in the one document whose entire purpose is being accurate
+// about what a client is charged.
+//
+// `fee_disclosure_letter` opened with "This letter discloses ALL fees" — a
+// completeness claim — and then listed three under ADDITIONAL FEES:
+//
+//     Expedited Processing Fee: $0 (included in program fee)
+//     Document Preparation Fee: $0 (included in program fee)
+//     Restack Analysis Fee: $0 for first restack, standard rates apply
+//
+// Those three names appear nowhere else in this codebase, and nowhere in
+// Burkham Wickmont's. They are not the placement schedule: that one is per-
+// product success fees — $500 card, $5,000 equipment, $7,500 line, $10,000
+// term, $20,000 SBA, $7,500 factoring — recorded in
+// packages/billing/src/successFeeSeed.ts, where `successFeeFor` refuses a fee
+// the Compliance Review Board has not approved. A different set entirely, and
+// this letter is not quoting it.
+//
+// So there is no schedule to read these from. The letter asserted $0 three
+// times, plus "standard rates apply" for rates that do not exist, under a
+// sentence promising the disclosure was complete.
+//
+// That schedule's own handling of an unpriced product is the precedent for
+// refusing rather than defaulting. Merchant cash advance has no row, and the
+// comment says why: "Deliberately NOT recorded as a fee of zero. A zero row
+// says 'this product is free'; no row says 'this product is not priced'."
+// Three zero rows in a disclosure letter said the first when the second was
+// true.
+const UNPRICED_DOCUMENTS: Partial<Record<GeneratedDocumentType, string>> = {
+  fee_disclosure_letter:
+    'The fee disclosure letter is not implemented. It listed an Expedited Processing '
+    + 'Fee, a Document Preparation Fee and a Restack Analysis Fee at $0, under a '
+    + 'sentence stating that all fees were disclosed. None of those three fees exists '
+    + 'in any schedule, in this system or in the firm\'s, so the letter could neither '
+    + 'confirm nor correct them. It will generate once a fee schedule records what is '
+    + 'actually charged for them — or once they are removed as fees that do not exist.',
+};
+
 // ── Template dispatcher ──────────────────────────────────────
 
 const GENERATORS: Record<GeneratedDocumentType, (ctx: Record<string, unknown>) => string> = {
@@ -877,6 +948,13 @@ documentGenRouter.post(
 
     try {
       const { document_type, context: ctx } = parsed.data;
+
+      const unpriced = UNPRICED_DOCUMENTS[document_type];
+      if (unpriced) {
+        sendError(res, 501, 'NOT_IMPLEMENTED', unpriced);
+        return;
+      }
+
       const generator = GENERATORS[document_type];
       const text = generator(ctx as Record<string, unknown>);
 
