@@ -135,6 +135,38 @@ function calleeBodies(src: string, mask: string, body: string): string[] {
   const called = new Set<string>();
   for (const c of body.matchAll(/\b([a-z]\w{3,})\s*\(/g)) called.add(c[1]!);
 
+  // Dispatch tables count as calls.
+  //
+  // document-gen holds sixteen generators in
+  // `const GENERATORS: Record<...> = { decline_reconsideration_letter: generateX, … }`
+  // and the handler does `GENERATORS[document_type](ctx)`. Following names alone
+  // sees a table lookup and reads none of the sixteen — which left adverse
+  // action responses and fee disclosures, the documents where an invented figure
+  // matters most, outside this check entirely.
+  //
+  // So: for every module-level object literal whose values are bare identifiers,
+  // if the handler mentions the table by name, treat all of them as called.
+  for (const t of mask.matchAll(/\bconst\s+([A-Z][A-Z0-9_]*)\b/g)) {
+    const tableName = t[1]!;
+    if (!new RegExp(`\\b${tableName}\\b`).test(body)) continue;
+
+    // Find the `= {` that opens the literal. Not `[^=]*=` — the type annotation
+    // `Record<T, (ctx: …) => string>` contains an `=`, so that pattern matched
+    // nothing and this whole branch was dead while appearing to work.
+    const assign = /=\s*\{/.exec(mask.slice(t.index, t.index + 400));
+    if (!assign) continue;
+    const open = mask.indexOf('{', t.index + assign.index);
+    const table = src.slice(open, matchBrace(src, open) + 1);
+    // Lookahead on the trailing delimiter. Consuming it meant every second
+    // entry was skipped — the comma that ended one match was the comma the next
+    // one needed to start, so sixteen generators parsed as eight.
+    for (const v of table.matchAll(
+      /[:,{]\s*(?:\w+|'[^']*'|"[^"]*")\s*:\s*([A-Za-z_]\w*)\s*(?=[,}])/g,
+    )) {
+      called.add(v[1]!);
+    }
+  }
+
   const out: string[] = [];
   for (const name of called) {
     // Double-escaped: inside a template literal `\s` collapses to a literal
@@ -143,7 +175,12 @@ function calleeBodies(src: string, mask: string, body: string): string[] {
     if (!decl) continue;
     const open = mask.indexOf('{', decl.index + decl[0].length);
     if (open === -1) continue;
-    out.push(src.slice(open, matchBrace(src, open) + 1));
+    // Masked slice: comments are blanked, string content is not. Detection must
+    // never read a comment — this file's own note explaining that a Business
+    // Purpose Statement used to assert $150,000 was itself reported as a
+    // fabricated figure, which is the failure the capability-state register
+    // warns about: an explanation of the rule counted as an instance of it.
+    out.push(mask.slice(open, matchBrace(src, open) + 1));
   }
   return out;
 }
@@ -172,7 +209,8 @@ function scan(): Violation[] {
 
       const open = mask.indexOf('{', end);
       if (open === -1) continue;
-      const body = src.slice(open, matchBrace(src, open) + 1);
+      const close = matchBrace(src, open);
+      const body = mask.slice(open, close + 1);
       const line = src.slice(0, m.index).split('\n').length;
 
       // Expand one level into same-file helpers the handler calls.
@@ -190,7 +228,17 @@ function scan(): Violation[] {
       const found = FIGURE.exec(expanded);
       if (!found) continue;
 
-      const at = body.slice(Math.max(0, found.index - 45), found.index + 45);
+      // From `expanded`, not `body`: the match index belongs to the expanded
+      // text, and slicing the handler with it printed an empty sample for every
+      // finding that lived in a helper — which is most of them.
+      // The index is into masked text, and `blank` preserves offsets, so a hit
+      // inside the handler itself reads back from `src` at the same offset. A hit
+      // inside an expanded helper is quoted from the masked text, which is
+      // readable because only comments were blanked.
+      const at =
+        found.index <= close - open
+          ? src.slice(open + Math.max(0, found.index - 50), open + found.index + 50)
+          : expanded.slice(Math.max(0, found.index - 50), found.index + 50);
       out.push({
         file: rel,
         line,
@@ -205,8 +253,33 @@ function scan(): Violation[] {
 
 // ── Recorded ──────────────────────────────────────────────────
 
-/** Real: a document built from figures nobody queried. */
-const KNOWN_FABRICATED = new Set<string>([]);
+/**
+ * Real: a document built from figures nobody queried.
+ *
+ * document-gen is here because following the GENERATORS dispatch table brought
+ * its sixteen templates into scope and three of them assert figures:
+ *
+ *   generateBusinessPurposeStatement  a fixed use-of-funds allocation —
+ *     Inventory 40%, Marketing 25%, Equipment 20%, Working capital 15% — in the
+ *     document that evidences credit is for business rather than personal use.
+ *     Identical for every client, and a factual claim about how they will spend.
+ *
+ *   generateFeeDisclosureLetter  "Expedited Processing Fee: $0", "Document
+ *     Preparation Fee: $0", "Restack Analysis Fee: $0 for first restack". A fee
+ *     disclosure stating amounts that were not read from any fee schedule. If
+ *     the real schedule differs, the disclosure understates what is charged.
+ *
+ *   generateAprExpiryWarningLetter  asserts the client's cards "have 0%
+ *     introductory APR periods expiring soon" as prose rather than from the
+ *     cards on file. Weaker than the other two — it is product language, not a
+ *     figure — and listed because the same letter goes to a client.
+ *
+ * The other thirteen are clean: they interpolate caller context and fall back to
+ * visible placeholders.
+ */
+const KNOWN_FABRICATED = new Set<string>([
+  'src/backend/api/routes/document-gen.routes.ts::POST /documents/generate',
+]);
 
 /**
  * Reviewed and sound: builds a document, queries nothing, and that is correct
