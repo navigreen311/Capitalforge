@@ -104,7 +104,12 @@ export interface RuleViolation {
   ruleId: string;
   ruleName: string;
   ruleType: string;
-  severity: 'hard' | 'soft';
+  /**
+   * `unconfigured` is not a third grade of seriousness — it means the rule
+   * could not be evaluated because a parameter it needs is not recorded.
+   * It is reported, and it blocks. See `unevaluatedRules`.
+   */
+  severity: 'hard' | 'soft' | 'unconfigured';
   description: string;
   /** Why this rule was triggered */
   reason: string;
@@ -120,6 +125,20 @@ export interface EligibilityResult {
   eligible: boolean;
   hardBlocks: RuleViolation[];
   softWarnings: RuleViolation[];
+  /**
+   * Rules that could not be evaluated because a parameter is missing.
+   *
+   * Every threshold used to be defaulted with `??`, and the same `?? 0` meant
+   * opposite things: `maxApps ?? 0` blocked everyone, `minScore ?? 0` passed
+   * everyone, and `periodDays` had three different defaults in this one file —
+   * 0, 365 and 30 — so which rule you got depended on which function read it.
+   * None of them said the rule was unconfigured.
+   *
+   * These are also in `hardBlocks`, so an unevaluated rule fails closed. That
+   * is a choice, not an accident: an issuer rule nobody finished recording is
+   * not evidence that a client qualifies.
+   */
+  unevaluatedRules: RuleViolation[];
   eligibilityScore: number;
   evaluatedAt: string;
   rulesEvaluated: number;
@@ -263,11 +282,19 @@ export class IssuerRulesEngine {
 
     const hardBlocks: RuleViolation[] = [];
     const softWarnings: RuleViolation[] = [];
+    const unevaluatedRules: RuleViolation[] = [];
 
     for (const rule of issuer.rules) {
       const violation = this.evaluateRule(rule, context);
       if (violation) {
-        if (violation.severity === 'hard') {
+        if (violation.severity === 'unconfigured') {
+          // Both lists. Reported as unevaluated so a reader can see WHY, and
+          // blocking so an unfinished rule cannot read as a client qualifying.
+          // The `else` below used to catch anything that was not 'hard', so an
+          // unconfigured rule would have landed in soft warnings and passed.
+          unevaluatedRules.push(violation);
+          hardBlocks.push(violation);
+        } else if (violation.severity === 'hard') {
           hardBlocks.push(violation);
         } else {
           softWarnings.push(violation);
@@ -286,6 +313,7 @@ export class IssuerRulesEngine {
       issuerId: issuer.id,
       issuerName: issuer.name,
       eligible,
+      unevaluatedRules,
       hardBlocks,
       softWarnings,
       eligibilityScore,
@@ -358,8 +386,10 @@ export class IssuerRulesEngine {
     context: EligibilityContext,
     severity: 'hard' | 'soft',
   ): RuleViolation | null {
-    const maxApps = rule.value ?? 0;
-    const periodDays = rule.periodDays ?? 0;
+    const maxApps = param(rule.value);
+    const periodDays = param(rule.periodDays);
+    if (maxApps === null) return unevaluated(rule, 'value');
+    if (periodDays === null) return unevaluated(rule, 'periodDays');
 
     // Use totalAppsInPeriod for cross-issuer velocity (e.g. Chase 5/24)
     // Use issuerAppsInPeriod for issuer-specific velocity
@@ -389,7 +419,8 @@ export class IssuerRulesEngine {
   ): RuleViolation | null {
     if (!context.lastApplicationDate) return null;
 
-    const cooldownDays = rule.periodDays ?? 0;
+    const cooldownDays = param(rule.periodDays);
+    if (cooldownDays === null) return unevaluated(rule, 'periodDays');
     const lastApp = new Date(context.lastApplicationDate);
     const asOf = context.asOfDate ? new Date(context.asOfDate) : new Date();
     const daysSinceLast = Math.floor(
@@ -440,7 +471,8 @@ export class IssuerRulesEngine {
   ): RuleViolation | null {
     if (context.creditScore === null) return null;
 
-    const minScore = rule.value ?? 0;
+    const minScore = param(rule.value);
+    if (minScore === null) return unevaluated(rule, 'value');
     if (context.creditScore < minScore) {
       return {
         ruleId: rule.id,
@@ -463,7 +495,8 @@ export class IssuerRulesEngine {
   ): RuleViolation | null {
     if (context.businessAgeMonths === null) return null;
 
-    const minMonths = rule.value ?? 0;
+    const minMonths = param(rule.value);
+    if (minMonths === null) return unevaluated(rule, 'value');
     if (context.businessAgeMonths < minMonths) {
       return {
         ruleId: rule.id,
@@ -486,7 +519,8 @@ export class IssuerRulesEngine {
   ): RuleViolation | null {
     if (context.annualRevenue === null) return null;
 
-    const minRevenue = rule.value ?? 0;
+    const minRevenue = param(rule.value);
+    if (minRevenue === null) return unevaluated(rule, 'value');
     if (context.annualRevenue < minRevenue) {
       return {
         ruleId: rule.id,
@@ -507,8 +541,10 @@ export class IssuerRulesEngine {
     context: EligibilityContext,
     severity: 'hard' | 'soft',
   ): RuleViolation | null {
-    const maxInquiries = rule.value ?? 0;
-    const periodDays = rule.periodDays ?? 365;
+    const maxInquiries = param(rule.value);
+    const periodDays = param(rule.periodDays);
+    if (maxInquiries === null) return unevaluated(rule, 'value');
+    if (periodDays === null) return unevaluated(rule, 'periodDays');
 
     const currentInquiries = periodDays <= 180
       ? context.inquiriesLast6Months
@@ -536,7 +572,8 @@ export class IssuerRulesEngine {
   ): RuleViolation | null {
     if (context.utilization === null) return null;
 
-    const maxUtil = rule.value ?? 1;
+    const maxUtil = param(rule.value);
+    if (maxUtil === null) return unevaluated(rule, 'value');
     if (context.utilization > maxUtil) {
       return {
         ruleId: rule.id,
@@ -559,7 +596,8 @@ export class IssuerRulesEngine {
   ): RuleViolation | null {
     if (!context.lastDeclineDate) return null;
 
-    const blackoutDays = rule.periodDays ?? 30;
+    const blackoutDays = param(rule.periodDays);
+    if (blackoutDays === null) return unevaluated(rule, 'periodDays');
     const lastDecline = new Date(context.lastDeclineDate);
     const asOf = context.asOfDate ? new Date(context.asOfDate) : new Date();
     const daysSinceDecline = Math.floor(
@@ -586,7 +624,8 @@ export class IssuerRulesEngine {
     context: EligibilityContext,
     severity: 'hard' | 'soft',
   ): RuleViolation | null {
-    const maxCards = rule.value ?? 0;
+    const maxCards = param(rule.value);
+    if (maxCards === null) return unevaluated(rule, 'value');
     if (context.openCardsWithIssuer >= maxCards) {
       return {
         ruleId: rule.id,
@@ -697,6 +736,36 @@ export interface CreditUnionEligibilityResult {
   minimumCreditScore: number;
   /** Whether this application counts against bank velocity rules */
   countsAgainstBankVelocity: boolean;
+}
+
+/**
+ * A rule parameter, or null when it is not recorded.
+ *
+ * Deliberately not defaulted. A threshold nobody entered is not a threshold of
+ * zero, and the caller must say what it wants to do about that rather than
+ * inherit whatever `??` happened to be written on the line.
+ */
+function param(value: number | null | undefined): number | null {
+  return typeof value === 'number' ? value : null;
+}
+
+/** The rule could not be evaluated. Named, reported, and blocking. */
+function unevaluated(
+  rule: { id: string; ruleName?: string | null; ruleType: string; description?: string | null },
+  missing: string,
+): RuleViolation {
+  return {
+    ruleId: rule.id,
+    ruleName: rule.ruleName ?? rule.ruleType,
+    ruleType: rule.ruleType,
+    severity: 'unconfigured',
+    description: rule.description ?? '',
+    reason:
+      `Rule cannot be evaluated: \`${missing}\` is not recorded on it. `
+      + 'It is neither passed nor failed — nothing here knows what it requires.',
+    currentValue: null,
+    threshold: null,
+  };
 }
 
 /** A blocking condition specific to credit union evaluation. */
