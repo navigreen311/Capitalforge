@@ -105,9 +105,22 @@ suitabilityEngineRouter.get(
       // nothing until a property is read, and the dance is unnecessary.
       const prisma = sharedPrisma;
 
-      // Look up the business
-      const business = await prisma.business.findUnique({
-        where: { id: businessId },
+      // Scoped on both columns. findUnique by id alone returned any tenant's
+      // business and then computed a suitability assessment from it — the same
+      // shape closed across /clients/:clientId, in a router mounted at
+      // /suitability rather than under /businesses/:id, so the mount guard does
+      // not reach it.
+      const tenantId = req.tenant?.tenantId;
+      if (!tenantId) {
+        res.status(401).json({
+          success: false,
+          error: { code: 'UNAUTHORIZED', message: 'Authentication required.' },
+        } satisfies ApiResponse);
+        return;
+      }
+
+      const business = await prisma.business.findFirst({
+        where: { id: businessId, tenantId },
       });
 
       if (!business) {

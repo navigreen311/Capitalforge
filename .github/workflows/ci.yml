@@ -183,6 +183,12 @@ jobs:
       - name: Check tests assert what their names claim
         run: npm run check:test-claims
 
+      # A handler taking a business id that nothing ties to the caller's tenant.
+      # The mount guard covers /businesses/:id and /clients/:clientId; this is
+      # what covers everything else. See docs/TENANCY.md.
+      - name: Check business ids are scoped to the caller's tenant
+        run: npm run check:route-tenancy
+
   # ─────────────────────────────────────────────────────────────
   # Job 2: Unit Tests
   # Fast tests that do not require database or Redis.

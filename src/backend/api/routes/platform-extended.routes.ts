@@ -419,8 +419,10 @@ platformExtendedRouter.get(
     const businessId = req.params.businessId as string;
     const eventType = req.query.eventType as string | undefined;
 
-    const business = await db.business.findUnique({
-      where: { id: businessId },
+    // Scoped on both columns. It selected tenantId and did not filter on it,
+    // so any tenant's lineage was readable by id.
+    const business = await db.business.findFirst({
+      where: { id: businessId, tenantId: req.tenant?.tenantId ?? '' },
       select: { id: true, legalName: true, tenantId: true },
     });
     if (!business) {
