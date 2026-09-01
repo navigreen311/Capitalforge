@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
 import { SectionCard } from '@/components/ui/card';
+import { CapabilityState } from '@/components/ui/capability-state';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -30,14 +31,18 @@ interface ActionItem {
 }
 
 interface PortfolioHealthData {
-  score: number;
-  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  /** Null when `assessed` is false. Never render a null score as a zero. */
+  score: number | null;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F' | null;
+  assessed: boolean;
+  businessesAssessed: number;
+  notAssessedReason: string | null;
   components: HealthComponent[];
   trend: {
     direction: 'up' | 'down' | 'flat';
     delta: number;
     previousScore: number;
-  };
+  } | null;
   actionItems: ActionItem[];
   computedAt: string;
 }
@@ -238,22 +243,37 @@ export function PortfolioHealthWidget() {
         />
       )}
 
-      {health && !isLoading && (
+      {/* Nothing to assess. A dashed no_data frame, not an F. */}
+      {health && !isLoading && !health.assessed && (
+        <CapabilityState
+          state="no_data"
+          title="No clients yet"
+          detail={
+            health.notAssessedReason
+            ?? 'Portfolio health is a ratio across the businesses on file, and there are none.'
+          }
+          size="section"
+        />
+      )}
+
+      {health && !isLoading && health.assessed && (
         <div className="space-y-5">
           {/* Score ring + trend */}
           <div className="flex flex-col items-center gap-2">
-            <ScoreRing score={health.score} grade={health.grade} />
+            <ScoreRing score={health.score ?? 0} grade={health.grade ?? 'F'} />
 
-            {/* Trend indicator */}
-            <div className={`flex items-center gap-1 text-sm ${trendColor(health.trend.direction)}`}>
-              <span className="text-lg font-semibold">
-                {trendArrow(health.trend.direction)}
-              </span>
-              <span>
-                {health.trend.delta > 0 ? '+' : ''}
-                {health.trend.delta} pts vs last month
-              </span>
-            </div>
+            {/* Trend indicator. Absent before a second period exists to compare. */}
+            {health.trend && (
+              <div className={`flex items-center gap-1 text-sm ${trendColor(health.trend.direction)}`}>
+                <span className="text-lg font-semibold">
+                  {trendArrow(health.trend.direction)}
+                </span>
+                <span>
+                  {health.trend.delta > 0 ? '+' : ''}
+                  {health.trend.delta} pts vs last month
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Component breakdown */}
