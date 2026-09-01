@@ -310,15 +310,14 @@ function scan(): Violation[] {
 /**
  * Real. Each takes a business id that nothing ties to the caller.
  *
- * All three are the data-lineage surface, and all three serve `mockEvents()` —
- * a generated lineage for whatever id is asked for. Unscoped AND fabricated, so
- * scoping them alone would make an invented answer harder to obtain rather than
- * more honest. Recorded here so the pair is fixed together.
+ * Empty, and it was not empty for long. It held the two data-lineage handlers,
+ * which were unscoped AND served a generated lineage — scoping them alone would
+ * have made an invented answer harder to obtain rather than more honest, so they
+ * were recorded to be fixed together, and were. The stale-entry check is what
+ * said so: both entries stopped matching the moment they were fixed, and this
+ * script failed until they were removed.
  */
-const KNOWN_UNSCOPED = new Set<string>([
-  'src/backend/api/routes/platform-data-lineage.routes.ts::GET /:businessId/events',
-  'src/backend/api/routes/platform-data-lineage.routes.ts::POST /:businessId/export',
-]);
+const KNOWN_UNSCOPED = new Set<string>([]);
 
 /**
  * Reviewed and sound: takes a business id and reads nothing per-business with

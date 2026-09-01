@@ -23,7 +23,7 @@ so the two disagreed and the top is what a reader checks first.
 | Compliance register placeholders | fixed — `PLACEHOLDER_COMPLAINTS` is gone; only a comment naming it remains |
 | Tenant suspend / unsuspend | built 2026-08-06, enforced at login, refresh and middleware |
 | Third-state collapses (leverage ratio, risk matrix, unscored alerts) | fixed 2026-08-07 in `8dc1cab` |
-| **`MOCK_EXECUTION_LOG`** | **NOT fixed.** This section and `specification.md` §2 both say it was removed. It is declared at `app/platform/workflows/page.tsx:262`, filtered at :632 and counted at :654, and still renders a "Show Execution Log" panel with an entry count |
+| ~~`MOCK_EXECUTION_LOG`~~ | **Fixed 2026-09-01.** Was recorded as removed on 2026-08-08 by this section and by `specification.md` §2, and was not — it still rendered a "Show Execution Log" panel with an entry count. The constant is gone; the panel is a `not_built` CapabilityState, registered in `gaps.md` §5 |
 | `ISSUERS_DATA` and the synthesized SLA | open, as recorded |
 | 2FA on a process-local `Map` | open — `docs/backlog/two-factor-auth.md` |
 

@@ -12,6 +12,7 @@
 import { useState, useEffect, useCallback, useMemo, useId } from 'react';
 import { loadJson, toLoadError, type AuthFetchError } from '@/lib/load-json';
 import { DashboardErrorState } from '@/components/dashboard/DashboardErrorState';
+import { CapabilityState } from '@/components/ui/capability-state';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -221,15 +222,6 @@ interface RunHistoryEntry {
   actionTaken: string;
 }
 
-interface ExecutionLogEntry {
-  id: string;
-  workflowName: string;
-  triggeredAt: string;
-  triggerDetail: string;
-  actionTaken: string;
-  status: 'success' | 'failed';
-  clientsAffected: number;
-}
 
 // ── Fallback mock data ──────────────────────────────────────
 
@@ -257,37 +249,6 @@ const MOCK_RUN_HISTORY: Record<string, RunHistoryEntry[]> = {
   wf_004: [],
 };
 
-// ── Mock execution log entries (5D) ─────────────────────────
-
-const MOCK_EXECUTION_LOG: ExecutionLogEntry[] = [
-  {
-    id: 'el_001',
-    workflowName: 'APR Expiry Alert',
-    triggeredAt: '2026-04-06T09:00:00Z',
-    triggerDetail: 'APR expiry in 30 days for 12 clients',
-    actionTaken: 'Queued action items + VoiceForge campaign sent',
-    status: 'success',
-    clientsAffected: 12,
-  },
-  {
-    id: 'el_002',
-    workflowName: 'APR Expiry Alert',
-    triggeredAt: '2026-04-05T09:00:00Z',
-    triggerDetail: 'APR expiry in 30 days for 8 clients',
-    actionTaken: 'Queued action items + VoiceForge campaign sent',
-    status: 'success',
-    clientsAffected: 8,
-  },
-  {
-    id: 'el_003',
-    workflowName: 'Decline Reconsideration',
-    triggeredAt: '2026-04-03T11:15:00Z',
-    triggerDetail: 'Decline for client #1042 — Chase Sapphire',
-    actionTaken: 'Reconsideration letter generated',
-    status: 'success',
-    clientsAffected: 1,
-  },
-];
 
 // ── Toast ────────────────────────────────────────────────────
 
@@ -623,101 +584,41 @@ function WorkflowCard({
 
 // ── Execution Log Section (5D) ───────────────────────────────
 
-type LogFilter = 'all' | 'success' | 'failed';
-
+// ── Execution log ───────────────────────────────────────────
+//
+// There is no execution log, because nothing executes a workflow.
+//
+// This rendered MOCK_EXECUTION_LOG: entries naming a workflow, a trigger detail,
+// an action taken and a count of clients affected — "APR expiry in 30 days for
+// 12 clients / Queued action items + VoiceForge campaign sent" — with a filter
+// by success or failure and a count in the header. None of it happened.
+//
+// The endpoint below it has said so for weeks: GET /api/platform/workflows
+// answers `execution: { runs: false, why: 'Nothing executes these rules yet, so
+// none of them has ever fired.' }`. The page above it went on showing runs. Two
+// documents recorded the constant as removed on 2026-08-08 and it was not.
+//
+// `not_built`, not `no_data`. An empty list would say no workflow has fired yet,
+// which invites waiting for one. Nothing can fire: there is no runner.
 function ExecutionLogSection() {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState<LogFilter>('all');
-
-  const filtered = MOCK_EXECUTION_LOG.filter((entry) => {
-    if (filter === 'all') return true;
-    return entry.status === filter;
-  });
-
-  const filterPills: { label: string; value: LogFilter }[] = [
-    { label: 'All', value: 'all' },
-    { label: 'Success', value: 'success' },
-    { label: 'Failed', value: 'failed' },
-  ];
-
   return (
-    <div className="rounded-xl border border-gray-700/60 bg-gray-900/60">
-      {/* Toggle header */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between p-5 text-left"
-      >
-        <div className="flex items-center gap-2">
-          <ChevronIcon open={open} />
-          <h2 className="text-sm font-semibold text-white">Show Execution Log</h2>
-          <span className="text-[10px] text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
-            {MOCK_EXECUTION_LOG.length} entries
-          </span>
-        </div>
-        <span className="text-xs text-gray-500">{open ? 'Collapse' : 'Expand'}</span>
-      </button>
-
-      {/* Collapsible content */}
-      {open && (
-        <div className="border-t border-gray-800 p-5 space-y-4">
-          {/* Filter pills */}
-          <div className="flex gap-2">
-            {filterPills.map((pill) => (
-              <button
-                key={pill.value}
-                onClick={() => setFilter(pill.value)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                  filter === pill.value
-                    ? 'bg-[#C9A84C] text-[#0A1628]'
-                    : 'bg-gray-800 text-gray-400 hover:text-white'
-                }`}
-              >
-                {pill.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-gray-500 border-b border-gray-800">
-                  <th className="text-left py-2 pr-4 font-medium">Workflow</th>
-                  <th className="text-left py-2 pr-4 font-medium">Triggered At</th>
-                  <th className="text-left py-2 pr-4 font-medium">Trigger Detail</th>
-                  <th className="text-left py-2 pr-4 font-medium">Action Taken</th>
-                  <th className="text-left py-2 pr-4 font-medium">Status</th>
-                  <th className="text-left py-2 font-medium">Clients Affected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-6 text-center text-gray-600">
-                      No executions match the selected filter.
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((entry) => (
-                    <tr key={entry.id} className="border-b border-gray-800/50">
-                      <td className="py-2 pr-4 text-white font-medium whitespace-nowrap">{entry.workflowName}</td>
-                      <td className="py-2 pr-4 text-gray-400 whitespace-nowrap">
-                        {new Date(entry.triggeredAt).toLocaleString()}
-                      </td>
-                      <td className="py-2 pr-4 text-gray-300">{entry.triggerDetail}</td>
-                      <td className="py-2 pr-4 text-gray-300">{entry.actionTaken}</td>
-                      <td className="py-2 pr-4">
-                        <StatusBadge status={entry.status} />
-                      </td>
-                      <td className="py-2 text-[#C9A84C] font-semibold">{entry.clientsAffected}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+    <div className="rounded-xl border border-gray-700/60 bg-gray-900/60 p-5">
+      <h2 className="text-sm font-semibold text-white mb-3">Execution Log</h2>
+      <CapabilityState
+        state="not_built"
+        title="No workflow has ever run"
+        detail={
+          'Saved rules are stored and never executed — no scheduler, runner or cron '
+          + 'consumes them. There is no execution history to show, for these rules or '
+          + 'any others.'
+        }
+        unblock={{
+          kind: 'unblocked_by',
+          text: 'A runner that consumes WorkflowRule rows and records each firing.',
+        }}
+        size="section"
+        tone="dark"
+      />
     </div>
   );
 }

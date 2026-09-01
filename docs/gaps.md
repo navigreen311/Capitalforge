@@ -1080,6 +1080,12 @@ request, not of the product, and there is nothing about them to enumerate.
 - `/financial-control/tax` — tax document generation
 - `/funding-rounds/[id]` — advisor and target close date; round economics
 - `/multi-tenant` — subscription invoices; advisor and client counts; activity log; impersonation
+- `/platform/workflows` — an execution log. Nothing executes a saved rule, so no
+  workflow has ever fired. The page rendered `MOCK_EXECUTION_LOG` — entries naming
+  a workflow, a trigger, an action taken and a count of clients affected, with a
+  success/failure filter — while the endpoint beneath it answered
+  `execution: {runs: false}`. Recorded as removed on 2026-08-08 in two documents
+  and actually removed 2026-09-01
 - `/platform/visionaudioforge` — document and audio analysis
 - `/referrals` — advisor referral tracking
 - `/rewards` — best card per category
