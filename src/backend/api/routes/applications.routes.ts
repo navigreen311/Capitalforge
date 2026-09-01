@@ -20,6 +20,7 @@ import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse, TenantContext } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 import { eventBus } from '../../events/event-bus.js';
+import { ApplicationGateChecker } from '../../services/application-gates.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '../../../shared/constants/index.js';
 
 const router = Router();
@@ -585,42 +586,62 @@ router.post(
         return;
       }
 
-      // Run compliance checks
+      // ── The six pre-submission gates, the same ones the status path runs ──
+      //
+      // This route ran its own three inline checks — a consent record of type
+      // tcpa OR application on ANY channel, a product_reality acknowledgment,
+      // and suitability noGoTriggered — and nothing else. The status path
+      // (PUT /applications/:id/status) runs ApplicationGateChecker.checkAll,
+      // which is six: product_reality, consent_captured, suitability, kyb_kyc,
+      // maker_checker and, for credit-union issuers, cu_membership_disclosure.
+      //
+      // So two routes reached `submitted` with different controls, and the one
+      // named "submit" was the weaker of the two. specification.md section 1
+      // states "maker-checker on submit" as a property of the system; it was a
+      // property of the other path. Burkham's compliance library says no agent
+      // submits, and maker-checker is the control that enforces it — on the
+      // route nobody was using.
+      //
+      // The inline checks are gone rather than kept alongside. Two
+      // implementations of one gate disagree the first time either changes, and
+      // the looser one was here.
       const businessId = application.businessId;
 
-      const [consentRecords, acknowledgments, suitability] = await Promise.all([
-        prisma.consentRecord.findMany({
-          where: { businessId, tenantId: ctx.tenantId, status: 'active' },
-        }),
-        // tenantId on both, matching the consentRecord query above. These two ran
-        // unscoped three lines from one that was scoped, so a row belonging to
-        // another tenant could satisfy a pre-submission compliance gate.
-        prisma.productAcknowledgment.findMany({
-          where: { businessId, business: { tenantId: ctx.tenantId } },
-        }),
-        prisma.suitabilityCheck.findFirst({
-          where: { businessId, business: { tenantId: ctx.tenantId } },
-          orderBy: { createdAt: 'desc' },
-        }),
-      ]);
+      const meta =
+        application.adverseActionNotice != null &&
+        typeof application.adverseActionNotice === 'object' &&
+        !Array.isArray(application.adverseActionNotice)
+          ? (application.adverseActionNotice as Record<string, unknown>)
+          : {};
+      const createdByUserId =
+        typeof meta.createdByUserId === 'string' ? meta.createdByUserId : '';
+      const approverUserId =
+        typeof (req.body as { approvedByUserId?: unknown }).approvedByUserId === 'string'
+          ? ((req.body as { approvedByUserId: string }).approvedByUserId)
+          : '';
 
-      const complianceIssues: string[] = [];
+      const gateSummary = await new ApplicationGateChecker(prisma).checkAll(
+        id,
+        businessId,
+        ctx.tenantId,
+        { createdByUserId, approverUserId },
+        // No issuerType argument, matching the status path — and gate 6
+        // (cu_membership_disclosure) is therefore unreachable from either
+        // route. CardApplication has an `issuer` name and no issuer TYPE
+        // column, so nothing anywhere can pass 'credit_union'. Left as it is
+        // rather than invented here: giving this route a source the other one
+        // does not have would recreate the divergence this change removes.
+      );
 
-      if (!consentRecords.some((c) => c.consentType === 'tcpa' || c.consentType === 'application')) {
-        complianceIssues.push('Missing required consent (TCPA or application consent)');
-      }
-
-      if (!acknowledgments.some((a) => a.acknowledgmentType === 'product_reality')) {
-        complianceIssues.push('Missing Product-Reality Acknowledgment');
-      }
-
-      if (suitability?.noGoTriggered) {
-        complianceIssues.push('Suitability check indicates not suitable');
-      }
-
-      if (complianceIssues.length > 0) {
-        err(res, 422, 'COMPLIANCE_CHECK_FAILED', 'Pre-submission compliance checks failed', {
-          issues: complianceIssues,
+      if (!gateSummary.allPassed) {
+        err(res, 422, 'COMPLIANCE_CHECK_FAILED', 'Pre-submission gate checks failed', {
+          failedGates: gateSummary.failedGates,
+          // The reason per gate, not just its name: "maker_checker" alone does
+          // not tell an advisor whether they forgot an approver or named
+          // themselves.
+          issues: gateSummary.results
+            .filter((r) => !r.passed)
+            .map((r) => ({ gate: r.gate, reason: r.reason })),
         });
         return;
       }

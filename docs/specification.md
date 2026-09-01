@@ -77,7 +77,10 @@ indicate rather than confirmed behaviour:
   that declare whether each came from a published rule or an unresearched default
   (`stacking-optimizer.service.ts:1590`)
 - **Place applications through a validated state machine** — draft → pending
-  consent → submitted → approved/declined, with maker-checker on submit and a
+  consent → submitted → approved/declined, with maker-checker on submit — true
+  of both routes to `submitted` since 2026-09-01, and true only of
+  `PUT /applications/:id/status` before that, while `POST /applications/:id/submit`
+  ran three inline checks and neither maker-checker nor KYB/KYC — and a
   decision transition that records `decidedAt`, `declineReason` and, since
   2026-08-08, the limit actually granted
 - **Group applications into funding rounds** and track graduation/readiness
