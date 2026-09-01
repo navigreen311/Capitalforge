@@ -12,6 +12,7 @@
     "check:prod-imports": "tsx scripts/check-production-imports.ts",
     "check:test-claims": "tsx scripts/check-test-claims.ts",
     "check:route-tenancy": "tsx scripts/check-route-tenancy.ts",
+    "check:document-provenance": "tsx scripts/check-document-provenance.ts",
     "ci:state": "tsx scripts/check-run-state.ts",
     "build:backend": "cd src/backend && tsc",
     "build:frontend": "tsx scripts/next-build.ts",

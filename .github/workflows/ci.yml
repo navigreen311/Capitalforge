@@ -189,6 +189,11 @@ jobs:
       - name: Check business ids are scoped to the caller's tenant
         run: npm run check:route-tenancy
 
+      # A document, export or report whose figures were never queried. Five of
+      # these have been found; this is so the sixth fails here.
+      - name: Check document figures come from somewhere
+        run: npm run check:document-provenance
+
   # ─────────────────────────────────────────────────────────────
   # Job 2: Unit Tests
   # Fast tests that do not require database or Redis.
