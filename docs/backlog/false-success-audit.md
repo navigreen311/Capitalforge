@@ -1,7 +1,88 @@
 # Audit: success reported for things that did not happen
 
-**Status:** open — audit list below, **no fixes applied**
+**Status:** open — **partially applied**, reconciled 2026-09-01. See "What has
+actually been fixed" below before trusting any entry.
 **Surfaced by:** three defects in one session, which turned out to be one pattern
+**Scope:** *frontend toast surfaces*. This matters more than it looks — see
+"What this audit could not see".
+
+## What has actually been fixed
+
+The header said "no fixes applied" for four weeks while fixes landed under it.
+Individual sections were updated in place and the top of the document was not,
+so the two disagreed and the top is what a reader checks first.
+
+| entry | state, verified 2026-09-01 |
+|---|---|
+| New Application redirect-on-catch | fixed |
+| Optimizer 401 raw fetch | fixed |
+| save-strategy / create-round mocks | fixed — both persist (`gaps.md` §1) |
+| Credit Union Eligibility panel | fixed — explicit toggle, fields sent |
+| Legal hold enable | fixed 2026-08-04, awaited |
+| Legal hold **release** | fixed — was a 600 ms sleep and a toast |
+| Compliance register placeholders | fixed — `PLACEHOLDER_COMPLAINTS` is gone; only a comment naming it remains |
+| Tenant suspend / unsuspend | built 2026-08-06, enforced at login, refresh and middleware |
+| Third-state collapses (leverage ratio, risk matrix, unscored alerts) | fixed 2026-08-07 in `8dc1cab` |
+| **`MOCK_EXECUTION_LOG`** | **NOT fixed.** This section and `specification.md` §2 both say it was removed. It is declared at `app/platform/workflows/page.tsx:262`, filtered at :632 and counted at :654, and still renders a "Show Execution Log" panel with an entry count |
+| `ISSUERS_DATA` and the synthesized SLA | open, as recorded |
+| 2FA on a process-local `Map` | open — `docs/backlog/two-factor-auth.md` |
+
+The `MOCK_EXECUTION_LOG` row is the one worth reading twice. The **backend** was
+made honest — `GET /api/platform/workflows` answers
+`execution: { runs: false, why: 'Nothing executes these rules yet, so none of
+them has ever fired.' }` — and the page above it still shows a log of runs,
+each naming a workflow, a trigger, an action taken and a count of clients
+affected. Two documents record that as removed. It is the exact defect in
+"A seventh instance: fabricated and real rendering identically", still live, on
+the page that entry names.
+
+## What this audit could not see
+
+Its unit is a **success toast**: "43 success toasts across 17 files". That is a
+good unit and it found real defects, and it means a backend endpoint that no
+screen reports on was never in scope. Two were missed that way and found by a
+separate backend sweep on 2026-09-01:
+
+- **`POST /api/businesses/:id/cost/calculate`** persists to a module-level
+  `Map` under a comment saying it would be Postgres in production, while the
+  `cost_calculations` table it should write has five readers and no writer.
+  Filed as capitalforge#82.
+- **`POST /api/rewards/:clientId/export`** returned a client-facing report
+  asserting per-programme points balances, identical for every client, in a
+  domain whose own balance endpoint is a 501 for lack of that data. Refused in
+  `ffd6b25`.
+
+Neither has a toast. Both are the same pattern this document is about.
+
+Worse, this document **predicted the cost-calculator miss and the scope excluded
+it anyway**. "Symmetry is not evidence — both directions can be fake" describes
+it exactly: `/calculate` and `/latest` are two halves of one capability, both
+backed by the same `Map`, agreeing perfectly with each other.
+
+## A capability whose both halves are fake, found by this document's own rule
+
+Applying "symmetry is not evidence" as a sweep of its own, 2026-09-01:
+
+**`api-portal.service.ts` holds API keys, webhook subscriptions and rate limits
+in three module-level `Map`s** (lines 79–81). `POST /api/api-keys` and
+`DELETE /api/api-keys/:id` both operate on them, as do `POST /api/webhooks`
+and `DELETE /api/webhooks/:id`. Neither direction disagrees with the other,
+because neither reaches storage. An API key is a credential: a caller believes
+they hold a working one, and a tenant admin believes a revocation took effect.
+Restart forgets both.
+
+Checked and clean by the same rule: `POST /api/card-benefits/:cardId/benefits/
+:benefitId/mark-used` is tenant-gated and writes `cardBenefit` for real; the
+`store` Map in `card-benefits.service.ts:277` is dead legacy the routes no
+longer call. `POST /api/invoices/:id/pay` reads scoped, writes real, and returns
+`charged: false` rather than implying a charge.
+
+**Forward paths with no reverse at all**, from the same sweep — each is its own
+finding under this document's rule, because a one-way control hides the state of
+the forward path: benefit `mark-used` has no un-mark; `approve` on templates and
+commissions has no reject.
+
+
 
 ## The standing question
 
@@ -530,7 +611,15 @@ Not "is there mock data" — that is a normal state during development. Ask:
 
 ### Status
 
-`MOCK_EXECUTION_LOG` and `PLACEHOLDER_COMPLAINTS` are deleted.
+**Corrected 2026-09-01.** `PLACEHOLDER_COMPLAINTS` is deleted — only a comment
+naming it remains. **`MOCK_EXECUTION_LOG` is not.** It is declared at
+`app/platform/workflows/page.tsx:262`, filtered at :632, and counted at :654,
+and still renders a "Show Execution Log" panel with an entry count, on the page
+whose own endpoint answers `execution: { runs: false }`.
+
+`docs/specification.md` §2 also states it was removed on 2026-08-08. Both
+documents recorded the intent and neither recorded the outcome.
+
 `ISSUERS_DATA` and the synthesized SLA are open — see Track 1C and
 `complaint-status-vocabularies.md`.
 

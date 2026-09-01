@@ -121,9 +121,13 @@ about ten action types including `voiceforge`, `docusign`, `webhook`. The record
 is stored and listed.
 
 **No scheduler, runner or cron consumes it.** A saved workflow will never fire.
-Until 2026-08-08 the page also showed three executions from
-`MOCK_EXECUTION_LOG`, a frontend constant naming workflows that did not exist —
-0 workflows configured and 3 executions on the same screen.
+The page also shows executions from `MOCK_EXECUTION_LOG`, a frontend constant
+naming workflows that did not exist — 0 workflows configured and N executions on
+the same screen. **This was recorded as removed on 2026-08-08 and was not**: the
+constant is declared at `app/platform/workflows/page.tsx:262` and still drives a
+"Show Execution Log" panel, while the endpoint beneath it answers
+`execution: {runs: false}`. Corrected here 2026-09-01; see
+`docs/backlog/false-success-audit.md`.
 
 ### It does not import statement documents
 
