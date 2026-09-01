@@ -19,6 +19,8 @@ import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { ConsentService } from '../../services/consent.service.js';
+import { businessBelongsToTenant } from '../../services/business-ownership.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import {
   GrantConsentBodySchema,
   RevokeConsentBodySchema,
@@ -66,6 +68,30 @@ function clientIp(req: Request): string | undefined {
   return req.socket?.remoteAddress ?? undefined;
 }
 
+/**
+ * Refuse a business that is not this tenant's — including one that does not exist.
+ *
+ * Without this the tenantId came from the token (correct) and the businessId came
+ * from the path unchecked (not), so consent could be recorded under one tenant
+ * against another tenant's business. `ConsentRecord.businessId` is a real FK, so
+ * the only thing that failed was an id belonging to nobody — and that failed in
+ * Prisma, surfacing as a 500 indistinguishable from a database outage.
+ *
+ * Returns true when the caller may proceed; has already written the response
+ * otherwise.
+ */
+async function assertOwnedBusiness(
+  res: Response,
+  businessId: string,
+  tenantId: string,
+): Promise<boolean> {
+  if (await businessBelongsToTenant(sharedPrisma, businessId, tenantId)) return true;
+  // Deliberately the same answer for "no such business" and "not yours". The
+  // alternative tells an unauthorised caller which business IDs are real.
+  sendError(res, 404, 'NOT_FOUND', `Business ${businessId} was not found.`);
+  return false;
+}
+
 function sendError(
   res: Response,
   status: number,
@@ -101,6 +127,8 @@ router.post(
       sendError(res, 400, 'VALIDATION_ERROR', 'Invalid request body.', bodyParsed.error.flatten());
       return;
     }
+
+    if (!(await assertOwnedBusiness(res, businessId, tenantId))) return;
 
     const { channel, consentType, evidenceRef, metadata } = bodyParsed.data;
     const ipAddress = clientIp(req);
@@ -176,6 +204,8 @@ router.delete(
       sendError(res, 400, 'VALIDATION_ERROR', 'Invalid request body.', bodyParsed.error.flatten());
       return;
     }
+
+    if (!(await assertOwnedBusiness(res, businessId, tenantId))) return;
 
     const { channel } = paramParsed.data;
     const { revocationReason } = bodyParsed.data ?? {};

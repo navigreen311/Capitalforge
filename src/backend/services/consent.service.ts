@@ -5,7 +5,10 @@
 //
 // Compliance guarantees:
 //   - TCPA hard block: no outbound call/SMS without active consent
-//   - Immutable history: revocations create new records, never delete
+//   - History is preserved, precisely: a revocation UPDATES the record in place —
+//     status, revokedAt, revocationReason — and never deletes it. It does not
+//     create a new record, and the header said it did for long enough that the
+//     metadata-destroying updateMany underneath read as consistent with it.
 //   - Cascade revocation: CONSENT_REVOKED published immediately to
 //     the event bus so all downstream modules react in-process
 //   - Every action stamped: timestamp, IP, evidence reference, actor
@@ -217,23 +220,43 @@ export class ConsentService {
     const revokedAt = new Date();
     const revokedIds = activeRecords.map((r) => r.id);
 
-    // Update all matching records to revoked — preserves history (no delete)
-    await this.prisma.consentRecord.updateMany({
-      where: {
-        id: { in: revokedIds },
-        tenantId: input.tenantId, // belt-and-suspenders tenant isolation
-      },
-      data: {
-        status: 'revoked',
-        revokedAt,
-        revocationReason: input.revocationReason ?? null,
-        metadata: {
-          revokedByIp: input.ipAddress ?? null,
-          actorId: input.actorId ?? null,
-          revokedAt: revokedAt.toISOString(),
-        },
-      },
-    });
+    // Per record, not one updateMany, because `metadata` has to be MERGED.
+    //
+    // Prisma replaces a Json column wholesale. The previous version set metadata to
+    // a fresh {revokedByIp, actorId, revokedAt}, which destroyed `grantedByIp`, the
+    // granting `actorId` and everything the caller supplied at grant time — on a
+    // record this file's own header calls immutable history. `evidenceRef` survived
+    // only because it is its own column.
+    //
+    // The merge is one-level and deliberate: revocation keys overwrite grant keys of
+    // the same name, and nothing else is touched. `grantedByIp` and `revokedByIp` are
+    // separate keys precisely so neither has to win.
+    //
+    // In one transaction, because a partially-applied revocation is the worst
+    // available outcome: some records revoked, the method throws, and the caller
+    // cannot tell how far it got. TCPA revocation is all-or-nothing.
+    await this.prisma.$transaction(
+      activeRecords.map((record) => {
+        const existing =
+          record.metadata != null && typeof record.metadata === 'object'
+            ? (record.metadata as Record<string, unknown>)
+            : {};
+        return this.prisma.consentRecord.update({
+          where: { id: record.id },
+          data: {
+            status: 'revoked',
+            revokedAt,
+            revocationReason: input.revocationReason ?? null,
+            metadata: {
+              ...existing,
+              revokedByIp: input.ipAddress ?? null,
+              revokedByActorId: input.actorId ?? null,
+              revokedAt: revokedAt.toISOString(),
+            },
+          },
+        });
+      }),
+    );
 
     // Re-fetch updated records for response and event payload
     const updatedRecords = await this.prisma.consentRecord.findMany({

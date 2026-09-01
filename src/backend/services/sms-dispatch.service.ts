@@ -18,6 +18,7 @@ import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../config/logger.js';
 import { consentGate } from './consent-gate.js';
+import { ConsentService } from './consent.service.js';
 import { getTwilioClient } from '../integrations/twilio/twilio-client.js';
 import { resolveTimezone, hourInZone, type TimezoneSource } from './timezone.js';
 
@@ -345,6 +346,17 @@ export function isOptOutKeyword(body: string): boolean {
  * Both halves matter. The DNC entry stops future sends even if consent is
  * later re-granted in error, and revoking the consent record keeps the
  * consent ledger — which is what an audit reads — agreeing with reality.
+ *
+ * The revocation goes through ConsentService rather than a raw updateMany here.
+ * It used to be a raw updateMany, which meant the STOP path revoked consent and
+ * published no CONSENT_REVOKED event, while the API path published one — two
+ * revocation routes with different observable behaviour, and the silent one was
+ * the one a consumer triggers. Anything listening for the cascade heard nothing
+ * when a human actually texted STOP.
+ *
+ * It still revokes only the `sms` channel. A STOP is an opt-out from messages,
+ * not a withdrawal of consent to be called or emailed, and widening it here
+ * would be a policy decision made in a webhook handler.
  */
 export async function recordOptOut(
   tenantId: string,
@@ -379,11 +391,13 @@ export async function recordOptOut(
 
   let consentsRevoked = 0;
   if (matched) {
-    const revoked = await prisma.consentRecord.updateMany({
-      where: { tenantId, businessId: matched.id, channel: 'sms', status: 'active' },
-      data: { status: 'revoked', revokedAt: new Date(), revocationReason: reason },
+    const revoked = await new ConsentService(prisma).revokeConsent({
+      tenantId,
+      businessId: matched.id,
+      channel: 'sms',
+      revocationReason: reason,
     });
-    consentsRevoked = revoked.count;
+    consentsRevoked = revoked.revokedCount;
   }
 
   logger.info('Opt-out recorded', { tenantId, businessId: matched?.id ?? null, consentsRevoked });

@@ -592,11 +592,14 @@ router.post(
         prisma.consentRecord.findMany({
           where: { businessId, tenantId: ctx.tenantId, status: 'active' },
         }),
+        // tenantId on both, matching the consentRecord query above. These two ran
+        // unscoped three lines from one that was scoped, so a row belonging to
+        // another tenant could satisfy a pre-submission compliance gate.
         prisma.productAcknowledgment.findMany({
-          where: { businessId },
+          where: { businessId, business: { tenantId: ctx.tenantId } },
         }),
         prisma.suitabilityCheck.findFirst({
-          where: { businessId },
+          where: { businessId, business: { tenantId: ctx.tenantId } },
           orderBy: { createdAt: 'desc' },
         }),
       ]);
