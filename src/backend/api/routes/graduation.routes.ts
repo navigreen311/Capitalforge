@@ -74,14 +74,31 @@ const MilestoneQuerySchema = z.object({
   industry:  z.string().optional().default('general'),
 });
 
+/**
+ * Every figure that moves the roadmap is required.
+ *
+ * These were optional with defaults: `ficoScore` defaulted to 680, and business
+ * age, revenue, tradeline count and utilisation all defaulted to 0. A caller
+ * omitting FICO got a credit-builder roadmap computed as though the client
+ * scored 680, and one omitting revenue got a roadmap for a business with no
+ * income — both indistinguishable, in the response, from figures somebody
+ * supplied.
+ *
+ * `suitability-engine` next door already requires every input for the same
+ * reason. Defaulting an input the answer depends on is how "not known" becomes
+ * a number, and this answer is advice given to a client about their credit.
+ *
+ * `industry` keeps its default: it selects a comparison set and does not enter
+ * the arithmetic, and 'general' is a real answer rather than a stand-in.
+ */
 const MilestoneBodySchema = z.object({
   sbssScore:           z.number().int().min(0).max(300),
   industry:            z.string().optional().default('general'),
-  ficoScore:           z.number().int().min(300).max(850).optional().default(680),
-  businessAgeMonths:   z.number().int().nonnegative().optional().default(0),
-  monthlyRevenue:      z.number().nonnegative().optional().default(0),
-  tradelineCount:      z.number().int().nonnegative().optional().default(0),
-  currentUtilization:  z.number().min(0).max(2).optional().default(0),
+  ficoScore:           z.number().int().min(300).max(850),
+  businessAgeMonths:   z.number().int().nonnegative(),
+  monthlyRevenue:      z.number().nonnegative(),
+  tradelineCount:      z.number().int().nonnegative(),
+  currentUtilization:  z.number().min(0).max(2),
 });
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -298,14 +315,16 @@ graduationRouter.post(
       const milestoneProgress = evaluateMilestoneProgress(sbssScore);
 
       const graduationInput: GraduationInput = {
-        ficoScore:           ficoScore ?? 680,
-        businessAgeMonths:   businessAgeMonths ?? 0,
-        monthlyRevenue:      monthlyRevenue ?? 0,
+        // No `??` fallbacks: the schema now requires each of these, so an absent
+        // figure is a 422 naming the field rather than a silently assumed one.
+        ficoScore,
+        businessAgeMonths,
+        monthlyRevenue,
         // This endpoint's query parameter is explicitly an SBSS, so it is
         // supplied as one rather than as an unlabelled business score.
         businessScores:      { sbss: businessScore('sbss', sbssScore) },
-        tradelineCount:      tradelineCount ?? 0,
-        currentUtilization:  currentUtilization ?? 0,
+        tradelineCount,
+        currentUtilization,
       };
 
       const unlockStatus = evaluateStackingUnlock(graduationInput);
@@ -317,7 +336,14 @@ graduationRouter.post(
       res.status(200).json({
         success: true,
         data: {
+          // The id is carried so a caller can match the answer to its request.
+          // `computedFrom` says what it is: every figure below derives from the
+          // request body, and nothing was read about this business. Without that
+          // line the response reads as an assessment OF the client — which is
+          // the shape that got `readiness_score` excluded from the bridge.
           businessId,
+          computedFrom: 'request_body',
+          businessRecordRead: false,
           currentSbssScore:   sbssScore,
           milestoneProgress,
           nextMilestone,

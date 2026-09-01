@@ -355,8 +355,60 @@ rewardsRouter.get(
     const cardId = typeof req.query['cardId'] === 'string' ? req.query['cardId'] : undefined;
 
     try {
-      const benefits = cardBenefits.getBusinessBenefits(businessId, cardId);
-      const alerts   = cardBenefits.getExpiryAlerts(businessId);
+      // Read from card_benefits, the same rows /api/card-benefits/:clientId
+      // serves and the same rows mark-used writes.
+      //
+      // This used to call cardBenefits.getBusinessBenefits(), which reads a
+      // module-level Map that nothing has written since mark-used was rebuilt
+      // against Prisma. So this endpoint returned an empty list for every
+      // client, forever, and the /rewards page rendered "no benefits on record"
+      // — while /card-benefits, one navigation away, listed the same client's
+      // real benefits from the database.
+      //
+      // An empty answer from the wrong source is the worst of the three
+      // possible states: it is not an error, it is not a refusal, and it is
+      // indistinguishable from the truthful answer for a client who genuinely
+      // has none.
+      const applications = await sharedPrisma.cardApplication.findMany({
+        where: {
+          businessId,
+          ...(cardId ? { id: cardId } : {}),
+          business: { tenantId: req.tenant?.tenantId ?? '' },
+        },
+        select: { id: true },
+      });
+
+      const rows = applications.length
+        ? await sharedPrisma.cardBenefit.findMany({
+            where: { cardApplicationId: { in: applications.map((a) => a.id) } },
+            orderBy: [{ expiryDate: 'asc' }, { benefitName: 'asc' }],
+          })
+        : [];
+
+      const benefits = rows.map((r) => ({
+        id: r.id,
+        businessId,
+        cardApplicationId: r.cardApplicationId,
+        cardId: r.cardApplicationId,
+        definitionId: '',
+        benefitType: r.benefitType,
+        benefitName: r.benefitName,
+        // Null stays null. A benefit whose value nobody recorded is not a
+        // benefit worth nothing.
+        benefitValue: r.benefitValue === null ? null : Number(r.benefitValue),
+        expiryDate: r.expiryDate?.toISOString() ?? null,
+        utilized: r.utilized,
+        utilizedDate: r.utilizedDate?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+      }));
+
+      // Unused, dated, and expiring within 90 days. A benefit with no expiry
+      // date on record cannot be said to be expiring, so it is not counted.
+      const horizon = new Date();
+      horizon.setDate(horizon.getDate() + 90);
+      const alerts = benefits.filter(
+        (b) => !b.utilized && b.expiryDate !== null && new Date(b.expiryDate) <= horizon,
+      );
 
       res.status(200).json({
         success: true,
