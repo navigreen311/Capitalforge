@@ -354,12 +354,6 @@ PROGRAM FEE SCHEDULE
 - Percentage of Funding Fee: ${programFeePct}% of total funded amount
 - Estimated Total Fees: Based on a funding estimate of ${fundingEstimate}
 
-ADDITIONAL FEES
-
-- Expedited Processing Fee: $0 (included in program fee)
-- Document Preparation Fee: $0 (included in program fee)
-- Restack Analysis Fee: $0 for first restack, standard rates apply for subsequent rounds
-
 PAYMENT TERMS
 
 - Program fee is due upon enrollment
@@ -859,46 +853,32 @@ ${advisorName}
 CapitalForge`;
 }
 
-// ── Documents that cannot be generated honestly yet ──────────
+// ── The fees this letter names are the fees that exist ───────
 //
-// A generator that states a figure nobody can check is worse than no generator,
-// and worst of all in the one document whose entire purpose is being accurate
-// about what a client is charged.
-//
-// `fee_disclosure_letter` opened with "This letter discloses ALL fees" — a
-// completeness claim — and then listed three under ADDITIONAL FEES:
+// It listed three under ADDITIONAL FEES, each at $0:
 //
 //     Expedited Processing Fee: $0 (included in program fee)
 //     Document Preparation Fee: $0 (included in program fee)
 //     Restack Analysis Fee: $0 for first restack, standard rates apply
 //
-// Those three names appear nowhere else in this codebase, and nowhere in
-// Burkham Wickmont's. They are not the placement schedule: that one is per-
-// product success fees — $500 card, $5,000 equipment, $7,500 line, $10,000
-// term, $20,000 SBA, $7,500 factoring — recorded in
-// packages/billing/src/successFeeSeed.ts, where `successFeeFor` refuses a fee
-// the Compliance Review Board has not approved. A different set entirely, and
-// this letter is not quoting it.
+// Those three names appeared nowhere else in this codebase and nowhere in
+// Burkham Wickmont's. They were not the placement schedule either — that is per
+// product and flat per placement: $500 business credit card, $5,000 equipment
+// finance, $7,500 line of credit, $10,000 term loan, $20,000 SBA, $7,500 invoice
+// factoring, in packages/billing/src/successFeeSeed.ts, where `successFeeFor`
+// refuses a fee the Compliance Review Board has not approved.
 //
-// So there is no schedule to read these from. The letter asserted $0 three
-// times, plus "standard rates apply" for rates that do not exist, under a
-// sentence promising the disclosure was complete.
+// Founder decision, 2026-09-01: they do not exist. The firm charges flat success
+// fees per placement and nothing else. An expedited processing fee, a document
+// preparation fee and a restack analysis fee were never decided, and a letter
+// template is not where a fee gets introduced.
 //
-// That schedule's own handling of an unpriced product is the precedent for
-// refusing rather than defaulting. Merchant cash advance has no row, and the
-// comment says why: "Deliberately NOT recorded as a fee of zero. A zero row
-// says 'this product is free'; no row says 'this product is not priced'."
-// Three zero rows in a disclosure letter said the first when the second was
-// true.
-const UNPRICED_DOCUMENTS: Partial<Record<GeneratedDocumentType, string>> = {
-  fee_disclosure_letter:
-    'The fee disclosure letter is not implemented. It listed an Expedited Processing '
-    + 'Fee, a Document Preparation Fee and a Restack Analysis Fee at $0, under a '
-    + 'sentence stating that all fees were disclosed. None of those three fees exists '
-    + 'in any schedule, in this system or in the firm\'s, so the letter could neither '
-    + 'confirm nor correct them. It will generate once a fee schedule records what is '
-    + 'actually charged for them — or once they are removed as fees that do not exist.',
-};
+// So the section is gone rather than priced. The letter generates again, and
+// everything left in it — the flat program fee, the percentage-of-funding fee,
+// the funding estimate — comes from the caller and falls back to a bracket.
+//
+// The rule this leaves behind: a disclosure names the fees that exist. Adding a
+// line here means adding a fee somewhere first.
 
 // ── Template dispatcher ──────────────────────────────────────
 
@@ -948,12 +928,6 @@ documentGenRouter.post(
 
     try {
       const { document_type, context: ctx } = parsed.data;
-
-      const unpriced = UNPRICED_DOCUMENTS[document_type];
-      if (unpriced) {
-        sendError(res, 501, 'NOT_IMPLEMENTED', unpriced);
-        return;
-      }
 
       const generator = GENERATORS[document_type];
       const text = generator(ctx as Record<string, unknown>);
