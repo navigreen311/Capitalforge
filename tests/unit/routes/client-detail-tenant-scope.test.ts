@@ -54,6 +54,9 @@ let caller: { tenantId: string; userId: string } | undefined;
 beforeAll(async () => {
   const express = (await import('express')).default;
   const { clientDetailRouter } = await import('@backend/api/routes/client-detail.routes.js');
+  const { requireOwnedBusiness } = await import(
+    '@backend/middleware/business-ownership.middleware.js'
+  );
 
   const app = express();
   app.use(express.json());
@@ -61,6 +64,10 @@ beforeAll(async () => {
     req.tenant = caller;
     next();
   });
+  // Composed the way api/routes/index.ts composes it: the guard is on the
+  // mount, not inside the router, so the test has to mount it the same way or
+  // it is asserting against a shape that does not ship.
+  app.use('/api/clients/:clientId', requireOwnedBusiness('clientId'));
   app.use('/api/clients/:clientId', clientDetailRouter);
 
   server = app.listen(0);
@@ -95,7 +102,7 @@ describe("GET /clients/:clientId/* for another tenant's client", () => {
       const body = (await res.json()) as { error?: { code: string } };
 
       expect(res.status).toBe(404);
-      expect(body.error?.code).toBe('CLIENT_NOT_FOUND');
+      expect(body.error?.code).toBe('NOT_FOUND');
 
       // The point of a router guard: the handler is never entered, so the
       // sensitive read is not merely filtered — it does not happen.

@@ -6,6 +6,7 @@
 
 import { Router } from 'express';
 import { requireAuth } from '../../middleware/auth.middleware.js';
+import { requireOwnedBusiness } from '../../middleware/business-ownership.middleware.js';
 import { healthRouter } from './health.routes.js';
 import authRouter from './auth.routes.js';
 import { openApiRouter } from './openapi.routes.js';
@@ -108,6 +109,32 @@ apiRouter.use('/dashboard', dashboardRouter);
 
 // -- Clients list & create --
 import { clientsRouter } from './clients.routes.js';
+// ── Ownership gate for every business-scoped mount ──────────────────────────
+//
+// Installed here rather than inside each router, because this file is where the
+// mount table establishes that `:id` and `:clientId` name a business. Eight
+// handlers on one router read on `businessId` alone — owners with encrypted
+// SSNs, ACH authorisations, credit profiles — while five siblings in the same
+// file were scoped, so the check was known and applied unevenly.
+//
+// Placed BEFORE the mounts it protects. `POST /businesses` is unaffected: it has
+// no second path segment to match, and a business being created has no owner to
+// check.
+//
+// This covers routers mounted at '/' too. Express matches `use` against the
+// request PATH, not against which router will serve it, so a handler declaring
+// `/businesses/:id/rounds` inside a root-mounted router is still behind the
+// prefix — which is how the funding-round, hardship, graduation and suitability
+// reads were closed without touching four routers. Proven in
+// tests/unit/routes/business-ownership-mount.test.ts rather than assumed.
+//
+// What it does NOT cover is a business id arriving any other way: a body field,
+// a query parameter, or a path segment not named `:id`/`:clientId`.
+// `npm run check:route-tenancy` is what stops one of those being forgotten.
+apiRouter.use('/businesses/:id', requireOwnedBusiness('id'));
+apiRouter.use('/clients/:clientId', requireOwnedBusiness('clientId'));
+apiRouter.use('/v1/clients/:clientId', requireOwnedBusiness('clientId'));
+
 apiRouter.use('/clients', clientsRouter);
 apiRouter.use('/v1/clients', clientsRouter);
 

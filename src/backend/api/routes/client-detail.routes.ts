@@ -31,7 +31,6 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import { ComplianceService } from '../../services/compliance.service.js';
 import { emailService } from '../../services/email.service.js';
 import { isValidTimezone } from '../../services/timezone.js';
-import { businessBelongsToTenant } from '../../services/business-ownership.js';
 
 /**
  * Business columns a client-detail PATCH may write.
@@ -199,60 +198,19 @@ function buildCreditRecommendations(profile: {
 
 export const clientDetailRouter = Router({ mergeParams: true });
 
-// ── The client has to be this tenant's, before any sub-route reads it ───────
+// ── Ownership is checked at the mount, not here ─────────────────────────────
 //
-// Seventeen handlers hang off /clients/:clientId. Each one called
-// `getTenantId(req)` and then filtered on `businessId` alone:
+// `api/routes/index.ts` installs requireOwnedBusiness('clientId') on
+// /clients/:clientId before this router, so every handler below is reached only
+// for a client belonging to the caller's tenant.
 //
-//   GET /owners               businessOwner — names, ownership %, DOB, address,
-//                             encrypted SSN
-//   GET /ach-authorization    bank authorisation on file
-//   GET /credit/personal      personal credit profile
-//   GET /credit/business      business credit profile
-//   GET /credit/history       every bureau pull, stamped
-//   GET /credit/recommendations
-//   GET /acknowledgments
-//   GET /timeline             ledger events, whose payloads carry consent
-//                             evidence references and IP addresses
+// It was briefly duplicated inside this router. One mechanism run twice is a
+// second query, not a second layer — and the copy that is easy to forget is the
+// one further from the mount table that decides what `:clientId` means.
 //
-// Five of their siblings — `/`, `/repayment`, `/compliance`,
-// `/compliance/status`, `/documents` — do carry `tenantId` in the same query,
-// so the idiom was known and applied unevenly. That is the shape this guard
-// removes: correctness that depends on each handler remembering.
-//
-// Done once, here, rather than as eight patches, so a sub-route added tomorrow
-// inherits it. The cost is one indexed lookup per request on a router that
-// already reads the business in most of its handlers.
-//
-// A client belonging to another tenant answers exactly as one that does not
-// exist. Distinguishing them tells an unauthorised caller which client ids are
-// real.
-clientDetailRouter.use(async (req: Request, res: Response, next: NextFunction) => {
-  const clientId = req.params.clientId;
-  const tenantId = req.tenant?.tenantId;
-
-  if (!tenantId) {
-    err(res, 401, 'UNAUTHORIZED', 'Authentication required.');
-    return;
-  }
-  if (!clientId) {
-    err(res, 400, 'MISSING_PARAM', 'A client id is required.');
-    return;
-  }
-
-  try {
-    if (!(await businessBelongsToTenant(prisma, clientId, tenantId))) {
-      err(res, 404, 'CLIENT_NOT_FOUND', `No client found with id ${clientId}.`);
-      return;
-    }
-  } catch (error) {
-    logger.error('Client ownership check failed', { clientId, tenantId, error });
-    err(res, 500, 'CLIENT_LOOKUP_FAILED', 'Unable to verify the client.');
-    return;
-  }
-
-  next();
-});
+// Handlers here still filter on tenantId where they already did. That is not
+// redundancy either: a `where` naming both columns is the thing an index serves,
+// and it keeps each query true on its own terms.
 
 // GET / — client profile
 clientDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
