@@ -40,6 +40,17 @@ const findMany = vi.fn();
 vi.mock('@prisma/client', () => ({
   PrismaClient: vi.fn().mockImplementation(() => ({
     creditProfile: { findMany },
+    // The router now verifies the client belongs to the caller's tenant before
+    // any sub-route runs, so every test through this router needs a business
+    // that matches. Without it the guard answers 404 and nothing below is
+    // reached — which is the guard working, not this suite breaking.
+    business: {
+      findFirst: vi.fn(({ where }: { where: { id: string; tenantId: string } }) =>
+        Promise.resolve(
+          where.tenantId === 'tenant-1' ? { id: where.id } : null,
+        ),
+      ),
+    },
     // The shared client in config/database.ts attaches query, info, warn and
     // error listeners when it is built. A double without $on fails there
     // with "client.$on is not a function", which surfaces as whatever the
