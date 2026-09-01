@@ -166,7 +166,7 @@ covers this.
 
 ### Other endpoints that refuse (501)
 
-Ten in total. Each states why in its response body rather than failing silently:
+Eleven in total. Each states why in its response body rather than failing silently:
 
 | endpoint | refuses because |
 |---|---|
@@ -178,6 +178,7 @@ Ten in total. Each states why in its response body rather than failing silently:
 | `POST /platform/integrations/:id/test` | same |
 | `GET /platform/crm/mrr-trend` | — |
 | `GET /rewards/:clientId/points-balances` | nothing records points or cash back |
+| `POST /rewards/:clientId/export` | exported those same balances as a document. Refused 2026-09-01 |
 | `POST /statements/anomalies/:id/dismiss` | anomalies are derived and carry no id |
 | `POST /statements/anomalies/:id/steps/:step` | same |
 

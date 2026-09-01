@@ -22,7 +22,7 @@ be made before any of it can be built.
 
 ## 1. Endpoints that refuse
 
-Twenty-two endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
+Twenty-three endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
 body, so a caller does not have to read the source to find out.
 
 The last two arrived differently from the rest. They were not refusals that had
@@ -41,6 +41,7 @@ It answers `501` now.
 | `POST /api/tax/documents/generate`<br>`GET /api/tax/documents`<br>`GET /api/tax/documents/:id/download`<br>`GET /api/tax/documents/:id/summary` | No tax document exists anywhere. These served a 1099-INT marked *final* with $2,345.67 of interest income, a $3,200 deductible fee summary and an IRC 163(j) worksheet — the same figures for every client and year. | **Product.** A 1099-INT is an IRS information return. Needs a `tax_documents` table, a generator driven by the invoices and interest actually recorded, and a status that distinguishes a draft from something filed. Somebody has to own the correctness of the numbers. |
 | `POST /api/platform/integrations/:id/connect`<br>`POST /api/platform/integrations/:id/test`<br>`POST /api/integrations/:provider/connect`<br>`DELETE /api/integrations/:provider/disconnect` | Nothing contacts Plaid, QuickBooks, Xero, DocuSign or Stripe. No table records a connection. | **Integration.** Per provider: OAuth or key exchange, a `integration_connections` table, and a sync that fetches rather than returning a fixed count. |
 | `GET /api/rewards/:clientId/points-balances` | Nothing records points or cash back, and no issuer integration reads them. | **Integration + table.** Balances come from the issuer; there is no source today. |
+| `POST /api/rewards/:clientId/export` | The same balances, exported as a text report — 124,500 Amex points, 89,200 Chase points, $312.47 cash back, $3,206.72 total, identical for every client, and no tenant check on `:clientId`. Its sibling above had already been refused; this was missed. Refused 2026-09-01. | **Integration + table.** Same source as the balances it reported. |
 | ~~`GET /api/contracts/:id/detail`~~ | **Built 2026-08-07.** A `Contract` table holds title, counterparty, type, value, dates and renewal. `autoRenews` is a nullable Boolean on purpose: null means nobody has read the clause, false means it does not renew, and only the first is somebody's to go and find out. An unknown id answers 404 rather than a plausible agreement. | **Done.** |
 | `POST /api/compliance/disclosures/:id/file` | Nothing submits to a regulator, and no table records a filing. | **Product.** Filing is a real-world act with a real-world receipt; the system needs to model what "filed" means before it can claim it. |
 | `POST /api/statements/anomalies/:id/dismiss`<br>`POST /api/statements/anomalies/:id/steps/:step` | A `StatementAnomaly` is computed while reading a statement and carries no identifier, so there is nothing to key a dismissal to. | **Product then table.** Anomalies need stable identity first — deciding what makes two anomalies "the same" across reads — and then somewhere to record a dismissal. |

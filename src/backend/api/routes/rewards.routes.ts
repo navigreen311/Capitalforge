@@ -515,43 +515,45 @@ rewardsRouter.get(
 
 // ── POST /api/rewards/:clientId/export ──────────────────────
 //
-// Export a mock text rewards summary report.
+// Refused. It exported the balances its own sibling refuses to report.
+//
+// This built a "REWARDS PORTFOLIO REPORT" naming the client and asserting
+// 124,500 Amex Membership Rewards points, 89,200 Chase Ultimate Rewards points,
+// $312.47 of Capital One cash back and a total estimated value of $3,206.72 —
+// written into the handler, identical for every client, and followed by four
+// redemption recommendations derived from them.
+//
+// `GET /:clientId/points-balances` above was made a 501 because nothing records
+// a points balance and no issuer integration reads one. The same figures went
+// on being exported from here, in the one format that leaves the building: a
+// document. A balance a client reads off a report is money they believe they
+// have — it gets redeemed, and it gets counted against a card's annual fee when
+// deciding whether to keep the card.
+//
+// It also took no tenant. `clientId` came from the path and was never checked
+// against the caller, so any authenticated caller could export a report naming
+// any client id in any tenant. That mattered less than it sounds only because
+// the figures were the same for everyone, which is not a defence.
 
 rewardsRouter.post(
   '/:clientId/export',
   async (req: Request, res: Response): Promise<void> => {
-    const clientId = Array.isArray(req.params['clientId']) ? req.params['clientId'][0]! : (req.params['clientId'] ?? '');
+    const clientId = Array.isArray(req.params['clientId'])
+      ? req.params['clientId'][0]!
+      : (req.params['clientId'] ?? '');
 
-    logger.info('Rewards report exported', { clientId });
+    logger.info('[rewards] export refused — nothing records a balance to export', { clientId });
 
-    const report = [
-      'REWARDS PORTFOLIO REPORT',
-      `Client: ${clientId}`,
-      `Generated: ${new Date().toISOString()}`,
-      '='.repeat(50),
-      '',
-      'Program Balances:',
-      '  Amex Membership Rewards:   124,500 pts  (~$1,556.25)',
-      '  Chase Ultimate Rewards:     89,200 pts  (~$1,338.00)',
-      '  Capital One Cash Rewards:   $312.47 cash back',
-      '',
-      'Total Estimated Value: $3,206.72',
-      '',
-      'Recommendations:',
-      '  - Transfer 50,000 Amex MR to Delta SkyMiles for 1.4 cpp value',
-      '  - Redeem Chase UR via Pay Yourself Back for 1.5 cpp',
-      '  - Request Capital One cash-back statement credit',
-      '',
-      'END OF REPORT',
-    ].join('\n');
-
-    res.status(200).json({
-      success: true,
-      data: {
-        clientId,
-        format: 'text',
-        report,
-        generatedAt: new Date().toISOString(),
+    res.status(501).json({
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Rewards export is not implemented. Nothing records points or cash back for a ' +
+          'client, so there is no balance to export. This used to answer 200 with a report ' +
+          'asserting per-programme balances and a total estimated value, the same figures ' +
+          'for every client — the values its sibling GET /points-balances already refuses ' +
+          'to report.',
       },
     } satisfies ApiResponse);
   },
