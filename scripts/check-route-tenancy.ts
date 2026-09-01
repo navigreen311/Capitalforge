@@ -239,7 +239,12 @@ function scan(): Violation[] {
       const open = mask.indexOf('{', m.index + m[0].length);
       if (open === -1) continue;
       const close = matchBrace(mask, open);
-      const body = src.slice(open, close + 1);
+      // MASKED. Every exemption below is a marker test, and a marker in a comment
+      // is not a fact about the code. Reading source here meant a handler
+      // carrying "we could use businessBelongsToTenant here but have not yet"
+      // was exempted — a comment saying the check had NOT been done satisfied
+      // the check. Verified by writing exactly that and watching this pass.
+      const body = mask.slice(open, close + 1);
       const line = src.slice(0, m.index).split('\n').length;
 
       // The path has to name a business, and the handler has to read it.
@@ -273,17 +278,25 @@ function scan(): Violation[] {
       // alone. invoice_pay and applications/compliance-gate both do it, and
       // flagging them would train people to ignore this check. Evidence is a
       // `where` naming BOTH the business-id variable and tenantId.
-      let verified = false;
+      //
+      // ORDER MATTERS. A verification only covers queries that come after it:
+      // reading business A scoped and then querying business B unscoped is not
+      // verify-then-use. The first version set a flag and exempted the whole
+      // handler regardless of position, which would have passed exactly that.
+      let verifiedAt: number | null = null;
       let unscoped = false;
       for (const w of body.matchAll(/\bwhere\s*:\s*\{/g)) {
         const wOpen = body.indexOf('{', w.index! + w[0].length - 1);
         const clause = body.slice(wOpen, matchBrace(body, wOpen) + 1);
         const touches = names.some((n) => new RegExp(`\\b${n}\\b`).test(clause));
         if (!touches) continue;
-        if (/\btenantId\b/.test(clause)) verified = true;
-        else unscoped = true;
+        if (/\btenantId\b/.test(clause)) {
+          if (verifiedAt === null) verifiedAt = wOpen;
+        } else if (verifiedAt === null || wOpen < verifiedAt) {
+          unscoped = true;
+        }
       }
-      if (verified) continue;
+      if (verifiedAt !== null && !unscoped) continue;
 
       const hasTenant = /\btenantId\b/.test(body);
       if (!unscoped && hasTenant) continue;

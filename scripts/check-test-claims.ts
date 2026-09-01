@@ -62,16 +62,11 @@ const PLURAL_CLAIM = /\b(each|all|complete)\b/i;
  * Something in the body that could fail if the code handled only the
  * first item — a count, a per-item loop, or a multi-element expectation.
  */
-const PROVES_CARDINALITY = [
+const COUNT_ASSERTIONS = [
   /toHaveLength\(\s*([2-9]|\d\d+)/,
   /toHaveBeenCalledTimes\(\s*([2-9]|\d\d+)/,
   /\.length\s*\)\s*\.toBe\(\s*([2-9]|\d\d+)/,
   /\btotal:\s*([2-9]|\d\d+)/,
-  /\bfor\s*\(\s*const\b/,
-  /\.forEach\(/,
-  /\.every\(/,
-  /\.filter\(/,
-  /\.map\(/,
   /toEqual\(\s*\{[^}]*:\s*[2-9]/,
   /toMatchObject\(\s*\{[^}]*:\s*[2-9]/,
   // A count compared against another collection's length rather than a literal:
@@ -80,6 +75,41 @@ const PROVES_CARDINALITY = [
   /\.length\s*\)\s*\.toBe\([^)]*\.length/,
   /arrayContaining\(/,
 ];
+
+/**
+ * Iteration proves a count only where the assertion is.
+ *
+ * These were in the list above and tested against the whole body, where they
+ * mean almost nothing: `.map(` and `.filter(` build fixtures far more often
+ * than they assert, and a `for (const …)` is as likely to be arranging a store
+ * as checking one. A one-element `['a'].map(x => x)` in setup exempted a test
+ * named "for each revoked record" whose only assertion was on `store[0]`.
+ */
+const ITERATION_IN_ASSERTION = [
+  /\bfor\s*\(\s*const\b/,
+  /\.forEach\(/,
+  /\.every\(/,
+  /\.filter\(/,
+  /\.map\(/,
+];
+
+/**
+ * The text of every `expect(...)` in a body, plus the loops that wrap them.
+ *
+ * A `for (const x of xs) expect(...)` is a per-item assertion and should count,
+ * so a loop is included when an `expect(` appears within it.
+ */
+function assertionText(maskBody: string): string {
+  const parts: string[] = [];
+  for (const m of maskBody.matchAll(/\bexpect\s*\(/g)) {
+    parts.push(maskBody.slice(m.index, m.index + 400));
+  }
+  for (const m of maskBody.matchAll(/\bfor\s*\(\s*const[\s\S]{0,200}?\{/g)) {
+    const seg = maskBody.slice(m.index, m.index + 500);
+    if (seg.includes('expect(')) parts.push(seg);
+  }
+  return parts.join('\n');
+}
 
 /**
  * Where a fixture array starts: handed to a mock, bound to a name, or given as
@@ -259,7 +289,23 @@ function scan(): Violation[] {
     for (const { name, body, maskBody, line } of testBlocks(src, mask)) {
       if (!PLURAL_CLAIM.test(name)) continue;
       if (!maskBody.includes('expect(')) continue;
-      if (PROVES_CARDINALITY.some((re) => re.test(body))) continue;
+      // Masked, and only inside assertions.
+      //
+      // Two widenings, both found by writing the bad test and watching this
+      // pass. `body` is source, so a COMMENT containing "for (" or ".map(" was
+      // proof of cardinality. And `.map(`, `.filter(` and `.forEach(` are far
+      // more often fixture construction than assertion — `['a'].map(x => x)`
+      // while building a store exempted a test named "for each revoked record"
+      // whose only assertion was `expect(store[0].id).toBe('a')`.
+      //
+      // Iteration proves a count only where the assertion is. `toHaveLength(2)`
+      // and `toHaveBeenCalledTimes(2)` are self-evidently assertions and are
+      // checked against the whole masked body; the iteration patterns are
+      // checked only inside `expect(...)`.
+      const assertions = assertionText(maskBody);
+      const provenByCount = COUNT_ASSERTIONS.some((re) => re.test(maskBody));
+      const provenByIteration = ITERATION_IN_ASSERTION.some((re) => re.test(assertions));
+      if (provenByCount || provenByIteration) continue;
 
       // Only flag when a fixture is visibly single-item. A test with no
       // array fixture at all may be claiming plurality about something
@@ -306,6 +352,12 @@ const KNOWN_OVERSTATED = new Set<string>([
   'tests/unit/services/kyb-kyc.test.ts::publishes KYC_VERIFIED when all beneficial owners are verified',
   'tests/unit/services/kyb-kyc.test.ts::returns readyForApplications=true when KYB verified and all beneficial owners KYC verified',
   'tests/unit/services/twilio-integration.test.ts::persists a VoiceCall record for each initiated call',
+  // Found 2026-09-01, by narrowing the iteration exemption to assertions. A
+  // `.map()` extracting event types from mock calls had been counting as proof
+  // of cardinality; the assertion is `toContain('call.initiated')`, which is
+  // "at least one" and cannot tell one publish from one per dial. Same file and
+  // same shape as the row above it.
+  'tests/unit/services/twilio-integration.test.ts::publishes call.initiated event for each successful dial',
 ]);
 
 /**

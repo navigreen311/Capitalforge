@@ -3,12 +3,12 @@
 **Status:** live inventory. Strike a row when the test is fixed; never delete one.
 **Generated:** 2026-09-01, against branch `ai-feature/consent-tenancy-and-revoke-integrity`.
 **Enforced by:** `scripts/check-test-claims.ts` (`npm run check:test-claims`, run in
-the Lint & Type Check CI job). It holds an allowlist of 11 confirmed rows and 5
+the Lint & Type Check CI job). It holds an allowlist of 12 confirmed rows and 5
 reviewed exceptions. The list may only get SHORTER. A new violation fails CI; so does
 an allowlist entry that no longer matches, so this file and that script cannot drift
 apart.
 
-**26 open, 3 fixed, 29 total.**
+**27 open, 3 fixed, 30 total.**
 
 A test whose name claims more than its body checks is worse than no test. It occupies
 the place where the real check would go, it reports green, and its name is what
@@ -47,6 +47,7 @@ Every row here is in the script's `KNOWN_OVERSTATED` allowlist.
 | file:line | the name claims | what the body does |
 |---|---|---|
 | `tests/unit/services/twilio-integration.test.ts:775` | persists a VoiceCall record **for each** initiated call | one business, `toHaveBeenCalledOnce()`. The test **directly above it** uses two businesses and asserts `toHaveBeenCalledTimes(2)` — so a `create` outside the loop passes this one and fails that one |
+| `tests/unit/services/twilio-integration.test.ts:792` | publishes call.initiated **for each** successful dial | one business; asserts `toContain('call.initiated')`, which is "at least one". Hidden until 2026-09-01 by a `.map()` extracting event types from mock calls, which the check was counting as proof of cardinality wherever it appeared |
 | `tests/unit/services/kyb-kyc.test.ts:626` | publishes KYC_VERIFIED when **all** beneficial owners are verified | one owner; the fixture comment says "Business has one owner by default". A service publishing on the **first** verified owner passes. Premature KYC_VERIFIED gates downstream work |
 | `tests/unit/services/kyb-kyc.test.ts:812` | readyForApplications=true when KYB verified and **all** beneficial owners KYC verified | one owner — and the negative sibling above it also uses one, so the multi-owner case is untested in both directions |
 | `tests/e2e/funding-flow.test.ts:368` | marks a funding round completed when **all** applications close | `approvedApps = [one application]` |
