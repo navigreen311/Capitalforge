@@ -602,42 +602,47 @@ spendGovernanceRouter.patch(
 
 // ── POST /api/spend-governance/export-evidence ───────────────
 //
-// Export a mock text evidence report for spend governance compliance.
+// ── POST /api/spend-governance/export-evidence ───────────────
+//
+// Refused. It was titled evidence and contained none.
+//
+// The handler took `_req` — it did not read the request — and returned the same
+// document to every caller, for every tenant, for every client:
+//
+//     Total transactions reviewed: 142
+//     Violations found: 3   acknowledged: 2   Unresolved: 1
+//     1. [ACK]  Personal purchase at Best Buy — $249.99 — acknowledged 2026-03-15
+//     2. [ACK]  Cash-like MCC at Western Union — $500.00 — acknowledged 2026-03-18
+//     3. [OPEN] Suspicious merchant "CryptoEx" — $1,200.00 — pending review
+//     Transactions with purpose tagged: 138 / 142 (97.2%)
+//     Evidence documents attached:      130 / 142 (91.5%)
+//
+// Every number, every merchant, every date was written here. A report titled
+// EVIDENCE is what gets handed to an auditor or a regulator to show that spend
+// was governed. This one asserted that a named client made a personal purchase
+// at Best Buy and a cash-like transaction at Western Union, and that a crypto
+// merchant was under review — an open compliance item that does not exist,
+// about transactions that never happened.
+//
+// The rest of this router is real: transactions, tagging, business-purpose
+// evidence and violations all read and write. Only the document summarising them
+// was invented, which is the pattern in every one of these found so far — the
+// export is the last thing anybody rebuilds.
 
 spendGovernanceRouter.post(
   '/export-evidence',
   async (_req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const report = [
-      'SPEND GOVERNANCE EVIDENCE REPORT',
-      `Generated: ${new Date().toISOString()}`,
-      '='.repeat(50),
-      '',
-      'Summary:',
-      '  Total transactions reviewed: 142',
-      '  Violations found: 3',
-      '  Violations acknowledged: 2',
-      '  Unresolved: 1',
-      '',
-      'Violation Details:',
-      '  1. [ACK] Personal purchase at Best Buy — $249.99 — acknowledged 2026-03-15',
-      '  2. [ACK] Cash-like MCC at Western Union — $500.00 — acknowledged 2026-03-18',
-      '  3. [OPEN] Suspicious merchant "CryptoEx" — $1,200.00 — pending review',
-      '',
-      'Business Purpose Coverage:',
-      '  Transactions with purpose tagged: 138 / 142 (97.2%)',
-      '  Evidence documents attached: 130 / 142 (91.5%)',
-      '',
-      'END OF REPORT',
-    ].join('\n');
-
-    logger.info('Spend governance evidence report exported');
-
-    res.status(200).json({
-      success: true,
-      data: {
-        format: 'text',
-        report,
-        generatedAt: new Date().toISOString(),
+    res.status(501).json({
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Spend governance evidence export is not implemented. It returned a report '
+          + 'whose every figure was written into the handler — the same document for '
+          + 'every tenant and every client, naming transactions, merchants, amounts and '
+          + 'acknowledgement states that were read from nowhere. The transaction, '
+          + 'tagging and violation endpoints on this router hold the real data; nothing '
+          + 'assembles it into a document yet.',
       },
     } satisfies ApiResponse);
   },

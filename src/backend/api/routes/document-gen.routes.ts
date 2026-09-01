@@ -135,9 +135,14 @@ ${businessName}`;
 function generateBusinessPurposeStatement(ctx: Record<string, unknown>): string {
   const businessName = (ctx.business_name as string) ?? 'Acme Holdings LLC';
   const industry = (ctx.industry as string) ?? 'Professional Services';
-  const creditAmount = (ctx.credit_amount as string) ?? '$150,000';
+  // Brackets, not figures. Every other field in these generators falls back to a
+  // visible placeholder; these two fell back to money. A Business Purpose
+  // Statement is signed by the client, and one asserting $150,000 sought against
+  // $500,000 of revenue — when neither was supplied — reads exactly like one
+  // where both were.
+  const creditAmount = (ctx.credit_amount as string) ?? '[credit amount]';
   const purpose = (ctx.purpose as string) ?? 'working capital and operational expenses';
-  const revenue = (ctx.annual_revenue as string) ?? '$500,000';
+  const revenue = (ctx.annual_revenue as string) ?? '[annual revenue]';
 
   return `BUSINESS PURPOSE STATEMENT
 
@@ -394,7 +399,7 @@ function generateAprExpiryWarningLetter(ctx: Record<string, unknown>): string {
     const cards = ctx.expiring_cards as Array<Record<string, unknown>>;
     cardDetails = 'The following cards have introductory APR periods expiring soon:\n\n' +
       cards.map(c =>
-        `- ${c.card_name ?? 'Card'} (${c.issuer ?? 'Issuer'}): Balance $${Number(c.balance ?? 0).toLocaleString()}, expires in ${c.days_remaining ?? '??'} days`
+        `- ${c.card_name ?? 'Card'} (${c.issuer ?? 'Issuer'}): Balance ${c.balance === undefined || c.balance === null ? '[balance]' : '$' + Number(c.balance).toLocaleString()}, expires in ${c.days_remaining ?? '??'} days`
       ).join('\n');
   }
 
@@ -674,6 +679,10 @@ COMPLIANCE NOTE
 This call summary was generated from VoiceForge call recording and may require advisor review for accuracy.`;
 }
 
+// A past-due notice. `Late Fee Applied` fell back to '$0.00' while every other
+// field in this function fell back to a bracket — so "no late fee was stated"
+// and "the late fee is zero" produced the same line, in a document telling
+// somebody what they owe. A bracket is not a claim about money; $0.00 is.
 function generateCollectionNotice(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
   const amountDue = ctx.amount_due ? '$' + Number(ctx.amount_due).toLocaleString() : '[amount]';
@@ -697,7 +706,7 @@ PAYMENT DETAILS
 Amount Due: ${amountDue}
 Original Due Date: ${dueDate}
 Days Past Due: ${(ctx.days_past_due as string) ?? '[X]'}
-Late Fee Applied: ${ctx.late_fee ? '$' + Number(ctx.late_fee).toLocaleString() : '$0.00'}
+Late Fee Applied: ${ctx.late_fee === undefined || ctx.late_fee === null ? '[late fee]' : '$' + Number(ctx.late_fee).toLocaleString()}
 
 PAYMENT OPTIONS
 
