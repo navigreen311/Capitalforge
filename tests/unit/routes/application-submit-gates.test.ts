@@ -68,7 +68,8 @@ let baseUrl: string;
 
 beforeAll(async () => {
   const express = (await import('express')).default;
-  const router = (await import('@backend/api/routes/applications.routes.js')).default;
+  const router = (await import('@backend/api/routes/applications.routes.js'))
+    .default as unknown as import('express').Router;
 
   const app = express();
   app.use(express.json());

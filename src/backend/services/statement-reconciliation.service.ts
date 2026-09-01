@@ -58,7 +58,13 @@ export type AnomalyType =
   | 'balance_mismatch'
   | 'interest_rate_change'
   | 'overlimit_fee'
-  | 'missing_payment_credit';
+  | 'missing_payment_credit'
+  /**
+   * Not a defect in the statement — a check that could not be performed.
+   * Kept in the same list so a reader sees it beside the findings rather than
+   * mistaking an absent check for a clean one.
+   */
+  | 'reconciliation_not_possible';
 
 export interface StatementAnomaly {
   type: AnomalyType;
@@ -149,6 +155,22 @@ const ISSUER_SENDER_MAP: Record<string, string> = {
 
 // ── Service ───────────────────────────────────────────────────
 
+/**
+ * The statement carried no date.
+ *
+ * Its own class rather than a bare Error so the route can answer 422 with a
+ * reason a caller can act on, instead of the 500 a generic throw would produce.
+ */
+export class UndatedStatementError extends Error {
+  constructor() {
+    super(
+      'This statement has no statement date. A statement is filed to the period it '
+      + 'belongs to, and nothing here can tell which period that is.',
+    );
+    this.name = 'UndatedStatementError';
+  }
+}
+
 export class StatementReconciliationService {
   private readonly prisma: PrismaClient;
   private readonly eventBus: EventBus;
@@ -215,9 +237,18 @@ export class StatementReconciliationService {
     );
 
     // ── Persist ────────────────────────────────────────────────
-    const statementDate = normalized.statementDate
-      ? new Date(normalized.statementDate)
-      : new Date();
+    // A statement with no date is not this month's.
+    //
+    // This defaulted to `new Date()`, so an undated statement was filed to
+    // whenever it happened to be ingested — and statementDate is what every
+    // period query orders and filters by. StatementRecord.statementDate is NOT
+    // NULL, so there is nowhere to put "unknown"; the honest answer is to
+    // refuse the ingest rather than invent the one field that decides where the
+    // record belongs.
+    if (!normalized.statementDate) {
+      throw new UndatedStatementError();
+    }
+    const statementDate = new Date(normalized.statementDate);
     const dueDate = normalized.dueDate ? new Date(normalized.dueDate) : null;
 
     const record = await this.prisma.statementRecord.create({
@@ -333,11 +364,11 @@ export class StatementReconciliationService {
         id: r.id,
         issuer: r.issuer,
         statementDate: r.statementDate,
-        closingBalance: r.closingBalance ? Number(r.closingBalance) : null,
-        minimumPayment: r.minimumPayment ? Number(r.minimumPayment) : null,
+        closingBalance: r.closingBalance === null ? null : Number(r.closingBalance),
+        minimumPayment: r.minimumPayment === null ? null : Number(r.minimumPayment),
         dueDate: r.dueDate,
-        feesCharged: r.feesCharged ? Number(r.feesCharged) : null,
-        interestCharged: r.interestCharged ? Number(r.interestCharged) : null,
+        feesCharged: r.feesCharged === null ? null : Number(r.feesCharged),
+        interestCharged: r.interestCharged === null ? null : Number(r.interestCharged),
         anomalyCount: anomalies.length,
         reconciled: r.reconciled,
         createdAt: r.createdAt,
@@ -673,6 +704,33 @@ export class StatementReconciliationService {
     // Need previous and closing balance for the check
     if (previousBalance === null || closingBalance === null) return anomalies;
 
+    // And interest and fees. They used to be folded in as `?? 0`, which makes
+    // the expected balance too low, the delta large, and the anomaly
+    // 'critical' at delta > 50 — so a statement that simply did not carry an
+    // interest field manufactured a critical mismatch about money that
+    // reconciles fine.
+    //
+    // It persists, too: anomalies are computed once at ingest and stored, and
+    // the report endpoint reads them back rather than recomputing. A phantom
+    // critical from a missing field stayed on the record forever.
+    //
+    // So the check does not run, and says why instead of guessing.
+    if (interestCharged === null || feesCharged === null) {
+      const missing = [
+        interestCharged === null ? 'interest charged' : null,
+        feesCharged === null ? 'fees charged' : null,
+      ].filter(Boolean).join(' and ');
+      anomalies.push({
+        type: 'reconciliation_not_possible',
+        severity: 'low',
+        description:
+          `Balance reconciliation was not performed: ${missing} is not present on this `
+          + 'statement. This is not a mismatch — it is a check that could not run.',
+        amount: null,
+      });
+      return anomalies;
+    }
+
     // Sum charges (positive transactions) and payments (negative transactions)
     const totalCharges = normalized.transactions
       .filter((t) => t.amount > 0 && !t.isInterest && !t.isFee)
@@ -686,8 +744,8 @@ export class StatementReconciliationService {
       previousBalance +
       totalCharges -
       totalPayments +
-      (interestCharged ?? 0) +
-      (feesCharged ?? 0);
+      interestCharged +
+      feesCharged;
 
     const delta = Math.abs(expectedBalance - closingBalance);
 

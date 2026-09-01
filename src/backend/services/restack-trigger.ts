@@ -43,7 +43,8 @@ export interface RestackEligibilityResult {
   businessName: string;
   eligible: boolean;
   reasons: string[];
-  readinessScore: number;
+  /** Null when readiness has never been assessed. Not the same as scoring zero. */
+  readinessScore: number | null;
   daysSinceLastApp: number | null;
   currentUtilization: number | null;
   activeApplicationCount: number;
@@ -54,12 +55,16 @@ export interface RestackEligibilityResult {
 
 export async function checkRestackEligibility(
   businessId: string,
-  tenantId?: string,
+  tenantId: string,
 ): Promise<RestackEligibilityResult> {
   const prisma = getPrisma();
 
-  const whereClause: Record<string, unknown> = { id: businessId };
-  if (tenantId) whereClause.tenantId = tenantId;
+  // tenantId is required, not conditional. `if (tenantId) whereClause.tenantId`
+  // meant the query ran unscoped whenever a caller omitted it — a filter that
+  // reads as scoped while being written to work without one. Not reachable from
+  // the routes today, which pass it; the point is that it cannot become
+  // reachable.
+  const whereClause: Record<string, unknown> = { id: businessId, tenantId };
 
   const business = await prisma.business.findFirst({
     where: whereClause,
@@ -83,7 +88,7 @@ export async function checkRestackEligibility(
       businessName: 'Unknown',
       eligible: false,
       reasons: ['Business not found'],
-      readinessScore: 0,
+      readinessScore: null,
       daysSinceLastApp: null,
       currentUtilization: null,
       activeApplicationCount: 0,
@@ -95,8 +100,20 @@ export async function checkRestackEligibility(
   let eligible = true;
 
   // 1. Readiness score check
-  const readinessScore = business.fundingReadinessScore ?? 0;
-  if (readinessScore < MIN_READINESS_SCORE) {
+  // Unassessed is not zero. `?? 0` produced the sentence "Readiness score 0 is
+  // below threshold" for a client nobody had assessed — an assessment stated as
+  // fact, in the prose an advisor reads.
+  const readinessScore =
+    typeof business.fundingReadinessScore === 'number' ? business.fundingReadinessScore : null;
+  if (readinessScore === null) {
+    // Not eligible, and for a different reason than failing. "Not assessed" and
+    // "assessed and too low" are different findings and must not read the same.
+    eligible = false;
+    reasons.push(
+      'Readiness has never been assessed for this client, so eligibility cannot be '
+      + `determined. Threshold is ${MIN_READINESS_SCORE}.`,
+    );
+  } else if (readinessScore < MIN_READINESS_SCORE) {
     eligible = false;
     reasons.push(`Readiness score ${readinessScore} is below threshold of ${MIN_READINESS_SCORE}`);
   } else {
@@ -169,12 +186,12 @@ export async function checkRestackEligibility(
 // ── Core: Scan All Businesses for Restack Eligibility ────────
 
 export async function scanAllForRestack(
-  tenantId?: string,
+  tenantId: string,
 ): Promise<RestackEligibilityResult[]> {
   const prisma = getPrisma();
 
-  const whereClause: Record<string, unknown> = { status: 'active' };
-  if (tenantId) whereClause.tenantId = tenantId;
+  // As above: required. Unscoped, this returned every tenant's businesses.
+  const whereClause: Record<string, unknown> = { status: 'active', tenantId };
 
   // Pre-filter: only look at businesses with readiness >= threshold
   whereClause.fundingReadinessScore = { gte: MIN_READINESS_SCORE };
@@ -198,8 +215,17 @@ export async function scanAllForRestack(
     }
   }
 
-  // Sort by readiness score descending
-  results.sort((a, b) => b.readinessScore - a.readinessScore);
+  // Sort by readiness score descending, unassessed last.
+  //
+  // Not `?? 0` here either: sorting an unassessed client as a zero puts them at
+  // the bottom of the list, which is a ranking claim. They go last because
+  // nothing is known about them, and the null in the row says which it is.
+  results.sort((a, b) => {
+    if (a.readinessScore === null && b.readinessScore === null) return 0;
+    if (a.readinessScore === null) return 1;
+    if (b.readinessScore === null) return -1;
+    return b.readinessScore - a.readinessScore;
+  });
 
   logger.info('[RestackTrigger] Scan complete', {
     eligible: results.length,

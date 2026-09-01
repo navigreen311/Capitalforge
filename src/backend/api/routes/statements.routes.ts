@@ -20,6 +20,7 @@ import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import {
   StatementReconciliationService,
+  UndatedStatementError,
 } from '../../services/statement-reconciliation.service.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
@@ -114,15 +115,27 @@ statementsRouter.post(
         return;
       }
 
-      const result = await getService().ingestStatement({
-        tenantId: tid,
-        businessId,
-        rawData: rawData as Record<string, unknown>,
-        cardApplicationId:
-          typeof cardApplicationId === 'string' ? cardApplicationId : null,
-        sourceDocumentId:
-          typeof sourceDocumentId === 'string' ? sourceDocumentId : null,
-      });
+      let result;
+      try {
+        result = await getService().ingestStatement({
+          tenantId: tid,
+          businessId,
+          rawData: rawData as Record<string, unknown>,
+          cardApplicationId:
+            typeof cardApplicationId === 'string' ? cardApplicationId : null,
+          sourceDocumentId:
+            typeof sourceDocumentId === 'string' ? sourceDocumentId : null,
+        });
+      } catch (e) {
+        if (e instanceof UndatedStatementError) {
+          res.status(422).json({
+            success: false,
+            error: { code: 'STATEMENT_UNDATED', message: e.message },
+          } satisfies ApiResponse);
+          return;
+        }
+        throw e;
+      }
 
       res.status(201).json({
         success: true,

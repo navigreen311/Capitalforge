@@ -472,10 +472,15 @@ describe('QA call scoring', () => {
     );
   });
 
-  it('getAdvisorQaAverage returns sampleCount 0 for no data', async () => {
+  it('getAdvisorQaAverage reports no data as null, not as a score of zero', async () => {
+    // Was `expect(result.averageOverall).toBe(0)`. Zero is the worst score this
+    // scale has, and an advisor nobody has scanned has not earned it. The four
+    // sibling averages in the same object were already null; this one now
+    // matches them, and sampleCount still says how many rows there were.
     const result = await svc.getAdvisorQaAverage('advisor-001', 'tenant-001');
     expect(result.sampleCount).toBe(0);
-    expect(result.averageOverall).toBe(0);
+    expect(result.averageOverall).toBeNull();
+    expect(result.averageCompliance).toBeNull();
   });
 
   it('getAdvisorQaAverage computes averages correctly', async () => {

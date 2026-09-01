@@ -219,7 +219,20 @@ export class ComplianceDossierService {
   /**
    * Assemble the full compliance dossier for a single business.
    *
-   * All queries are tenant-scoped (tenantId guard on every query).
+   * Tenancy: `_fetchBusiness` filters on `{ id: businessId, tenantId }` and the
+   * assembly throws `BusinessNotFoundForDossierError` when it comes back empty,
+   * so nothing about another tenant's business is ever returned.
+   *
+   * What that is NOT: a tenantId guard on every query. Four of the nine fetches
+   * — acknowledgments, applications, fee schedules, ACH auths, suitability
+   * checks — filter on `businessId` alone, and all nine run inside one
+   * `Promise.all`, so the ownership check does not precede them. They execute
+   * and are discarded.
+   *
+   * Safe, and worth stating precisely rather than as the stronger claim this
+   * line used to make. The stronger claim is what stops the next person
+   * checking, and it stops being true the moment somebody returns a partial
+   * result, logs one, or moves a fetch out of the throw's reach.
    * No PII is returned beyond what is stored in the underlying records —
    * EIN and SSN fields are NOT included (they exist on BusinessOwner which
    * is excluded here; advisors should retrieve those through a separately

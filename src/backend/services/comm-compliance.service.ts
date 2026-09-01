@@ -907,7 +907,8 @@ export class CommComplianceService {
     tenantId: string,
     since?: Date,
   ): Promise<{
-    averageOverall: number;
+    /** Null when no communication has been scanned for this advisor. */
+    averageOverall: number | null;
     averageCompliance: number | null;
     averageScriptAdherence: number | null;
     averageConsentCapture: number | null;
@@ -930,7 +931,12 @@ export class CommComplianceService {
 
     if (records.length === 0) {
       return {
-        averageOverall:            0,
+        // null, like the four beside it. An advisor nobody has scanned has not
+        // scored zero — zero is the worst score this scale has, and it was the
+        // one field in this object that did not follow the file's own
+        // convention. The `avg` helper below already returns null when there is
+        // nothing to average.
+        averageOverall:            null,
         averageCompliance:         null,
         averageScriptAdherence:    null,
         averageConsentCapture:     null,
