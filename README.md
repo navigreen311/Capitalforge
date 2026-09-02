@@ -425,6 +425,33 @@ See [`.env.example`](.env.example) for the full reference with descriptions for 
 
 ---
 
+## Deploy order: CapitalForge ships before AnimaForge
+
+AnimaForge's render pipeline scans every generation script through this
+service before rendering — `POST /api/comm-compliance/scan` — and holds no
+banned-phrase list of its own. Two things follow for anyone deploying both.
+
+**1. `/api/comm-compliance/scan/preflight` must exist before AnimaForge's boot
+check does anything.** AnimaForge verifies its scan identity at startup by
+calling preflight. Against a CapitalForge that predates that endpoint it gets
+a 404, logs "identity not verified" and starts anyway — deliberately, so an
+older scanner cannot cause the outage the check exists to warn about. The
+effect is that **the check is inert until this service ships first.**
+
+**2. `COMPLIANCE_SCAN_ADVISOR_ID` must name a real user in the same tenant as
+`COMPLIANCE_SCAN_TOKEN`.** `advisorId` on a scan used to be validated as a
+UUID and nothing else; it is enforced against `users` now. AnimaForge's render
+gate fails closed, so an id that resolves to nobody does not let unchecked
+videos through — it stops renders. The boot check makes that loud instead of
+silent, but it does not create the row: the service principal has to exist
+before the branch ships, or AnimaForge's workers will refuse to start.
+
+Neither direction is unsafe. A missing preflight makes a check inert, and a
+missing advisor stops renders rather than passing them. The order matters for
+whether you find out at deploy time or later.
+
+---
+
 ## Testing
 
 ```bash
