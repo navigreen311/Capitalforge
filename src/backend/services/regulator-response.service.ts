@@ -734,22 +734,6 @@ export class RegulatorResponseService {
 
     const exportId = uuidv4();
 
-    // publishAndPersist, not publish. `publish` only dispatches to subscribers,
-    // and there are none at runtime — so exporting a regulator dossier left no
-    // record anywhere that it had happened. No ledger row, no AuditLog, a
-    // logger.info and nothing else. "Who pulled this, and when" is the first
-    // question asked about an evidence export.
-    await eventBus.publishAndPersist(tenantId, {
-      eventType:     REGULATOR_EVENTS.DOSSIER_EXPORTED,
-      aggregateType: 'regulatory_inquiry',
-      aggregateId:   inquiryId,
-      payload: {
-        exportId,
-        generatedBy:   requestedBy,
-        documentCount: documents.length,
-      },
-    });
-
     const dossier: RegulatorDossier = {
       exportId,
       inquiryId,
@@ -830,6 +814,36 @@ export class RegulatorResponseService {
         sections:         dossier.sections as unknown as Prisma.InputJsonValue,
         documentCount:    documents.length,
         legalHoldSummary: (legalHoldSummary ?? null) as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    // THE EVENT COMES AFTER THE ROW, AND THE ORDER IS THE POINT.
+    //
+    // It used to be published first. A failure in `create` then left
+    // `regulator.dossier.exported` in the ledger carrying an exportId that
+    // resolved to nothing — an event attributing an artefact to a record that
+    // was never written, which is the class `auto-restack.service.ts` was
+    // deleted for. It also inverted this module's own promise: "the dossier we
+    // sent on the 14th" has to resolve to a row, and the ledger was the thing
+    // asserting it existed.
+    //
+    // Reordered, the failure modes are both honest: a failed `create` throws
+    // with no event, and a failed publish leaves a real row with no ledger
+    // entry. The second is a gap in the audit trail; the first was a claim
+    // about an artefact that does not exist. A missing record of a real thing
+    // is recoverable. A record of a missing thing is not.
+    //
+    // publishAndPersist, not publish. `publish` only dispatches to subscribers
+    // and there are none at runtime — so exporting a regulator dossier left no
+    // record anywhere that it had happened.
+    await eventBus.publishAndPersist(tenantId, {
+      eventType:     REGULATOR_EVENTS.DOSSIER_EXPORTED,
+      aggregateType: 'regulatory_inquiry',
+      aggregateId:   inquiryId,
+      payload: {
+        exportId,
+        generatedBy:   requestedBy,
+        documentCount: documents.length,
       },
     });
 

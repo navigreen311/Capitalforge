@@ -33,11 +33,14 @@ vi.mock('@backend/events/event-bus.js', () => ({
 
 vi.mock('@backend/config/database.js', () => ({ prisma: {} }));
 
+import { eventBus } from '../../../src/backend/events/event-bus.js';
 import {
   RegulatorResponseService,
   UnknownDossierRequesterError,
   DOSSIER_EXCLUDED_RECORD_TYPES,
 } from '../../../src/backend/services/regulator-response.service.js';
+
+const publishAndPersist = eventBus.publishAndPersist as unknown as ReturnType<typeof vi.fn>;
 
 const TENANT = 'tenant-001';
 const BIZ = 'biz-001';
@@ -89,6 +92,10 @@ function mocks(over: Record<string, unknown> = {}) {
 let m: ReturnType<typeof mocks>;
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks clears calls, NOT implementations. The write-ordering test
+  // below installs one; without this it would leak into every test after it.
+  publishAndPersist.mockReset();
+  publishAndPersist.mockResolvedValue({ id: 'e1', publishedAt: new Date() });
   m = mocks();
 });
 
@@ -248,5 +255,49 @@ describe('document integrity is checked, not passed through', () => {
 
     expect(d.documentsVerified + d.documentsUnverifiable + d.documentsTampered)
       .toBe(d.totalDocuments);
+  });
+});
+
+describe('the order of the two writes', () => {
+  it('does not announce an export that was never written', async () => {
+    // The event used to be published first, so a failing `create` left
+    // `regulator.dossier.exported` in the ledger carrying an exportId that
+    // resolved to nothing — an event attributing an artefact to a record that
+    // was never created.
+    m.regulatoryDossierExport.create.mockRejectedValue(new Error('write failed'));
+
+    await expect(svc().exportDossier(INQUIRY, TENANT, USER)).rejects.toThrow('write failed');
+
+    expect(publishAndPersist).not.toHaveBeenCalled();
+  });
+
+  it('writes the row before emitting the event on the happy path', async () => {
+    const order: string[] = [];
+    m.regulatoryDossierExport.create.mockImplementation(() => {
+      order.push('row');
+      return Promise.resolve({});
+    });
+    publishAndPersist.mockImplementation(() => {
+      order.push('event');
+      return Promise.resolve({ id: 'e1', publishedAt: new Date() });
+    });
+
+    await svc().exportDossier(INQUIRY, TENANT, USER);
+
+    expect(order).toEqual(['row', 'event']);
+  });
+
+  it('still emits the event, carrying the exportId that now resolves', async () => {
+    const d = await svc().exportDossier(INQUIRY, TENANT, USER);
+
+    const [, envelope] = publishAndPersist.mock.calls.at(-1) as [
+      string, { payload: Record<string, unknown> },
+    ];
+    const [{ data }] = m.regulatoryDossierExport.create.mock.calls[0] as [
+      { data: Record<string, unknown> },
+    ];
+
+    expect(envelope.payload.exportId).toBe(d.exportId);
+    expect(data.id).toBe(d.exportId);
   });
 });

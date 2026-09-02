@@ -353,6 +353,20 @@ describe('assembling a manifest leaves a trace', () => {
     expect(envelope.payload.assembledBy).toBe(USER);
   });
 
+  it('carries all three integrity counts, not two of them', async () => {
+    // `documentsVerified` was missing, so a ledger row read "3 unverifiable,
+    // 0 tampered" — the third-state hole these fields exist to close,
+    // reproduced in the record of the assembly.
+    await assemble();
+
+    const [, envelope] = publishAndPersist.mock.calls.at(-1) as [
+      string, { payload: Record<string, unknown> },
+    ];
+    expect(envelope.payload).toHaveProperty('documentsVerified');
+    expect(envelope.payload).toHaveProperty('documentsUnverifiable');
+    expect(envelope.payload).toHaveProperty('timestampsTampered');
+  });
+
   it('reaches the ledger rather than only the process', async () => {
     // `publish` dispatches to subscribers and there are none at runtime, which
     // is how three other services came to record nothing while appearing to.

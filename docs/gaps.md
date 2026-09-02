@@ -919,6 +919,48 @@ first, and that is the same decision §3m is waiting on. Recorded so it is a kno
 item rather than a note in one engine's header, which is where it currently
 lives.
 
+### 3o. `lender_match` is a named module with no content — open, 2026-09-02
+
+**The Burkham Wickmont Pack declares a module this Forge does not have.**
+
+`lender_match` appears in `theoffice/packs/burkham-wickmont.draft.yaml` under
+`forge_modules_operated`, and in the split draft it is granted at
+**`auto_execute`** — the highest trust tier, the one that runs without a human
+in the loop.
+
+It does not exist in CapitalForge. No service, no route, no handler, no symbol,
+no module id. A repository-wide search for `lender_match`, `lenderMatch`,
+`matchLenders` and `lender-match` returns exactly one hit: a line in this file
+saying *"Flagged during the `lender_match` module review, 2026-09-01"*, attached
+to the AI-decision-log coverage gap.
+
+**This is the same shape as the five Firewall rules** — a named control that
+resolves to nothing, where the name is doing all the work. A reader of the Pack
+sees a governed capability with a trust tier; there is no capability.
+
+**Two distinct problems, and the second is the worse one.**
+
+1. *The name resolves to nothing.* Nobody can grant, revoke, audit or test it,
+   and a review that believed it was reviewing something produced a gap entry
+   attributing its finding to a module that was never read.
+
+2. *Nothing checks that a Pack's declared modules exist in the Forge.* This was
+   found by hand, because a manual mentioned it. A Pack can name any module and
+   assign it any tier, and no seam between The Office and a Forge compares the
+   declaration against what the Forge actually exposes. Every other module id in
+   that list is real today; nothing keeps that true.
+
+**Also note the terminology.** CapitalForge places clients with card **issuers**,
+not lenders. If `lender_match` was meant to name something real, the candidates
+are `issuer-rules-engine.ts` (already swept), `stacking-criteria.service.ts`,
+`suitability-engine.ts` or `credit-optimizer.ts` — and the naming mismatch is
+itself evidence that the Pack entry was written from an idea of the product
+rather than from the product.
+
+**Not fixed, and the fix is not code in CapitalForge.** It is either removing the
+declaration, or building the module and naming it for what it does. The
+conformance check in problem 2 is the durable half and belongs in The Office.
+
 ### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
 
 Nothing answers "show me your communication monitoring" at the level the

@@ -390,20 +390,25 @@ export class ComplianceDossierService {
   /**
    * Assemble the compliance manifest for a single business.
    *
-   * Tenancy: `_fetchBusiness` filters on `{ id: businessId, tenantId }` and the
-   * assembly throws `BusinessNotFoundForDossierError` when it comes back empty,
-   * so nothing about another tenant's business is ever returned.
+   * Tenancy: `_fetchBusiness` filters on `{ id: businessId, tenantId }` and is
+   * AWAITED before any record query runs, throwing
+   * `BusinessNotFoundForDossierError` when it comes back empty. The five
+   * fetches that once filtered on `businessId` alone — acknowledgments,
+   * applications, fee schedules, ACH auths, suitability checks — are scoped
+   * through `business: { tenantId }` as well, so neither the gate nor the
+   * filters are load-bearing alone.
    *
-   * What that is NOT: a tenantId guard on every query. Four of the nine fetches
-   * — acknowledgments, applications, fee schedules, ACH auths, suitability
-   * checks — filter on `businessId` alone, and all nine run inside one
-   * `Promise.all`, so the ownership check does not precede them. They execute
-   * and are discarded.
+   * THIS COMMENT DESCRIBED THE PRE-FIX STATE AS CURRENT until 2026-09-02. It
+   * said the ownership check did not precede the fetches, that they executed
+   * and were discarded, and that five of them were unscoped — while the inline
+   * comment forty lines below said the opposite and was right. Two comments in
+   * one file contradicting each other, one of them false, in the method whose
+   * operating instruction asserts the corrected behaviour. It also said "four
+   * of the nine fetches" and then listed five.
    *
-   * Safe, and worth stating precisely rather than as the stronger claim this
-   * line used to make. The stronger claim is what stops the next person
-   * checking, and it stops being true the moment somebody returns a partial
-   * result, logs one, or moves a fetch out of the throw's reach.
+   * A comment describing a defect that has been fixed is worse than no comment:
+   * it is a claim about the code, in the code, that a reader has no reason to
+   * doubt.
    * No PII is returned beyond what is stored in the underlying records —
    * EIN and SSN fields are NOT included (they exist on BusinessOwner which
    * is excluded here; advisors should retrieve those through a separately
@@ -562,6 +567,11 @@ export class ComplianceDossierService {
         filterSince:  since ?? null,
         filterUntil:  until ?? null,
         documentsReferenced:   summary.totalDocuments,
+        // All THREE integrity counts. `documentsVerified` was missing, so a
+        // ledger row read "3 unverifiable, 0 tampered" — which is the exact
+        // third-state hole these fields exist to close, reproduced in the
+        // record of the assembly rather than in the assembly itself.
+        documentsVerified:     summary.documentsVerified,
         documentsUnverifiable: summary.documentsUnverifiable,
         timestampsTampered:    summary.timestampsTampered,
       },
