@@ -336,15 +336,17 @@ export const EXCLUDED_RECORD_TYPES: readonly ExcludedRecordType[] = [
   {
     recordType: 'comm_compliance_records',
     reason:
-      'Communication scans. DECIDED 2026-09-02 that these belong in this manifest, '
-      + 'as an index without message content: that a communication was scanned, '
-      + 'when, against which rules, the outcome and the violations found. NOT YET '
-      + 'INCLUDED because the record cannot be scoped to a business — '
-      + 'comm_compliance_records carries tenantId and advisorId and no businessId, '
-      + 'and an advisor scans messages for many clients, so there is nothing to '
-      + 'derive the link from. Adding a nullable businessId is sized in '
-      + 'docs/gaps.md; a marketing video script legitimately has no client, which '
-      + 'is why it would be nullable.',
+      'Communication scans. Considered for inclusion and DECIDED OUT 2026-09-02, '
+      + 'on scope rather than on effort: a scan is tenant-scoped by nature. '
+      + 'comm_compliance_records carries tenantId and advisorId and no businessId '
+      + 'because there is no per-client fact to record — an advisor scans messages '
+      + 'across many clients, and a video_script scanned before render relates to '
+      + 'none. Communication monitoring is a programme, and "show me your '
+      + 'communication monitoring" is answered by a tenant-level report rather '
+      + 'than by a per-client index. Adding a nullable businessId would have '
+      + 'produced a section that is sparse for reasons a reader could not see '
+      + 'from the manifest. See docs/gaps.md for the tenant-level report, which '
+      + 'does not exist yet.',
   },
   {
     recordType: 'ai_decision_logs',

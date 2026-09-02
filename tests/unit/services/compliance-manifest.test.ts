@@ -302,13 +302,16 @@ describe('the exclusions carry their reasoning', () => {
     expect(entry!.reason).toMatch(/Revisit when the other eight write/i);
   });
 
-  it('says the scans belong but cannot yet be scoped', async () => {
-    // Decided 2026-09-02 that they belong; blocked because
-    // comm_compliance_records has no businessId to scope on.
+  it('says the scans are out on scope, not on effort', async () => {
+    // Decided out 2026-09-02: a scan is tenant-scoped by nature. An advisor
+    // scans across many clients and a video_script relates to none, so the
+    // missing businessId is the absence of a per-client fact rather than a
+    // gap in the schema.
     const entry = EXCLUDED_RECORD_TYPES.find((e) => e.recordType === 'comm_compliance_records');
 
-    expect(entry!.reason).toMatch(/DECIDED/);
-    expect(entry!.reason).toMatch(/no businessId/i);
+    expect(entry!.reason).toMatch(/DECIDED OUT/);
+    expect(entry!.reason).toMatch(/tenant-scoped by nature/i);
+    expect(entry!.reason).toMatch(/tenant-level report/i);
   });
 
   it('no longer lists the ledger as excluded', async () => {

@@ -636,6 +636,44 @@ there are none, because a letter confirming a consent that was never captured
 is the document that endpoint exists not to produce.
 
 
+
+### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
+
+Nothing answers "show me your communication monitoring" at the level the
+question is actually asked.
+
+`comm_compliance_records` holds every scan — advisor messages and marketing
+scripts, the rules applied, the outcome, the violations found — and the only
+ways to read it are `GET /api/advisors/:id/qa-scores`, which is a different
+record entirely, and direct SQL. The compliance manifest deliberately does not
+carry scans (§3g): they are tenant-scoped by nature, so a per-business section
+would be sparse for reasons a reader could not see.
+
+**What the report would be.** Over a date range, for a tenant: how many
+communications were scanned, by channel; how many were approved; the
+violations found, by category and by claim, with counts; how many scans a
+person reviewed and how many nobody has read (`humanReviewedAt` is null for
+most of them); and the advisors those scans belong to. An INDEX, not the
+messages — the message text is inline in `content` and
+`contentWithDisclosures`, and a bulk export of client communications is
+retrieval under supervision rather than something an agent triggers. Any
+implementation must select fields explicitly and carry a test asserting the
+serialised report contains neither column, written so a third content column
+added later fails it too.
+
+**Why it matters more than it looks.** This is the record a regulator asks for
+by name, and today the honest answer is that the data exists and nothing reads
+it. The scans themselves became trustworthy on 2026-09-01 — the advisor is
+verified, the violation reaches the ledger, repeats are counted, the disclosed
+text is stored — which is what makes a report worth building now and would not
+have been true a week ago.
+
+**Not started.** Roughly a day: one aggregate query, a shaped response, a route
+gated on `COMPLIANCE_READ`, and the field-selection test. The design question
+is whether it belongs beside the manifest as an export or as a dashboard
+surface — a regulator wants a document, an operator wants a page, and they are
+not the same artefact.
+
 ### 3f. Manifest and packet are two modules — DECIDED 2026-09-02
 
 `GET /api/documents/export/:businessId` assembles a JSON manifest: the
@@ -685,37 +723,23 @@ an application, an authorisation — and whose payload omits businessId is not
 found. The section is what can be attributed, not everything that touched the
 business, and a regulator is owed the second sentence.
 
-**`comm_compliance_records` — DECIDED IN, BLOCKED OUT.** They belong, as an
-index without message content: that a communication was scanned, when, against
-which rules, the outcome, and the violations found. Not the text. A regulator
-asking "show me your communication monitoring" is answered by the index; one
-who wants the messages asks for those specifically, and that is retrieval under
-supervision rather than a bulk export an agent triggered.
+**`comm_compliance_records` — DECIDED OUT, on scope.** Considered for
+inclusion as an index without message content, and rejected — not because it is
+hard, but because it is the wrong shape.
 
-**It cannot be built yet.** `comm_compliance_records` carries `tenantId` and
-`advisorId` and **no `businessId`**. A scan is attributed to the advisor who
-ran it, and an advisor scans messages for many clients, so there is nothing to
-derive the link from. Two ways forward:
+A scan is **tenant-scoped by nature.** `comm_compliance_records` carries
+`tenantId` and `advisorId` and no `businessId`, and that is not a gap in the
+schema: there is no per-client fact to record. An advisor scans messages across
+many clients, and a `video_script` scanned before render relates to none.
+Communication monitoring is a programme, not a per-client fact.
 
-- **Add a nullable `businessId`** and have `POST /comm-compliance/scan` accept
-  it. Nullable is not a compromise here: a `video_script` scanned before render
-  legitimately has no client. Half a day for the column and the capture path.
-  Every existing row is null permanently, so the manifest would carry scans
-  from the day it ships and nothing before — the same shape as §3e.
-- **Leave scans out of a per-business manifest** and answer the monitoring
-  question from a tenant-level report. Arguably the more honest scope:
-  monitoring is a programme, not a per-client fact, and a marketing script
-  belongs to no client at all.
+Adding a nullable `businessId` would have produced a per-business section that
+is sparse for reasons a reader could not see from the manifest — the same shape
+the decision log is excluded for, one paragraph down. The per-business framing
+was the error, not the missing column.
 
-Recorded in `excludedRecordTypes` with that reasoning, so the manifest says the
-scans belong and says why they are absent.
-
-**Two things about content, if the first option is taken.** The message text is
-**inline, in two columns**: `content` as submitted and `contentWithDisclosures`
-as it would go out. "Index without content" is therefore a field selection over
-two columns that someone can widen by accident, not a structural separation —
-so it needs a test asserting the serialised manifest carries neither, which
-fails even if a third content column is added later.
+"Show me your communication monitoring" is answered by a tenant-level report.
+See §3h.
 
 **`ai_decision_logs` — EXCLUDED, and the reasoning is recorded rather than the
 exclusion alone.** `AI_MODULE_SOURCES` names nine modules and only
