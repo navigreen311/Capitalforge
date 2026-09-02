@@ -21,12 +21,26 @@
 //   what it used to invent. The class was found and fixed three times, each time
 //   only in the surface someone was looking at. This is the sweep, run every time.
 //
-// THE RULE
+// TWO RULES
 //
-//   A handler whose route names export / report / dossier / generate / download,
-//   which builds a string or array of strings, and which contains a money-shaped
-//   or count-shaped literal, must query something. No prisma call and no service
-//   call in the handler means every number in that document was typed here.
+//   1. PROVENANCE. A handler whose route names export / report / dossier /
+//      generate / download, which builds a string or array of strings, and
+//      which contains a money-shaped or count-shaped literal, must query
+//      something. No prisma call and no service call in the handler means
+//      every number in that document was typed here.
+//
+//   2. PLACEHOLDERS. In a generator reached through a dispatch table, a `??`
+//      fallback must render a bracket — `[Client]`, `[X]`, `[not assessed]` —
+//      rather than a claim.
+//
+//      Rule 1 looks for figures, so it could not see the re-stack summary's
+//      `payment_rating ?? 'Good'` and `score_trend ?? 'Stable/Improving'`: a
+//      caller who supplied nothing got a document rating a client's payment
+//      history Good, in a letter that client reads. A fabricated sentence is a
+//      fabricated sentence. Adding this rule surfaced thirty-five more across
+//      eleven of the sixteen templates — sample identities in letters sent to
+//      issuers, asserted state in progress and incident reports, and asserted
+//      provenance in a consent confirmation.
 //
 // IT IS IMPERFECT ON PURPOSE
 //
@@ -73,6 +87,20 @@ interface Violation {
   readonly sample: string;
 }
 
+interface Callee {
+  readonly name: string;
+  readonly body: string;
+  /** Reached through a dispatch table — i.e. a document generator. */
+  readonly dispatched: boolean;
+}
+
+/** A generator whose missing field renders as a claim rather than a bracket. */
+interface DefaultedAssertion {
+  readonly file: string;
+  readonly generator: string;
+  readonly literal: string;
+}
+
 function blank(src: string): string {
   const out = src.split('');
   let i = 0;
@@ -98,7 +126,18 @@ function blank(src: string): string {
   return out.join('');
 }
 
-/** Brace-match, ignoring braces inside strings and template literals. */
+/**
+ * Brace-match, ignoring braces inside strings and template literals.
+ *
+ * ALWAYS CALL THIS ON THE MASKED SOURCE. It skips from a quote to the next
+ * quote, and an apostrophe in an English comment — "the caller's context" — is
+ * a quote. Called on raw source, one such apostrophe made the rest of the file
+ * a string, so the function body returned ran to the end of the file and every
+ * finding in it was attributed to whichever generator happened to be first.
+ * That is exactly what happened when this check was extended: ten fields from
+ * six different generators were all reported against
+ * `generateRestackOpportunitySummary`.
+ */
 function matchBrace(s: string, open: number): number {
   let depth = 0;
   let i = open;
@@ -131,8 +170,10 @@ function matchBrace(s: string, open: number): number {
  * a shared formatter, and the fabricated content in every instance found so far
  * sat directly in the function the handler named.
  */
-function calleeBodies(src: string, mask: string, body: string): string[] {
+function calleeBodies(src: string, mask: string, body: string): Callee[] {
   const called = new Set<string>();
+  /** Reached through a dispatch table, i.e. a document generator. */
+  const dispatched = new Set<string>();
   for (const c of body.matchAll(/\b([a-z]\w{3,})\s*\(/g)) called.add(c[1]!);
 
   // Dispatch tables count as calls.
@@ -156,7 +197,7 @@ function calleeBodies(src: string, mask: string, body: string): string[] {
     const assign = /=\s*\{/.exec(mask.slice(t.index, t.index + 400));
     if (!assign) continue;
     const open = mask.indexOf('{', t.index + assign.index);
-    const table = src.slice(open, matchBrace(src, open) + 1);
+    const table = src.slice(open, matchBrace(mask, open) + 1);
     // Lookahead on the trailing delimiter. Consuming it meant every second
     // entry was skipped — the comma that ended one match was the comma the next
     // one needed to start, so sixteen generators parsed as eight.
@@ -164,10 +205,11 @@ function calleeBodies(src: string, mask: string, body: string): string[] {
       /[:,{]\s*(?:\w+|'[^']*'|"[^"]*")\s*:\s*([A-Za-z_]\w*)\s*(?=[,}])/g,
     )) {
       called.add(v[1]!);
+      dispatched.add(v[1]!);
     }
   }
 
-  const out: string[] = [];
+  const out: Callee[] = [];
   for (const name of called) {
     // Double-escaped: inside a template literal `\s` collapses to a literal
     // "s", so the pattern became `functions+names*(` and matched nothing.
@@ -180,9 +222,40 @@ function calleeBodies(src: string, mask: string, body: string): string[] {
     // Purpose Statement used to assert $150,000 was itself reported as a
     // fabricated figure, which is the failure the capability-state register
     // warns about: an explanation of the rule counted as an instance of it.
-    out.push(mask.slice(open, matchBrace(src, open) + 1));
+    out.push({
+      name,
+      body: mask.slice(open, matchBrace(mask, open) + 1),
+      dispatched: dispatched.has(name),
+    });
   }
   return out;
+}
+
+/**
+ * A `??` fallback in a document generator that is not a visible placeholder.
+ *
+ * The convention in these templates is that a missing field renders as
+ * `[Client]`, `[credit amount]`, `[X]` — something nobody mistakes for an
+ * answer. Two fields in the re-stack summary did not follow it:
+ *
+ *   payment_rating ?? 'Good'
+ *   score_trend    ?? 'Stable/Improving'
+ *
+ * so a caller who supplied nothing got a document rating a client's payment
+ * history Good, in a letter that client reads. Neither is a figure, so the
+ * money- and count-shaped detection above could not see them — which is the
+ * gap this closes. A fabricated sentence is a fabricated sentence.
+ *
+ * Deliberately narrow: only generators reached through the dispatch table, and
+ * only string fallbacks. A `?? 0`, a `?? null`, a `?? []` is a different
+ * question, and `?? ''` renders as nothing rather than as a claim.
+ */
+const DEFAULTED_ASSERTION = /\?\?\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g;
+
+/** `[Client]`, `[X]`, `[not assessed]` — a placeholder, not an assertion. */
+function isPlaceholder(literal: string): boolean {
+  const t = literal.trim();
+  return t === '' || (t.startsWith('[') && t.endsWith(']'));
 }
 
 function walk(dir: string): string[] {
@@ -191,8 +264,9 @@ function walk(dir: string): string[] {
     .filter((p) => !statSync(p).isDirectory() && p.endsWith('.routes.ts'));
 }
 
-function scan(): Violation[] {
+function scan(): { figures: Violation[]; assertions: DefaultedAssertion[] } {
   const out: Violation[] = [];
+  const assertions: DefaultedAssertion[] = [];
   for (const path of walk(ROUTES_DIR)) {
     const src = readFileSync(path, 'utf8');
     // Comments only: string CONTENT must survive, because the literals being
@@ -209,7 +283,7 @@ function scan(): Violation[] {
 
       const open = mask.indexOf('{', end);
       if (open === -1) continue;
-      const close = matchBrace(src, open);
+      const close = matchBrace(mask, open);
       const body = mask.slice(open, close + 1);
       const line = src.slice(0, m.index).split('\n').length;
 
@@ -219,7 +293,21 @@ function scan(): Violation[] {
       // function; document-gen's sixteen templates are sixteen functions and the
       // handler only dispatches. A check that reads the handler alone sees a
       // switch statement and passes the exact shape it exists to catch.
-      const expanded = [body, ...calleeBodies(src, mask, body)].join('\n');
+      const callees = calleeBodies(src, mask, body);
+      const expanded = [body, ...callees.map((c) => c.body)].join('\n');
+
+      // Every generator this handler dispatches to, checked for a fallback
+      // that renders a claim instead of a placeholder. Collected regardless of
+      // whether the figure check below fires: the two are different defects,
+      // and the assertion one has no figure in it by definition.
+      for (const callee of callees) {
+        if (!callee.dispatched) continue;
+        DEFAULTED_ASSERTION.lastIndex = 0;
+        for (const d of callee.body.matchAll(DEFAULTED_ASSERTION)) {
+          if (isPlaceholder(d[2]!)) continue;
+          assertions.push({ file: rel, generator: callee.name, literal: d[2]! });
+        }
+      }
 
       // A refusal exempts only a handler that ONLY refuses.
       //
@@ -254,7 +342,12 @@ function scan(): Violation[] {
       });
     }
   }
-  return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  return {
+    figures: out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line),
+    assertions: assertions.sort(
+      (a, b) => a.generator.localeCompare(b.generator) || a.literal.localeCompare(b.literal),
+    ),
+  };
 }
 
 // ── Recorded ──────────────────────────────────────────────────
@@ -289,30 +382,149 @@ const KNOWN_FABRICATED = new Set<string>([
  * Reviewed and sound: builds a document, queries nothing, and that is correct
  * because every value comes from the caller's request rather than from a record.
  *
- * Empty today, and not because nothing qualifies — `document-gen` is exactly
- * this case. It is not listed because the check does not currently REACH it: the
- * handler dispatches through a lookup table (`GENERATORS[type](ctx)`) rather
- * than naming a function, and the one-level expansion follows names, not table
- * values. Listing it would claim a coverage this script does not have, and an
- * allowlist entry for something never flagged fails the stale check anyway.
+ * Empty, and the reason is no longer the one this note used to give.
  *
- * What that costs is worth being explicit about: a fabricated export hidden
- * behind a dispatch table would not be caught. `spend-governance` had its
- * figures inline and `data-lineage` had them in a directly-named helper, which
- * is what this reaches. The third shape is a known gap, not a covered case.
+ * It said `document-gen` belonged here but could not be listed because the
+ * check did not REACH it — the handler dispatches through `GENERATORS[type]`
+ * and the expansion followed names, not table values. That gap was closed:
+ * `calleeBodies` reads the table and treats every value as called, which is
+ * how the fee disclosure and the adverse action response came under this check
+ * at all. The note outlived the fix, and a guard describing a hole it no longer
+ * has is worse than one describing a hole it does.
+ *
+ * `document-gen` is not listed here because it is not sound: it is in
+ * KNOWN_FABRICATED, for the 0% APR prose in the expiry warning letter.
  */
 const CALLER_SUPPLIED = new Set<string>([]);
 
 const ALLOWED = new Set([...KNOWN_FABRICATED, ...CALLER_SUPPLIED]);
 
-const found = scan();
+/**
+ * Reviewed: a `??` fallback in a generator that reads as a claim, and stays.
+ *
+ * Keyed `generatorName::literal`, so changing the wording invalidates the
+ * entry — the review was of that sentence, not of that field.
+ *
+ * Empty is the goal. An entry here is a promise that the default is the right
+ * answer for every client who receives the document, which is a much stronger
+ * claim than it looks.
+ */
+/**
+ * Real: a generator field that renders a claim about this client, or about
+ * this case, when nobody supplied one. Recorded to be fixed.
+ *
+ * Thirty-five, across eleven of the sixteen templates, found the moment the
+ * check stopped looking only for figures. They fall into three shapes:
+ *
+ *   SAMPLE IDENTITIES. `?? 'Acme Holdings LLC'`, `?? 'John Smith'`,
+ *   `?? 'Chase'`, `?? 'Ink Business Unlimited'`. A reconsideration letter
+ *   addressed to an issuer, naming a business and a person who are not the
+ *   client, reads exactly like one that named them correctly.
+ *
+ *   ASSERTED STATE. `?? 'On track'`, `?? 'Stable'`, `?? 'Under investigation'`,
+ *   `?? 'Client is progressing well within the program timeline.'`,
+ *   `?? 'Investigation initiated; corrective actions pending'`. A progress
+ *   report and a compliance incident report are the two documents whose whole
+ *   content is a statement of where something stands.
+ *
+ *   ASSERTED PROVENANCE. `generateConsentConfirmationLetter` defaults the
+ *   method of consent to `'Electronic signature via client portal'`, and
+ *   `generateDeclineReconsiderationLetter` defaults the decline reason to
+ *   `'too many recent inquiries'`. Both state how something happened.
+ *
+ * The one already fixed is `generateRestackOpportunitySummary`, whose
+ * `payment_rating ?? 'Good'` and `score_trend ?? 'Stable/Improving'` are what
+ * exposed the gap.
+ *
+ * Delete an entry when it becomes a bracket. A stale one fails.
+ */
+const KNOWN_DEFAULTED_CLAIMS = new Set<string>([
+  "generateAdverseActionResponse::The stated reasons have been reviewed and are addressed below.",
+  "generateAdvisorCallSummary::- No major decisions recorded",
+  "generateAdvisorCallSummary::See action items above",
+  "generateAdvisorCallSummary::Strategy Session",
+  "generateAdvisorCallSummary::To be scheduled",
+  "generateApplicationCoverLetter::3",
+  "generateApplicationCoverLetter::Acme Holdings LLC",
+  "generateApplicationCoverLetter::Chase",
+  "generateApplicationCoverLetter::Ink Business Preferred",
+  "generateApplicationCoverLetter::John Smith",
+  "generateApplicationCoverLetter::Managing Member",
+  "generateBusinessPurposeStatement::Acme Holdings LLC",
+  "generateBusinessPurposeStatement::Professional Services",
+  "generateBusinessPurposeStatement::working capital and operational expenses",
+  "generateClientProgressReport::1. Continue current strategy\\n2. Monitor upcoming APR expirations",
+  "generateClientProgressReport::Client is progressing well within the program timeline.",
+  "generateClientProgressReport::Current Quarter",
+  "generateClientProgressReport::In progress",
+  "generateClientProgressReport::None",
+  "generateClientProgressReport::On track",
+  "generateClientProgressReport::Program enrollment completed",
+  "generateClientProgressReport::Stable",
+  "generateComplianceIncidentReport::Investigation initiated; corrective actions pending",
+  "generateComplianceIncidentReport::None identified",
+  "generateComplianceIncidentReport::To be determined",
+  "generateComplianceIncidentReport::Under assessment",
+  "generateComplianceIncidentReport::Under investigation",
+  "generateConsentConfirmationLetter::Electronic signature via client portal",
+  "generateDeclineReconsiderationLetter::Acme Holdings LLC",
+  "generateDeclineReconsiderationLetter::Chase",
+  "generateDeclineReconsiderationLetter::Ink Business Unlimited",
+  "generateDeclineReconsiderationLetter::John Smith",
+  "generateDeclineReconsiderationLetter::too many recent inquiries",
+  "generateFeeDisclosureLetter::Non-refundable after funding round commences.",
+  "generateHardshipWorkoutProposal::temporary financial difficulty",
+]);
+
+/**
+ * Reviewed: a `??` fallback in a generator that reads as a claim, and stays.
+ *
+ * Keyed `generatorName::literal`, so changing the wording invalidates the
+ * entry — the review was of that sentence, not of that field.
+ *
+ * These ten are label fallbacks rather than assertions: a generic noun standing
+ * in a column header position (`'Card'`, `'Issuer'`, `'Client'`), an explicit
+ * unknown (`'??'`, `'N/A'`), and an id prefix (`'CST-'`). None of them states
+ * anything about a client that could be false. Brackets would still read
+ * better and any of them may be changed to one — at which point the entry goes
+ * stale and this check says so.
+ */
+const DEFAULTED_CLAIMS = new Set<string>([
+  "generateAprExpiryWarningLetter::??",
+  "generateAprExpiryWarningLetter::Card",
+  "generateAprExpiryWarningLetter::Issuer",
+  "generateComplianceIncidentReport::N/A",
+  "generateConsentConfirmationLetter::CST-",
+  "generateFundingRoundSummary::Card",
+  "generateFundingRoundSummary::Issuer",
+  "generateHardshipWorkoutProposal::Client",
+  "generateHardshipWorkoutProposal::Issuer",
+  "generateProductRealityAcknowledgment::Client",
+]);
+
+const { figures: found, assertions } = scan();
 const key = (v: Violation) => `${v.file}::${v.method} ${v.route}`;
 const fresh = found.filter((v) => !ALLOWED.has(key(v)));
 const stale = [...ALLOWED].filter((k) => !found.some((v) => key(v) === k));
 
-if (fresh.length === 0 && stale.length === 0) {
+// Keyed on the wording, not the field: the review was of that sentence.
+const akey = (a: DefaultedAssertion) => `${a.generator}::${a.literal}`;
+const ALLOWED_CLAIMS = new Set([...KNOWN_DEFAULTED_CLAIMS, ...DEFAULTED_CLAIMS]);
+const freshAssertions = assertions.filter((a) => !ALLOWED_CLAIMS.has(akey(a)));
+const staleAssertions = [...ALLOWED_CLAIMS].filter(
+  (k) => !assertions.some((a) => akey(a) === k),
+);
+
+if (
+  fresh.length === 0
+  && stale.length === 0
+  && freshAssertions.length === 0
+  && staleAssertions.length === 0
+) {
   console.log(
-    `check-document-provenance: every document-producing handler queries its figures (${found.length} allowlisted).`,
+    'check-document-provenance: every document-producing handler queries its figures '
+    + `(${found.length} allowlisted), and every generator's missing field renders as a `
+    + `placeholder (${assertions.length} allowlisted).`,
   );
   process.exit(0);
 }
@@ -334,10 +546,36 @@ if (fresh.length > 0) {
   );
 }
 
+if (freshAssertions.length > 0) {
+  console.error(
+    `\ncheck-document-provenance: ${freshAssertions.length} generator field(s) render a claim `
+    + 'rather than a placeholder when nothing was supplied:\n',
+  );
+  for (const a of freshAssertions) {
+    console.error(`  ${a.file}`);
+    console.error(`    ${a.generator}`);
+    console.error(`    ?? '${a.literal}'\n`);
+  }
+  console.error(
+    'A missing field renders as [something], so nobody mistakes it for an answer.\n'
+    + "`payment_rating ?? 'Good'` handed a client a document rating their payment\n"
+    + 'history Good because the caller sent nothing. If the default really is the\n'
+    + 'right answer for every client, record it in DEFAULTED_CLAIMS with why.\n',
+  );
+}
+
 if (stale.length > 0) {
   console.error(`\ncheck-document-provenance: ${stale.length} allowlist entr(y/ies) no longer match:\n`);
   for (const k of stale) console.error(`  ${k}`);
   console.error('\nIf it is fixed, delete the entry. If it moved, update it.\n');
+}
+
+if (staleAssertions.length > 0) {
+  console.error(
+    `\ncheck-document-provenance: ${staleAssertions.length} DEFAULTED_CLAIMS entr(y/ies) no longer match:\n`,
+  );
+  for (const k of staleAssertions) console.error(`  ${k}`);
+  console.error('\nIf it is fixed, delete the entry. If the wording changed, update it.\n');
 }
 
 process.exit(1);
