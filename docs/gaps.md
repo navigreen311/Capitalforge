@@ -1253,6 +1253,78 @@ function, and the point is to reach someone planning work before that.
 
 ---
 
+## 7b. Nothing records that an eligibility question was asked — open, 2026-09-01
+
+**`GET /issuers/:id/eligibility` computes an answer and returns it. Nothing
+keeps it.** The context is rebuilt from live data on every call — held cards,
+open applications, inquiries, the issuer's current rules — so re-running the
+same URL next week produces a different answer with no trace of the earlier
+one. This is the answer a placement strategy is built on.
+
+What is lost is not mainly the verdict. It is everything qualifying the
+verdict, and that is the volatile part:
+
+- **`unevaluatedRules`.** A rule blocking today because nobody finished
+  recording its threshold evaluates normally once somebody does. The record
+  that an advisor was told the rule was unconfigured disappears with the fix.
+- **`caveats`.** The 5/24 figure is a floor whose height depends on which held
+  cards had been attested *at the time of asking*. An attestation added later
+  silently improves the past.
+- **The held-card tally itself**, which is an advisor's claim, not a
+  measurement — and claims get corrected.
+
+So when a client is declined, nobody can show what the system said, on what
+basis, or which of the three the advisor actually relied on.
+
+### The table already exists, and nothing writes to it
+
+`AiDecisionLog` (`ai_decision_logs`) carries exactly this shape:
+`moduleSource`, `decisionType`, `inputHash`, `output`, `confidence`,
+`overriddenBy`, `modelVersion`, `latencyMs`. Its `moduleSource` union names
+`stacking_optimizer`, `suitability_engine`, `credit_intelligence`,
+`udap_scorer` and four more.
+
+**None of those eight write a row.** The only writer in the codebase is
+`POST /api/ai-governance/decisions`, an admin endpoint gated on
+`COMPLIANCE_WRITE` — a human posting a decision by hand. The engines that
+actually decide things do not call it.
+
+And there is a reader. `GET /api/businesses/:id/decisions/explain` returns
+`{ data: [], meta: { total: 0 } }` — which is what a compliance officer sees
+for a business the system has made a dozen recommendations about. An empty
+list reads as *no decisions were made*, not as *no decision has ever been
+recorded by anything*. Same shape as section 2: a computed absence rendering
+as a valid value, here on the surface whose whole purpose is to answer "why
+did you recommend that".
+
+### What recording costs
+
+- **The write, for issuer eligibility alone: about half a day.** A call to
+  `logAiDecision` at the end of `checkIssuerEligibility`'s route, with the
+  whole `EligibilityResult` — caveats and `unevaluatedRules` included — as
+  `output`, plus the `EligibilityContext` hashed into `inputHash` so two
+  answers can be compared without storing a client's credit profile twice.
+  `businessId` must go into `output`, because that is the key
+  `getBusinessDecisionExplanations` filters on.
+- **The other seven module sources: a day or so**, mostly finding where each
+  engine's decision actually surfaces.
+- **The empty-list fix is independent and smaller**: the explain endpoint
+  should distinguish "nothing recorded" from "nothing decided" whether or not
+  the writes are built. Until an engine writes, the honest answer is that this
+  system does not record its decisions — which is worth saying out loud on the
+  page a regulator would be shown.
+
+### The objection, and the answer
+
+Recording on a `GET` makes a read write. Two ways out: accept it (the write is
+a fact about the question having been asked, not about the client), or make the
+recording explicit — the surface that *acts* on an answer posts it. The second
+is cleaner and costs a round trip; the first cannot be forgotten by a caller.
+**Recommend the first**, because the failure being fixed is precisely that
+nobody remembered to record.
+
+**Not built.** Flagged during the `lender_match` module review, 2026-09-01.
+
 ## 6b. ~~A signer is a business, not a person~~ — fixed 2026-08-07
 
 `BusinessOwner` recorded firstName, lastName, title, ownership percentage and
