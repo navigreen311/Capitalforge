@@ -292,7 +292,9 @@ export const applicationsApi = {
   update: (id: string, body: Record<string, unknown>) =>
     request('PATCH', `/applications/${id}`, { body }),
 
-  submit: (id: string, declarations: boolean[]) =>
+  /** Declarations by id — see PRE_SUBMISSION_DECLARATIONS. A positional array
+   *  cannot say which thing was confirmed. */
+  submit: (id: string, declarations: Record<string, boolean>) =>
     request('POST', `/applications/${id}/submit`, { body: { declarations } }),
 
   // updateStatus removed: it PATCHed /applications/:id/status, which the API

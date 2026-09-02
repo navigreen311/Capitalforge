@@ -21,7 +21,12 @@ import type { ApiResponse, TenantContext } from '../../../shared/types/index.js'
 import logger from '../../config/logger.js';
 import { eventBus } from '../../events/event-bus.js';
 import { ApplicationGateChecker } from '../../services/application-gates.js';
-import { EVENT_TYPES, AGGREGATE_TYPES } from '../../../shared/constants/index.js';
+import {
+  EVENT_TYPES,
+  AGGREGATE_TYPES,
+  PRE_SUBMISSION_DECLARATIONS,
+  PRE_SUBMISSION_DECLARATION_VERSION,
+} from '../../../shared/constants/index.js';
 
 const router = Router();
 const prisma = sharedPrisma;
@@ -406,7 +411,11 @@ router.post(
           cardProduct: cardProduct.trim(),
           creditLimit: requestedLimit ? Number(requestedLimit) : null,
           status: isSubmit ? 'submitted' : 'draft',
-          consentCapturedAt: isSubmit ? new Date() : null,
+          // Null on create, submitted or not. Same reason as the submit route:
+          // an application created directly as `submitted` has not captured
+          // per-application consent, and stamping now would record the moment
+          // of creation as the moment of consent.
+          consentCapturedAt: null,
           submittedAt: isSubmit ? new Date() : null,
         },
         include: {
@@ -580,9 +589,38 @@ router.post(
         return;
       }
 
-      // Validate all 4 declarations
-      if (!declarations || !Array.isArray(declarations) || declarations.length < 4 || !declarations.every(Boolean)) {
-        err(res, 422, 'GATE_CHECK_FAILED', 'All 4 pre-submission declarations must be acknowledged');
+      // ── The four declarations, by name ──────────────────────
+      //
+      // This was `declarations.length >= 4 && declarations.every(Boolean)`, so
+      // `[1, 'yes', {}, []]` passed and nothing anywhere said what was being
+      // declared. The four sentences existed only as display strings in the
+      // wizard; they are in shared/constants now, and the API requires each one
+      // by id.
+      //
+      // An array of booleans cannot say WHICH thing was confirmed. Positional
+      // truth is not an attestation — reorder the checkboxes and the same
+      // payload attests to different things.
+      const declared = declarations as Record<string, unknown> | undefined;
+      if (!declared || typeof declared !== 'object' || Array.isArray(declared)) {
+        err(
+          res,
+          422,
+          'DECLARATIONS_REQUIRED',
+          'declarations must be an object keyed by declaration id.',
+          {
+            required: PRE_SUBMISSION_DECLARATIONS.map((d) => ({ id: d.id, text: d.text })),
+          },
+        );
+        return;
+      }
+
+      const missing = PRE_SUBMISSION_DECLARATIONS.filter((d) => declared[d.id] !== true);
+      if (missing.length > 0) {
+        // Named, so a caller learns which attestation it failed to make rather
+        // than being told a count.
+        err(res, 422, 'DECLARATIONS_INCOMPLETE', 'Every pre-submission declaration must be confirmed.', {
+          missing: missing.map((d) => ({ id: d.id, text: d.text })),
+        });
         return;
       }
 
@@ -652,7 +690,17 @@ router.post(
         data: {
           status: 'submitted',
           submittedAt: new Date(),
-          consentCapturedAt: new Date(),
+          // consentCapturedAt is NOT written here.
+          //
+          // It was set to `new Date()` on submit, so the gate read it, passed,
+          // and then this write destroyed the value that satisfied it. The
+          // field that records when consent was captured recorded when the
+          // application was submitted — for every application that has ever
+          // been submitted through this route.
+          //
+          // It is stamped by the `pending_consent` transition, which is when
+          // consent is actually captured per application, and that is the value
+          // that matters.
         },
         include: {
           business: { select: { id: true, legalName: true } },
@@ -670,7 +718,11 @@ router.post(
           resourceId: id,
           metadata: {
             previousStatus: application.status,
-            declarations,
+            // Ids and the wording version, not the raw payload. `[true,true,
+            // true,true]` in an audit row records that four things were
+            // confirmed without recording which four.
+            declarations: PRE_SUBMISSION_DECLARATIONS.map((d) => d.id),
+            declarationVersion: PRE_SUBMISSION_DECLARATION_VERSION,
           },
         },
       });

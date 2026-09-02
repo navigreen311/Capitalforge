@@ -19,18 +19,22 @@ interface WizardStep5Props {
   };
   onBack: () => void;
   onSaveDraft: () => void;
-  onSubmit: () => void;
+  /** Receives which declarations were confirmed, by id. */
+  onSubmit: (declarations: Record<string, boolean>) => void;
   isSubmitting: boolean;
 }
 
+import { PRE_SUBMISSION_DECLARATIONS } from '../../../../shared/constants';
+
 // ── Declaration checkboxes ────────────────────────────────────
 
-const DECLARATIONS = [
-  'I confirm consent has been verified',
-  'I confirm the Product-Reality Acknowledgment has been signed',
-  'I confirm no misrepresentations on this application',
-  'I confirm the business purpose is legitimate',
-] as const;
+// From shared/constants, not a copy.
+//
+// These four sentences were declared here and nowhere else, so the API had no
+// way to know what it was being told and this file was the only definition of
+// the attestation. They are shared now, keyed by id, and the request names each
+// one rather than sending a positional array of booleans.
+const DECLARATIONS = PRE_SUBMISSION_DECLARATIONS;
 
 // ── Helper ────────────────────────────────────────────────────
 
@@ -137,9 +141,9 @@ export default function WizardStep5ReviewConfirm({
         </p>
 
         <div className="space-y-3">
-          {DECLARATIONS.map((text, i) => (
+          {DECLARATIONS.map(({ id, text }, i) => (
             <label
-              key={i}
+              key={id}
               className="flex items-start gap-3 cursor-pointer group"
             >
               <input
@@ -177,7 +181,11 @@ export default function WizardStep5ReviewConfirm({
 
           <button
             type="button"
-            onClick={onSubmit}
+            onClick={() =>
+              onSubmit(
+                Object.fromEntries(DECLARATIONS.map((d, i) => [d.id, checked[i] === true])),
+              )
+            }
             disabled={!allChecked || isSubmitting}
             className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
           >

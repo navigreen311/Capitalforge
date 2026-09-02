@@ -119,11 +119,19 @@ beforeEach(() => {
   auditCreate.mockResolvedValue({});
 });
 
+/** Every declaration confirmed, by id. */
+const ALL_DECLARED = {
+  consent_verified: true,
+  product_reality_signed: true,
+  no_misrepresentation: true,
+  business_purpose_legitimate: true,
+};
+
 function submit(body: Record<string, unknown>) {
   return fetch(`${baseUrl}/api/applications/${APP_ID}/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ declarations: [true, true, true, true], ...body }),
+    body: JSON.stringify({ declarations: ALL_DECLARED, ...body }),
   });
 }
 
@@ -191,5 +199,62 @@ describe('the other gates the inline checks did not run', () => {
 
     const issue = body.error?.details?.issues?.find((i) => i.gate === 'maker_checker');
     expect(issue?.reason).toMatch(/different user|self-approval/i);
+  });
+});
+
+describe('the four declarations, by name', () => {
+  it('refuses a positional array of booleans', async () => {
+    // `[1, 'yes', {}, []]` used to pass: the check was `length >= 4 &&
+    // every(Boolean)`. A positional array cannot say WHICH thing was confirmed
+    // — reorder the checkboxes and the same payload attests to different
+    // things.
+    const res = await submit({ declarations: [true, true, true, true] });
+    const body = (await res.json()) as { error?: { code: string } };
+
+    expect(res.status).toBe(422);
+    expect(body.error?.code).toBe('DECLARATIONS_REQUIRED');
+    expect(applicationUpdate).not.toHaveBeenCalled();
+  });
+
+  it('names the declaration that was not confirmed', async () => {
+    const res = await submit({
+      declarations: { ...ALL_DECLARED, no_misrepresentation: false },
+      approvedByUserId: CHECKER,
+    });
+    const body = (await res.json()) as {
+      error?: { code: string; details?: { missing?: { id: string; text: string }[] } };
+    };
+
+    expect(res.status).toBe(422);
+    expect(body.error?.code).toBe('DECLARATIONS_INCOMPLETE');
+    // The id AND the wording. The sentence is the attestation.
+    expect(body.error?.details?.missing?.[0]?.id).toBe('no_misrepresentation');
+    expect(body.error?.details?.missing?.[0]?.text).toMatch(/misrepresentation/i);
+    expect(applicationUpdate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a declaration that is truthy but not true', async () => {
+    const res = await submit({
+      declarations: { ...ALL_DECLARED, consent_verified: 'yes' },
+      approvedByUserId: CHECKER,
+    });
+
+    expect(res.status).toBe(422);
+    expect(applicationUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('consentCapturedAt', () => {
+  it('is not written on submit', async () => {
+    // It was set to `new Date()` here, so the gate read it, passed, and this
+    // write destroyed the value that satisfied it — the field recording when
+    // consent was captured recorded when the application was submitted, for
+    // every application ever submitted through this route.
+    await submit({ approvedByUserId: CHECKER });
+
+    const [{ data }] = applicationUpdate.mock.calls[0] as [{ data: Record<string, unknown> }];
+    expect(data.status).toBe('submitted');
+    expect(data.submittedAt).toBeInstanceOf(Date);
+    expect(data).not.toHaveProperty('consentCapturedAt');
   });
 });

@@ -147,7 +147,7 @@ export default function NewApplicationWizardModal({
 
   // ── Submit application ────────────────────────────────────────
 
-  const onSubmit = useCallback(async () => {
+  const onSubmit = useCallback(async (declarations: Record<string, boolean>) => {
     setIsSubmitting(true);
     setError(null);
 
@@ -161,7 +161,11 @@ export default function NewApplicationWizardModal({
         businessPurpose: formData.businessPurpose || undefined,
         intendedUseCategory: formData.spendCategory || undefined,
         status: 'submitted',
-        declarations: [true, true, true, true],
+        // The advisor's actual ticks, by id — not a hardcoded four. This sent
+        // `[true, true, true, true]` regardless of the checkbox state beside
+        // it, so the attestation the API received was manufactured by the
+        // client even though the UI collected a real one.
+        declarations,
       });
 
       if (res.success) {

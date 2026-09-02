@@ -130,3 +130,46 @@ export const PERMISSIONS = {
   ADMIN_USERS: 'admin:users',
   REPORTS_VIEW: 'reports:view',
 } as const;
+
+// ── Pre-submission declarations ───────────────────────────────
+//
+// The four things an advisor attests to before an application is submitted.
+//
+// They existed only as display strings in
+// `components/applications/wizard/WizardStep5ReviewConfirm.tsx`, and the API
+// checked `declarations.length >= 4 && declarations.every(Boolean)` — so
+// `[1, 'yes', {}, []]` passed, and nothing anywhere said what was being
+// declared. A caller could attest to four unnamed things, and an agent had
+// nothing to read to know what it was confirming.
+//
+// Named here, in shared, because the wording is the attestation. The `id` is
+// what the API requires and what the audit row stores; the `text` is what the
+// person ticking actually saw. Storing only the id would leave an audit trail
+// that cannot reproduce the sentence somebody agreed to, and the wording is the
+// part that would matter if the attestation were ever challenged.
+//
+// Changing `text` changes what was attested. If it is reworded, the version
+// below moves with it so old rows stay readable as what they were.
+export const PRE_SUBMISSION_DECLARATION_VERSION = '1.0.0';
+
+export const PRE_SUBMISSION_DECLARATIONS = [
+  {
+    id: 'consent_verified',
+    text: 'I confirm consent has been verified',
+  },
+  {
+    id: 'product_reality_signed',
+    text: 'I confirm the Product-Reality Acknowledgment has been signed',
+  },
+  {
+    id: 'no_misrepresentation',
+    text: 'I confirm no misrepresentations on this application',
+  },
+  {
+    id: 'business_purpose_legitimate',
+    text: 'I confirm the business purpose is legitimate',
+  },
+] as const;
+
+export type PreSubmissionDeclarationId =
+  typeof PRE_SUBMISSION_DECLARATIONS[number]['id'];
