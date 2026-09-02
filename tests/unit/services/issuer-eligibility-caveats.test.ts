@@ -25,8 +25,12 @@ import {
   type EligibilityContext,
 } from '../../../src/backend/services/issuer-rules-engine';
 
-const context = (over: Partial<EligibilityContext> = {}): EligibilityContext =>
-  ({
+// The two halves default to a reconciling split — everything from
+// applications, nothing held — because the breakdown now refuses to guess a
+// half it was not given, and most of these cases are about other clauses.
+// The cases that ARE about a missing half pass `undefined` explicitly.
+const context = (over: Partial<EligibilityContext> = {}): EligibilityContext => {
+  const base = {
     newCardsLast24Months: 2,
     issuerAppsInPeriod: 0,
     lastApplicationDate: null,
@@ -42,7 +46,15 @@ const context = (over: Partial<EligibilityContext> = {}): EligibilityContext =>
     totalAppsInPeriod: 0,
     previousProducts: [],
     ...over,
-  }) as EligibilityContext;
+  } as EligibilityContext;
+  if (!('fiveTwentyFourFromApplications' in over)) {
+    base.fiveTwentyFourFromApplications = base.newCardsLast24Months;
+  }
+  if (!('fiveTwentyFourFromHeldCards' in over)) {
+    base.fiveTwentyFourFromHeldCards = 0;
+  }
+  return base;
+};
 
 // The literal the engine's own switch dispatches on, imported rather than
 // retyped. An earlier draft of this file used 'velocity' — a rule type this
@@ -137,6 +149,58 @@ describe('buildCaveats — cross-issuer velocity', () => {
     );
     expect(caveats[0]!.basis).toMatch(/2 from applications/);
     expect(caveats[0]!.basis).toMatch(/0 from cards the client is recorded as already holding/);
+  });
+
+  it('reports the breakdown as unavailable when a half was not supplied', () => {
+    // `fiveTwentyFourFromApplications ?? newCardsLast24Months` used to fill the
+    // gap with the total, so a caller supplying only the held-cards half got a
+    // breakdown double-counting against itself: 5 held plus a "5 from
+    // applications" it invented, summing to 10 under a headline of 5. These are
+    // two halves of one figure, not counters with a meaningful zero.
+    const caveats = buildCaveats(
+      [velocityRule(730)],
+      context({
+        newCardsLast24Months: 5,
+        fiveTwentyFourFromApplications: undefined,
+        fiveTwentyFourFromHeldCards: 5,
+      }),
+    );
+
+    expect(caveats[0]!.basis).toMatch(/NOT AVAILABLE/);
+    // Which half, so somebody can go and supply it.
+    expect(caveats[0]!.basis).toMatch(/the applications half was.*supplied/);
+    // And no invented figure anywhere in the sentence.
+    expect(caveats[0]!.basis).not.toMatch(/5 from applications/);
+    // The headline still stands — it is the count that was actually made.
+    expect(caveats[0]!.basis).toMatch(/Counted 5 cards/);
+  });
+
+  it('says neither half when both are absent', () => {
+    const caveats = buildCaveats(
+      [velocityRule(730)],
+      context({
+        fiveTwentyFourFromApplications: undefined,
+        fiveTwentyFourFromHeldCards: undefined,
+      }),
+    );
+    expect(caveats[0]!.basis).toMatch(/neither half was supplied/);
+  });
+
+  it('reports the breakdown as unavailable when the halves do not sum to the headline', () => {
+    // A breakdown that does not add up to its own headline is not a breakdown.
+    // Reported rather than silently preferring one of the three figures.
+    const caveats = buildCaveats(
+      [velocityRule(730)],
+      context({
+        newCardsLast24Months: 5,
+        fiveTwentyFourFromApplications: 3,
+        fiveTwentyFourFromHeldCards: 3,
+      }),
+    );
+
+    expect(caveats[0]!.basis).toMatch(/NOT AVAILABLE/);
+    expect(caveats[0]!.basis).toMatch(/do(es)? not reconcile|does not sum/i);
+    expect(caveats[0]!.basis).toMatch(/Counted 5 cards/);
   });
 
   it('does not describe a rule that was never evaluated', () => {

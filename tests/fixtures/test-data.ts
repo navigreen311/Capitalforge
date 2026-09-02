@@ -288,6 +288,10 @@ export interface TestCardApplication {
   annualFee: Prisma.Decimal | null;
   cashAdvanceFee: Prisma.Decimal | null;
   consentCapturedAt: Date | null;
+  /** The maker. A column since the createdByUserId migration; it lived in the
+   *  adverseActionNotice JSON blob, where the maker-checker gate could not
+   *  distinguish an absent creator from an absent approver. */
+  createdByUserId: string | null;
   submittedAt: Date | null;
   decidedAt: Date | null;
   declineReason: string | null;

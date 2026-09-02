@@ -197,16 +197,61 @@ export function buildCaveats(
 
   if (hasCrossIssuerVelocity) {
     const exempted = context.creditUnionCardsExcludedFrom524 ?? 0;
-    const fromApplications = context.fiveTwentyFourFromApplications ?? context.newCardsLast24Months;
-    const fromHeldCards = context.fiveTwentyFourFromHeldCards ?? 0;
     const unplaceable = context.heldCardsOfUnknownAge ?? 0;
 
-    const parts = [
-      `Counted ${context.newCardsLast24Months} card`
-      + `${context.newCardsLast24Months === 1 ? '' : 's'}`
-      + ` — ${fromApplications} from applications recorded in CapitalForge`
-      + `, ${fromHeldCards} from cards the client is recorded as already holding`,
-    ];
+    // The split is reported only when BOTH halves were supplied and they
+    // reconcile against the total.
+    //
+    // `fiveTwentyFourFromApplications ?? newCardsLast24Months` fell back to the
+    // TOTAL, so a caller supplying the held-cards half and not the applications
+    // half produced "Counted 5 cards — 5 from applications, 2 from cards the
+    // client is recorded as already holding": a breakdown summing to 7 under a
+    // headline of 5, double-counting against itself in the sentence an advisor
+    // reads to justify a placement.
+    //
+    // These are not counters with a meaningful zero. They are the two halves of
+    // one figure, and one of them absent is unknown rather than zero. So the
+    // breakdown reports itself as unavailable, the way an unconfigured rule
+    // does, instead of inventing the half it was not given.
+    const fromApplications =
+      typeof context.fiveTwentyFourFromApplications === 'number'
+        ? context.fiveTwentyFourFromApplications
+        : null;
+    const fromHeldCards =
+      typeof context.fiveTwentyFourFromHeldCards === 'number'
+        ? context.fiveTwentyFourFromHeldCards
+        : null;
+
+    const total = context.newCardsLast24Months;
+    const plural = total === 1 ? '' : 's';
+
+    let headline: string;
+    if (fromApplications === null || fromHeldCards === null) {
+      const bothAbsent = fromApplications === null && fromHeldCards === null;
+      const absent = bothAbsent
+        ? 'neither half was'
+        : fromApplications === null
+          ? 'the applications half was'
+          : 'the held-cards half was';
+      headline =
+        `Counted ${total} card${plural}. The split between applications recorded in `
+        + `CapitalForge and cards the client already held is NOT AVAILABLE: ${absent} `
+        + 'supplied, and a missing half is unknown rather than zero';
+    } else if (fromApplications + fromHeldCards !== total) {
+      // A breakdown that does not sum to its own headline is not a breakdown.
+      headline =
+        `Counted ${total} card${plural}. The split is NOT AVAILABLE: the halves supplied `
+        + `(${fromApplications} from applications, ${fromHeldCards} from held cards) sum `
+        + `to ${fromApplications + fromHeldCards}, which does not reconcile against the `
+        + 'total. One of the three figures is wrong and this cannot say which';
+    } else {
+      headline =
+        `Counted ${total} card${plural}`
+        + ` — ${fromApplications} from applications recorded in CapitalForge`
+        + `, ${fromHeldCards} from cards the client is recorded as already holding`;
+    }
+
+    const parts = [headline];
 
     if (exempted > 0) {
       parts.push(
@@ -260,6 +305,22 @@ interface DbIssuerRule {
 // Engine
 // ============================================================
 
+/**
+ * No such issuer.
+ *
+ * Typed, because the route mapped this with
+ * `err.message.includes('not found')` — the same string-matching hazard removed
+ * from the dossier route. Any future error whose message happened to contain
+ * those two words became a 404, so a genuine failure would have been reported
+ * as "no such issuer" to somebody deciding where to place a client.
+ */
+export class IssuerNotFoundError extends Error {
+  constructor(issuerId: string) {
+    super(`Issuer not found: ${issuerId}`);
+    this.name = 'IssuerNotFoundError';
+  }
+}
+
 export class IssuerRulesEngine {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -277,7 +338,7 @@ export class IssuerRulesEngine {
     });
 
     if (!issuer) {
-      throw new Error(`Issuer not found: ${issuerId}`);
+      throw new IssuerNotFoundError(issuerId);
     }
 
     const hardBlocks: RuleViolation[] = [];

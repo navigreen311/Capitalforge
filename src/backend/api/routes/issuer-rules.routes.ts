@@ -16,7 +16,11 @@ import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
-import { IssuerRulesEngine, EligibilityContext } from '../../services/issuer-rules-engine.js';
+import {
+  IssuerRulesEngine,
+  IssuerNotFoundError,
+  EligibilityContext,
+} from '../../services/issuer-rules-engine.js';
 import logger from '../../config/logger.js';
 import { isCreditUnionIssuerName, parseIssuer } from '../../../shared/constants/issuers.js';
 import { tallyHeldCardsForFiveTwentyFour } from '../../services/held-cards.service.js';
@@ -151,7 +155,12 @@ issuerRulesRouter.get(
       const result = await engine.checkIssuerEligibility(id, context);
       return ok(res, result);
     } catch (err) {
-      if (err instanceof Error && err.message.includes('not found')) {
+      // Typed, not string-matched. This was
+      // `err.message.includes('not found')`, so any future error whose message
+      // happened to contain those two words became a 404 — a genuine failure
+      // reported as "no such issuer" to somebody deciding where to place a
+      // client. Same hazard removed from the dossier route.
+      if (err instanceof IssuerNotFoundError) {
         return notFound(res, err.message);
       }
       return serverError(res, err);
