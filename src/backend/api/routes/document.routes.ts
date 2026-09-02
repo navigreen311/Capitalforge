@@ -20,6 +20,7 @@ import { requireAuth } from '../../middleware/auth.middleware.js';
 import { requirePermissions } from '../../middleware/rbac.middleware.js';
 import { PERMISSIONS } from '@shared/constants/index.js';
 import type { ApiResponse } from '@shared/types/index.js';
+import { businessBelongsToTenant } from '../../services/business-ownership.js';
 import logger from '../../config/logger.js';
 import {
   DocumentVaultService,
@@ -379,6 +380,35 @@ documentRouter.post(
       tenantId: ctx.tenantId,
       route: 'POST /documents/upload',
     });
+
+    // A business id from the request body, written into a row.
+    //
+    // `tenantId` beside it in the same `data` asserts the tenant; it does not
+    // check the business belongs to it. So a document could be filed against
+    // another tenant's business id and the row looked entirely normal
+    // afterwards — the first of the two failure modes business-ownership.ts
+    // was written for, arriving through a body field rather than a path.
+    //
+    // Refused rather than nulled: a caller who named a business meant to file
+    // the document against it, and silently storing it unattached is how a
+    // document goes missing from the vault it was uploaded to.
+    if (businessId !== undefined && businessId !== null && businessId !== '') {
+      let owned: boolean;
+      try {
+        owned = await businessBelongsToTenant(sharedPrisma, businessId, ctx.tenantId);
+      } catch (err) {
+        // Fails closed, as the middleware does: an ownership check that could
+        // not run is not an ownership check that passed.
+        serverError(res, 'Could not verify the business for this document', err);
+        return;
+      }
+      if (!owned) {
+        // Same answer for a business that does not exist and one belonging to
+        // another tenant.
+        badRequest(res, 'businessId does not name a business in this tenant');
+        return;
+      }
+    }
 
     try {
       const doc = await sharedPrisma.document.create({

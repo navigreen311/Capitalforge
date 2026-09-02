@@ -16,6 +16,25 @@
 //   of their siblings in the same file were scoped. The idiom was known and
 //   applied unevenly. That is not a thing to fix once; it is a thing to check.
 //
+// WHY IT NOW READS QUERY PARAMETERS AND BODY FIELDS TOO
+//
+//   This checked path parameters only, and said so — under WHAT IT CANNOT SEE.
+//   Then `GET /issuers/:id/eligibility?businessId=X` turned out to run
+//   `findUnique({ where: { id: businessId } })` with no tenant filter, so any
+//   authenticated caller could read any business's credit score, age and
+//   revenue back as `currentValue` on the rule violations. That was the
+//   seventh unscoped read found in this codebase, and the first in the one
+//   shape the check could not see.
+//
+//   A guard that covers only path parameters covers the shape we happened to
+//   look at first. The id is the same id wherever it arrives.
+//
+//   Path and non-path ids are NOT treated alike in one respect: a guarded
+//   mount prefix exempts a path id, because `requireOwnedBusiness('id')`
+//   verifies `req.params.id` and nothing else. A handler under
+//   /businesses/:id that reads `req.query.businessId` is reading an id the
+//   guard never saw.
+//
 // WHAT "SCOPED" MEANS HERE
 //
 //   One of:
@@ -34,14 +53,22 @@
 //   inside. Handlers that pass the id straight to a service are reported unless
 //   the mount covers them or they are allowlisted with a reason.
 //
+//   Whether a field NAMED like a business id is one. `client_id` on an OAuth
+//   or integrations route is an API client, not a client of the firm. Those go
+//   in NOT_A_BUSINESS_ID, which is kept apart from the other two lists because
+//   "this is not a business id" and "this is a business id nothing reads" are
+//   different claims and only one of them is about tenancy.
+//
 // TWO ALLOWLISTS, AS IN check-test-claims.ts
 //
 //   KNOWN_UNSCOPED    real, recorded, to be fixed
 //   NO_BUSINESS_READ  reviewed and sound — the handler takes a business id and
 //                     reads nothing per-business with it
+//   NOT_A_BUSINESS_ID reviewed and sound — the field is named like a business
+//                     id and is not one
 //
 //   Kept apart so the first list's length means something. A stale entry in
-//   either fails, so neither can outlive the problem it describes.
+//   any of them fails, so none can outlive the problem it describes.
 // ============================================================
 
 import { readFileSync, readdirSync, statSync } from 'fs';
@@ -69,6 +96,48 @@ const BIZ_PATH = /:businessId\b|:clientId\b|(?:businesses|clients)\/:id\b/;
 /** The handler has to actually read a path parameter for this to matter. */
 const READS_PARAM = /req\.params\b/;
 
+/**
+ * Field names that mean "a business" when they arrive in a query string or a
+ * request body.
+ *
+ * Unlike a bare `:id` in a path, the name is right there, so this can be exact
+ * rather than inferred from the segment before it. `clientId` is included
+ * because this codebase's mount table treats /clients/:clientId as a business —
+ * a client of the firm IS a business record.
+ *
+ * The cost of that is `client_id` on an OAuth or integrations route, which is
+ * an API client. Those are reported and recorded in NOT_A_BUSINESS_ID rather
+ * than excluded by a pattern here, because a pattern clever enough to tell
+ * them apart would be a pattern nobody could check.
+ */
+const BIZ_FIELD_NAMES = [
+  'businessId', 'business_id', 'clientId', 'client_id',
+  // Plural, because a list of business ids is business ids. The SMS campaign
+  // endpoint takes `client_ids` and scopes it correctly — which the check
+  // could not see either way until these were here, and a check that cannot
+  // see a correct handler cannot see the incorrect one beside it.
+  'businessIds', 'business_ids', 'clientIds', 'client_ids',
+] as const;
+const BIZ_FIELD_ALT = BIZ_FIELD_NAMES.join('|');
+const BIZ_FIELD_RE = new RegExp(`^(?:${BIZ_FIELD_ALT})$`);
+
+/** `req.query['businessId']` or `req.query.businessId`, and the same on body. */
+function readsBizFrom(source: 'query' | 'body'): RegExp {
+  return new RegExp(
+    `req\\.${source}\\s*(?:\\[\\s*['"\`](?:${BIZ_FIELD_ALT})['"\`]\\s*\\]`
+    + `|\\.\\s*(?:${BIZ_FIELD_ALT})\\b)`,
+  );
+}
+
+/** `const { businessId, foo } = req.query` — the name is bound, not indexed. */
+function destructuredFrom(source: 'query' | 'body'): RegExp {
+  return new RegExp(
+    `(?:const|let)\\s*\\{([^}]*)\\}\\s*(?::[^=]*)?=\\s*\\(?\\s*req\\.${source}\\b`,
+    'g',
+  );
+}
+
+
 const OWNERSHIP_HELPER =
   /assertBusinessOwnership|businessBelongsToTenant|assertOwnedBusiness|requireOwnedBusiness|requireBusinessAndTenant/;
 
@@ -80,7 +149,29 @@ interface Violation {
   readonly line: number;
   readonly method: string;
   readonly path: string;
+  /** Where the business id arrives. Part of the allowlist key for the two new ones. */
+  readonly source: 'path' | 'query' | 'body';
   readonly why: string;
+}
+
+/** Business-named identifiers bound by destructuring `req.query` / `req.body`. */
+function destructuredBizNames(body: string, from: 'query' | 'body'): string[] {
+  const out: string[] = [];
+  for (const m of body.matchAll(destructuredFrom(from))) {
+    for (const part of (m[1] ?? '').split(',')) {
+      // `businessId`, `businessId: bizId`, `businessId = ''` — the bound name
+      // is what a `where` will mention, so that is what is collected.
+      const [key, alias] = part.split(':').map((x) => x.trim());
+      const name = (alias ?? key ?? '').split('=')[0]!.trim();
+      if (key && BIZ_FIELD_RE.test(key)) out.push(name || key);
+    }
+  }
+  return out;
+}
+
+/** Does the handler destructure a business-named field out of query or body? */
+function destructuresBiz(body: string, from: 'query' | 'body'): boolean {
+  return destructuredBizNames(body, from).length > 0;
 }
 
 /** Blank string/regex/comment CONTENT, preserving offsets, so braces inside them do not end a block. */
@@ -247,10 +338,18 @@ function scan(): Violation[] {
       const body = mask.slice(open, close + 1);
       const line = src.slice(0, m.index).split('\n').length;
 
-      // The path has to name a business, and the handler has to read it.
+      // Where does a business id arrive here? Possibly more than one way.
+      //
+      // For the path, the segment before a bare `:id` decides. For a query
+      // string or a body, the field name decides, and it is exact.
       const effectiveForBiz = prefixes.map((p) => `${p}${routePath}`.replace(/\/+/g, '/'));
-      if (!BIZ_PATH.test(routePath) && !effectiveForBiz.some((e) => BIZ_PATH.test(e))) continue;
-      if (!READS_PARAM.test(body)) continue;
+      const fromPath =
+        (BIZ_PATH.test(routePath) || effectiveForBiz.some((e) => BIZ_PATH.test(e)))
+        && READS_PARAM.test(body);
+      const fromQuery = readsBizFrom('query').test(body) || destructuresBiz(body, 'query');
+      const fromBody = readsBizFrom('body').test(body) || destructuresBiz(body, 'body');
+
+      if (!fromPath && !fromQuery && !fromBody) continue;
 
       // Covered by a guarded mount prefix on ANY of this router's mounts?
       const effectives = prefixes.map((p) => `${p}${routePath}`.replace(/\/+/g, '/'));
@@ -265,14 +364,46 @@ function scan(): Violation[] {
       //
       // Routers mounted at '/' still get the same answer, because their
       // effective path IS their route path.
-      if (effectives.some(isGuarded)) continue;
+      //
+      // It exempts a PATH id and nothing else. `requireOwnedBusiness('id')`
+      // verifies `req.params.id`; a handler under the same prefix that reads
+      // `req.query.businessId` is reading an id the guard never saw, and
+      // sitting behind a guarded mount says nothing about it.
+      if (!fromQuery && !fromBody && effectives.some(isGuarded)) continue;
 
       if (OWNERSHIP_HELPER.test(body)) continue;
 
       // Every `where` naming the business-id variable must also name tenantId.
-      const names = [...body.matchAll(/(?:const|let)\s+(\w+)\s*(?::[^=]+)?=\s*(?:String\()?\s*req\.params/g)]
-        .map((x) => x[1]!)
-        .filter(Boolean);
+      //
+      // The variable can be bound three ways now, so all three are collected:
+      // from a path parameter, from a query or body field named like a
+      // business, and by destructuring either object.
+      const names = [
+        // Path variables count only when the PATH names a business. Otherwise
+        // `const slug = String(req.params.slug)` on
+        // `/credit-unions/:slug/eligibility?businessId=X` gets treated as a
+        // business id, and `where: { slug }` — a perfectly correct lookup of a
+        // credit union — is reported as an unscoped business read. Before this
+        // check could see query parameters that handler was never analysed at
+        // all, so the mistake had nowhere to show up.
+        ...(fromPath
+          ? [...body.matchAll(/(?:const|let)\s+(\w+)\s*(?::[^=]+)?=\s*(?:String\()?\s*req\.params/g)]
+            .map((x) => x[1]!)
+          : []),
+        ...[...body.matchAll(
+          new RegExp(
+            `(?:const|let)\\s+(\\w+)\\s*(?::[^=]+)?=\\s*(?:String\\()?\\s*req\\.(?:query|body)\\s*`
+            + `(?:\\[\\s*['"\`](?:${BIZ_FIELD_ALT})['"\`]\\s*\\]|\\.\\s*(?:${BIZ_FIELD_ALT})\\b)`,
+            'g',
+          ),
+        )].map((x) => x[1]!),
+        ...destructuredBizNames(body, 'query'),
+        ...destructuredBizNames(body, 'body'),
+      ].filter(Boolean);
+
+      // A `where` can also name the read inline — `{ id: req.query.businessId }`
+      // — with no variable in between. That is the same read and has to count.
+      const inlineReads = [readsBizFrom('query'), readsBizFrom('body')];
       // Verify-then-use is scoped, and common here: read the business filtered
       // on {id, tenantId}, 404 if absent, then query children by businessId
       // alone. invoice_pay and applications/compliance-gate both do it, and
@@ -288,7 +419,9 @@ function scan(): Violation[] {
       for (const w of body.matchAll(/\bwhere\s*:\s*\{/g)) {
         const wOpen = body.indexOf('{', w.index! + w[0].length - 1);
         const clause = body.slice(wOpen, matchBrace(body, wOpen) + 1);
-        const touches = names.some((n) => new RegExp(`\\b${n}\\b`).test(clause));
+        const touches =
+          names.some((n) => new RegExp(`\\b${n}\\b`).test(clause))
+          || inlineReads.some((re) => re.test(clause));
         if (!touches) continue;
         if (/\btenantId\b/.test(clause)) {
           if (verifiedAt === null) verifiedAt = wOpen;
@@ -296,19 +429,54 @@ function scan(): Violation[] {
           unscoped = true;
         }
       }
+      // A business id WRITTEN into a row has to be verified too, and naming
+      // tenantId beside it is not verification.
+      //
+      // In a `where`, `{ businessId, tenantId }` constrains the query — the row
+      // comes back only if both hold. In a `data`, `{ businessId, tenantId }`
+      // asserts both, and asserting does not check. `POST /documents/upload`
+      // stores `businessId` straight from the request body next to the
+      // caller's own tenantId, so a document can be filed against a business in
+      // another tenant and the row looks entirely normal afterwards.
+      //
+      // The only evidence that counts here is an ownership helper or a
+      // verifying read that came first, which is why this is checked after the
+      // `where` loop has run.
+      let writtenUnverified = false;
+      if (verifiedAt === null) {
+        for (const d of body.matchAll(/\bdata\s*:\s*\{/g)) {
+          const dOpen = body.indexOf('{', d.index! + d[0].length - 1);
+          const clause = body.slice(dOpen, matchBrace(body, dOpen) + 1);
+          const touches =
+            names.some((n) => new RegExp(`\\b${n}\\b`).test(clause))
+            || inlineReads.some((re) => re.test(clause));
+          if (touches) writtenUnverified = true;
+        }
+      }
+
       if (verifiedAt !== null && !unscoped) continue;
 
       const hasTenant = /\btenantId\b/.test(body);
-      if (!unscoped && hasTenant) continue;
+      if (!unscoped && !writtenUnverified && hasTenant) continue;
+
+      // Named, so a reader knows where to look — and so a handler taking a
+      // business id two ways cannot be silenced by an allowlist entry that
+      // only reviewed one of them.
+      const source: Violation['source'] = fromQuery ? 'query' : fromBody ? 'body' : 'path';
 
       violations.push({
         file: rel,
         line,
         method,
         path: routePath,
+        source,
         why: unscoped
-          ? 'a `where` names the business id and not tenantId'
-          : 'takes a business id and nothing in the handler names tenantId',
+          ? `a \`where\` names the business id (from the ${source}) and not tenantId`
+          : writtenUnverified
+            ? `a business id from the ${source} is written into a row without being `
+              + 'verified against the caller — naming tenantId beside it asserts, it does '
+              + 'not check'
+            : `takes a business id in the ${source} and nothing in the handler names tenantId`,
       });
     }
   }
@@ -318,7 +486,14 @@ function scan(): Violation[] {
 
 // ── Recorded, with reasons ────────────────────────────────────
 //
-// `file::METHOD path`. Remove an entry when it is fixed; a stale one fails.
+// `file::METHOD path` for a path id, and `file::METHOD path [query]` or
+// `[body]` for the two new sources. Remove an entry when it is fixed; a stale
+// one fails.
+//
+// The source is in the key so that a handler taking a business id two ways
+// cannot be silenced by an entry that reviewed only one of them. It is left
+// OUT of the path key so the entries written before this check could see a
+// query parameter keep working — they describe the same handlers.
 
 /**
  * Real. Each takes a business id that nothing ties to the caller.
@@ -355,10 +530,23 @@ const NO_BUSINESS_READ = new Set<string>([
   'src/backend/api/routes/readiness.routes.ts::GET /:businessId',
 ]);
 
-const ALLOWED = new Set([...KNOWN_UNSCOPED, ...NO_BUSINESS_READ]);
+/**
+ * Reviewed and sound: the field is named like a business id and is not one.
+ *
+ * Kept apart from NO_BUSINESS_READ because the two are different claims. "This
+ * handler reads nothing per-business" is about tenancy and could stop being
+ * true tomorrow. "`client_id` here is an OAuth client" is about vocabulary,
+ * and the entry says which meaning was checked.
+ */
+const NOT_A_BUSINESS_ID = new Set<string>([]);
+
+const ALLOWED = new Set([...KNOWN_UNSCOPED, ...NO_BUSINESS_READ, ...NOT_A_BUSINESS_ID]);
 
 const found = scan();
-const key = (v: Violation) => `${v.file}::${v.method} ${v.path}`;
+const key = (v: Violation) =>
+  v.source === 'path'
+    ? `${v.file}::${v.method} ${v.path}`
+    : `${v.file}::${v.method} ${v.path} [${v.source}]`;
 const fresh = found.filter((v) => !ALLOWED.has(key(v)));
 const stale = [...ALLOWED].filter((k) => !found.some((v) => key(v) === k));
 
