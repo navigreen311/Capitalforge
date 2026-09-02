@@ -33,7 +33,11 @@ import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
-import { CommComplianceService, UnknownAdvisorError } from '../../services/comm-compliance.service.js';
+import {
+  CommComplianceService,
+  UnknownAdvisorError,
+  UnanchoredVoiceDisclosureError,
+} from '../../services/comm-compliance.service.js';
 import type {
   CommComplianceScanResult,
   ApprovedScriptResult,
@@ -43,6 +47,7 @@ import type {
 import { TrainingService, TRACK_CATALOGUE, withoutEnforcementCases } from '../../services/training.service.js';
 import type { CertificationResult, TrackName } from '../../services/training.service.js';
 import { PERMISSIONS } from '../../../shared/constants/index.js';
+import { ScanChannelSchema } from '../../../shared/validators/consent.validators.js';
 import logger from '../../config/logger.js';
 
 export const commComplianceRouter = Router();
@@ -80,18 +85,13 @@ function requirePermission(permission: string) {
 
 // ── Validation schemas ────────────────────────────────────────────
 
-// `video_script` is the text a video is generated FROM, scanned before render.
-// It is a distinct channel value rather than being folded into `document`
-// because the compliance record is read later to answer "what was checked, and
-// what was it": a script recorded as a document would misdescribe both the
-// artefact that was scanned and the audience it reaches.
-//
-// Naming it `video_script` rather than `video` is deliberate and is the honest
-// name. Nothing here has inspected a video. See AnimaForge's
-// marketingComplianceGate for what that scan does and does not cover.
+// `channel` comes from SCAN_CHANNELS, not a fourth copy of the names. Four
+// lists of channels had grown up around this and none of them matched — see
+// the note on CONSENT_CHANNELS in shared/types. The reason `video_script` is
+// distinct from `document` lives there too, with the other two extras.
 const ScanBodySchema = z.object({
   advisorId: z.string().uuid('advisorId must be a valid UUID'),
-  channel:   z.enum(['voice', 'email', 'sms', 'chat', 'document', 'video_script']),
+  channel:   ScanChannelSchema,
   content:   z.string().min(1, 'content is required').max(100_000, 'content exceeds 100 000 character limit'),
 });
 
@@ -169,6 +169,13 @@ commComplianceRouter.post(
       // caller would be a different wrong attribution.
       if (err instanceof UnknownAdvisorError) {
         next(badRequest('advisorId does not name an advisor in this tenant.'));
+        return;
+      }
+      // A voice script that needs a disclosure nothing in it anchors. Refused
+      // rather than answered with the disclosure appended below the sign-off,
+      // where it is never said.
+      if (err instanceof UnanchoredVoiceDisclosureError) {
+        next(badRequest(err.message, { disclosureIds: err.disclosureIds }));
         return;
       }
       next(err);

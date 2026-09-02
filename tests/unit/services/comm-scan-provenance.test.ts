@@ -40,6 +40,7 @@ const publishAndPersist = eventBus.publishAndPersist as unknown as ReturnType<ty
 import {
   CommComplianceService,
   UnknownAdvisorError,
+  UnanchoredVoiceDisclosureError,
   detectBannedClaims,
 } from '../../../src/backend/services/comm-compliance.service.js';
 
@@ -192,9 +193,9 @@ describe('where a disclosure lands', () => {
       tenantId: TENANT,
       advisorId: ADVISOR,
       channel: 'voice',
-      content:
-        'We are an SBA partner. Let me tell you about the programme. '
-        + 'Thanks for your time, and speak soon.',
+      // Nothing here triggers a disclosure by keyword alone — "programme"
+      // would have, and on voice that is now a refusal rather than an append.
+      content: 'We are an SBA partner. Thanks for your time, and speak soon.',
     });
 
     const text = result.contentWithDisclosures;
@@ -228,5 +229,66 @@ describe('where a disclosure lands', () => {
 
     expect(result.requiredDisclosures).toHaveLength(0);
     expect(result.contentWithDisclosures).not.toContain('[REQUIRED DISCLOSURE]');
+  });
+});
+
+describe('a voice script whose disclosure has no anchor', () => {
+  it('is refused rather than given one after the sign-off', async () => {
+    // On a written message an appended disclosure is imperfect. On a spoken
+    // one it is a disclosure after the call ended: the advisor stops talking,
+    // and the text below the sign-off is read by nobody.
+    //
+    // This text triggers disc-001 and disc-002 by keyword — a credit
+    // application and fees — with no banned claim to anchor either to.
+    await expect(
+      service().scanCommunication({
+        tenantId: TENANT,
+        advisorId: ADVISOR,
+        channel: 'voice',
+        content: 'Let us discuss your credit card application and the fees involved.',
+      }),
+    ).rejects.toBeInstanceOf(UnanchoredVoiceDisclosureError);
+
+    // Nothing is recorded for a scan that produced no usable script.
+    expect(recordCreate).not.toHaveBeenCalled();
+  });
+
+  it('names the disclosures the script has nowhere to put', async () => {
+    const err = await service()
+      .scanCommunication({
+        tenantId: TENANT,
+        advisorId: ADVISOR,
+        channel: 'voice',
+        content: 'Let us discuss your credit card application and the fees involved.',
+      })
+      .then(() => null)
+      .catch((e: unknown) => e as UnanchoredVoiceDisclosureError);
+
+    expect(err!.disclosureIds).toContain('disc-001');
+    expect(err!.message).toMatch(/after the sign-off/);
+  });
+
+  it('still produces a voice script when every disclosure is anchored', async () => {
+    // The SBA claim anchors disc-005, so it has somewhere to go.
+    const result = await service().scanCommunication({
+      tenantId: TENANT,
+      advisorId: ADVISOR,
+      channel: 'voice',
+      content: 'We are an SBA partner. Thanks for your time.',
+    });
+
+    expect(result.contentWithDisclosures).toContain('independent advisory service');
+    expect(result.contentWithDisclosures).not.toContain('---');
+  });
+
+  it('appends on a written channel, as before', async () => {
+    const result = await service().scanCommunication({
+      tenantId: TENANT,
+      advisorId: ADVISOR,
+      channel: 'email',
+      content: 'Let us discuss your credit card application and the fees involved.',
+    });
+
+    expect(result.contentWithDisclosures).toContain('---');
   });
 });

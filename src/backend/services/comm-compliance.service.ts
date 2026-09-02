@@ -39,6 +39,7 @@ import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
 import { EVENT_TYPES, AGGREGATE_TYPES } from '@shared/constants/index.js';
+import type { ScanChannel } from '@shared/types/index.js';
 import logger from '../config/logger.js';
 
 // ── Banned-claim definitions ──────────────────────────────────────
@@ -400,7 +401,14 @@ export interface DisclosureTemplate {
   id: string;
   trigger: string;
   disclosureText: string;
-  channel: 'voice' | 'email' | 'sms' | 'chat' | 'all';
+  /**
+   * Which channel this disclosure applies to, or 'all'.
+   *
+   * `document` was missing from this union while being a valid consent and
+   * scan channel, so a disclosure could not be marked as applying to a
+   * document at all. `ScanChannel` now, plus 'all'.
+   */
+  channel: ScanChannel | 'all';
   required: boolean;
 }
 
@@ -509,7 +517,7 @@ export interface CommComplianceScanResult {
   scanId: string;
   tenantId: string;
   advisorId: string;
-  channel: string;
+  channel: ScanChannel;
   riskScore: number;
   riskLevel: 'clean' | 'low' | 'medium' | 'high' | 'critical';
   violations: BannedClaimViolation[];
@@ -559,6 +567,32 @@ export class UnknownAdvisorError extends Error {
   constructor(public readonly advisorId: string) {
     super(`No advisor ${advisorId} in this tenant.`);
     this.name = 'UnknownAdvisorError';
+  }
+}
+
+/**
+ * A spoken script needs a disclosure that nothing in the text anchors.
+ *
+ * On a written message an appended disclosure is imperfect — it is at the
+ * bottom, and the reader may not get there. On a spoken one it is a disclosure
+ * after the call ended: the script finishes, the advisor stops talking, and
+ * the text below the sign-off is read by nobody.
+ *
+ * So voice refuses. The disclosure is triggered by a keyword rather than by a
+ * banned claim, so there is no position to attach it to and no honest place to
+ * put it — the script has to be written so the disclosure has somewhere to go,
+ * which is a question for whoever wrote it rather than for this function.
+ */
+export class UnanchoredVoiceDisclosureError extends Error {
+  constructor(public readonly disclosureIds: string[]) {
+    super(
+      `A voice script requires ${disclosureIds.join(', ')}, and nothing in the text `
+      + `anchors ${disclosureIds.length === 1 ? 'it' : 'them'}. Appending a disclosure `
+      + 'to a spoken script puts it after the '
+      + 'sign-off, where it is never said. Place the disclosure in the script yourself, '
+      + 'or say the thing that requires it near where it belongs.',
+    );
+    this.name = 'UnanchoredVoiceDisclosureError';
   }
 }
 
@@ -708,6 +742,7 @@ function placeDisclosures(
   content: string,
   disclosures: DisclosureTemplate[],
   violations: BannedClaimViolation[],
+  channel: ScanChannel | null,
 ): string {
   if (disclosures.length === 0) return content;
 
@@ -746,6 +781,12 @@ function placeDisclosures(
   }
 
   if (appended.length > 0) {
+    // A spoken script does not get an appended disclosure. Appending puts it
+    // after the sign-off, where it is never said — see
+    // UnanchoredVoiceDisclosureError.
+    if (channel === 'voice') {
+      throw new UnanchoredVoiceDisclosureError(appended.map((d) => d.id));
+    }
     const block = appended
       .map((d) => `[REQUIRED DISCLOSURE] ${d.disclosureText}`)
       .join('\n\n');
@@ -867,7 +908,13 @@ export class CommComplianceService {
   async scanCommunication(params: {
     tenantId: string;
     advisorId: string;
-    channel: string;
+    /**
+     * One of SCAN_CHANNELS. Was `string`, so this module could not express a
+     * distinction the compliance library already made — and the column behind
+     * it was unconstrained too. It matters here: placement depends on whether
+     * a script is spoken.
+     */
+    channel: ScanChannel;
     content: string;
   }): Promise<CommComplianceScanResult> {
     // ── The advisor has to be an advisor ─────────────────────────
@@ -914,6 +961,7 @@ export class CommComplianceService {
       params.content,
       requiredDisclosures,
       deduped,
+      params.channel,
     );
 
     const summary = buildScanSummary(riskScore, riskLevel, deduped);
@@ -1023,7 +1071,9 @@ export class CommComplianceService {
    */
   appendRequiredDisclosures(content: string, triggerIds: string[]): string {
     const disclosures = REQUIRED_DISCLOSURES.filter((d) => triggerIds.includes(d.id));
-    return placeDisclosures(content, disclosures, []);
+    // No channel: this names disclosure ids directly rather than scanning, so
+    // there is nothing to refuse on behalf of.
+    return placeDisclosures(content, disclosures, [], null);
   }
 
   // ── QA scoring ────────────────────────────────────────────────

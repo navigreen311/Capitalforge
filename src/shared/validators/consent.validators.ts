@@ -8,18 +8,17 @@
 
 import { z } from 'zod';
 
+import { CONSENT_CHANNELS, SCAN_CHANNELS } from '../types/index.js';
 // ----------------------------------------------------------------
 // Shared enum schemas — derived from shared/types ConsentChannel,
 // ConsentType, ConsentStatus so the two stay in sync.
 // ----------------------------------------------------------------
 
-export const ConsentChannelSchema = z.enum([
-  'voice',
-  'sms',
-  'email',
-  'partner',
-  'document',
-]);
+// From CONSENT_CHANNELS, not a second copy of the names.
+export const ConsentChannelSchema = z.enum(CONSENT_CHANNELS);
+
+/** Every consent channel plus `chat` and `video_script`. See SCAN_CHANNELS. */
+export const ScanChannelSchema = z.enum(SCAN_CHANNELS);
 
 export const ConsentTypeSchema = z.enum([
   'tcpa',

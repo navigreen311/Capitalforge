@@ -270,10 +270,13 @@ describe('CommComplianceService.scanCommunication', () => {
   });
 
   it('persists a CommComplianceRecord on scan', async () => {
+    // `email`, not `voice`. This test is about persistence, and CLEAN_TEXT
+    // triggers three keyword disclosures that nothing in it anchors — which a
+    // voice script now refuses rather than appending below the sign-off.
     await svc.scanCommunication({
       tenantId:  'tenant-001',
       advisorId: 'advisor-001',
-      channel:   'voice',
+      channel:   'email',
       content:   CLEAN_TEXT,
     });
     expect(prismaMock.commComplianceRecord.create).toHaveBeenCalledOnce();

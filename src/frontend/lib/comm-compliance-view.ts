@@ -22,9 +22,13 @@
 // at all. What can be shown is one advisor's scored calls, given their id.
 // ============================================================
 
-export type Channel = 'voice' | 'email' | 'sms' | 'chat' | 'document';
+// From SCAN_CHANNELS. This was a fourth hand-kept list and was missing
+// `partner` and `video_script`.
+import { SCAN_CHANNELS, type ScanChannel } from '@shared/types/index.js';
 
-export const CHANNELS: Channel[] = ['voice', 'email', 'sms', 'chat', 'document'];
+export type Channel = ScanChannel;
+
+export const CHANNELS: readonly Channel[] = SCAN_CHANNELS;
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
