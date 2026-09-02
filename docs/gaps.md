@@ -694,7 +694,7 @@ everywhere else — a class found and fixed three times, each time only in the
 surface someone was looking at.
 
 
-### 3j. Evidence removal is not tracked — open, 2026-09-02
+### 3j. Evidence is append-only, and an item attached in error is annotated — DECIDED 2026-09-02
 
 `attachEvidence` adds references to a complaint. **Nothing removes one, and
 nothing records that one was removed.**
@@ -710,18 +710,31 @@ As of 2026-09-02 `evidenceItems` records who attached each item and when, so
 additions have provenance. Removals still have none, because there is no
 removal to record.
 
-**What it would take.** A `detachEvidence` that marks an item `removedAt` /
-`removedBy` with a reason rather than deleting it, and a read that reports
-removed items separately instead of omitting them. Half a day.
+**DECIDED: append-only, with annotation. There is no detach endpoint and there
+will not be one.**
 
-**What decides it** is whether evidence should be removable at all. An
-append-only complaint file is defensible and simpler: an item attached in
-error is annotated rather than deleted, which is what a regulator would expect
-of an evidence record. If that is the answer, the fix is not a detach endpoint
-— it is a note in the manual saying evidence cannot be withdrawn, and a check
-that nothing outside the API shortens those arrays.
+An item attached in error is annotated, never removed. That is what a
+regulator expects of an evidence record, and it is the reason the alternative
+was rejected rather than deferred: a `detachEvidence` that marks `removedAt`
+would work, but it makes withdrawal a normal operation on a file whose value
+depends on nothing having been withdrawn.
 
-Recorded rather than fixed because the two answers are different products.
+Three things follow, none of them an endpoint:
+
+1. **The manuals say evidence cannot be withdrawn.** An agent that attaches
+   the wrong reference cannot undo it and must say so.
+2. **Annotation is the correction.** An item attached in error is answered by
+   a note recorded against the complaint, not by a shorter array.
+3. **A check that nothing outside the API shortens those arrays.** The API is
+   already append-only by construction — no code path removes a reference —
+   so what needs guarding is everything else: a migration, a support script,
+   direct SQL. Not built; the check has no natural home yet, and it is worth
+   recording that the guarantee currently rests on nobody having written the
+   code to break it.
+
+Additions have provenance as of 2026-09-02: `evidenceItems` records who
+attached each item and when. Under this ruling that is the whole history,
+because there is nothing else to record.
 
 ### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
 
@@ -780,16 +793,30 @@ An index says what exists; a packet transfers it. They are two modules, and
 this one is the manifest. `build_packet` as a module name describes the
 manifest and should be read that way until a packet module exists.
 
-**The packet is a separate module, unstarted, and gated on one question:** who
-may receive a document under legal hold. It only arises for the packet — an
-index naming a document under hold discloses that it exists, which is already
-true of the case; a packet hands over the bytes, and that is a disclosure
-decision rather than a streaming one.
+**DECIDED 2026-09-02, after reading `assemble_evidence`:**
 
-That question reaches further than this module. `assemble_evidence` has the
-same shape: it names documents, and any future version that transfers them
-inherits the same decision. So it is one ruling covering both, not a detail of
-whichever gets built first.
+**Manifests stay internal, and neither module transfers bytes.** Both produce
+reference lists and that is what they are. `build_packet` is the compliance
+manifest; `assemble_evidence` is the complaint evidence index. Neither is a
+transfer mechanism and neither should become one by accretion.
+
+**When a packet exists, transfer under legal hold is decided per recipient**,
+not per module and not once for the system. A document under hold handed to
+counsel, to a regulator, and to the complaining client are three different
+disclosures with three different answers, and a rule that resolves them
+together would have to resolve them at the most permissive.
+
+**A complaint file is the first case, because it has a counterparty by
+design.** `assemble_evidence` is confirmed structurally identical to
+`build_packet` — reference lists, no bytes — but different in the one way that
+matters here: a regulator or the complaining client is the *intended*
+recipient, where a compliance manifest is internal until somebody decides
+otherwise. So the per-recipient rules get exercised there first, and that is
+the module to reason from when the packet is built.
+
+The engineering, when it is unblocked, is the old PRODUCTION NOTE: an archive
+stream, per-document S3 reads, a response that cannot be buffered in memory,
+and a size limit somebody chooses. None of it is the hard part.
 
 The engineering, when it is unblocked, is the old PRODUCTION NOTE: an archive
 stream, per-document S3 reads, a response that cannot be buffered in memory,
