@@ -8,18 +8,32 @@
 // GET    /acknowledgments         — product acknowledgments
 // GET    /ach-authorization       — ACH authorization status
 // GET    /credit/business         — business credit scores
-// GET    /credit/history          — 12-month score history      [STUB]
-// GET    /credit/recommendations  — credit optimization tips    [STUB]
-// GET    /repayment               — repayment schedule          [STUB]
+// GET    /credit/history          — score history, per profileType
+// GET    /credit/recommendations  — recommendations from the latest pull
+// GET    /repayment               — repayment schedule
 // GET    /timeline                — client event timeline
 // GET    /compliance              — compliance checks
 // GET    /documents               — documents for this business
-// POST   /compliance/run          — trigger compliance check    [STUB]
-// POST   /consent/request         — request re-consent          [STUB]
-// PATCH  /                        — update business fields
+// POST   /compliance/run          — run a compliance check and persist it
+// POST   /consent/request         — email a re-consent request
+// PATCH  /                        — update business profile fields
 //
-// Endpoints marked [STUB] have no implementation behind them and return
-// sample data flagged via `meta.stub` — see ./_stub-response.ts.
+// NOTHING HERE IS A STUB.
+//
+// Those five lines carried a [STUB] marker and this block said they "have no
+// implementation behind them and return sample data flagged via `meta.stub`".
+// All five read real records; none imports _stub-response.ts any more. The
+// markers outlived the fixes that removed them.
+//
+// A HEADER THAT UNDERSTATES IS THE SAME DEFECT AS ONE THAT OVERSTATES, and it
+// is harder to catch, because nobody audits a file for being better than it
+// claims. Elsewhere in this repository the damage runs the other way — "AI-style
+// pattern scan" over twenty regexes, a spot-rate table that does not exist,
+// "can be zipped and handed to regulators" over something nothing zips — and
+// those get found when somebody relies on the claim and it fails. This one
+// fails silently in the other direction: a manual author reads the header
+// first, writes five working endpoints down as untrustworthy, and an agent is
+// denied capabilities that work. Nothing breaks, so nothing reports it.
 // ============================================================
 
 import { Router, type Response, type NextFunction } from 'express';
@@ -51,9 +65,28 @@ const UPDATABLE_BUSINESS_FIELDS = new Set([
   'monthlyRevenue',
   'phoneNumber',
   'timezone',
-  'status',
-  'advisorId',
-  'fundingReadinessScore',
+  // NOT HERE, DELIBERATELY, as of 2026-09-02:
+  //
+  //   fundingReadinessScore  A computed assessment. `restack_recommend` gates
+  //                          on it, and three separate fixes protected its
+  //                          null-vs-zero distinction — unassessed is not a
+  //                          score of nothing. A module that lets a caller set
+  //                          its own inputs is not assessing anything. If
+  //                          something legitimately writes it, that is a
+  //                          scoring path with its own provenance, not a PATCH
+  //                          on a lookup surface.
+  //
+  //   advisorId              Reassigning a client to a different advisor.
+  //   status                 Changing a client's status.
+  //
+  // Both are real operations and neither is a lookup. They rode on the same
+  // grant as reading a client's name, which is the wrong shape: see
+  // docs/callable-modules.md, where this surface is split into a read module,
+  // a profile-edit module and the two writes.
+  //
+  // Nothing was removed from a working path — the edit-profile form sends
+  // twelve fields and none of these three is among them.
+  //
   // The edit-profile form has always sent these. `website` and `employees`
   // were rejected outright as un-updatable; `naicsCode` was on this list
   // before it was a column, so it passed the allowlist and then failed at
@@ -681,7 +714,22 @@ clientDetailRouter.post('/consent/request', async (req: Request, res: Response, 
       return;
     }
 
-    const owner = business.owners[0]!;
+    // A client with no owners is a state this module calls valid — GET /owners
+    // returns [] and says so — and this asserted one existed. The `!` was the
+    // lie hiding it: `owners[0]` is undefined for any such client, and the
+    // existence check above has already passed, so the crash is reachable by
+    // every client whose owners nobody has recorded.
+    const owner = business.owners[0] ?? null;
+    if (!owner) {
+      err(
+        res,
+        422,
+        'NO_OWNER_ON_FILE',
+        'No beneficial owner is recorded for this client, so there is nobody to '
+        + 'send a consent request to. Add an owner, or supply recipientEmail.',
+      );
+      return;
+    }
     const to = recipientEmail?.trim() || null;
 
     if (!to) {
