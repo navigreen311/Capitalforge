@@ -38,6 +38,8 @@ vi.mock('@backend/config/database.js', () => ({
     businessOwner: { findMany: ownerFindMany },
     document: { findMany: documentFindMany },
     productAcknowledgment: { findMany: vi.fn().mockResolvedValue([]) },
+    ledgerEvent: { findMany: vi.fn().mockResolvedValue([]) },
+    creditProfile: { findMany: vi.fn().mockResolvedValue([]) },
     $on: vi.fn(),
   },
 }));
@@ -194,5 +196,32 @@ describe('the other two empty results', () => {
     const body = (await res.json()) as { meta?: { basis: string } };
 
     expect(body.meta?.basis).toBe('no_acknowledgments_on_record');
+  });
+});
+
+describe('the remaining empty results carry a basis', () => {
+  it('gives /timeline one', async () => {
+    // /owners gained a basis on 2 September and /timeline did not, so shared
+    // rule 2 was uniform across three of four endpoints in one module.
+    const res = await fetch(`${baseUrl}/api/clients/${CLIENT}/timeline`);
+    const body = (await res.json()) as { meta?: { basis: string } };
+
+    expect(body.meta?.basis).toBe('no_timeline_events_on_record');
+  });
+
+  it('gives /credit/business one', async () => {
+    // The pair that matters most: unqualified, an empty result here reads as
+    // a statement about the client's credit rather than about the records.
+    const res = await fetch(`${baseUrl}/api/clients/${CLIENT}/credit/business`);
+    const body = (await res.json()) as { meta?: { basis: string } };
+
+    expect(body.meta?.basis).toBe('no_business_credit_profile_on_record');
+  });
+
+  it('gives /credit/personal one', async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${CLIENT}/credit/personal`);
+    const body = (await res.json()) as { meta?: { basis: string } };
+
+    expect(body.meta?.basis).toBe('no_personal_credit_profile_on_record');
   });
 });

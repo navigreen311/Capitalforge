@@ -419,7 +419,15 @@ clientDetailRouter.get('/credit/business', readCredit, async (req: Request, res:
     const profiles = await prisma.creditProfile.findMany({
       where: { businessId: clientId, profileType: 'business' },
     });
-    ok(res, { scores: profiles }, { total: profiles.length });
+    // An unqualified empty result here reads as a statement about the client's
+    // credit, which is what shared rule 1a exists to prevent: no pull on
+    // record is not a thin file, a low score, or a client without credit.
+    ok(res, { scores: profiles }, {
+      total: profiles.length,
+      basis: profiles.length === 0
+        ? 'no_business_credit_profile_on_record'
+        : 'business_credit_profiles',
+    });
   } catch (error) {
     logger.error('Prisma query failed for business credit', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_CREDIT_FAILED', 'Unable to load business credit.');
@@ -444,7 +452,14 @@ clientDetailRouter.get('/credit/personal', readCredit, async (req: Request, res:
       if (!latestByBureau.has(p.bureau)) latestByBureau.set(p.bureau, p);
     }
 
-    ok(res, { scores: [...latestByBureau.values()] }, { total: latestByBureau.size });
+    // Same reasoning as /credit/business: an empty result is no pull on
+    // record, and unqualified it reads as a statement about the client.
+    ok(res, { scores: [...latestByBureau.values()] }, {
+      total: latestByBureau.size,
+      basis: latestByBureau.size === 0
+        ? 'no_personal_credit_profile_on_record'
+        : 'personal_credit_profiles',
+    });
   } catch (error) {
     logger.error('Prisma query failed for personal credit', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_PERSONAL_CREDIT_FAILED', 'Unable to load personal credit.');
@@ -679,7 +694,10 @@ clientDetailRouter.get('/timeline', readPii, async (req: Request, res: Response,
       orderBy: { publishedAt: 'desc' },
       take: 50,
     });
-    ok(res, events, { total: events.length });
+    ok(res, events, {
+      total: events.length,
+      basis: events.length === 0 ? 'no_timeline_events_on_record' : 'ledger_events',
+    });
   } catch (error) {
     logger.error('Prisma query failed for timeline', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_TIMELINE_FAILED', 'Unable to load the client timeline.');
