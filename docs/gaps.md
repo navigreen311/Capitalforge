@@ -569,6 +569,47 @@ the deletion actually happens. Advancing it by hand is how a workflow comes to
 claim a deletion that never ran.
 
 
+
+### 3e. Nothing records HOW a consent was obtained — open, 2026-09-01
+
+`generateConsentConfirmationLetter` printed
+`Consent Method: ${ctx.consent_method ?? 'Electronic signature via client
+portal'}` — a statement, in the client's own copy of their consent record, of
+how that consent was captured.
+
+**There is no such field.** `ConsentRecord` holds `channel`, `consentType`,
+`status`, `grantedAt`, `revokedAt`, `revocationReason`, `ipAddress`,
+`evidenceRef` and `metadata`. No method column exists anywhere in the schema,
+and `consent_method` appears in exactly one place in the codebase: the string
+that letter used to print. The default was not a stale value — it was the
+whole field.
+
+The letter now says `[not recorded]` and explains that the system records the
+channel, the date, the IP address and an evidence reference, not the method.
+
+**Why this matters more than the default did.** The `consent_grant` manual
+states that `evidenceRef` is the only field carrying proof a consent happened.
+That is correct, and this letter contradicted it: it asserted a method the
+record does not hold, beside a `Consent Reference` that was
+`'CST-' + Date.now().toString(36)` when none was supplied — an invented
+evidence pointer, given to a client, resolving to nothing.
+
+**What it would take.** A `method` column on `ConsentRecord`
+(`portal_signature | voice_recorded | sms_reply | wet_signature | imported`),
+set at capture. Half a day for the column and the capture path. The real
+question is what to do about the consents already recorded: their method is
+genuinely unknown and backfilling a guess would be this defect again, one
+migration further from anyone noticing. `[not recorded]` is the right answer
+for every existing row.
+
+**Two more defaults were in the same letter**, and both are fixed with it: the
+consent date fell back to today, and the channels fell back to
+`'Voice, SMS, Email'` — telling a client they had consented to all three when
+nobody had said so, on the letter that is their record of what they agreed to.
+The letter is now built from the consent records themselves and refuses when
+there are none, because a letter confirming a consent that was never captured
+is the document that endpoint exists not to produce.
+
 ### 3d. The dispute that looked filed — refused 2026-09-01
 
 `POST /api/statements/disputes` answered **201** with

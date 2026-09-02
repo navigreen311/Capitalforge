@@ -84,6 +84,8 @@ interface Violation {
   readonly line: number;
   readonly method: string;
   readonly route: string;
+  /** Set when the figure is inside a dispatched generator rather than the handler. */
+  readonly generator?: string;
   readonly sample: string;
 }
 
@@ -294,7 +296,24 @@ function scan(): { figures: Violation[]; assertions: DefaultedAssertion[] } {
       // handler only dispatches. A check that reads the handler alone sees a
       // switch statement and passes the exact shape it exists to catch.
       const callees = calleeBodies(src, mask, body);
-      const expanded = [body, ...callees.map((c) => c.body)].join('\n');
+
+      // Split, because one query in the handler must not exempt sixteen
+      // templates.
+      //
+      // `ASKS_SOMETHING` was tested against the handler AND every generator
+      // joined together. The moment this handler started reading a consent
+      // record and a re-stack verdict for two of its documents, `await
+      // getConsentService()` satisfied the pattern and the other fourteen
+      // stopped being checked — silently, as a side effect of making two of
+      // them honest. Exactly the shape the 501 exemption below was already
+      // fixed for, arriving a second time through a different door.
+      //
+      // A dispatched generator is pure by construction: it takes a context and
+      // returns a string. Nothing it does can be a query, so a query elsewhere
+      // is no evidence about it, and each is judged on its own body.
+      const dispatched = callees.filter((c) => c.dispatched);
+      const handlerScope = [body, ...callees.filter((c) => !c.dispatched).map((c) => c.body)]
+        .join('\n');
 
       // Every generator this handler dispatches to, checked for a fallback
       // that renders a claim instead of a placeholder. Collected regardless of
@@ -309,17 +328,38 @@ function scan(): { figures: Violation[]; assertions: DefaultedAssertion[] } {
         }
       }
 
+      // Each dispatched generator on its own terms, before the handler is
+      // judged. Keyed by generator name, so an allowlist entry covers the one
+      // template that was reviewed rather than all sixteen.
+      for (const gen of dispatched) {
+        if (!BUILDS_TEXT.test(gen.body)) continue;
+        if (REFUSES.test(gen.body) && !BUILDS_TEXT.test(gen.body)) continue;
+        const hit = FIGURE.exec(gen.body);
+        if (!hit) continue;
+        out.push({
+          file: rel,
+          line,
+          method: m[1]!.toUpperCase(),
+          route,
+          generator: gen.name,
+          sample: gen.body
+            .slice(Math.max(0, hit.index - 50), hit.index + 50)
+            .replace(/\s+/g, ' ')
+            .trim(),
+        });
+      }
+
       // A refusal exempts only a handler that ONLY refuses.
       //
       // document-gen refuses one document type and generates fifteen others, and
-      // testing `expanded` for a 501 exempted the whole endpoint the moment that
-      // first refusal was added — silently un-checking fifteen templates as a
-      // side effect of making one of them honest. Exactly the wrong direction.
-      if (REFUSES.test(expanded) && !BUILDS_TEXT.test(expanded)) continue;
-      if (ASKS_SOMETHING.test(expanded)) continue;
-      if (!BUILDS_TEXT.test(expanded)) continue;
+      // testing the whole expansion for a 501 exempted the entire endpoint the
+      // moment that first refusal was added — silently un-checking fifteen
+      // templates as a side effect of making one of them honest.
+      if (REFUSES.test(handlerScope) && !BUILDS_TEXT.test(handlerScope)) continue;
+      if (ASKS_SOMETHING.test(handlerScope)) continue;
+      if (!BUILDS_TEXT.test(handlerScope)) continue;
 
-      const found = FIGURE.exec(expanded);
+      const found = FIGURE.exec(handlerScope);
       if (!found) continue;
 
       // From `expanded`, not `body`: the match index belongs to the expanded
@@ -332,7 +372,7 @@ function scan(): { figures: Violation[]; assertions: DefaultedAssertion[] } {
       const at =
         found.index <= close - open
           ? src.slice(open + Math.max(0, found.index - 50), open + found.index + 50)
-          : expanded.slice(Math.max(0, found.index - 50), found.index + 50);
+          : handlerScope.slice(Math.max(0, found.index - 50), found.index + 50);
       out.push({
         file: rel,
         line,
@@ -375,7 +415,22 @@ function scan(): { figures: Violation[]; assertions: DefaultedAssertion[] } {
  *   promising all fees were disclosed. It refuses; see UNPRICED_DOCUMENTS.
  */
 const KNOWN_FABRICATED = new Set<string>([
-  'src/backend/api/routes/document-gen.routes.ts::POST /documents/generate',
+  // Keyed by generator now, not by the route. The route key covered all sixteen
+  // templates with one entry, so a second fabricated document could appear
+  // behind it without the count changing.
+  //
+  // One entry. It is prose rather than a figure, and it asserts something
+  // about this client's accounts in a letter addressed to them: "one or more
+  // of your business credit cards have 0% introductory APR periods expiring
+  // soon", without reading the cards on file.
+  //
+  // Splitting the key by generator immediately earned its keep: the second
+  // finding behind the old route-level entry was
+  // generateBusinessPurposeStatement asserting the client "generates
+  // sufficient monthly cash flow to service all credit obligations within the
+  // 0% APR introductory periods" — in a document the CLIENT SIGNS. One entry
+  // had been covering both.
+  'src/backend/api/routes/document-gen.routes.ts::generateAprExpiryWarningLetter',
 ]);
 
 /**
@@ -439,41 +494,11 @@ const ALLOWED = new Set([...KNOWN_FABRICATED, ...CALLER_SUPPLIED]);
  * Delete an entry when it becomes a bracket. A stale one fails.
  */
 const KNOWN_DEFAULTED_CLAIMS = new Set<string>([
-  "generateAdverseActionResponse::The stated reasons have been reviewed and are addressed below.",
-  "generateAdvisorCallSummary::- No major decisions recorded",
-  "generateAdvisorCallSummary::See action items above",
-  "generateAdvisorCallSummary::Strategy Session",
-  "generateAdvisorCallSummary::To be scheduled",
-  "generateApplicationCoverLetter::3",
-  "generateApplicationCoverLetter::Acme Holdings LLC",
-  "generateApplicationCoverLetter::Chase",
-  "generateApplicationCoverLetter::Ink Business Preferred",
-  "generateApplicationCoverLetter::John Smith",
-  "generateApplicationCoverLetter::Managing Member",
-  "generateBusinessPurposeStatement::Acme Holdings LLC",
-  "generateBusinessPurposeStatement::Professional Services",
-  "generateBusinessPurposeStatement::working capital and operational expenses",
-  "generateClientProgressReport::1. Continue current strategy\\n2. Monitor upcoming APR expirations",
-  "generateClientProgressReport::Client is progressing well within the program timeline.",
-  "generateClientProgressReport::Current Quarter",
-  "generateClientProgressReport::In progress",
-  "generateClientProgressReport::None",
-  "generateClientProgressReport::On track",
-  "generateClientProgressReport::Program enrollment completed",
-  "generateClientProgressReport::Stable",
-  "generateComplianceIncidentReport::Investigation initiated; corrective actions pending",
-  "generateComplianceIncidentReport::None identified",
-  "generateComplianceIncidentReport::To be determined",
-  "generateComplianceIncidentReport::Under assessment",
-  "generateComplianceIncidentReport::Under investigation",
-  "generateConsentConfirmationLetter::Electronic signature via client portal",
-  "generateDeclineReconsiderationLetter::Acme Holdings LLC",
-  "generateDeclineReconsiderationLetter::Chase",
-  "generateDeclineReconsiderationLetter::Ink Business Unlimited",
-  "generateDeclineReconsiderationLetter::John Smith",
-  "generateDeclineReconsiderationLetter::too many recent inquiries",
-  "generateFeeDisclosureLetter::Non-refundable after funding round commences.",
-  "generateHardshipWorkoutProposal::temporary financial difficulty",
+  // Empty. All thirty-five were fixed on 2026-09-01, in three passes by shape:
+  // the consent confirmation first, then asserted state, then the sample
+  // identities. Each entry went stale the moment its default became a bracket,
+  // and this script failed until the entry was deleted — which is the only
+  // reason a list like this is worth keeping rather than a comment.
 ]);
 
 /**
@@ -494,7 +519,6 @@ const DEFAULTED_CLAIMS = new Set<string>([
   "generateAprExpiryWarningLetter::Card",
   "generateAprExpiryWarningLetter::Issuer",
   "generateComplianceIncidentReport::N/A",
-  "generateConsentConfirmationLetter::CST-",
   "generateFundingRoundSummary::Card",
   "generateFundingRoundSummary::Issuer",
   "generateHardshipWorkoutProposal::Client",
@@ -503,7 +527,10 @@ const DEFAULTED_CLAIMS = new Set<string>([
 ]);
 
 const { figures: found, assertions } = scan();
-const key = (v: Violation) => `${v.file}::${v.method} ${v.route}`;
+// A generator is keyed by its own name. Keying it by the route would let one
+// allowlist entry cover all sixteen templates at once.
+const key = (v: Violation) =>
+  v.generator ? `${v.file}::${v.generator}` : `${v.file}::${v.method} ${v.route}`;
 const fresh = found.filter((v) => !ALLOWED.has(key(v)));
 const stale = [...ALLOWED].filter((k) => !found.some((v) => key(v) === k));
 
@@ -535,7 +562,7 @@ if (fresh.length > 0) {
   );
   for (const v of fresh) {
     console.error(`  ${v.file}:${v.line}`);
-    console.error(`    ${v.method} ${v.route}`);
+    console.error(`    ${v.method} ${v.route}${v.generator ? ` -> ${v.generator}` : ''}`);
     console.error(`    …${v.sample}…\n`);
   }
   console.error(

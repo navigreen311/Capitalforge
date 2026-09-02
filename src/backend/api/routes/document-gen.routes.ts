@@ -33,11 +33,18 @@ import {
   checkRestackEligibility,
   RestackBusinessNotFoundError,
 } from '../../services/restack-trigger.js';
+import { ConsentService } from '../../services/consent.service.js';
 import logger from '../../config/logger.js';
 
 // ── Router ────────────────────────────────────────────────────
 
 export const documentGenRouter = Router();
+
+let _consentService: ConsentService | null = null;
+function getConsentService(): ConsentService {
+  _consentService ??= new ConsentService();
+  return _consentService;
+}
 
 documentGenRouter.use(tenantMiddleware);
 
@@ -123,11 +130,11 @@ export class DocumentContextRequiredError extends Error {
 // ── Template Generators ──────────────────────────────────────
 
 function generateDeclineReconsiderationLetter(ctx: Record<string, unknown>): string {
-  const businessName = (ctx.business_name as string) ?? 'Acme Holdings LLC';
-  const issuer = (ctx.issuer as string) ?? 'Chase';
-  const cardName = (ctx.card_name as string) ?? 'Ink Business Unlimited';
-  const declineReason = (ctx.decline_reason as string) ?? 'too many recent inquiries';
-  const applicantName = (ctx.applicant_name as string) ?? 'John Smith';
+  const businessName = (ctx.business_name as string) ?? '[Business]';
+  const issuer = (ctx.issuer as string) ?? '[Issuer]';
+  const cardName = (ctx.card_name as string) ?? '[Card]';
+  const declineReason = (ctx.decline_reason as string) ?? '[decline reason]';
+  const applicantName = (ctx.applicant_name as string) ?? '[Applicant]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return `${date}
@@ -159,16 +166,31 @@ ${businessName}`;
 }
 
 function generateBusinessPurposeStatement(ctx: Record<string, unknown>): string {
-  const businessName = (ctx.business_name as string) ?? 'Acme Holdings LLC';
-  const industry = (ctx.industry as string) ?? 'Professional Services';
+  const businessName = (ctx.business_name as string) ?? '[Business]';
+  const industry = (ctx.industry as string) ?? '[industry]';
   // Brackets, not figures. Every other field in these generators falls back to a
   // visible placeholder; these two fell back to money. A Business Purpose
   // Statement is signed by the client, and one asserting $150,000 sought against
   // $500,000 of revenue — when neither was supplied — reads exactly like one
   // where both were.
   const creditAmount = (ctx.credit_amount as string) ?? '[credit amount]';
-  const purpose = (ctx.purpose as string) ?? 'working capital and operational expenses';
+  const purpose = (ctx.purpose as string) ?? '[purpose]';
   const revenue = (ctx.annual_revenue as string) ?? '[annual revenue]';
+
+  // The client signs this statement, and this paragraph asserted their
+  // solvency: "${businessName} generates sufficient monthly cash flow to
+  // service all credit obligations within the 0% APR introductory periods."
+  //
+  // Nothing checked that, and nothing here could — the statement is assembled
+  // from a request body. It also presumed the client holds 0% introductory-APR
+  // cards. A capacity claim in a document the client puts their name to is the
+  // same defect as the re-stack summary's executive summary, one step worse:
+  // there it was the system asserting; here it is the client, on the system's
+  // say-so.
+  const repaymentBasis =
+    typeof ctx.repayment_basis === 'string' && ctx.repayment_basis.trim() !== ''
+      ? (ctx.repayment_basis as string)
+      : `[repayment basis — state how ${businessName} will service these obligations]`;
 
   // The allocation comes from the client or it is a bracket.
   //
@@ -220,7 +242,7 @@ ${allocation}
 
 REPAYMENT STRATEGY
 
-${businessName} generates sufficient monthly cash flow to service all credit obligations within the 0% APR introductory periods. Our repayment strategy includes:
+${repaymentBasis}
 - Monthly minimum payments maintained across all accounts
 - Strategic balance paydown prioritized by APR expiration dates
 - Revenue-based accelerated repayment during peak business periods
@@ -241,12 +263,12 @@ Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long',
 }
 
 function generateApplicationCoverLetter(ctx: Record<string, unknown>): string {
-  const businessName = (ctx.business_name as string) ?? 'Acme Holdings LLC';
-  const issuer = (ctx.issuer as string) ?? 'Chase';
-  const cardName = (ctx.card_name as string) ?? 'Ink Business Preferred';
-  const applicantName = (ctx.applicant_name as string) ?? 'John Smith';
-  const applicantTitle = (ctx.applicant_title as string) ?? 'Managing Member';
-  const yearsInBusiness = (ctx.years_in_business as string) ?? '3';
+  const businessName = (ctx.business_name as string) ?? '[Business]';
+  const issuer = (ctx.issuer as string) ?? '[Issuer]';
+  const cardName = (ctx.card_name as string) ?? '[Card]';
+  const applicantName = (ctx.applicant_name as string) ?? '[Applicant]';
+  const applicantTitle = (ctx.applicant_title as string) ?? '[Title]';
+  const yearsInBusiness = (ctx.years_in_business as string) ?? '[years in business]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return `${date}
@@ -315,7 +337,7 @@ function generateHardshipWorkoutProposal(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? 'Client';
   const issuer = (ctx.issuer as string) ?? 'Issuer';
   const currentBalance = ctx.current_balance ? '$' + Number(ctx.current_balance).toLocaleString() : '[balance]';
-  const hardshipReason = (ctx.hardship_reason as string) ?? 'temporary financial difficulty';
+  const hardshipReason = (ctx.hardship_reason as string) ?? '[hardship reason]';
   const currentApr = (ctx.current_apr as string) ?? '[current APR]';
   const monthlyRevenue = ctx.monthly_revenue ? '$' + Number(ctx.monthly_revenue).toLocaleString() : '[monthly revenue]';
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
@@ -361,7 +383,7 @@ function generateFeeDisclosureLetter(ctx: Record<string, unknown>): string {
   const programFeeFlat = ctx.program_fee_flat ? '$' + Number(ctx.program_fee_flat).toLocaleString() : '[flat fee]';
   const programFeePct = (ctx.program_fee_pct as string) ?? '[X]';
   const fundingEstimate = ctx.funding_estimate ? '$' + Number(ctx.funding_estimate).toLocaleString() : '[estimate]';
-  const refundPolicy = (ctx.refund_policy as string) ?? 'Non-refundable after funding round commences.';
+  const refundPolicy = (ctx.refund_policy as string) ?? '[refund policy]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return `FEE DISCLOSURE LETTER
@@ -607,9 +629,9 @@ function generateComplianceIncidentReport(ctx: Record<string, unknown>): string 
   const incidentType = (ctx.incident_type as string) ?? '[Type]';
   const severity = (ctx.severity as string) ?? '[Severity]';
   const description = (ctx.description as string) ?? '[Description of the incident]';
-  const affectedClients = (ctx.affected_clients as string) ?? 'None identified';
-  const rootCause = (ctx.root_cause as string) ?? 'Under investigation';
-  const remediation = (ctx.remediation as string) ?? 'Investigation initiated; corrective actions pending';
+  const affectedClients = (ctx.affected_clients as string) ?? '[affected clients]';
+  const rootCause = (ctx.root_cause as string) ?? '[root cause]';
+  const remediation = (ctx.remediation as string) ?? '[remediation]';
   const reportedBy = (ctx.reported_by as string) ?? '[Reporter]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -628,7 +650,7 @@ ${description}
 AFFECTED PARTIES
 
 Affected Clients: ${affectedClients}
-Regulatory Implications: ${(ctx.regulatory_implications as string) ?? 'Under assessment'}
+Regulatory Implications: ${(ctx.regulatory_implications as string) ?? '[regulatory implications]'}
 
 ROOT CAUSE ANALYSIS
 
@@ -648,7 +670,7 @@ REMEDIATION PLAN
 
 REGULATORY NOTIFICATION
 
-Required: ${(ctx.notification_required as string) ?? 'To be determined'}
+Required: ${(ctx.notification_required as string) ?? '[notification required]'}
 Deadline: ${(ctx.notification_deadline as string) ?? 'N/A'}
 
 This report is confidential and intended for internal compliance review only.`;
@@ -657,11 +679,11 @@ This report is confidential and intended for internal compliance review only.`;
 function generateClientProgressReport(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
-  const period = (ctx.period as string) ?? 'Current Quarter';
-  const fundingStatus = (ctx.funding_status as string) ?? 'In progress';
-  const scoreChange = (ctx.score_change as string) ?? 'Stable';
-  const paymentPerformance = (ctx.payment_performance as string) ?? 'On track';
-  const nextSteps = (ctx.next_steps as string) ?? '1. Continue current strategy\n2. Monitor upcoming APR expirations';
+  const period = (ctx.period as string) ?? '[reporting period]';
+  const fundingStatus = (ctx.funding_status as string) ?? '[funding status]';
+  const scoreChange = (ctx.score_change as string) ?? '[score change]';
+  const paymentPerformance = (ctx.payment_performance as string) ?? '[payment performance]';
+  const nextSteps = (ctx.next_steps as string) ?? '[next steps]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return `CLIENT PROGRESS REPORT
@@ -682,11 +704,11 @@ CREDIT HEALTH
 Credit Score Change: ${scoreChange}
 Average Utilization: ${(ctx.avg_utilization as string) ?? '[X]'}%
 Payment Performance: ${paymentPerformance}
-Delinquencies: ${(ctx.delinquencies as string) ?? 'None'}
+Delinquencies: ${(ctx.delinquencies as string) ?? '[delinquencies]'}
 
 MILESTONES ACHIEVED
 
-- ${(ctx.milestones as string) ?? 'Program enrollment completed'}
+- ${(ctx.milestones as string) ?? '[milestones]'}
 
 RECOMMENDED NEXT STEPS
 
@@ -694,7 +716,7 @@ ${nextSteps}
 
 ADVISOR NOTES
 
-${(ctx.advisor_notes as string) ?? 'Client is progressing well within the program timeline.'}`;
+${(ctx.advisor_notes as string) ?? '[advisor notes]'}`;
 }
 
 function generateFundingRoundSummary(ctx: Record<string, unknown>): string {
@@ -773,7 +795,7 @@ Date: ${callDate}
 Duration: ${callDuration} minutes
 Client: ${clientName}
 Advisor: ${advisorName}
-Call Type: ${(ctx.call_type as string) ?? 'Strategy Session'}
+Call Type: ${(ctx.call_type as string) ?? '[call type]'}
 
 PURPOSE
 
@@ -785,7 +807,7 @@ ${topicsDiscussed}
 
 KEY DECISIONS
 
-${(ctx.key_decisions as string) ?? '- No major decisions recorded'}
+${(ctx.key_decisions as string) ?? '[key decisions]'}
 
 ACTION ITEMS
 
@@ -793,8 +815,8 @@ ${actionItems}
 
 FOLLOW-UP
 
-Next Scheduled Call: ${(ctx.next_call_date as string) ?? 'To be scheduled'}
-Priority Items: ${(ctx.priority_items as string) ?? 'See action items above'}
+Next Scheduled Call: ${(ctx.next_call_date as string) ?? '[next call date]'}
+Priority Items: ${(ctx.priority_items as string) ?? '[priority items]'}
 
 COMPLIANCE NOTE
 
@@ -853,11 +875,68 @@ Sincerely,
 CapitalForge Accounts Receivable`;
 }
 
+/**
+ * One recorded consent, as the letter states it.
+ *
+ * Injected by the route from `ConsentService.getConsentStatuses`, not taken
+ * from the caller's context. This letter is the client's copy of what the
+ * system holds about their consent; assembling it from a request body means
+ * confirming to a client whatever the caller typed.
+ */
+export interface ConsentLetterRecord {
+  channel: string;
+  consentType: string;
+  status: string;
+  grantedAt: string;
+  evidenceRef: string | null;
+}
+
 function generateConsentConfirmationLetter(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
-  const consentDate = (ctx.consent_date as string) ?? new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const channels = Array.isArray(ctx.channels) ? (ctx.channels as string[]).join(', ') : 'Voice, SMS, Email';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // Four defaults used to live here, and the letter is a client's copy of a
+  // consent record:
+  //
+  //   consent_date      ?? new Date()   — today, asserted as the date consent
+  //                                       was given
+  //   channels          ?? 'Voice, SMS, Email'
+  //                                     — consent to all three channels,
+  //                                       asserted when none were supplied
+  //   consent_method    ?? 'Electronic signature via client portal'
+  //   consent_reference ?? 'CST-' + Date.now()
+  //                                     — an invented evidence pointer
+  //
+  // The reference is the worst of the four. `evidenceRef` is the field that
+  // carries proof a consent happened; generating one from a timestamp gives a
+  // client a reference number that resolves to nothing.
+  const consents = ctx.consents as ConsentLetterRecord[] | undefined;
+  if (!Array.isArray(consents)) {
+    throw new DocumentContextRequiredError(
+      'consent_confirmation_letter',
+      'no consent records were supplied. This letter is the copy given to the client of '
+      + 'what the '
+      + 'system holds — the channels, the dates and the evidence reference — so it is read '
+      + 'from the consent record rather than from the request. Send business_id and the '
+      + 'route will read it.',
+    );
+  }
+  if (consents.length === 0) {
+    throw new DocumentContextRequiredError(
+      'consent_confirmation_letter',
+      'no consent is recorded for this client, so there is nothing to confirm. A letter '
+      + 'confirming a consent that was never captured is the document this endpoint exists '
+      + 'not to produce.',
+    );
+  }
+
+  const rows = consents
+    .map(
+      (c) =>
+        `- ${c.channel} (${c.consentType}): ${c.status}, recorded ${c.grantedAt}\n`
+        + `  Evidence reference: ${c.evidenceRef ?? '[not recorded]'}`,
+    )
+    .join('\n');
 
   return `CONSENT CONFIRMATION LETTER
 
@@ -866,14 +945,18 @@ To: ${clientName}
 
 Dear ${clientName},
 
-This letter confirms that your communication consent preferences have been recorded in our system.
+This letter confirms the communication consent recorded in our system for your account.
 
 CONSENT DETAILS
 
-Consent Date: ${consentDate}
-Consented Channels: ${channels}
-Consent Method: ${(ctx.consent_method as string) ?? 'Electronic signature via client portal'}
-Consent Reference: ${(ctx.consent_reference as string) ?? 'CST-' + Date.now().toString(36).toUpperCase()}
+${rows}
+
+Consent Method: [not recorded]
+
+CapitalForge records the channel, the date, the IP address and an evidence
+reference for each consent. It does not record the METHOD by which consent was
+given, so this letter cannot state one. If you need the method confirmed,
+contact CapitalForge Compliance and quote the evidence reference above.
 
 SCOPE OF CONSENT
 
@@ -901,7 +984,7 @@ function generateAdverseActionResponse(ctx: Record<string, unknown>): string {
   const issuer = (ctx.issuer as string) ?? '[Issuer]';
   const cardName = (ctx.card_name as string) ?? '[Card]';
   const noticeDate = (ctx.notice_date as string) ?? '[date]';
-  const declineReasons = (ctx.decline_reasons as string) ?? 'The stated reasons have been reviewed and are addressed below.';
+  const declineReasons = (ctx.decline_reasons as string) ?? '[decline reasons]';
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -1074,6 +1157,30 @@ documentGenRouter.post(
           readinessScore: verdict.readinessScore,
         };
         context.client_name = context.client_name ?? verdict.businessName;
+      }
+
+      if (document_type === 'consent_confirmation_letter') {
+        const businessId = typeof context.business_id === 'string' ? context.business_id : null;
+        if (!businessId) {
+          sendError(
+            res,
+            422,
+            'BUSINESS_ID_REQUIRED',
+            'consent_confirmation_letter is the copy given to the client of the consent this '
+            + 'system '
+            + 'holds, so the channels, dates and evidence references are read from the '
+            + 'consent record. Supply context.business_id.',
+          );
+          return;
+        }
+        const statuses = await getConsentService().getConsentStatuses(tenantId, businessId);
+        context.consents = statuses.map((c) => ({
+          channel: c.channel,
+          consentType: c.consentType,
+          status: c.status,
+          grantedAt: c.grantedAt.toISOString().slice(0, 10),
+          evidenceRef: c.evidenceRef,
+        }));
       }
 
       const generator = GENERATORS[document_type];
