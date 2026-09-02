@@ -94,6 +94,7 @@ model User {
   @@unique([tenantId, email])
   @@map("users")
   createdApplications CardApplication[] @relation("CardApplicationCreatedBy")
+  reconciledStatements StatementRecord[] @relation("StatementReconciledBy")
 }
 
 /**
@@ -893,9 +894,24 @@ model StatementRecord {
   normalizedData    Json?
   anomalies         Json?
   reconciled        Boolean   @default(false)
+  /// Who signed off. This existed only inside a ledger event published after,
+  /// and outside, the update that flipped `reconciled` — so a failed publish
+  /// left a statement reconciled by nobody, permanently.
+  reconciledByUserId String?
+  reconciledAt       DateTime?
+  reconciliationNotes String?
+  /// Set when a later ingest of the same (businessId, issuer, statementDate)
+  /// replaced this row. Superseded rather than overwritten: a reconciled
+  /// statement is evidence of what an advisor reviewed on a given day.
+  supersededAt      DateTime?
+  supersededById    String?
   createdAt         DateTime  @default(now())
 
+  reconciledByUser User? @relation("StatementReconciledBy", fields: [reconciledByUserId], references: [id], onDelete: SetNull)
+
   @@index([tenantId, businessId])
+  @@index([reconciledByUserId])
+  @@index([supersededById])
   @@map("statement_records")
 }
 

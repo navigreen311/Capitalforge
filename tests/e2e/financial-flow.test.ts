@@ -428,6 +428,10 @@ describe('E2E: Financial Flow', () => {
     (graph.prisma as unknown as Record<string, unknown>).statementRecord = {
       create: vi.fn().mockResolvedValue(statementRecord),
       findUnique: vi.fn().mockResolvedValue(statementRecord),
+      // Ingest looks for a live record of the same (business, issuer, period)
+      // before creating one, so a re-ingest supersedes rather than duplicates.
+      // Null here: this flow imports the statement once.
+      findFirst: vi.fn().mockResolvedValue(null),
       update: vi.fn().mockResolvedValue({ ...statementRecord, reconciled: true }),
     };
 

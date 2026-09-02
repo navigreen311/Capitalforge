@@ -340,6 +340,7 @@ describe('StatementReconciliationService — Fee Anomaly Detection', () => {
       availableCredit: 7500,
       rewardsEarned: null,
       transactions,
+      removedDuplicates: [],
       currency: 'USD',
       isPartial: false,
       hasMultiCurrency: false,
@@ -391,34 +392,58 @@ describe('StatementReconciliationService — Fee Anomaly Detection', () => {
   });
 
   // Test 14 — Duplicate charge detection → high severity
-  it('detects duplicate charges across non-fee transactions', () => {
-    const normalized = makeNormalized([
-      {
-        description: 'Costco Wholesale',
-        amount: 250.00,
-        transactionDate: '2026-01-10',
-        isFee: false,
-        isCashAdvance: false,
-        isInterest: false,
-        currency: 'USD',
-      },
-      {
-        description: 'Costco Wholesale',
-        amount: 250.00,
-        transactionDate: '2026-01-10',
-        isFee: false,
-        isCashAdvance: false,
-        isInterest: false,
-        currency: 'USD',
-      },
-    ]);
+  // This test used to hand two identical same-day rows to the detector inside
+  // `transactions` — a state the pipeline cannot produce, because the
+  // normalizer collapses exactly those rows before this function runs. So it
+  // asserted `high` for a case the engine never saw, and passed, while the
+  // real same-day duplicate was deleted upstream and the case that did reach
+  // here (different dates, i.e. a recurring charge) was also reported `high`.
+  const costco = (transactionDate: string) => ({
+    description: 'Costco Wholesale',
+    amount: 250.00,
+    transactionDate,
+    isFee: false,
+    isCashAdvance: false,
+    isInterest: false,
+    currency: 'USD',
+  });
+
+  it('reports a same-day repeated row as a high-severity candidate', () => {
+    // How the pipeline actually delivers it: one row kept in `transactions`,
+    // its twin collapsed onto `removedDuplicates`.
+    const normalized = makeNormalized([costco('2026-01-10')]);
+    normalized.removedDuplicates = [costco('2026-01-10')];
 
     const anomalies = service.detectFeeAnomalies(normalized);
-
     const dup = anomalies.find((a) => a.type === 'duplicate_charge');
+
     expect(dup).toBeDefined();
     expect(dup?.severity).toBe('high');
-    expect(dup?.amount).toBe(500.00); // 2 × 250
+    // The excess, not the whole charge. $250 is what is in dispute; the other
+    // $250 is a purchase the client made.
+    expect(dup?.amount).toBe(250.00);
+    expect(dup?.description).toMatch(/same date, same amount, same merchant/i);
+  });
+
+  it('reports the same charge on different dates as medium, and says why', () => {
+    // Two identical subscription renewals look exactly like this.
+    const normalized = makeNormalized([costco('2026-01-10'), costco('2026-01-24')]);
+
+    const anomalies = service.detectFeeAnomalies(normalized);
+    const dup = anomalies.find((a) => a.type === 'duplicate_charge');
+
+    expect(dup).toBeDefined();
+    expect(dup?.severity).toBe('medium');
+    expect(dup?.amount).toBe(500.00);
+    expect(dup?.description).toMatch(/recurring charge/i);
+  });
+
+  it('finds nothing when a statement carries no repeated rows', () => {
+    const normalized = makeNormalized([costco('2026-01-10')]);
+
+    expect(
+      service.detectFeeAnomalies(normalized).filter((a) => a.type === 'duplicate_charge'),
+    ).toEqual([]);
   });
 
   // Test 15 — Fee spike detection
@@ -527,6 +552,7 @@ describe('StatementReconciliationService — Balance Mismatch Detection', () => 
           currency: 'USD',
         },
       ],
+      removedDuplicates: [],
       currency: 'USD',
       isPartial: false,
       hasMultiCurrency: false,
@@ -723,9 +749,18 @@ describe('StatementReconciliationService — Service Methods', () => {
 
     expect(result.reconciled).toBe(true);
     expect(result.statementId).toBe(STATEMENT_ID);
+    // The actor and the timestamp go onto the ROW, not only into the ledger
+    // event published afterwards. They used to exist only in that event — so a
+    // failed publish left a statement reconciled by nobody, permanently, and
+    // no read could say otherwise.
     expect(prisma.statementRecord.update).toHaveBeenCalledWith({
       where: { id: STATEMENT_ID },
-      data: { reconciled: true },
+      data: {
+        reconciled: true,
+        reconciledByUserId: 'user-advisor-001',
+        reconciledAt: expect.any(Date),
+        reconciliationNotes: 'Verified against bank records.',
+      },
     });
     expect(eventBus.publishAndPersist).toHaveBeenCalledWith(
       TENANT_ID,

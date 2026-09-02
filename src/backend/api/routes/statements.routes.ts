@@ -21,6 +21,10 @@ import type { Request } from '../../types/http.js';
 import {
   StatementReconciliationService,
   UndatedStatementError,
+  BusinessNotFoundError,
+  StatementNotFoundError,
+  StatementAlreadyReconciledError,
+  UnattributedReconciliationError,
 } from '../../services/statement-reconciliation.service.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
@@ -52,14 +56,32 @@ function tenantId(req: Request): string {
   return req.tenant?.tenantId ?? 'unknown';
 }
 
+/**
+ * Map a thrown error to a status, by type.
+ *
+ * This matched on message substrings for all six endpoints:
+ *
+ *   includes('not found') || includes('does not belong')            -> 404
+ *   includes('already reconciled') || includes('required')
+ *     || includes('must be')                                        -> 422
+ *
+ * `required` and `must be` appear throughout Prisma and Express messages, so
+ * an internal failure — a dropped connection reported as "Argument x is
+ * required" — was handed to the caller as a validation error about their own
+ * payload. That is an instruction to go and fix something that was never
+ * wrong, and it turned an outage into six endpoints quietly blaming their
+ * callers. The 404 branch had the mirror problem: any future error mentioning
+ * "not found" asserted that the client's statement does not exist.
+ *
+ * The 4xx bodies also returned the thrown message verbatim, and the service's
+ * messages named the tenant: `Business <id> not found for tenant <tenantId>`.
+ * The typed errors no longer carry it.
+ */
 function handleError(res: Response, err: unknown, context: string): void {
   const message = err instanceof Error ? err.message : String(err);
   logger.error(`Statements route error [${context}]`, { error: message });
 
-  if (
-    message.includes('not found') ||
-    message.includes('does not belong')
-  ) {
+  if (err instanceof BusinessNotFoundError || err instanceof StatementNotFoundError) {
     res.status(404).json({
       success: false,
       error: { code: 'NOT_FOUND', message },
@@ -67,14 +89,26 @@ function handleError(res: Response, err: unknown, context: string): void {
     return;
   }
 
-  if (
-    message.includes('already reconciled') ||
-    message.includes('required') ||
-    message.includes('must be')
-  ) {
+  if (err instanceof StatementAlreadyReconciledError) {
+    res.status(409).json({
+      success: false,
+      error: { code: 'ALREADY_RECONCILED', message },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  if (err instanceof UndatedStatementError) {
     res.status(422).json({
       success: false,
-      error: { code: 'VALIDATION_ERROR', message },
+      error: { code: 'STATEMENT_UNDATED', message },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  if (err instanceof UnattributedReconciliationError) {
+    res.status(422).json({
+      success: false,
+      error: { code: 'RECONCILER_REQUIRED', message },
     } satisfies ApiResponse);
     return;
   }
@@ -149,6 +183,12 @@ statementsRouter.post(
           anomalyCount: result.anomalies.length,
           balanceMismatchDetected: result.balanceMismatchDetected,
           feeAnomalyDetected: result.feeAnomalyDetected,
+          // What this import replaced. A retry now corrects rather than
+          // duplicating, and the caller is told which record it stood down.
+          supersededStatementRecordId: result.supersededStatementRecordId,
+          // And told when the record it replaced had been signed off, because
+          // that attestation does not carry over to figures nobody has seen.
+          supersededReconciledStatement: result.supersededReconciledStatement,
           warnings: result.normalized.warnings,
         },
       } satisfies ApiResponse);
@@ -283,7 +323,10 @@ statementsRouter.post(
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     const statementId = String(req.params.statementId);
     const tid = tenantId(req);
-    const reconciledBy = req.tenant?.userId ?? 'system';
+    // Not `?? 'system'`. An advisor attesting that they reviewed a statement
+    // cannot be recorded against a machine that reviewed nothing — the service
+    // refuses an absent actor with a 422 rather than inventing one.
+    const reconciledBy = req.tenant?.userId ?? '';
 
     try {
       const { notes } = req.body as Record<string, unknown>;
