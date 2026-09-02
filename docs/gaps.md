@@ -637,6 +637,62 @@ is the document that endpoint exists not to produce.
 
 
 
+
+### 3i. Every module read before the conventions existed is stale against them — open, 2026-09-02
+
+**This is a conformance sweep, not a defect sweep, and it should happen once at
+the end rather than per module.**
+
+Ten modules were swept between 1 and 2 September. The conventions that now
+govern how a module answers were written *during* that sweep, mostly near the
+end, so most modules were read and fixed against rules that did not exist yet.
+They are not wrong. They are inconsistent with what came after, and an agent
+reading three manuals written to three different standards is the problem the
+conventions exist to prevent.
+
+**The conventions, and when they appeared:**
+
+| Convention | Where it lives | Written |
+|---|---|---|
+| An empty result carries a `basis` | shared rule 2 | 2 Sep, after eight modules |
+| A module id groups by blast radius, not URL prefix | `docs/callable-modules.md` rule 1 | 2 Sep, from the client split |
+| Path depth is not evidence of blast radius | `docs/callable-modules.md` rule 2 | 2 Sep, same |
+| A refusal is not an absence | shared rule 1a | 2 Sep, last |
+| Never infer what you cannot read | shared rule 1b | 2 Sep, last |
+| A count travels with its denominator | shared rule 7 | 2 Sep, from the restack scan |
+
+**The sample, measured rather than guessed.** `statement_pull` was read and
+fixed on 1 September, before all six. Against them today it opens four to six
+items:
+
+- no `basis` on any empty result in the module — the anomaly report, the
+  statement list, the line-items refusal;
+- `channel` on ingest is a free string, where `scan_communication` now has an
+  enum drawn from one shared list;
+- the anomaly report gives a count with no denominator — how many statements
+  were scanned, not only how many carried anomalies;
+- read and write endpoints share one module id, with the ingest/reconcile
+  split never made;
+- the two 501 refusals predate rule 1a and are not described as refusals in
+  those terms anywhere an agent would read.
+
+**Expect a similar count per module**, weighted towards the ones read earliest.
+Roughly thirty to fifty items across the ten, nearly all of them one-line
+response-shape changes or a paragraph in a manual.
+
+**Why once, at the end.** Doing it per module means re-reading each one every
+time a convention is added, and the conventions are still settling — three of
+the six are less than a day old. A single pass after the last module is read
+costs one traversal instead of ten, and it is the point at which the
+convention set is stable enough to be worth conforming to.
+
+**What this is not.** None of these is a live defect. The fixes shipped during
+the sweep stand; this is the difference between a module that is correct and a
+set of modules that are consistent. Recorded so it is not rediscovered per
+module and fixed piecemeal, which is exactly the shape the sweep found
+everywhere else — a class found and fixed three times, each time only in the
+surface someone was looking at.
+
 ### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
 
 Nothing answers "show me your communication monitoring" at the level the
