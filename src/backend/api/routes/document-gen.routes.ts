@@ -34,6 +34,7 @@ import {
   RestackBusinessNotFoundError,
 } from '../../services/restack-trigger.js';
 import { ConsentService } from '../../services/consent.service.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 
 // ── Router ────────────────────────────────────────────────────
@@ -461,38 +462,126 @@ ${advisorName}
 CapitalForge`;
 }
 
+/**
+ * A card on file whose introductory APR period is ending.
+ *
+ * Injected by the route from `card_applications`, not accepted from the
+ * caller. The letter tells a client something about their own accounts, and
+ * `expiring_cards` used to be whatever a caller put in the request body — or,
+ * when they put nothing, a sentence asserting that one or more of their cards
+ * was expiring, with no card behind it.
+ */
+export interface ExpiringCard {
+  cardProduct: string;
+  issuer: string;
+  /** ISO date. Null when the card has an intro APR whose end nobody recorded. */
+  introAprExpiry: string | null;
+  daysRemaining: number | null;
+  /** Percent, e.g. 24.99. Null when not recorded. */
+  regularApr: number | null;
+  /**
+   * Closing balance from the most recent statement LINKED TO THIS CARD.
+   *
+   * Null is common and is not zero: `card_applications` has no balance column,
+   * so this is only available where a statement was imported and carried a
+   * `cardApplicationId`. The letter says so rather than printing a figure.
+   */
+  latestStatementBalance: number | null;
+  latestStatementDate: string | null;
+}
+
 function generateAprExpiryWarningLetter(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
   const ownerName = (ctx.owner_name as string) ?? clientName;
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
 
-  let cardDetails = 'Your card introductory APR period is expiring soon. Please contact your advisor for details.';
-  if (Array.isArray(ctx.expiring_cards)) {
-    const cards = ctx.expiring_cards as Array<Record<string, unknown>>;
-    cardDetails = 'The following cards have introductory APR periods expiring soon:\n\n' +
-      cards.map(c =>
-        `- ${c.card_name ?? 'Card'} (${c.issuer ?? 'Issuer'}): Balance ${c.balance === undefined || c.balance === null ? '[balance]' : '$' + Number(c.balance).toLocaleString()}, expires in ${c.days_remaining ?? '??'} days`
-      ).join('\n');
+  // The opening sentence used to read, unconditionally:
+  //
+  //   "one or more of your business credit cards have 0% introductory APR
+  //    periods expiring soon"
+  //
+  // to a client, from a generator that had read no cards. When `expiring_cards`
+  // was absent the body said "Your card introductory APR period is expiring
+  // soon. Please contact your advisor for details." — an URGENT letter about a
+  // card nobody had looked up. The cards are read from card_applications now.
+  const cards = ctx.expiring_cards as ExpiringCard[] | undefined;
+  if (!Array.isArray(cards)) {
+    throw new DocumentContextRequiredError(
+      'apr_expiry_warning_letter',
+      'no cards were supplied. This letter states that a client has cards whose '
+      + 'introductory APR is ending, so the cards are read from the applications on '
+      + 'file rather than from the request. Send business_id and the route will read '
+      + 'them.',
+    );
   }
+  if (cards.length === 0) {
+    throw new DocumentContextRequiredError(
+      'apr_expiry_warning_letter',
+      'no card on file has an introductory APR period ending in the window. An URGENT '
+      + 'letter about cards that are not expiring is the document this endpoint exists '
+      + 'not to produce.',
+    );
+  }
+
+  const dated = cards.filter((c) => c.daysRemaining !== null);
+  const undated = cards.filter((c) => c.daysRemaining === null);
+
+  const line = (c: ExpiringCard): string => {
+    const balance =
+      c.latestStatementBalance === null
+        ? 'balance not recorded'
+        : `balance $${c.latestStatementBalance.toLocaleString()} as of ${c.latestStatementDate}`;
+    const when =
+      c.daysRemaining === null
+        ? 'expiry date not recorded'
+        : `expires ${c.introAprExpiry} (${c.daysRemaining} days)`;
+    const after =
+      c.regularApr === null
+        ? 'rate after expiry not recorded'
+        : `then ${c.regularApr}% APR`;
+    return `- ${c.cardProduct} (${c.issuer}): ${when}, ${after}, ${balance}`;
+  };
+
+  const sections = [
+    dated.length > 0 ? dated.map(line).join('\n') : null,
+    undated.length > 0
+      ? 'The following cards have an introductory APR recorded with no end date, so '
+        + 'how long is left cannot be stated:\n\n'
+        + undated.map(line).join('\n')
+      : null,
+  ].filter(Boolean).join('\n\n');
+
+  const opening =
+    dated.length > 0
+      ? `${dated.length === 1 ? 'One of your' : `${dated.length} of your`} business credit `
+        + `card${dated.length === 1 ? '' : 's'} ${dated.length === 1 ? 'has an' : 'have'} `
+        + 'introductory APR period ending. Acting before it ends limits the interest you pay.'
+      : 'Your account shows introductory APR periods whose end dates are not recorded, so '
+        + 'this letter cannot say how long is left. Your advisor can confirm them with the '
+        + 'issuer.';
 
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-  return `URGENT: APR EXPIRY WARNING
+  return `APR EXPIRY WARNING
 
 Date: ${date}
 
 Dear ${ownerName},
 
-This letter is to advise you that one or more of your business credit cards have 0% introductory APR periods expiring soon. Immediate action is recommended to minimize interest charges.
+${opening}
 
 EXPIRING CARDS
 
-${cardDetails}
+${sections}
+
+Balances are shown only where a statement carrying that card was imported.
+CapitalForge does not hold a live balance for a card, so a card with no
+balance above is not a card with nothing owed on it.
 
 RECOMMENDED ACTIONS
 
 1. Review your current balances and payment schedule
-2. Consider balance transfer options to extend 0% APR periods
+2. Consider balance transfer options to extend an introductory APR period
 3. Accelerate payments on cards with the nearest expiration dates
 4. Contact your advisor to discuss restack or refinancing options
 
@@ -500,7 +589,7 @@ WHAT HAPPENS WHEN APR EXPIRES
 
 Once the introductory period ends, the variable APR will apply to any remaining balance. This can significantly increase your monthly payment obligations.
 
-Please contact ${advisorName} immediately to discuss your options and develop an action plan.
+Please contact ${advisorName} to discuss your options and develop an action plan.
 
 Sincerely,
 ${advisorName}
@@ -1181,6 +1270,103 @@ documentGenRouter.post(
           grantedAt: c.grantedAt.toISOString().slice(0, 10),
           evidenceRef: c.evidenceRef,
         }));
+      }
+
+      if (document_type === 'apr_expiry_warning_letter') {
+        const businessId = typeof context.business_id === 'string' ? context.business_id : null;
+        if (!businessId) {
+          sendError(
+            res,
+            422,
+            'BUSINESS_ID_REQUIRED',
+            'apr_expiry_warning_letter tells a client which of their cards have an '
+            + 'introductory APR ending, so the cards are read from the applications on '
+            + 'file. Supply context.business_id.',
+          );
+          return;
+        }
+
+        // How far ahead to look. Ninety days by default because that is the
+        // window the letter's own advice assumes; a caller may narrow or widen
+        // it, and the letter states what it found rather than the window.
+        const windowDays =
+          typeof context.window_days === 'number' && context.window_days > 0
+            ? context.window_days
+            : 90;
+        const horizon = new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000);
+
+        // Scoped through the business, not by businessId alone.
+        const applications = await sharedPrisma.cardApplication.findMany({
+          where: {
+            businessId,
+            business: { tenantId },
+            cancelledAt: null,
+            introApr: { not: null },
+            OR: [
+              // Ending inside the window...
+              { introAprExpiry: { gte: new Date(), lte: horizon } },
+              // ...or recorded with an intro APR and no end date at all. Not
+              // dropped: a card whose expiry nobody recorded is why the letter
+              // has a second section, rather than a shorter first one.
+              { introAprExpiry: null },
+            ],
+          },
+          select: {
+            id: true,
+            issuer: true,
+            cardProduct: true,
+            introAprExpiry: true,
+            regularApr: true,
+          },
+          orderBy: { introAprExpiry: 'asc' },
+        });
+
+        // The most recent statement carrying each card, for the balance.
+        // `card_applications` has no balance column, so this is the only place
+        // a figure could come from, and it is frequently absent.
+        const statements = await sharedPrisma.statementRecord.findMany({
+          where: {
+            tenantId,
+            businessId,
+            cardApplicationId: { in: applications.map((a) => a.id) },
+            supersededAt: null,
+          },
+          select: {
+            cardApplicationId: true,
+            closingBalance: true,
+            statementDate: true,
+          },
+          orderBy: { statementDate: 'desc' },
+        });
+        const latestByCard = new Map<string, (typeof statements)[number]>();
+        for (const st of statements) {
+          if (st.cardApplicationId && !latestByCard.has(st.cardApplicationId)) {
+            latestByCard.set(st.cardApplicationId, st);
+          }
+        }
+
+        const dayMs = 24 * 60 * 60 * 1000;
+        context.expiring_cards = applications.map((a) => {
+          const st = latestByCard.get(a.id) ?? null;
+          return {
+            cardProduct: a.cardProduct,
+            issuer: a.issuer,
+            introAprExpiry: a.introAprExpiry
+              ? a.introAprExpiry.toISOString().slice(0, 10)
+              : null,
+            daysRemaining: a.introAprExpiry
+              ? Math.max(0, Math.ceil((a.introAprExpiry.getTime() - Date.now()) / dayMs))
+              : null,
+            regularApr: a.regularApr === null ? null : Number(a.regularApr),
+            latestStatementBalance:
+              st?.closingBalance === null || st?.closingBalance === undefined
+                ? null
+                : Number(st.closingBalance),
+            latestStatementDate: st?.statementDate
+              ? st.statementDate.toISOString().slice(0, 10)
+              : null,
+          };
+        });
       }
 
       const generator = GENERATORS[document_type];

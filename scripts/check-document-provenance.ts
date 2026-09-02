@@ -49,6 +49,39 @@
 //   — document-gen's sixteen templates — legitimately queries nothing, and those
 //   are allowlisted with the reason. What it buys is that the SIXTH one fails at
 //   authoring time instead of on a sweep.
+//
+// THE EXEMPTION RULE — THIS HAS BITTEN THREE TIMES
+//
+//   An exemption tested against an EXPANDED scope gets weaker every time
+//   something is added to that scope. All three checks in scripts/ have now
+//   been caught by this, each through a different door:
+//
+//     check-document-provenance   a 501 in one of sixteen templates exempted
+//                                 the whole endpoint, un-checking fifteen as a
+//                                 side effect of making one honest
+//     check-document-provenance   later, one `await getConsentService()` in the
+//                                 handler satisfied ASKS_SOMETHING for all
+//                                 sixteen generators at once
+//     check-route-tenancy         a comment reading "we could use
+//                                 businessBelongsToTenant here but have not
+//                                 yet" satisfied the ownership-helper test
+//     check-test-claims           the same comment-satisfies-marker shape, and
+//                                 a fixture `.map()` counted as a cardinality
+//                                 assertion
+//
+//   The pattern is always the same: a marker is looked for in a blob, the blob
+//   grows, and the marker's meaning silently widens from "this unit is fine"
+//   to "something in here is fine".
+//
+//   TWO RULES THAT FOLLOW, and this script obeys both:
+//
+//     1. JUDGE PER UNIT, NOT PER FILE. A test, a handler, a generator — each
+//        is evaluated on its own body, and each allowlist key names that unit.
+//        A key that names a file or a route lets one entry cover everything
+//        inside it, and the count stops meaning anything.
+//     2. READ MASKED SOURCE. A marker in a comment is not a fact about the
+//        code. Every detection here runs against source with comments blanked.
+//
 // ============================================================
 
 import { readFileSync, readdirSync, statSync } from 'fs';
@@ -415,22 +448,17 @@ function scan(): { figures: Violation[]; assertions: DefaultedAssertion[] } {
  *   promising all fees were disclosed. It refuses; see UNPRICED_DOCUMENTS.
  */
 const KNOWN_FABRICATED = new Set<string>([
-  // Keyed by generator now, not by the route. The route key covered all sixteen
-  // templates with one entry, so a second fabricated document could appear
-  // behind it without the count changing.
+  // Empty as of 2026-09-01.
   //
-  // One entry. It is prose rather than a figure, and it asserts something
-  // about this client's accounts in a letter addressed to them: "one or more
-  // of your business credit cards have 0% introductory APR periods expiring
-  // soon", without reading the cards on file.
+  // The last entry was `generateAprExpiryWarningLetter`, which told a client
+  // "one or more of your business credit cards have 0% introductory APR
+  // periods expiring soon" from a generator that had read no cards — and, when
+  // the caller supplied none, printed "Your card introductory APR period is
+  // expiring soon" about a card nobody had looked up. It reads
+  // `card_applications` now.
   //
-  // Splitting the key by generator immediately earned its keep: the second
-  // finding behind the old route-level entry was
-  // generateBusinessPurposeStatement asserting the client "generates
-  // sufficient monthly cash flow to service all credit obligations within the
-  // 0% APR introductory periods" — in a document the CLIENT SIGNS. One entry
-  // had been covering both.
-  'src/backend/api/routes/document-gen.routes.ts::generateAprExpiryWarningLetter',
+  // Keyed by generator since 2026-09-01; the route key it replaced had been
+  // covering two findings with one entry.
 ]);
 
 /**
@@ -515,9 +543,6 @@ const KNOWN_DEFAULTED_CLAIMS = new Set<string>([
  * stale and this check says so.
  */
 const DEFAULTED_CLAIMS = new Set<string>([
-  "generateAprExpiryWarningLetter::??",
-  "generateAprExpiryWarningLetter::Card",
-  "generateAprExpiryWarningLetter::Issuer",
   "generateComplianceIncidentReport::N/A",
   "generateFundingRoundSummary::Card",
   "generateFundingRoundSummary::Issuer",

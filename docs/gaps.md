@@ -594,13 +594,38 @@ record does not hold, beside a `Consent Reference` that was
 `'CST-' + Date.now().toString(36)` when none was supplied — an invented
 evidence pointer, given to a client, resolving to nothing.
 
-**What it would take.** A `method` column on `ConsentRecord`
+### DECISION NEEDED — not a migration
+
+**Do not add the column on engineering judgement.** The work is half a day: a
+`method` column on `ConsentRecord`
 (`portal_signature | voice_recorded | sms_reply | wet_signature | imported`),
-set at capture. Half a day for the column and the capture path. The real
-question is what to do about the consents already recorded: their method is
-genuinely unknown and backfilling a guess would be this defect again, one
-migration further from anyone noticing. `[not recorded]` is the right answer
-for every existing row.
+set at capture, plus the four or five call sites that create a consent. That is
+not the question.
+
+The question is whether the method of consent is something Burkham should be
+recording at all. Two things bear on it:
+
+- **Every existing row is `[not recorded]`, permanently, and that is correct.**
+  The method of a consent captured last year is genuinely unknown. Backfilling
+  a guess would be this same defect one migration further from anyone noticing
+  — a column full of `portal_signature` that nobody ever verified, indexed and
+  queryable and wrong. So the column improves consents captured AFTER it ships
+  and nothing before, and the letter keeps saying `[not recorded]` for the back
+  catalogue either way.
+
+- **`evidenceRef` may already be the answer.** The `consent_grant` manual says
+  it is the only field carrying proof, and it is a pointer to the artefact — a
+  call recording, a signed form, a portal event. Whoever opens that artefact
+  learns the method from it. A `method` column would be a summary of something
+  the evidence already establishes, which is worth having only if somebody
+  needs to filter or report on it without opening the evidence.
+
+**The case for adding it** is that a regulator asking "how were these consents
+obtained" wants a count by method, not a folder of recordings, and TCPA
+disputes turn on exactly that. **The case against** is a column that is null
+for every historical row and only as good as the discipline of whoever sets it.
+
+Flagged 2026-09-01. Awaiting a decision; the letter is honest either way.
 
 **Two more defaults were in the same letter**, and both are fixed with it: the
 consent date fell back to today, and the channels fell back to
