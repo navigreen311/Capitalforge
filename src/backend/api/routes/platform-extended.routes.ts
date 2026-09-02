@@ -77,7 +77,7 @@ platformExtendedRouter.get(
         clients: businesses.map((b) => ({
           id: b.id,
           name: b.legalName,
-          readinessScore: b.fundingReadinessScore ?? 0,
+          readinessScore: b.fundingReadinessScore,
           status: b.status,
           annualRevenue: b.annualRevenue ? Number(b.annualRevenue) : 0,
         })),
@@ -148,8 +148,14 @@ platformExtendedRouter.get(
     });
 
     const totalBusinesses = businesses.length;
-    const scores = businesses.map((b) => b.fundingReadinessScore ?? 0).filter((s) => s > 0);
-    const avgReadiness = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    // The average is over ASSESSED clients only. `?? 0` then `> 0` reached the
+    // same set by accident and reported it with no denominator, so a tenant
+    // where forty of fifty clients had never been scored looked identical to
+    // one where all fifty had. Both counts are returned below.
+    const scores = businesses
+      .map((b) => b.fundingReadinessScore)
+      .filter((s): s is number => s !== null);
+    const avgReadiness = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
     const approved = businesses.filter((b) => b.status === 'funded' || b.status === 'approved');
     const approvalRate = totalBusinesses > 0 ? Math.round((approved.length / totalBusinesses) * 100) : 0;
     const totalRevenue = businesses.reduce((acc, b) => acc + (b.annualRevenue ? Number(b.annualRevenue) : 0), 0);
@@ -166,7 +172,10 @@ platformExtendedRouter.get(
       ok: true,
       data: {
         totalBusinesses,
+        // Null when nobody in the tenant has been assessed. Not zero.
         avgReadinessScore: avgReadiness,
+        readinessAssessedCount: scores.length,
+        readinessNotAssessedCount: totalBusinesses - scores.length,
         approvalRate,
         avgFundingPerClient: avgFunding,
         riskDistribution,

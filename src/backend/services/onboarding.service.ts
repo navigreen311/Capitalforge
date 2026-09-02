@@ -150,6 +150,59 @@ export async function lookupEin(rawEin: string): Promise<EinLookupResult> {
   return { valid: true, normalised, registeredName: null, source: 'format_only' };
 }
 
+// ── Credit inputs for the readiness score ─────────────────────
+
+/**
+ * The latest personal and business credit scores on record for a business.
+ *
+ * WHY THIS EXISTS
+ *
+ *   Three of the four writers of `fundingReadinessScore` rebuilt the scorer's
+ *   input from business columns alone — revenue, formation date, MCC, industry
+ *   — with no credit fields at all. Only `addOwner` ever supplied credit, and
+ *   only for the score handed to it at that moment.
+ *
+ *   So a real score recorded by `addOwner` was DISCARDED by the next profile
+ *   edit or readiness refresh. 78 became 53, silently, in the same column, and
+ *   nothing recorded which inputs either number came from. The recompute path
+ *   was actively erasing the most consequential component it had.
+ *
+ *   Every writer now reads the credit that exists rather than rebuilding
+ *   without it. `CreditProfile` rows are individual bureau pulls stamped with
+ *   `pulledAt`; the latest of each type is the one the score uses, matching
+ *   how every other reader in the codebase picks a profile.
+ *
+ *   Both null is the not-assessed state, not a zero — `calculateFundingReadiness`
+ *   returns a null score for it. See docs/decisions/restack-recommend.md.
+ */
+async function creditInputsOnRecord(
+  prisma: PrismaClient,
+  tenantId: string,
+  businessId: string,
+): Promise<{ personalCreditScore: number | null; businessCreditScore: number | null }> {
+  // Scoped through the relation even though all three callers verify the
+  // business against the tenant immediately before calling this. "Nothing calls
+  // it unverified" is true today and one call site away from being false, and
+  // this reads bureau data.
+  const [personal, business] = await Promise.all([
+    prisma.creditProfile.findFirst({
+      where: { businessId, business: { tenantId }, profileType: 'personal', score: { not: null } },
+      orderBy: { pulledAt: 'desc' },
+      select: { score: true },
+    }),
+    prisma.creditProfile.findFirst({
+      where: { businessId, business: { tenantId }, profileType: 'business', score: { not: null } },
+      orderBy: { pulledAt: 'desc' },
+      select: { score: true },
+    }),
+  ]);
+
+  return {
+    personalCreditScore: personal?.score ?? null,
+    businessCreditScore: business?.score ?? null,
+  };
+}
+
 // ── Business operations ───────────────────────────────────────
 
 export interface CreateBusinessResult {
@@ -184,7 +237,13 @@ export async function createBusiness(
     dateOfFormation:  input.dateOfFormation,
     mcc:              mcc ?? null,
     industry:         input.industry ?? null,
-    // No credit or debt data at creation time — owners added separately
+    // No credit or debt data at creation time — owners added separately, and
+    // no bureau has been pulled for a business that does not exist yet.
+    //
+    // The score is therefore NOT ASSESSED at intake rather than a partial
+    // number out of 75. That is the intended state: a client is unassessed
+    // until somebody pulls their credit, and `restack_recommend` refuses an
+    // unassessed client by name rather than reporting a low score.
     personalCreditScore: null,
     businessCreditScore: null,
     existingDebtBalance: null,
@@ -280,8 +339,12 @@ export async function updateBusiness(
     input.mcc !== undefined ||
     input.industry !== undefined;
 
-  let newScore: number | undefined;
+  let newScore: number | null | undefined;
   if (recomputeReadiness) {
+    // The credit on record, so a revenue edit does not throw away the credit
+    // component. See `creditInputsOnRecord`.
+    const credit = await creditInputsOnRecord(prisma, tenantId, businessId);
+
     // Re-classify MCC if industry changed
     const newMcc =
       input.mcc ??
@@ -306,6 +369,7 @@ export async function updateBusiness(
         input.dateOfFormation ?? existing.dateOfFormation ?? null,
       mcc:      newMcc ?? null,
       industry: input.industry ?? existing.industry ?? null,
+      ...credit,
     };
 
     newScore = calculateFundingReadiness(readinessInput).score;
@@ -388,13 +452,22 @@ export async function addOwner(
   // Recalculate readiness if we have a credit score for this owner
   let updatedReadiness: FundingReadinessResult | undefined;
   if (personalCreditScore !== undefined) {
+    // The business credit on record comes in alongside the supplied personal
+    // score. This branch used to pass `personalCreditScore` alone, so adding
+    // an owner discarded a business credit pull the same way the other two
+    // paths discarded personal ones.
+    const credit = await creditInputsOnRecord(prisma, tenantId, businessId);
+
     const readinessInput: FundingReadinessInput = {
       annualRevenue:      business.annualRevenue != null ? Number(business.annualRevenue) : null,
       monthlyRevenue:     business.monthlyRevenue != null ? Number(business.monthlyRevenue) : null,
       dateOfFormation:    business.dateOfFormation,
       mcc:                business.mcc,
       industry:           business.industry,
-      personalCreditScore,
+      businessCreditScore: credit.businessCreditScore,
+      // The score handed in wins over the one on record: the caller has it
+      // from a pull this call is part of, which may not be persisted yet.
+      personalCreditScore: personalCreditScore ?? credit.personalCreditScore,
     };
     updatedReadiness = calculateFundingReadiness(readinessInput);
     await prisma.business.update({
@@ -422,12 +495,18 @@ export async function refreshReadinessScore(
     throw new Error(`Business ${businessId} not found for tenant ${tenantId}`);
   }
 
+  // The credit on record. Without this the "refresh" recomputed the score with
+  // its 25-point credit component missing, so calling it after a credit pull —
+  // the case the doc comment names — produced a LOWER number than before.
+  const credit = await creditInputsOnRecord(prisma, tenantId, businessId);
+
   const readinessInput: FundingReadinessInput = {
     annualRevenue:   business.annualRevenue != null ? Number(business.annualRevenue) : null,
     monthlyRevenue:  business.monthlyRevenue != null ? Number(business.monthlyRevenue) : null,
     dateOfFormation: business.dateOfFormation,
     mcc:             business.mcc,
     industry:        business.industry,
+    ...credit,
     ...overrides,
   };
 

@@ -216,7 +216,7 @@ export class ChatService {
       lines.push('', '=== BUSINESSES ===');
       for (const b of context.businesses.slice(0, 20)) {
         lines.push(
-          `- ${b.legalName}${b.dba ? ` (DBA: ${b.dba})` : ''} | Status: ${b.status} | Industry: ${b.industry ?? 'N/A'} | Readiness: ${b.fundingReadinessScore ?? 'N/A'}`,
+          `- ${b.legalName}${b.dba ? ` (DBA: ${b.dba})` : ''} | Status: ${b.status} | Industry: ${b.industry ?? 'N/A'} | Readiness: ${b.fundingReadinessScore ?? 'not assessed'}`,
         );
       }
     }

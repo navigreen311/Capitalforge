@@ -134,7 +134,11 @@ clientsRouter.get('/', async (req: Request, res: Response, _next: NextFunction):
           businessName: biz.legalName,
           status: biz.status,
           advisorName,
-          fundingReadinessScore: biz.fundingReadinessScore ?? 0,
+          // Null, not zero. The roster already renders "Not assessed" for a
+          // null here — that branch was unreachable because this `?? 0`
+          // turned every unassessed client into a client scoring zero,
+          // sorted to the bottom of a list ordered by readiness.
+          fundingReadinessScore: biz.fundingReadinessScore,
           lastActivityAt: biz.updatedAt.toISOString(),
           entityType: biz.entityType,
           state: biz.stateOfFormation ?? '',

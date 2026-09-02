@@ -825,6 +825,48 @@ not evidence of scoping, and that distinction is checkable.
 Not built. Recorded because the class is now known and the instance that
 exposed it has been deleted, which is exactly how a finding gets forgotten.
 
+### 3m. The debt component of the readiness score cannot be earned — open, 2026-09-02
+
+`scoreDebtBurden` is worth **10 of the score's 100 points** and no caller has
+ever supplied either of its inputs.
+
+`existingDebtBalance` appears in exactly one place outside
+`funding-readiness.ts`: `createBusiness` passing an explicit `null`.
+`monthlyDebtService` appears nowhere at all. There is no column for either —
+`Business` carries `annualRevenue` and `monthlyRevenue` and no debt field, and
+`HeldCard` carries `creditLimit` with no balance.
+
+So the branch that returns `{ points: 0, label: 'no data' }` is the only branch
+production ever reaches. **Every score in the database is out of 90**, and it is
+compared against thresholds written for 100 — `>= 70` for the re-stack floor,
+`>= 75` for "Start Round 2", `>= 40` for the credit-builder track. A client who
+would score 78 with a clean debt picture scores 78 anyway, because the ten
+points were never available to anyone; a client is not penalised relative to
+their peers, but every threshold is effectively eleven per cent stricter than it
+reads.
+
+This is the same shape as the credit component fixed on 2026-09-02 (see
+`docs/decisions/restack-recommend.md`, entry 8) with one difference that decides
+the treatment: credit **exists** in the database and the recompute was throwing
+it away, so it was a code fix. Debt does not exist anywhere. Returning null for
+it — the consistent treatment — would make **every** business permanently
+unassessed, which is worse than the current understatement.
+
+**Three options, none chosen:**
+
+1. **Find a data source.** Card balances from a bureau pull, or an advisor-
+   attested figure at intake. Then the component works as designed and this
+   closes.
+2. **Reweight to 90 and document it.** Honest arithmetic on the data that
+   exists; the thresholds then mean what they say. Changes every score in the
+   database.
+3. **Leave it and say so in the score's own output** — a `componentsUnavailable`
+   field, the way the compliance manifest reports `documentsUnverifiable`.
+
+Not a defect in the sense the sweep has been using: nothing here states a
+falsehood. It is a scale that quietly lost a tenth of itself, which is the kind
+of thing that reads as fine until somebody asks why nobody scores above 90.
+
 ### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
 
 Nothing answers "show me your communication monitoring" at the level the

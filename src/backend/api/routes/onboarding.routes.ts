@@ -89,6 +89,9 @@ onboardingRouter.post(
           componentScores: readiness.componentScores,
           gaps:        readiness.gaps,
           summary:     readiness.summary,
+          // Null score means not assessed, and this names why. A caller that
+          // renders the score must render this state rather than a zero.
+          notAssessedReason: readiness.notAssessedReason,
         },
       },
       201,
@@ -183,6 +186,7 @@ onboardingRouter.post(
             componentScores: result.updatedReadiness.componentScores,
             gaps:           result.updatedReadiness.gaps,
             summary:        result.updatedReadiness.summary,
+            notAssessedReason: result.updatedReadiness.notAssessedReason,
           },
         }),
       },
@@ -217,6 +221,7 @@ onboardingRouter.get(
       componentScores: readiness.componentScores,
       gaps:           readiness.gaps,
       summary:        readiness.summary,
+      notAssessedReason: readiness.notAssessedReason,
     });
   }),
 );

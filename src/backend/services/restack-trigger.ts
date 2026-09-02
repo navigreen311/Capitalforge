@@ -12,6 +12,33 @@
 //   - No more than 2 active (non-decided) applications
 //   - No funding round already in progress
 //
+// THE READINESS CHECK IS A FUNDABILITY FLOOR, NOT A RECOVERY MEASURE
+//
+//   `fundingReadinessScore` is computed by `funding-readiness.ts` at ONBOARDING
+//   and answers a different question from the one this engine asks. It measures
+//   fundability — revenue, business age, industry risk, credit, leverage. This
+//   engine asks whether a client has recovered enough to stack again.
+//
+//   Those are not the same question. A client who has never borrowed and a
+//   client who has just worked through a hardship can score identically on
+//   fundability while being in completely different positions for a re-stack.
+//
+//   Using it here is DELIBERATE, and it is deliberately a floor: a client who
+//   is not fundable at all should not re-stack either. THE RECOVERY TEST IS THE
+//   OTHER FOUR CRITERIA — days since last application, utilization, active
+//   applications, and a round already in progress. Those carry the recovery
+//   signal; this one carries only "fundable at all".
+//
+//   Written down so it can be revisited rather than inherited. A proxy that
+//   nobody has named stops being questioned; naming its limitation is what
+//   keeps it open. If re-stack readiness is ever worth measuring on its own
+//   terms, that is a new measure and a new column, not a new threshold on this
+//   one. See docs/decisions/restack-recommend.md, entry 6.
+//
+//   Note also that 70 is not the only threshold read off this column: the
+//   client detail card colours at 75/55 and the funding-rounds tab gates
+//   "Start Round 2" at 75. Three numbers, one column, no shared definition.
+//
 // THIS IS THE ONLY COPY OF THESE RULES.
 //
 // There were two. `dashboard-restack.routes.ts` reimplemented the question

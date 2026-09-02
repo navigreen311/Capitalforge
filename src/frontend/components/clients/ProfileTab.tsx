@@ -40,7 +40,8 @@ interface ProfileTabProps {
     mcc?: string;
     status: string;
     advisorName: string;
-    fundingReadinessScore: number;
+    /** Null when no credit is on record and no score could be computed. */
+    fundingReadinessScore: number | null;
   };
 }
 
@@ -127,7 +128,15 @@ function BusinessDetailsPanel({ client }: { client: ProfileTabProps['client'] })
     { label: 'Website', value: client.website ?? '---' },
     { label: 'Status', value: client.status.charAt(0).toUpperCase() + client.status.slice(1) },
     { label: 'Advisor', value: client.advisorName },
-    { label: 'Funding Readiness', value: `${client.fundingReadinessScore} / 100` },
+    {
+      label: 'Funding Readiness',
+      // `${null} / 100` rendered as "null / 100". An unassessed client has no
+      // score to put on the scale.
+      value:
+        client.fundingReadinessScore === null
+          ? 'Not assessed'
+          : `${client.fundingReadinessScore} / 100`,
+    },
   ];
 
   return (
