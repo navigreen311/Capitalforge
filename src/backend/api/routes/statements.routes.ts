@@ -347,22 +347,12 @@ statementsRouter.post(
 );
 
 // ============================================================
-// Client-Level Statement & Anomaly Management (Mock Endpoints)
-// ============================================================
-
-// In-memory state for anomaly dismissals, investigation steps, and disputes
-const disputes: Array<{
-  id: string;
-  statementId: string;
-  clientId: string;
-  reason: string;
-  amount: number;
-  createdAt: string;
-}> = [];
-
-// ── GET /api/statements?client_id=X ─────────────────────────
+// Client-Level Statement & Anomaly Management
 //
-// Returns a mock list of statements for a client.
+// Was "(Mock Endpoints)", and the label was accurate: all four invented their
+// answers. The list and the line-items read the table now; the three that
+// wrote nowhere refuse.
+// ============================================================
 
 // ── GET /api/statements?client_id= ───────────────────────────
 //
@@ -545,57 +535,45 @@ statementsRouter.post(
   },
 );
 
-// ── POST /api/statements/disputes ───────────────────────────
+// ── POST /api/statements/disputes ────────────────────────
 //
-// Log a new dispute against a statement line item.
-
+// Refused, for the same reason as the dismissal and the investigation step
+// above — and this one survived that sweep because it looked like it worked.
+//
+// It answered 201 with `id: "disp-<timestamp>"`, `status: 'open'` and
+// `estimatedResolution: '5-10 business days'`, and pushed the dispute into a
+// module-level array. Nothing read that array, nothing persisted it, and it
+// emptied on restart. It also never read `req.tenant`: no tenant scoping, and
+// no check that the statement existed or belonged to the caller.
+//
+// A billing-error dispute is the one record in this module with a statutory
+// clock on it, so an invented id and an invented SLA are the worst available
+// answer — somebody believes the dispute was filed. Refusing is louder than a
+// 201 into a void.
+//
+// Persisting it is a feature, not a repair: a `statement_disputes` table with
+// tenant and statement keys, status transitions and a read endpoint, modelled
+// on `tradeline_disputes`, which already exists and does all of that. Sized in
+// docs/gaps.md.
 statementsRouter.post(
   '/disputes',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const { statementId, clientId, reason, amount } = req.body as Record<string, unknown>;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const statementId =
+      typeof body['statementId'] === 'string' ? body['statementId'] : null;
 
-    if (!statementId || typeof statementId !== 'string') {
-      res.status(422).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'statementId is required.' },
-      } satisfies ApiResponse);
-      return;
-    }
+    logger.info('Statement dispute refused — nothing records one', { statementId });
 
-    if (!reason || typeof reason !== 'string') {
-      res.status(422).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'reason is required.' },
-      } satisfies ApiResponse);
-      return;
-    }
-
-    if (amount === undefined || typeof amount !== 'number' || amount <= 0) {
-      res.status(422).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'amount must be a positive number.' },
-      } satisfies ApiResponse);
-      return;
-    }
-
-    const dispute = {
-      id: `disp-${Date.now()}`,
-      statementId,
-      clientId: typeof clientId === 'string' ? clientId : 'unknown',
-      reason,
-      amount,
-      createdAt: new Date().toISOString(),
-    };
-    disputes.push(dispute);
-
-    logger.info('Statement dispute logged', { disputeId: dispute.id, statementId, amount });
-
-    res.status(201).json({
-      success: true,
-      data: {
-        ...dispute,
-        status: 'open',
-        estimatedResolution: '5-10 business days',
+    res.status(501).json({
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Filing a statement dispute is not implemented. No table records one and no '
+          + 'process acts on one. This used to answer 201 with an invented id, a status of '
+          + '"open" and an estimated resolution of 5-10 business days, while keeping the '
+          + 'dispute in memory until the process restarted — so a dispute that was never '
+          + 'filed looked filed.',
       },
     } satisfies ApiResponse);
   },

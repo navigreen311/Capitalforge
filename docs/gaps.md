@@ -548,6 +548,7 @@ specific, and that is the point of listing them apart from the closed rows.
 | `POST /api/tax/documents/generate` + 3 more | A 1099-INT is an IRS information return. Somebody has to own the correctness of the numbers, and no table records the interest they would be computed from. A wrong 1099 is worse than no 1099. |
 | `POST /api/compliance/disclosures/:id/file` | Filing is a real-world act with a real-world receipt. The system needs to model what "filed" means before it can claim it. |
 | `POST /api/statements/anomalies/:id/dismiss` + `/steps/:step` | A `StatementAnomaly` is computed while reading a statement and carries no identifier. Deciding what makes two anomalies "the same" across reads comes before anywhere to record a dismissal. |
+| `POST /api/statements/disputes` — refused 2026-09-01 | Nothing records a dispute and nothing acts on one. Unlike its two neighbours above, this is not blocked on identity: a dispute has real content and an obvious home. It is blocked on whether CapitalForge files billing-error disputes at all, which is a compliance question with a statutory clock attached, not an engineering one. See 3d. |
 | `POST /api/platform/billing/send-overdue-reminders` | Who, when, how often — and what happens when a send fails. |
 | `POST /api/declines/:id/reminder` | The same question. Both send real messages. |
 
@@ -566,6 +567,44 @@ decision, not three. Answering it once unblocks all three.
 `PATCH /api/platform/offboarding/:id/advance`. A stage moves when the export or
 the deletion actually happens. Advancing it by hand is how a workflow comes to
 claim a deletion that never ran.
+
+
+### 3d. The dispute that looked filed — refused 2026-09-01
+
+`POST /api/statements/disputes` answered **201** with
+`id: "disp-<timestamp>"`, `status: "open"` and
+`estimatedResolution: "5-10 business days"`, and pushed the dispute onto a
+module-level array. Nothing read that array. Nothing persisted it. It emptied
+on every restart, and no `statement_disputes` table exists.
+
+It also never read `req.tenant`: no tenant scoping, and no check that the
+statement id existed or belonged to the caller. Any authenticated caller could
+file a dispute against any statement id, real or invented, and be told it was
+open.
+
+**Why it survived the sweep that refused its two neighbours.** Anomaly
+dismissal and investigation steps also wrote to module-level objects, and both
+were converted to 501 on 2026-08-07. This one was three lines away and was
+missed because a 201 carrying an id looks like a record was created. The other
+two returned nothing you could mistake for a receipt.
+
+**Why an invented SLA is the worst part.** Of everything in this document, a
+billing-error dispute is the record with an actual statutory clock on it. The
+answer did not merely fail to file — it told the caller when to expect
+resolution. Nobody chases a dispute they have been told is in progress.
+
+**What building it costs: about a day.** `tradeline_disputes` already exists
+and is the model — tenant id, subject id, reason, status
+(`pending | submitted | resolved | rejected`), `filedAt`, `resolvedAt`,
+`resolutionNote`. A `statement_disputes` table in that shape, a create that
+verifies the statement belongs to the tenant, a list-by-statement read, and a
+status transition. The engineering is small.
+
+**What is actually blocking it is not the day.** It is whether CapitalForge
+files disputes with issuers at all, or only records that a client raised one.
+Those are different products: the first has a deadline and a counterparty, the
+second is a note. The endpoint's own answer — "5-10 business days" — assumed
+the first. Nobody decided it.
 
 ### "No money moves" is true for reasons that can change without anyone noticing
 
