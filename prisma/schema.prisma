@@ -979,6 +979,10 @@ model Complaint {
   description    String
   evidenceDocIds Json?
   callRecordIds  Json?
+  /// Evidence as attached: type, reference, title, notes, who and when.
+  evidenceItems  Json?
+  /// When the unauthorized-debit bundle was built; null predates the column.
+  debitBundleBuiltAt DateTime?
   rootCause      String?
   resolution     String?
   assignedTo     String?

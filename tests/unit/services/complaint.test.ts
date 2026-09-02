@@ -27,6 +27,11 @@ import type {
 
 function makePrismaMock() {
   return {
+    // The business a complaint names is verified before anything reads on it.
+    // businessId arrived in the request body and was written straight to the
+    // row; for an unauthorized_debit complaint it then drove an unscoped read
+    // of an ACH authorisation and fifty debit events.
+    business: { findFirst: vi.fn().mockResolvedValue({ id: 'biz-001' }) },
     complaint: {
       create:     vi.fn(),
       findMany:   vi.fn().mockResolvedValue([]),
@@ -83,6 +88,7 @@ function makeComplaintRow(overrides: Record<string, unknown> = {}) {
     category:      'billing',
     subcategory:   null,
     source:        'portal',
+    filedBy: 'user-001',
     severity:      'medium',
     status:        'open',
     description:   'Invoice has incorrect fee amount.',
@@ -149,6 +155,7 @@ describe('ComplaintService — createComplaint (billing)', () => {
       businessId:  BIZ_ID,
       category:    'billing',
       source:      'portal',
+      filedBy: 'user-001',
       description: 'Invoice has incorrect fee amount.',
     });
 
@@ -167,6 +174,7 @@ describe('ComplaintService — createComplaint (billing)', () => {
       tenantId:    TENANT_ID,
       category:    'billing',
       source:      'portal',
+      filedBy: 'user-001',
       description: 'Invoice has incorrect fee amount.',
     });
 
@@ -183,6 +191,7 @@ describe('ComplaintService — createComplaint (billing)', () => {
       tenantId:    TENANT_ID,
       category:    'other', // caller supplies 'other' — service overrides
       source:      'phone',
+      filedBy: 'user-001',
       description: 'Client reports unauthorized ACH pull on their account.',
     });
 
@@ -200,6 +209,7 @@ describe('ComplaintService — createComplaint (billing)', () => {
       tenantId:    TENANT_ID,
       category:    'other',
       source:      'regulator_referral',
+      filedBy: 'user-001',
       description: 'CFPB has raised a regulatory inquiry about our fee disclosures.',
     });
 
@@ -217,6 +227,7 @@ describe('ComplaintService — createComplaint (billing)', () => {
       tenantId:    TENANT_ID,
       category:    'compliance',
       source:      'regulator_referral',
+      filedBy: 'user-001',
       description: 'Regulator flagged a potential violation of FTC rules.',
     });
 
@@ -239,6 +250,7 @@ describe('ComplaintService — category classification', () => {
       tenantId:    TENANT_ID,
       category:    'service',
       source:      'email',
+      filedBy: 'user-001',
       description: 'Support team did not respond within promised timeframe.',
     });
 
@@ -256,6 +268,7 @@ describe('ComplaintService — category classification', () => {
       tenantId:    TENANT_ID,
       category:    'billing',
       source:      'phone',
+      filedBy: 'user-001',
       description: 'Customer is trying to revoke their auto-debit authorization.',
     });
 
@@ -303,6 +316,7 @@ describe('ComplaintService — unauthorized debit evidence bundle', () => {
       businessId:  BIZ_ID,
       category:    'unauthorized_debit',
       source:      'phone',
+      filedBy: 'user-001',
       description: 'Client reports unauthorized debit exceeding authorized amount.',
     });
 
@@ -325,6 +339,7 @@ describe('ComplaintService — unauthorized debit evidence bundle', () => {
       businessId:  BIZ_ID,
       category:    'unauthorized_debit',
       source:      'phone',
+      filedBy: 'user-001',
       description: 'Client reports unauthorized debit on account.',
     });
 
@@ -414,8 +429,8 @@ describe('ComplaintService — evidence attachment', () => {
     const input: AttachEvidenceInput = {
       complaintId:   COMPLAINT_ID,
       tenantId:      TENANT_ID,
-      evidenceItems: [{ type: 'document', referenceId: 'doc-new-2', title: 'Bank Statement' }],
       addedBy:       'user-001',
+      evidenceItems: [{ type: 'document', referenceId: 'doc-new-2', title: 'Bank Statement' }],
     };
 
     const result = await svc.attachEvidence(input);
@@ -434,6 +449,7 @@ describe('ComplaintService — evidence attachment', () => {
     await svc.attachEvidence({
       complaintId:   COMPLAINT_ID,
       tenantId:      TENANT_ID,
+      addedBy:       'user-001',
       evidenceItems: [{ type: 'call_record', referenceId: 'call-001', title: 'Sales Call 2026-03-01' }],
     });
 
@@ -452,6 +468,7 @@ describe('ComplaintService — evidence attachment', () => {
     await svc.attachEvidence({
       complaintId:   COMPLAINT_ID,
       tenantId:      TENANT_ID,
+      addedBy:       'user-001',
       evidenceItems: [{ type: 'document', referenceId: 'doc-001', title: 'Duplicate Doc' }],
     });
 
@@ -470,6 +487,7 @@ describe('ComplaintService — evidence attachment', () => {
       svc.attachEvidence({
         complaintId:   'nonexistent',
         tenantId:      TENANT_ID,
+        addedBy:       'user-001',
         evidenceItems: [{ type: 'document', referenceId: 'doc-001', title: 'Doc' }],
       }),
     ).rejects.toThrow('not found');

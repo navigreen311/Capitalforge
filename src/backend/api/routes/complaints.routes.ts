@@ -26,7 +26,11 @@ import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
-import { ComplaintService } from '../../services/complaint.service.js';
+import {
+  ComplaintService,
+  ComplaintNotFoundError,
+  UnknownComplaintBusinessError,
+} from '../../services/complaint.service.js';
 import {
   RegulatorResponseService,
   RegulatorInquiryNotFoundError,
@@ -139,7 +143,7 @@ const AttachEvidenceSchema = z.object({
     title:       z.string().min(1).max(255),
     notes:       z.string().max(1000).optional(),
   })).min(1).max(50),
-  addedBy: z.string().max(255).optional(),
+  // `addedBy` is NOT accepted. It is read from the verified token.
 });
 
 const ComplaintListQuerySchema = z.object({
@@ -207,6 +211,9 @@ complaintsRouter.post(
       const input: CreateComplaintInput = {
         tenantId,
         ...parsed.data,
+        // From the verified token. Shared rule 7: if the module records it,
+        // the module derives it.
+        filedBy: req.tenant!.userId,
       };
 
       const svc    = getComplaintService();
@@ -372,7 +379,10 @@ complaintsRouter.post(
         complaintId:   String(id),
         tenantId,
         evidenceItems: parsed.data.evidenceItems,
-        addedBy:       parsed.data.addedBy ?? req.tenant!.userId,
+        // The token, never the body. `parsed.data.addedBy ?? userId` let a
+        // caller attribute an evidence attachment to somebody else, on a
+        // record that answers who added what to a complaint file.
+        addedBy:       req.tenant!.userId,
       };
 
       const svc = getComplaintService();
@@ -381,7 +391,11 @@ complaintsRouter.post(
       try {
         result = await svc.attachEvidence(input);
       } catch (err) {
-        if (err instanceof Error && err.message.includes('not found')) {
+        // Typed, not string-matched. This was
+        // `err.message.includes('not found')`, so any future error whose
+        // message happened to contain those two words became a 404 saying the
+        // complaint does not exist.
+        if (err instanceof ComplaintNotFoundError) {
           throw notFound(`Complaint ${id}`);
         }
         throw err;

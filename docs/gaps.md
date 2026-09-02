@@ -693,6 +693,36 @@ module and fixed piecemeal, which is exactly the shape the sweep found
 everywhere else — a class found and fixed three times, each time only in the
 surface someone was looking at.
 
+
+### 3j. Evidence removal is not tracked — open, 2026-09-02
+
+`attachEvidence` adds references to a complaint. **Nothing removes one, and
+nothing records that one was removed.**
+
+There is no detach endpoint, so within the API evidence is append-only — which
+is arguably the right property for an evidence record. The gap is what happens
+outside it: a reference edited out of `evidenceDocIds` by a migration, a
+support script or direct SQL leaves no trace at all. The array is simply
+shorter, and the complaint file cannot answer whether an item was never
+attached or was taken away.
+
+As of 2026-09-02 `evidenceItems` records who attached each item and when, so
+additions have provenance. Removals still have none, because there is no
+removal to record.
+
+**What it would take.** A `detachEvidence` that marks an item `removedAt` /
+`removedBy` with a reason rather than deleting it, and a read that reports
+removed items separately instead of omitting them. Half a day.
+
+**What decides it** is whether evidence should be removable at all. An
+append-only complaint file is defensible and simpler: an item attached in
+error is annotated rather than deleted, which is what a regulator would expect
+of an evidence record. If that is the answer, the fix is not a detach endpoint
+— it is a note in the manual saying evidence cannot be withdrawn, and a check
+that nothing outside the API shortens those arrays.
+
+Recorded rather than fixed because the two answers are different products.
+
 ### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
 
 Nothing answers "show me your communication monitoring" at the level the
