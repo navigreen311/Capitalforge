@@ -3,12 +3,26 @@
 //
 // Core responsibilities:
 //   1. Approved script library with version control
-//   2. Banned-claims detector: AI-style pattern scan of advisor
-//      language for prohibited phrases
-//   3. Disclosure insertion engine — inject required disclosures
-//      into advisor communications
+//   2. Banned-claims detector: TWENTY-ODD REGEXES over a fixed list. This said
+//      "AI-style pattern scan", and a manual author reading that will describe
+//      semantic detection to an agent. `BANNED_CLAIMS` is a literal array of
+//      RegExp; nothing here understands language. "We get everyone approved,
+//      every time" contains no banned phrase and passes clean.
+//   3. Disclosure placement — the required disclosure is placed next to the
+//      claim that triggered it where the claim's position is known, and
+//      appended only where it is not.
 //   4. Score communications for compliance risk (0–100)
-//   5. Persist CommComplianceRecord and emit ledger events
+//   5. Persist CommComplianceRecord and write ledger events
+//
+// WHAT riskLevel DOES: NOTHING.
+//
+//   `riskLevel` is computed from the score and returned, and no code branches
+//   on it. The only gate is `approved = riskScore === 0` — any hit at all,
+//   however slight, is not approved. That is deliberate for now: a threshold
+//   nobody has decided is worse than no threshold. Written down because a
+//   field called riskLevel sitting in a response reads like it gates
+//   something, and the next person should not have to find out that it does
+//   not.
 //
 // Banned Claim Categories:
 //   - Guaranteed approval / certainty claims
@@ -472,6 +486,23 @@ export interface BannedClaimViolation {
   severityWeight: number;
   legalCitation: string;
   compliantAlternative?: string;
+  /**
+   * How many times this claim appears in the text.
+   *
+   * The deduplication kept "the highest-severity hit per claim ID", comparing
+   * `v.severityWeight > existing.severityWeight` — but severityWeight comes
+   * from the claim definition, so every hit of one claim carries the same
+   * weight and the comparison was never true. It kept the first occurrence and
+   * silently discarded the rest, so a script saying "guaranteed approval" nine
+   * times reported and scored exactly as one saying it once.
+   *
+   * Repetition is the thing worth counting on a marketing script, so the count
+   * is reported. It does not multiply the risk score: nine of one claim is one
+   * problem to fix, not nine.
+   */
+  occurrences: number;
+  /** Every position, in order. `position` is the first, kept for compatibility. */
+  positions: number[];
 }
 
 export interface CommComplianceScanResult {
@@ -517,6 +548,20 @@ export interface QaScoreResult {
   scoredAt: Date;
 }
 
+/**
+ * The advisor a scan was filed against is not a user in this tenant.
+ *
+ * Typed so the route can answer 422 with a reason rather than a 500, and named
+ * for the check rather than the field: what is wrong is not the shape of the
+ * id — that was always validated — but that nothing behind it exists.
+ */
+export class UnknownAdvisorError extends Error {
+  constructor(public readonly advisorId: string) {
+    super(`No advisor ${advisorId} in this tenant.`);
+    this.name = 'UnknownAdvisorError';
+  }
+}
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 function riskScoreToLevel(score: number): CommComplianceScanResult['riskLevel'] {
@@ -525,6 +570,50 @@ function riskScoreToLevel(score: number): CommComplianceScanResult['riskLevel'] 
   if (score <= 45) return 'medium';
   if (score <= 70) return 'high';
   return 'critical';
+}
+
+/**
+ * Find every banned claim in a text, once per claim, counting repeats.
+ *
+ * Extracted because `scanCommunication` and `previewScan` had the same twenty
+ * lines twice, and a detection rule maintained in two places is a rule that
+ * will disagree with itself.
+ */
+export function detectBannedClaims(content: string): BannedClaimViolation[] {
+  const byClaim = new Map<string, BannedClaimViolation>();
+
+  for (const claim of BANNED_CLAIMS) {
+    const flags = claim.pattern.flags.includes('g')
+      ? claim.pattern.flags
+      : claim.pattern.flags + 'g';
+    const regex = new RegExp(claim.pattern.source, flags);
+
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(content)) !== null) {
+      const existing = byClaim.get(claim.id);
+      if (existing) {
+        existing.occurrences += 1;
+        existing.positions.push(match.index);
+      } else {
+        byClaim.set(claim.id, {
+          claimId:              claim.id,
+          category:             claim.category,
+          label:                claim.label,
+          evidence:             extractEvidence(content, match),
+          position:             match.index,
+          positions:            [match.index],
+          occurrences:          1,
+          severityWeight:       claim.severityWeight,
+          legalCitation:        claim.legalCitation,
+          compliantAlternative: claim.compliantAlternative,
+        });
+      }
+      // Prevent infinite loop on zero-length matches
+      if (match.index === regex.lastIndex) regex.lastIndex++;
+    }
+  }
+
+  return [...byClaim.values()];
 }
 
 function extractEvidence(content: string, match: RegExpExecArray): string {
@@ -539,8 +628,17 @@ function selectRequiredDisclosures(
 ): DisclosureTemplate[] {
   const triggered = new Set<string>();
 
-  // Always include no-affiliation disclosure
-  triggered.add('disc-005');
+  // disc-005 is NOT added unconditionally any more.
+  //
+  // Every scanned communication came back carrying the no-affiliation
+  // disclosure whether or not anything in it raised the question, and a
+  // disclosure that appears on everything is a disclosure nobody reads — which
+  // costs you the one message where it mattered. It is triggered below by an
+  // affiliation or credit-improvement violation, and here by the words that
+  // raise the question in the first place.
+  if (/\b(sba|government|federal|agency|affiliat\w*|endorse\w*|approved\s+lender)\b/i.test(content)) {
+    triggered.add('disc-005');
+  }
 
   // Trigger based on content keywords
   if (/credit\s*(card|application|apply|limit)/i.test(content)) triggered.add('disc-001');
@@ -575,14 +673,86 @@ function selectRequiredDisclosures(
   return REQUIRED_DISCLOSURES.filter((d) => triggered.has(d.id));
 }
 
-function insertDisclosures(content: string, disclosures: DisclosureTemplate[]): string {
+/**
+ * Which disclosure answers which kind of claim.
+ *
+ * The mappings `selectRequiredDisclosures` already uses, read the other way
+ * round, so a disclosure can be placed beside the sentence that made it
+ * necessary rather than at the end of the message.
+ */
+const DISCLOSURE_FOR_CATEGORY: Partial<Record<BannedClaimCategory, string>> = {
+  government_affiliation:     'disc-005',
+  sba_affiliation:            'disc-005',
+  credit_improvement_claim:   'disc-005',
+  upfront_fee_concealment:    'disc-002',
+  coaching_misrepresentation: 'disc-002',
+  no_risk_claim:              'disc-003',
+  rate_or_term_claim:         'disc-004',
+};
+
+/**
+ * Put each disclosure next to the claim that triggered it.
+ *
+ * This appended everything to the end of the message, under a header calling
+ * it an "insertion engine". For an email that is fine. `channel` is a free
+ * string and voice is expected, and a required disclosure landing after the
+ * sign-off of a spoken script is a disclosure that does not do its job — the
+ * listener has stopped by then.
+ *
+ * So: a disclosure answering a claim whose position is known goes in
+ * immediately after the sentence containing that claim. One triggered by a
+ * keyword rather than a violation has no position to attach to and is
+ * appended, which is the honest fallback rather than the default.
+ */
+function placeDisclosures(
+  content: string,
+  disclosures: DisclosureTemplate[],
+  violations: BannedClaimViolation[],
+): string {
   if (disclosures.length === 0) return content;
 
-  const disclosureBlock = disclosures
-    .map((d) => `[REQUIRED DISCLOSURE] ${d.disclosureText}`)
-    .join('\n\n');
+  /** disclosureId -> the earliest claim position it answers. */
+  const anchorFor = new Map<string, number>();
+  for (const v of violations) {
+    const discId = DISCLOSURE_FOR_CATEGORY[v.category];
+    if (!discId) continue;
+    const at = Math.min(...v.positions);
+    const existing = anchorFor.get(discId);
+    if (existing === undefined || at < existing) anchorFor.set(discId, at);
+  }
 
-  return `${content}\n\n---\n${disclosureBlock}`;
+  const placed: Array<{ at: number; text: string }> = [];
+  const appended: DisclosureTemplate[] = [];
+
+  for (const d of disclosures) {
+    const anchor = anchorFor.get(d.id);
+    if (anchor === undefined) {
+      appended.push(d);
+      continue;
+    }
+    // End of the sentence the claim sits in, so the disclosure follows the
+    // statement it qualifies rather than interrupting it.
+    const rest = content.slice(anchor);
+    const nextBreak = rest.search(/[.!?](\s|$)|\n/);
+    const at = nextBreak === -1 ? content.length : anchor + nextBreak + 1;
+    placed.push({ at, text: ` [REQUIRED DISCLOSURE] ${d.disclosureText}` });
+  }
+
+  // Right to left, so an earlier insertion does not move a later offset.
+  placed.sort((a, b) => b.at - a.at);
+  let out = content;
+  for (const p of placed) {
+    out = out.slice(0, p.at) + p.text + out.slice(p.at);
+  }
+
+  if (appended.length > 0) {
+    const block = appended
+      .map((d) => `[REQUIRED DISCLOSURE] ${d.disclosureText}`)
+      .join('\n\n');
+    out = `${out}\n\n---\n${block}`;
+  }
+
+  return out;
 }
 
 function buildScanSummary(
@@ -700,51 +870,51 @@ export class CommComplianceService {
     channel: string;
     content: string;
   }): Promise<CommComplianceScanResult> {
+    // ── The advisor has to be an advisor ─────────────────────────
+    //
+    // `advisorId` was validated as a UUID and nothing else. Every record this
+    // module writes hangs off it — the scan, its content, its violations, and
+    // the QA scores listed at GET /advisors/:id/qa-scores, which filters on
+    // `{ advisorId, tenantId }` and therefore reports faithfully over an
+    // attribution nobody checked.
+    //
+    // Refused rather than defaulted to the caller. A scan filed against the
+    // person who ran it, when they named somebody else, is a different wrong
+    // answer rather than a fix.
+    const advisor = await this.prisma.user.findFirst({
+      where:  { id: params.advisorId, tenantId: params.tenantId },
+      select: { id: true },
+    });
+    if (!advisor) {
+      // Same answer for an id that does not exist and one in another tenant.
+      throw new UnknownAdvisorError(params.advisorId);
+    }
+
     const scanId = uuidv4();
-    const violations: BannedClaimViolation[] = [];
 
-    // ── Pattern matching pass ────────────────────────────────────
-    for (const claim of BANNED_CLAIMS) {
-      const regex = new RegExp(claim.pattern.source, claim.pattern.flags.includes('g') ? claim.pattern.flags : claim.pattern.flags + 'g');
-      let match: RegExpExecArray | null;
-
-      while ((match = regex.exec(params.content)) !== null) {
-        violations.push({
-          claimId:             claim.id,
-          category:            claim.category,
-          label:               claim.label,
-          evidence:            extractEvidence(params.content, match),
-          position:            match.index,
-          severityWeight:      claim.severityWeight,
-          legalCitation:       claim.legalCitation,
-          compliantAlternative: claim.compliantAlternative,
-        });
-        // Prevent infinite loop on zero-length matches
-        if (match.index === regex.lastIndex) regex.lastIndex++;
-      }
-    }
-
-    // Deduplicate — keep only the highest-severity hit per claim ID
-    const seen = new Map<string, BannedClaimViolation>();
-    for (const v of violations) {
-      const existing = seen.get(v.claimId);
-      if (!existing || v.severityWeight > existing.severityWeight) {
-        seen.set(v.claimId, v);
-      }
-    }
-    const deduped = [...seen.values()];
+    // One detector, shared with scoreCommunication. Repeats are counted rather
+    // than discarded; see BannedClaimViolation.occurrences.
+    const deduped = detectBannedClaims(params.content);
 
     // ── Risk score calculation ───────────────────────────────────
-    // Additive: each violation contributes its severityWeight * 5
-    // Cap at 100 with a hard-stop at score ≥ 70 for critical violations
+    // Additive: each distinct violation contributes its severityWeight * 5,
+    // capped at 100. Repetition is reported in `occurrences` and does not
+    // multiply the score — nine of one claim is one problem to fix.
+    //
+    // There is no hard stop at 70. The header used to say there was; 70 is the
+    // high/critical boundary in `riskScoreToLevel` and nothing branches on it.
     const rawScore = deduped.reduce((sum, v) => sum + v.severityWeight * 5, 0);
     const riskScore = Math.min(100, rawScore);
     const riskLevel = riskScoreToLevel(riskScore);
     const approved  = riskScore === 0;
 
-    // ── Disclosure insertion ─────────────────────────────────────
+    // ── Disclosure placement ─────────────────────────────────────
     const requiredDisclosures = selectRequiredDisclosures(params.content, deduped);
-    const contentWithDisclosures = insertDisclosures(params.content, requiredDisclosures);
+    const contentWithDisclosures = placeDisclosures(
+      params.content,
+      requiredDisclosures,
+      deduped,
+    );
 
     const summary = buildScanSummary(riskScore, riskLevel, deduped);
 
@@ -759,13 +929,29 @@ export class CommComplianceService {
         violations: deduped as unknown as object,
         riskScore,
         approved,
-        reviewedAt: new Date(),
+        // `reviewedAt`, set to now. A field named for review recorded when the
+        // automation ran, and a compliance reader seeing "reviewed" concludes
+        // a person looked at it. Human review is `humanReviewedAt` with
+        // `reviewedByUserId`, both null until somebody actually does.
+        scannedAt: new Date(),
+        // What the scan required, and the text that would go out. Both were
+        // returned to the caller and discarded; a complaint turns on the
+        // second one.
+        requiredDisclosures: requiredDisclosures as unknown as object,
+        contentWithDisclosures,
       },
     });
 
-    // ── Emit ledger events ───────────────────────────────────────
+    // ── Write ledger events ──────────────────────────────────────
     if (deduped.length > 0) {
-      await eventBus.publish(params.tenantId, {
+      // publishAndPersist, not publish.
+      //
+      // This broadcast in-process and wrote no ledger row, so the canonical
+      // ledger — the thing a regulator is shown — had no record that a
+      // compliance violation had ever been detected. Every other module in
+      // this codebase persists: statements, consent, the regulator dossier.
+      // Of all the event types here, this is the one that has to be in there.
+      await eventBus.publishAndPersist(params.tenantId, {
         eventType:     EVENT_TYPES.CALL_COMPLIANCE_VIOLATION,
         aggregateType: AGGREGATE_TYPES.COMPLIANCE,
         aggregateId:   scanId,
@@ -815,33 +1001,11 @@ export class CommComplianceService {
     violations: BannedClaimViolation[];
     approved: boolean;
   } {
-    const violations: BannedClaimViolation[] = [];
-
-    for (const claim of BANNED_CLAIMS) {
-      const regex = new RegExp(claim.pattern.source, claim.pattern.flags.includes('g') ? claim.pattern.flags : claim.pattern.flags + 'g');
-      let match: RegExpExecArray | null;
-
-      while ((match = regex.exec(content)) !== null) {
-        violations.push({
-          claimId:             claim.id,
-          category:            claim.category,
-          label:               claim.label,
-          evidence:            extractEvidence(content, match),
-          position:            match.index,
-          severityWeight:      claim.severityWeight,
-          legalCitation:       claim.legalCitation,
-          compliantAlternative: claim.compliantAlternative,
-        });
-        if (match.index === regex.lastIndex) regex.lastIndex++;
-      }
-    }
-
-    const seen = new Map<string, BannedClaimViolation>();
-    for (const v of violations) {
-      const existing = seen.get(v.claimId);
-      if (!existing || v.severityWeight > existing.severityWeight) seen.set(v.claimId, v);
-    }
-    const deduped = [...seen.values()];
+    // The same detector `scanCommunication` uses. This held a second copy of
+    // the twenty-line matching loop and its own deduplication, so the
+    // preview an advisor sees while typing and the record written on submit
+    // were computed by two implementations of one rule.
+    const deduped = detectBannedClaims(content);
 
     const rawScore = deduped.reduce((sum, v) => sum + v.severityWeight * 5, 0);
     const riskScore = Math.min(100, rawScore);
@@ -851,11 +1015,15 @@ export class CommComplianceService {
   }
 
   /**
-   * Insert required disclosures into a content block without scanning.
+   * Append named disclosures to a content block without scanning.
+   *
+   * Appends, and says so. The caller names disclosure ids directly rather than
+   * scanning, so there is no violation and no position to place any of them
+   * beside — which is exactly the case `placeDisclosures` appends in.
    */
-  insertRequiredDisclosures(content: string, triggerIds: string[]): string {
+  appendRequiredDisclosures(content: string, triggerIds: string[]): string {
     const disclosures = REQUIRED_DISCLOSURES.filter((d) => triggerIds.includes(d.id));
-    return insertDisclosures(content, disclosures);
+    return placeDisclosures(content, disclosures, []);
   }
 
   // ── QA scoring ────────────────────────────────────────────────

@@ -33,7 +33,7 @@ import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
-import { CommComplianceService } from '../../services/comm-compliance.service.js';
+import { CommComplianceService, UnknownAdvisorError } from '../../services/comm-compliance.service.js';
 import type {
   CommComplianceScanResult,
   ApprovedScriptResult,
@@ -162,6 +162,15 @@ commComplianceRouter.post(
 
       res.status(200).json(body);
     } catch (err) {
+      // Typed. `advisorId` was validated as a UUID and nothing else, so a scan
+      // could be filed against an id belonging to nobody, or to another
+      // tenant's user — and GET /advisors/:id/qa-scores then reports over it
+      // faithfully. A 422 naming the advisor is the answer; defaulting to the
+      // caller would be a different wrong attribution.
+      if (err instanceof UnknownAdvisorError) {
+        next(badRequest('advisorId does not name an advisor in this tenant.'));
+        return;
+      }
       next(err);
     }
   },

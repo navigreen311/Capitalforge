@@ -95,6 +95,7 @@ model User {
   @@map("users")
   createdApplications CardApplication[] @relation("CardApplicationCreatedBy")
   reconciledStatements StatementRecord[] @relation("StatementReconciledBy")
+  reviewedCommScans    CommComplianceRecord[] @relation("CommComplianceReviewedBy")
 }
 
 /**
@@ -1044,16 +1045,33 @@ model ContractAnalysis {
 model CommComplianceRecord {
   id         String    @id @default(uuid())
   tenantId   String
+  /// Verified against `users` in the same tenant at scan time. Rows written
+  /// before 2026-09-01 were not: the id was validated as a UUID and nothing
+  /// else, so some of them name nobody. No FK, because a constraint would fail
+  /// the migration on that history.
   advisorId  String
   channel    String
   content    String?
   violations Json?
   riskScore  Int?
   approved   Boolean?
-  reviewedAt DateTime?
+  /// When the scan ran. Was `reviewedAt`, which read as human sign-off.
+  scannedAt  DateTime?
+  /// When a person reviewed it, and who. Null for a scan nobody has read,
+  /// which is most of them.
+  humanReviewedAt  DateTime?
+  reviewedByUserId String?
+  /// What the scan required, and the text the client was actually sent. Both
+  /// were returned to the caller and discarded; a complaint turns on the
+  /// second one.
+  requiredDisclosures    Json?
+  contentWithDisclosures String?
   createdAt  DateTime  @default(now())
 
+  reviewedBy User? @relation("CommComplianceReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
   @@index([tenantId, advisorId])
+  @@index([reviewedByUserId])
   @@map("comm_compliance_records")
 }
 
