@@ -283,6 +283,17 @@ export function makePrismaMockFor(graph: {
     createdAt:          new Date(Date.now() - 6 * 60 * 60 * 1000),
   };
 
+  // A business that reaches a suitability check has signed the personal
+  // guarantee too. Until 2 September only `product_reality` was here, which was
+  // invisible because the engine that persists never read either one — it was
+  // told the client had acknowledged everything. Now it reads, so the fixture
+  // has to hold what a real qualified business would hold.
+  const pgAckRecord = {
+    ...ackRecord,
+    id:                 `ack-pg-${business.id}`,
+    acknowledgmentType: 'personal_guarantee',
+  };
+
   const documentRecord = {
     id:             `doc-${business.id}`,
     tenantId:       graph.tenant.id,
@@ -346,7 +357,7 @@ export function makePrismaMockFor(graph: {
     consentRecord: mockDelegate(graph.tcpaConsent, [graph.tcpaConsent]),
 
     productAcknowledgment: {
-      ...mockDelegate(ackRecord, [ackRecord]),
+      ...mockDelegate(ackRecord, [ackRecord, pgAckRecord]),
       create: vi.fn().mockResolvedValue(ackRecord),
     },
 

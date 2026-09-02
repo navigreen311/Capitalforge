@@ -22,7 +22,7 @@ import {
   runSuitabilityCheck,
   getLatestSuitabilityCheck,
   applyOverride,
-  type SuitabilityInput,
+  type SuitabilityProfile,
 } from '../../services/suitability.service.js';
 import { ROLES } from '@shared/constants/index.js';
 import type { ApiResponse, TenantContext } from '@shared/types/index.js';
@@ -132,13 +132,17 @@ suitabilityRouter.post(
       return;
     }
 
-    const input: SuitabilityInput = parsed.data;
+    // A profile, not an input. The three human-confirmation gates are not in
+    // this type, so this route cannot state that a client acknowledged the
+    // personal guarantee or the APR risk — `runSuitabilityCheck` reads those
+    // from the acknowledgment records itself.
+    const profile: SuitabilityProfile = parsed.data;
 
     try {
       const { checkId, assessment } = await runSuitabilityCheck(
         businessId,
         tenant.tenantId,
-        input,
+        profile,
       );
 
       const body: ApiResponse = {
@@ -150,6 +154,9 @@ suitabilityRouter.post(
           maxSafeLeverage:     assessment.maxSafeLeverage,
           noGoTriggered:       assessment.noGoTriggered,
           noGoReasons:         assessment.noGoReasons,
+          // The third state. An empty noGoReasons with an entry here is not a
+          // clean assessment — it is an assessment with a gate nobody could ask.
+          unassessedGates:     assessment.unassessedGates,
           recommendation:      assessment.recommendation,
           alternativeProducts: assessment.alternativeProducts,
           scoreBreakdown:      assessment.scoreBreakdown,

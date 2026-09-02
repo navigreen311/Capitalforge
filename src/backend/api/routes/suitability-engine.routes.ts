@@ -1,20 +1,36 @@
 // ============================================================
 // CapitalForge — Suitability Engine Routes (Phase 3)
 //
-// Endpoints:
+// Endpoint:
 //   POST /api/suitability/calculate
-//     Accept a business profile payload and return a full
-//     SuitabilityResult with scores, tier, no-go triggers, etc.
+//     Score a payload the caller supplies. It answers about that
+//     payload and says so — it names no business and reads no
+//     record, so nothing it returns is a claim about a client.
 //
-//   GET  /api/suitability/:businessId
-//     Load business data from DB and compute suitability on the fly.
+// GET /api/suitability/:businessId was deleted on 2 September.
+// It resolved a real business, read two fields from it — revenue
+// and formation date — and invented the rest:
 //
-// These routes complement the existing per-business suitability
-// routes at /api/businesses/:id/suitability/*.
+//     creditScore = 700, utilizationRatio = 0.20,
+//     debtServiceRatio = 0.15, inquiries = 1, derogatoryMarks = 0,
+//     advisorConfirmedDebtServicing = true,
+//     clientAcknowledgedPersonalGuarantee = true,
+//     clientAcknowledgedAprRisk = true
+//
+// Four of the seven hard no-go triggers could therefore never fire,
+// including all three that record a human having confirmed
+// something, and the answer came back stamped with the businessId
+// and the legal name. A fifth fired wrongly: a business with no
+// dateOfFormation was reported "0 months old", which is a missing
+// field rendered as a fact about the business.
+//
+// The assessment that is about a named client is
+// POST /api/businesses/:id/suitability/check, which persists, and
+// which now reads the acknowledgment records rather than being told
+// about them. See suitability.service.ts.
 // ============================================================
 
 import { Router, Response } from 'express';
-import { prisma as sharedPrisma } from '../../config/database.js';
 import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import {
@@ -88,113 +104,6 @@ suitabilityEngineRouter.post(
       res.status(200).json(body);
     } catch (err) {
       handleUnexpectedError(err, res, 'POST /calculate');
-    }
-  },
-);
-
-// ── GET /api/suitability/:businessId ─────────────────────────
-
-suitabilityEngineRouter.get(
-  '/:businessId',
-  async (req: Request, res: Response): Promise<void> => {
-    const businessId = req.params.businessId!;
-
-    try {
-      // The dynamic import was here to avoid constructing a client at module
-      // load time. The shared client is a lazy proxy, so importing it costs
-      // nothing until a property is read, and the dance is unnecessary.
-      const prisma = sharedPrisma;
-
-      // Scoped on both columns. findUnique by id alone returned any tenant's
-      // business and then computed a suitability assessment from it — the same
-      // shape closed across /clients/:clientId, in a router mounted at
-      // /suitability rather than under /businesses/:id, so the mount guard does
-      // not reach it.
-      const tenantId = req.tenant?.tenantId;
-      if (!tenantId) {
-        res.status(401).json({
-          success: false,
-          error: { code: 'UNAUTHORIZED', message: 'Authentication required.' },
-        } satisfies ApiResponse);
-        return;
-      }
-
-      const business = await prisma.business.findFirst({
-        where: { id: businessId, tenantId },
-      });
-
-      if (!business) {
-        res.status(404).json({
-          success: false,
-          error: {
-            code: 'NOT_FOUND',
-            message: `Business ${businessId} not found.`,
-          },
-        } satisfies ApiResponse);
-        return;
-      }
-
-      // Build input from stored business data with sensible defaults
-      // for fields not stored directly on the business record.
-      const annualRevenue = business.annualRevenue
-        ? Number(business.annualRevenue)
-        : (business.monthlyRevenue ? Number(business.monthlyRevenue) * 12 : 0);
-
-      const businessAgeMonths = business.dateOfFormation
-        ? Math.max(0, Math.floor(
-            (Date.now() - new Date(business.dateOfFormation).getTime()) / (30.44 * 24 * 60 * 60 * 1000),
-          ))
-        : 0;
-
-      // Look for the most recent suitability check for additional data
-      const latestCheck = await prisma.suitabilityCheck.findFirst({
-        where: { businessId },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      // Try to extract score breakdown data if available
-      let creditScore = 700; // default
-      let utilizationRatio = 0.20;
-      let debtServiceRatio = 0.15;
-      let inquiries = 1;
-      let derogatoryMarks = 0;
-
-      if (latestCheck?.decisionExplanation) {
-        try {
-          const explanation = JSON.parse(latestCheck.decisionExplanation as string);
-          // Try to infer from stored breakdown
-          if (explanation.creditScore) creditScore = explanation.creditScore;
-        } catch {
-          // Use defaults
-        }
-      }
-
-      const input: SuitabilityEngineInput = {
-        creditScore,
-        utilizationRatio,
-        businessAgeMonths,
-        annualRevenue,
-        debtServiceRatio,
-        inquiries,
-        derogatoryMarks,
-        advisorConfirmedDebtServicing: true, // default for existing businesses
-        clientAcknowledgedPersonalGuarantee: true,
-        clientAcknowledgedAprRisk: true,
-        naicsCode: (business as Record<string, unknown>).naicsCode as string || '0000',
-      };
-
-      const result = calculateSuitability(input);
-
-      res.status(200).json({
-        success: true,
-        data: {
-          businessId,
-          businessName: business.legalName,
-          ...result,
-        },
-      } satisfies ApiResponse);
-    } catch (err) {
-      handleUnexpectedError(err, res, `GET /${businessId}`);
     }
   },
 );

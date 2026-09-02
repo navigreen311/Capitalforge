@@ -31,6 +31,11 @@ function makeGoodInput(overrides: Partial<SuitabilityInput> = {}): SuitabilityIn
     activeBankruptcy: false,
     sanctionsMatch: false,
     fraudSuspicion: false,
+    // Signed, so each fixture keeps testing the financial rule it names. The
+    // gates themselves are covered in services/suitability.test.ts.
+    clientAcknowledgedPersonalGuarantee: true,
+    clientAcknowledgedAprRisk: true,
+    advisorConfirmedDebtServicing: null,
     ...overrides,
   };
 }
@@ -47,6 +52,11 @@ function makeMarginalInput(overrides: Partial<SuitabilityInput> = {}): Suitabili
     activeBankruptcy: false,
     sanctionsMatch: false,
     fraudSuspicion: false,
+    // Signed, so each fixture keeps testing the financial rule it names. The
+    // gates themselves are covered in services/suitability.test.ts.
+    clientAcknowledgedPersonalGuarantee: true,
+    clientAcknowledgedAprRisk: true,
+    advisorConfirmedDebtServicing: null,
     ...overrides,
   };
 }
