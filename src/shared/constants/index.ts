@@ -58,6 +58,18 @@ export const EVENT_TYPES = {
   OFFBOARDING_COMPLETED: 'offboarding.completed',
 
   // Restack
+  /**
+   * DEAD as of 2026-09-02. Nothing emits it.
+   *
+   * auto-restack.service.ts wrote this to the canonical ledger at readiness
+   * score >= 70 — an immutable record asserting a client was ready for another
+   * funding round, from numbers a caller typed into a query string. The engine
+   * was deleted rather than fixed; restack-trigger.ts answers the same question
+   * from the database and emits nothing.
+   *
+   * The constant stays because historical rows may carry the string, and a
+   * reader resolving an eventType needs the name to still mean something.
+   */
   RESTACK_TRIGGER_FIRED: 'restack.trigger.fired',
 
   // VoiceForge

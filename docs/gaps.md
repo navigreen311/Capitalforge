@@ -764,6 +764,67 @@ It is scoped to the tenant like the other five as of 2026-09-02 — the day
 something wires it up is not the day to remember it was the one gate reading
 across tenants.
 
+
+### 3l. Two ways a route escapes the ownership guard — open, 2026-09-02
+
+Both were found under `restack_recommend`, and both are classes rather than
+instances.
+
+#### The mount prefix does not match, and the route file cannot show it
+
+`requireOwnedBusiness` is installed as `apiRouter.use('/businesses/:id', ...)`.
+Express matches `use` against the **request path**, which is why a router
+mounted at `'/'` declaring `/businesses/:id/...` in its own paths *is* covered
+— that is load-bearing enough to be proven in
+`business-ownership-mount.test.ts`.
+
+The inverse is not covered and looks identical in the route file.
+`hardshipRouter` mounts at `/hardship` and declared
+`/businesses/:id/restack/readiness`. The request path is
+`/api/hardship/businesses/:id/...`, which does not start with `/businesses/`,
+so the guard never ran. **Nothing in `hardship.routes.ts` distinguishes that
+from the covered case** — the declared path is the same; only the mount line in
+`index.ts` differs.
+
+The two deleted routes were the instance. The class is every router mounted at
+a non-root prefix that declares `/businesses/:id/...` in its own paths.
+`check-route-tenancy` computes effective paths and would catch a fresh one, so
+the exposure is bounded — provided the second problem below is fixed.
+
+#### `hasTenant`: mentioning the tenant is not scoping to it
+
+`check-route-tenancy` ends with:
+
+```ts
+const hasTenant = /tenantId/.test(body);
+if (!unscoped && hasTenant) continue;
+```
+
+A handler that mentions `tenantId` anywhere passes. The deleted readiness route
+mentioned it to **stamp a ledger event** and used it to scope nothing, and the
+check passed it — an unguarded business id and a ledger write, silently clean.
+
+**This is the fourth instance of marker-presence in these scripts**, after a
+501 exempting fifteen templates, one `await getConsentService()` exempting
+sixteen generators, and a comment satisfying the ownership-helper test. It sits
+in this guard's last remaining fallback, which is the one place the class had
+not yet been found.
+
+**Why it has not been tightened yet.** The fallback exists because a handler
+that passes a business id to a service is unanalysable from the route file, and
+without it the check reports every such handler. Removing it turns
+`check-route-tenancy` from three allowlisted entries into something closer to
+the service guard's thirty-three — a triage, not a build break, and it should
+land reporting-only the way `check-service-tenancy` did.
+
+**The better fix is narrower:** require that `tenantId` appear in a `where`, a
+service-call argument list, or an ownership-helper call — not merely somewhere
+in the body. A `tenantId` that only reaches an event payload or a log line is
+not evidence of scoping, and that distinction is checkable.
+
+Not built. Recorded because the class is now known and the instance that
+exposed it has been deleted, which is exactly how a finding gets forgotten.
+
 ### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
 
 Nothing answers "show me your communication monitoring" at the level the
