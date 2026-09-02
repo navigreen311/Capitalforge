@@ -1,9 +1,21 @@
 // ============================================================
-// CapitalForge — Compliance Dossier Service
+// CapitalForge — Compliance Manifest Service
 //
-// One-click "regulator-ready packet" assembly.
+// A MANIFEST, NOT A PACKET.
 //
-// Assembles ALL compliance-relevant records for a single business:
+// This said "one-click regulator-ready packet assembly", and that the output
+// "can be zipped and handed to regulators / counsel". Neither was true. The
+// output is JSON containing document REFERENCES — storageKey, sha256Hash,
+// cryptoTimestamp — and nothing in this repository fetches a byte of the
+// documents themselves or produces an archive. The route sets
+// `Content-Disposition: attachment`, so a browser saves a file and it looks
+// like a deliverable.
+//
+// Handing a regulator this file gives them a list of documents that exist
+// somewhere. Whether it should assemble the real bytes is a real piece of work
+// and a real decision; it is recorded in docs/gaps.md, not assumed here.
+//
+// Assembles compliance-relevant records for a single business:
 //   - Consent records (TCPA, data-sharing, application, product-reality)
 //   - Product acknowledgments (product reality, fee schedules, guarantees)
 //   - Card applications with adverse-action notices
@@ -13,13 +25,13 @@
 //   - Suitability checks
 //   - Compliance checks
 //
-// Output: a structured JSON manifest + a flat list of document refs
-// that can be zipped and handed to regulators / counsel.
+// Output: a structured JSON manifest and a flat list of document references.
+// `contents: 'references'` says so in the payload itself.
 //
-// PRODUCTION NOTE: In production, replace the in-memory JSON assembly
-// with a streaming ZIP builder (e.g. archiver npm package) that pulls
-// raw file bytes from S3 for each document and streams directly to the
-// response without buffering the full archive in Lambda memory.
+// WHAT IT DOES NOT CONTAIN is declared in the manifest too, as
+// `excludedRecordTypes` — communication scans, the ledger, recorded decisions
+// and prior exports. A reader cannot otherwise tell an omitted record type
+// from one that is empty for this client.
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
@@ -164,7 +176,7 @@ export interface BusinessSnapshot {
   status:              string;
 }
 
-export interface ComplianceDossier {
+export interface ComplianceManifest {
   /** RFC 3339 timestamp of when this dossier was assembled */
   assembledAt:       string;
   /**
@@ -179,6 +191,23 @@ export interface ComplianceDossier {
   /** Optional date range applied as filter */
   filterSince:       string | null;
   filterUntil:       string | null;
+  /**
+   * Which date column each record type was filtered on.
+   *
+   * One `filterSince` described four different clocks: acknowledgments were
+   * filtered on `signedAt`, ACH authorisations on `authorizedAt`, and fee
+   * schedules and suitability checks on `createdAt`. "Records since 1 January"
+   * meant four things and said one.
+   */
+  filteredFields:    Readonly<Record<string, string>>;
+  /** Record types this manifest does NOT contain. See EXCLUDED_RECORD_TYPES. */
+  excludedRecordTypes: readonly ExcludedRecordType[];
+  /**
+   * `references` — this manifest lists documents; it does not contain them.
+   * A field rather than a comment, because the distinction is the whole
+   * difference between an index and a packet and a reader has to see it.
+   */
+  contents:          'references';
 
   business:          BusinessSnapshot;
   consentRecords:    ConsentSummary[];
@@ -202,10 +231,94 @@ export interface ComplianceDossier {
     totalDocuments:       number;
     documentsOnLegalHold: number;
     timestampsTampered:   number;
+    /**
+     * Documents whose timestamp could not be checked at all — no sha256 hash,
+     * no crypto timestamp, or neither.
+     *
+     * `timestampsTampered: 0` used to mean either "every document verified" or
+     * "not one could be checked", and a reader could not tell which. It is the
+     * field a regulator reads first, and it was the third-state collapse this
+     * codebase keeps finding: verified, tampered, and the silent third that
+     * counted as neither.
+     */
+    documentsUnverifiable: number;
+    documentsVerified:     number;
     noGoTriggered:        boolean;
     openComplianceIssues: number;
   };
 }
+
+/**
+ * The date column each record type is filtered on.
+ *
+ * Travels in the manifest, because `filterSince` alone is one label over four
+ * meanings — and a reader deciding whether a record is missing or merely
+ * out of range needs to know which clock was used.
+ */
+export const FILTERED_DATE_FIELDS = {
+  consentRecords:    'createdAt',
+  acknowledgments:   'signedAt',
+  applications:      'createdAt',
+  feeSchedules:      'createdAt',
+  achAuthorizations: 'authorizedAt',
+  suitabilityChecks: 'createdAt',
+  complianceChecks:  'createdAt',
+  documents:         'createdAt',
+} as const;
+
+export interface ExcludedRecordType {
+  recordType: string;
+  reason:     string;
+}
+
+/**
+ * What this manifest does not contain, named rather than silently absent.
+ *
+ * A reader cannot tell an omitted record type from one that happens to be
+ * empty for this client, and the four below are exactly the ones somebody
+ * would assume were included in something called a compliance manifest.
+ *
+ * Whether any of them SHOULD be included is a product decision, recorded in
+ * docs/gaps.md rather than settled here. Declaring the omission is not the
+ * same as defending it.
+ */
+export const EXCLUDED_RECORD_TYPES: readonly ExcludedRecordType[] = [
+  {
+    recordType: 'comm_compliance_records',
+    reason:
+      'Communication scans — every advisor message and marketing script checked '
+      + 'for banned claims, including the violations found. Not included; not yet '
+      + 'decided whether it belongs in a per-business manifest.',
+  },
+  {
+    recordType: 'ledger_events',
+    reason:
+      'The canonical audit ledger for this business. Not included; it is the '
+      + 'system-wide event spine rather than a per-business record set, and '
+      + 'scoping it to one business has not been designed.',
+  },
+  {
+    recordType: 'ai_decision_logs',
+    reason:
+      'Recorded decisions — currently issuer eligibility only. Not included; '
+      + 'eight of the nine modules named in AI_MODULE_SOURCES still write '
+      + 'nothing, so a section here would be mostly empty and read as "no '
+      + 'decisions were made".',
+  },
+  {
+    recordType: 'regulatory_dossier_exports',
+    reason:
+      'Previous exports of this kind. Not included; a manifest listing its own '
+      + 'predecessors is a decision nobody has taken.',
+  },
+  {
+    recordType: 'business_owners',
+    reason:
+      'Beneficial owners, including encrypted SSNs. Deliberately excluded and '
+      + 'not a gap: these are retrieved through a separately permissioned '
+      + 'endpoint.',
+  },
+] as const;
 
 // ── ComplianceDossierService ───────────────────────────────────
 
@@ -217,7 +330,7 @@ export class ComplianceDossierService {
   }
 
   /**
-   * Assemble the full compliance dossier for a single business.
+   * Assemble the compliance manifest for a single business.
    *
    * Tenancy: `_fetchBusiness` filters on `{ id: businessId, tenantId }` and the
    * assembly throws `BusinessNotFoundForDossierError` when it comes back empty,
@@ -238,7 +351,7 @@ export class ComplianceDossierService {
    * is excluded here; advisors should retrieve those through a separately
    * permissioned endpoint).
    */
-  async assemble(options: DossierOptions): Promise<ComplianceDossier> {
+  async assemble(options: DossierOptions): Promise<ComplianceManifest> {
     const { tenantId, businessId, requestedBy, since, until } = options;
     const assembledAt = new Date().toISOString();
 
@@ -251,12 +364,38 @@ export class ComplianceDossierService {
 
     svcLog.info('[assemble] Starting dossier assembly');
 
-    // Build date range filter used by most sub-queries
+    // Build date range filter used by most sub-queries. Refuses an unparseable
+    // date rather than passing an Invalid Date to the driver.
     const dateFilter = this._buildDateFilter(since, until);
 
-    // Parallel fetch all record types — tenant + business scoped
+    // The requester is named in `assembledBy` on a document handed to counsel,
+    // so the id has to resolve. Same shape as advisorId on a communication
+    // scan: it arrives from a verified token rather than a request body, which
+    // makes it likelier to be right and no more verified.
+    await this._verifyRequester(tenantId, requestedBy);
+
+    // ── Ownership FIRST, then everything else ────────────────────
+    //
+    // These nine used to run in one `Promise.all`, and five of them filtered on
+    // `businessId` alone. The ownership check came after the await, so it did
+    // not precede the queries it was supposed to gate: they executed against
+    // another tenant's rows and their results were discarded by the throw.
+    //
+    // Nothing leaked — the throw is before any return — but that is safe by
+    // arrangement rather than by construction, and the arrangement stops
+    // holding the moment somebody returns a partial result, logs one, or moves
+    // a fetch out of the throw's reach. The check is a gate now, and the five
+    // are scoped through `business: { tenantId }` as well, so neither one is
+    // load-bearing alone.
+    //
+    // This is inside a service, where `npm run check:route-tenancy` cannot
+    // see it. That is the documented blind spot, not an exemption from it.
+    const business = await this._fetchBusiness(tenantId, businessId);
+    if (!business) {
+      throw new BusinessNotFoundForDossierError(businessId);
+    }
+
     const [
-      business,
       consents,
       acknowledgments,
       applications,
@@ -266,20 +405,15 @@ export class ComplianceDossierService {
       complianceChecks,
       documents,
     ] = await Promise.all([
-      this._fetchBusiness(tenantId, businessId),
       this._fetchConsents(tenantId, businessId, dateFilter),
-      this._fetchAcknowledgments(businessId, dateFilter),
-      this._fetchApplications(businessId, dateFilter),
-      this._fetchFeeSchedules(businessId, dateFilter),
-      this._fetchAchAuths(businessId, dateFilter),
-      this._fetchSuitabilityChecks(businessId, dateFilter),
+      this._fetchAcknowledgments(tenantId, businessId, dateFilter),
+      this._fetchApplications(tenantId, businessId, dateFilter),
+      this._fetchFeeSchedules(tenantId, businessId, dateFilter),
+      this._fetchAchAuths(tenantId, businessId, dateFilter),
+      this._fetchSuitabilityChecks(tenantId, businessId, dateFilter),
       this._fetchComplianceChecks(tenantId, businessId, dateFilter),
       this._fetchDocuments(tenantId, businessId, dateFilter),
     ]);
-
-    if (!business) {
-      throw new BusinessNotFoundForDossierError(businessId);
-    }
 
     // Verify cryptographic timestamps on all vault documents
     const verifiedDocuments = documents.map((doc) =>
@@ -290,10 +424,23 @@ export class ComplianceDossierService {
       (d) => d.timestampIntegrity === 'tampered',
     ).length;
 
+    const timestampsUnverifiable = verifiedDocuments.filter(
+      (d) => d.timestampIntegrity === 'unverifiable',
+    ).length;
+
     if (timestampsTampered > 0) {
       svcLog.error('[assemble] ALERT: Tampered document timestamps detected', {
         businessId,
         tamperedCount: timestampsTampered,
+      });
+    }
+    if (timestampsUnverifiable > 0) {
+      // Not an alert. A document with no hash was never checkable, which is a
+      // gap in what was recorded rather than evidence of tampering — but it is
+      // also not a clean bill of health, and it used to be counted as neither.
+      svcLog.warn('[assemble] Documents whose timestamps could not be checked', {
+        businessId,
+        unverifiableCount: timestampsUnverifiable,
       });
     }
 
@@ -309,6 +456,12 @@ export class ComplianceDossierService {
       totalDocuments:       verifiedDocuments.length,
       documentsOnLegalHold: verifiedDocuments.filter((d) => d.legalHold).length,
       timestampsTampered,
+      documentsUnverifiable: verifiedDocuments.filter(
+        (d) => d.timestampIntegrity === 'unverifiable',
+      ).length,
+      documentsVerified: verifiedDocuments.filter(
+        (d) => d.timestampIntegrity === 'verified',
+      ).length,
       noGoTriggered:        suitabilityChecks.some((s) => s.noGoTriggered),
       openComplianceIssues: complianceChecks.filter((c) => !c.resolvedAt).length,
     };
@@ -326,6 +479,9 @@ export class ComplianceDossierService {
       businessId,
       filterSince:       since ?? null,
       filterUntil:       until ?? null,
+      filteredFields:    FILTERED_DATE_FIELDS,
+      excludedRecordTypes: EXCLUDED_RECORD_TYPES,
+      contents:          'references',
       business:          this._toBusinessSnapshot(business),
       consentRecords:    consents.map(this._toConsentSummary),
       acknowledgments:   acknowledgments.map(this._toAcknowledgmentSummary),
@@ -347,6 +503,23 @@ export class ComplianceDossierService {
     });
   }
 
+  /**
+   * Confirm the id recorded in `assembledBy` names a user in this tenant.
+   *
+   * The manifest is handed to counsel and a regulator, and `assembledBy` is
+   * its provenance line. The id comes from a verified JWT rather than a
+   * request body, which makes it likelier to be right and no more verified —
+   * a token minted for a user since deleted, or a service principal that was
+   * never created, produces a document attributed to nobody.
+   */
+  private async _verifyRequester(tenantId: string, requestedBy: string): Promise<void> {
+    const user = await this.prisma.user.findFirst({
+      where:  { id: requestedBy, tenantId },
+      select: { id: true },
+    });
+    if (!user) throw new UnknownRequesterError(requestedBy);
+  }
+
   private async _fetchConsents(
     tenantId:   string,
     businessId: string,
@@ -359,51 +532,56 @@ export class ComplianceDossierService {
   }
 
   private async _fetchAcknowledgments(
+    tenantId:   string,
     businessId: string,
     dateFilter:  Record<string, unknown>,
   ) {
     return this.prisma.productAcknowledgment.findMany({
-      where: { businessId, ...this._mapDateField(dateFilter, 'signedAt') },
+      where: { businessId, business: { tenantId }, ...this._mapDateField(dateFilter, 'signedAt') },
       orderBy: { signedAt: 'asc' },
     });
   }
 
   private async _fetchApplications(
+    tenantId:   string,
     businessId: string,
     dateFilter:  Record<string, unknown>,
   ) {
     return this.prisma.cardApplication.findMany({
-      where: { businessId, ...this._mapDateField(dateFilter, 'createdAt') },
+      where: { businessId, business: { tenantId }, ...this._mapDateField(dateFilter, 'createdAt') },
       orderBy: { createdAt: 'asc' },
     });
   }
 
   private async _fetchFeeSchedules(
+    tenantId:   string,
     businessId: string,
     dateFilter:  Record<string, unknown>,
   ) {
     return this.prisma.costCalculation.findMany({
-      where: { businessId, ...dateFilter },
+      where: { businessId, business: { tenantId }, ...dateFilter },
       orderBy: { createdAt: 'asc' },
     });
   }
 
   private async _fetchAchAuths(
+    tenantId:   string,
     businessId: string,
     dateFilter:  Record<string, unknown>,
   ) {
     return this.prisma.achAuthorization.findMany({
-      where: { businessId, ...this._mapDateField(dateFilter, 'authorizedAt') },
+      where: { businessId, business: { tenantId }, ...this._mapDateField(dateFilter, 'authorizedAt') },
       orderBy: { authorizedAt: 'asc' },
     });
   }
 
   private async _fetchSuitabilityChecks(
+    tenantId:   string,
     businessId: string,
     dateFilter:  Record<string, unknown>,
   ) {
     return this.prisma.suitabilityCheck.findMany({
-      where: { businessId, ...dateFilter },
+      where: { businessId, business: { tenantId }, ...dateFilter },
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -483,9 +661,29 @@ export class ComplianceDossierService {
     until?: string,
   ): Record<string, unknown> {
     if (!since && !until) return {};
+
+    // Refused, not passed through.
+    //
+    // `new Date('last-tuesday')` is an Invalid Date, and what happened next
+    // depended on the driver: either an error the caller reads as a server
+    // fault, or a filter that quietly matches nothing. A manifest covering
+    // "no records" because the range was unreadable is the worst of the three
+    // outcomes and was one of the two on offer.
     const filter: Record<string, Date> = {};
-    if (since) filter['gte'] = new Date(since);
-    if (until) filter['lte'] = new Date(until);
+    if (since) {
+      const d = new Date(since);
+      if (Number.isNaN(d.getTime())) throw new InvalidDateRangeError('since', since);
+      filter['gte'] = d;
+    }
+    if (until) {
+      const d = new Date(until);
+      if (Number.isNaN(d.getTime())) throw new InvalidDateRangeError('until', until);
+      filter['lte'] = d;
+    }
+    if (filter['gte'] && filter['lte'] && filter['gte'] > filter['lte']) {
+      // An inverted range matches nothing, which reads as "no records exist".
+      throw new InvalidDateRangeError('range', `${since} .. ${until}`);
+    }
     return { createdAt: filter };
   }
 
@@ -700,6 +898,33 @@ export class ComplianceDossierService {
 }
 
 // ── Domain Errors ──────────────────────────────────────────────
+
+/** The id that would be recorded in `assembledBy` names nobody in this tenant. */
+export class UnknownRequesterError extends Error {
+  constructor(public readonly requestedBy: string) {
+    super(
+      `No user ${requestedBy} in this tenant. A compliance manifest records who `
+      + 'assembled it, and that line is read by counsel and by a regulator, so it '
+      + 'cannot be attributed to an id that resolves to nobody.',
+    );
+    this.name = 'UnknownRequesterError';
+  }
+}
+
+/** A `since`/`until` that cannot be read as a date, or a range that inverts. */
+export class InvalidDateRangeError extends Error {
+  constructor(public readonly field: 'since' | 'until' | 'range', public readonly value: string) {
+    super(
+      field === 'range'
+        ? `The range ${value} ends before it starts. A manifest covering nothing `
+          + 'because the range was inverted reads exactly like one covering a client '
+          + 'with no records.'
+        : `\`${field}\` is not a date this system can read: "${value}". Use an ISO `
+          + '8601 date, e.g. 2026-01-31.',
+    );
+    this.name = 'InvalidDateRangeError';
+  }
+}
 
 export class BusinessNotFoundForDossierError extends Error {
   public readonly code = 'BUSINESS_NOT_FOUND';

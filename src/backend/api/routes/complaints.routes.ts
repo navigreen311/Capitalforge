@@ -48,7 +48,7 @@ import type {
   InquiryListFilters,
   RegulatorInquiryRecord,
   InquiryListResult,
-  ComplianceDossier,
+  ComplianceManifest,
   LegalHoldSummary,
 } from '../../services/regulator-response.service.js';
 import { PERMISSIONS } from '../../../shared/constants/index.js';
@@ -554,7 +554,7 @@ complaintsRouter.post(
       const { id }       = req.params;
 
       const svc = getRegulatoryService();
-      let dossier: ComplianceDossier;
+      let dossier: ComplianceManifest;
 
       try {
         dossier = await svc.exportDossier(String(id), tenantId, req.tenant!.userId);
@@ -588,7 +588,7 @@ complaintsRouter.post(
         documentCount: dossier.totalDocuments,
       });
 
-      const body: ApiResponse<ComplianceDossier> = { success: true, data: dossier };
+      const body: ApiResponse<ComplianceManifest> = { success: true, data: dossier };
       res.status(200).json(body);
     } catch (err) {
       next(err);

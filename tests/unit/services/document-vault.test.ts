@@ -87,6 +87,7 @@ function makeMockPrisma() {
       count:      vi.fn().mockResolvedValue(1),
       delete:     vi.fn().mockResolvedValue(documentRow),
     },
+    user:                 { findFirst:  vi.fn().mockResolvedValue({ id: 'user-001' }) },
     business:             { findFirst:  vi.fn().mockResolvedValue(null) },
     consentRecord:        { findMany:   vi.fn().mockResolvedValue([]) },
     productAcknowledgment:{ findMany:   vi.fn().mockResolvedValue([]) },
@@ -804,6 +805,10 @@ function makeFullMockPrisma() {
   };
 
   return {
+    // The manifest names who assembled it, and that id is verified against
+    // `users` in the same tenant — it is the provenance line on a document
+    // handed to counsel.
+    user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
     business:             { findFirst: vi.fn().mockResolvedValue(business) },
     consentRecord:        { findMany:  vi.fn().mockResolvedValue([consent, revokedConsent]) },
     productAcknowledgment:{ findMany:  vi.fn().mockResolvedValue([acknowledgment]) },
@@ -925,6 +930,7 @@ describe('ComplianceDossierService — timestamp integrity', () => {
     });
 
     const prisma = {
+      user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
       business:             { findFirst: vi.fn().mockResolvedValue({
         id: BUSINESS_ID, tenantId: TENANT_ID, legalName: 'Test Co', dba: null, ein: null,
         entityType: 'llc', stateOfFormation: null, dateOfFormation: null, industry: null,
@@ -978,6 +984,7 @@ describe('ComplianceDossierService — timestamp integrity', () => {
     });
 
     const prisma = {
+      user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
       business:             { findFirst: vi.fn().mockResolvedValue({
         id: BUSINESS_ID, tenantId: TENANT_ID, legalName: 'Test Co', dba: null, ein: null,
         entityType: 'llc', stateOfFormation: null, dateOfFormation: null, industry: null,
@@ -1019,6 +1026,7 @@ describe('ComplianceDossierService — timestamp integrity', () => {
 
   it('marks document with no crypto timestamp as "unverifiable"', async () => {
     const prisma = {
+      user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
       business:             { findFirst: vi.fn().mockResolvedValue({
         id: BUSINESS_ID, tenantId: TENANT_ID, legalName: 'Test Co', dba: null, ein: null,
         entityType: 'llc', stateOfFormation: null, dateOfFormation: null, industry: null,
@@ -1061,6 +1069,7 @@ describe('ComplianceDossierService — timestamp integrity', () => {
 describe('ComplianceDossierService — error handling', () => {
   it('throws BusinessNotFoundForDossierError when business does not exist', async () => {
     const prisma = {
+      user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
       business:             { findFirst: vi.fn().mockResolvedValue(null) },
       consentRecord:        { findMany: vi.fn().mockResolvedValue([]) },
       productAcknowledgment:{ findMany: vi.fn().mockResolvedValue([]) },

@@ -44,7 +44,7 @@ export interface LegalHoldSummary {
 
 // ── Dossier export ─────────────────────────────────────────────────
 
-export interface ComplianceDossier {
+export interface ComplianceManifest {
   exportId: string;
   inquiryId: string;
   tenantId: string;
@@ -464,7 +464,7 @@ export class RegulatorResponseService {
     inquiryId: string,
     tenantId: string,
     requestedBy?: string,
-  ): Promise<ComplianceDossier> {
+  ): Promise<ComplianceManifest> {
     const inquiry = await this.prisma.regulatoryAlert.findFirst({
       where: { id: inquiryId, tenantId },
     });
@@ -553,7 +553,7 @@ export class RegulatorResponseService {
       },
     });
 
-    const dossier: ComplianceDossier = {
+    const dossier: ComplianceManifest = {
       exportId,
       inquiryId,
       tenantId,

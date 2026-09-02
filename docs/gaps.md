@@ -635,6 +635,60 @@ The letter is now built from the consent records themselves and refuses when
 there are none, because a letter confirming a consent that was never captured
 is the document that endpoint exists not to produce.
 
+
+### 3f. The compliance manifest is an index, not a packet — DECISION NEEDED, 2026-09-01
+
+`GET /api/documents/export/:businessId` assembles a JSON manifest: the
+compliance records, plus **references** to the vault documents — `storageKey`,
+`sha256Hash`, `cryptoTimestamp`. Nothing in this repository fetches a byte of
+the documents or builds an archive. The route sets
+`Content-Disposition: attachment`, so a browser saves a file and it looks like
+a deliverable.
+
+The service header used to call it "one-click regulator-ready packet
+assembly", output that "can be zipped and handed to regulators / counsel". It
+now says what it is, and the payload carries `contents: 'references'` so a
+reader sees it without reading this file.
+
+**The decision: should it assemble the bytes?** The old PRODUCTION NOTE
+proposed a streaming ZIP builder pulling from S3. That is real work — an
+archive stream, per-document S3 reads, a response that cannot be buffered in
+memory, and a size limit somebody has to choose — and it changes what the
+module IS. A manual describing `build_packet` cannot be written until this is
+settled, because the two answers describe different modules:
+
+- **Index.** Fast, small, safe to generate often, and the recipient needs vault
+  access to do anything with it. Honest as long as it says so, which it now
+  does.
+- **Packet.** Self-contained, handed over as one file, and it becomes a
+  distribution channel for documents including any on legal hold — which is a
+  question about who may receive them, not only about how they are streamed.
+
+Not built. The manifest is honest about being a manifest in the meantime.
+
+### 3g. Four record types the manifest does not contain — DECISION NEEDED, 2026-09-01
+
+Declared in `excludedRecordTypes` now, so nobody has to infer them from an
+absence. Whether any belongs is a product call:
+
+- **`comm_compliance_records`** — every advisor message and marketing script
+  scanned for banned claims, with the violations found. The most obviously
+  regulator-relevant record the system holds, and the strongest candidate.
+- **`ledger_events`** — the canonical audit spine. It is a system-wide event
+  stream rather than a per-business record set, and scoping it to one business
+  has not been designed.
+- **`ai_decision_logs`** — issuer eligibility only, today. Eight of the nine
+  modules in `AI_MODULE_SOURCES` still write nothing (§7b), so a section here
+  would be mostly empty and would read as "no decisions were made" — the
+  absence-as-value shape, in the document where it matters most.
+- **`regulatory_dossier_exports`** — prior exports of this kind. A manifest
+  listing its own predecessors is a decision nobody has taken.
+
+`business_owners` is excluded deliberately and is not a gap: beneficial owners
+with encrypted SSNs are retrieved through a separately permissioned endpoint.
+
+Both of these are Ivan's call after the manuals are written.
+
 ### 3d. The dispute that looked filed — refused 2026-09-01
 
 `POST /api/statements/disputes` answered **201** with
