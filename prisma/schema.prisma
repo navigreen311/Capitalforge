@@ -46,6 +46,7 @@ model Tenant {
   smsMessages         SmsMessage[]
 
   @@map("tenants")
+  dossierExports      RegulatoryDossierExport[]
 }
 
 model User {
@@ -273,6 +274,7 @@ model Business {
 
   @@index([tenantId, status])
   @@map("businesses")
+  regulatoryAlerts    RegulatoryAlert[]
 }
 
 model BusinessOwner {
@@ -1150,6 +1152,40 @@ model ReferralAttribution {
 // REGULATORY INTELLIGENCE
 // ============================================================
 
+/**
+ * A compliance dossier, as it was sent.
+ *
+ * `exportDossier` used to build one, hand back a fresh uuid as `exportId`, and
+ * store nothing — so "the dossier we sent on the 14th" could not be produced,
+ * only regenerated, and a regeneration differs from the original the moment any
+ * underlying row changes. An evidence export you cannot reproduce is a printout.
+ *
+ * `sections` holds the assembled document verbatim. That is deliberate
+ * duplication: the point is what was sent, not what the source rows say now.
+ */
+model RegulatoryDossierExport {
+  /** The exportId handed to the caller. */
+  id               String   @id @default(uuid())
+  tenantId         String
+  inquiryId        String
+  businessId       String
+  matterType       String
+  generatedAt      DateTime @default(now())
+  /** The user who requested it. Null only for a system-initiated export. */
+  generatedBy      String?
+  /** The dossier as assembled, verbatim. */
+  sections         Json
+  documentCount    Int
+  legalHoldSummary Json?
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id])
+  inquiry RegulatoryAlert @relation(fields: [inquiryId], references: [id])
+
+  @@index([tenantId, inquiryId])
+  @@index([generatedAt])
+  @@map("regulatory_dossier_exports")
+}
+
 model RegulatoryAlert {
   id              String    @id @default(uuid())
   tenantId        String
@@ -1163,6 +1199,21 @@ model RegulatoryAlert {
   reviewedBy      String?
   reviewedAt      DateTime?
   effectiveDate   DateTime?
+  /**
+   * The business this inquiry concerns.
+   *
+   * Was a key inside `metadata`. A link that lives in a JSON key is a link
+   * nothing can enforce: no foreign key, no index, no way for the database to
+   * refuse an inquiry pointing at a business that does not exist — and
+   * `exportDossier` read it with `metadata['businessId'] ?? null`, so a typo in
+   * the key produced a dossier with every section empty and no error.
+   *
+   * Nullable because an inquiry can arrive before anyone has matched it to a
+   * client. `exportDossier` refuses in that case rather than exporting nothing.
+   */
+  businessId      String?
+  business        Business? @relation(fields: [businessId], references: [id])
+
   /**
    * Free-form response/workflow state written by regulator-response.service
    */
@@ -1182,6 +1233,9 @@ model RegulatoryAlert {
   updatedAt       DateTime  @default(now()) @updatedAt
 
   @@index([tenantId, status])
+  dossierExports  RegulatoryDossierExport[]
+
+  @@index([businessId])
   @@map("regulatory_alerts")
 }
 

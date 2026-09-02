@@ -48,6 +48,11 @@ function makePrismaMock() {
       findFirst: vi.fn().mockResolvedValue(null),
       findMany:  vi.fn().mockResolvedValue([]),
     },
+    // The dossier is stored now. Without this the export throws on `create`,
+    // which is the persistence working, not this suite breaking.
+    regulatoryDossierExport: {
+      create: vi.fn().mockResolvedValue({}),
+    },
     document: {
       findMany:    vi.fn().mockResolvedValue([]),
       updateMany:  vi.fn().mockResolvedValue({ count: 0 }),
@@ -692,6 +697,45 @@ describe('RegulatorResponseService — dossier export', () => {
     expect(result.sections.documents).toHaveLength(1);
     expect(result.sections.complaints).toHaveLength(1);
     expect(result.totalDocuments).toBe(1);
+
+    // All SIX sections, not the three that happened to have rows.
+    //
+    // This asserted inquiryDetails, documents and complaints, and stubbed
+    // consentRecords, complianceChecks and achAuthorizations as [] without
+    // asserting on any of them — so a dossier that dropped three sections
+    // entirely passed a test named "all required sections". Recorded in
+    // docs/OVERSTATED_TESTS.md §1 and closed here.
+    expect(result.sections.consentRecords).toEqual([]);
+    expect(result.sections.complianceChecks).toEqual([]);
+    expect(result.sections.achAuthorizations).toEqual([]);
+
+    // And it is stored. An export you cannot reproduce is a printout, so the
+    // row is the point of the export, not a side effect of it.
+    expect(mock.regulatoryDossierExport.create).toHaveBeenCalledTimes(1);
+    const [{ data }] = mock.regulatoryDossierExport.create.mock.calls[0] as [{ data: Record<string, unknown> }];
+    expect(data.id).toBe(result.exportId);
+    expect(data.inquiryId).toBe(INQUIRY_ID);
+    expect(data.documentCount).toBe(1);
+  });
+
+  it('refuses an inquiry that is not linked to a business', async () => {
+    // Every fetch was `businessId ? query : Promise.resolve([])`, so this used
+    // to return a complete-looking dossier of five empty arrays — which reads
+    // as "this business has no records" rather than "no business was attached",
+    // in the one document a regulator reads.
+    const mock = makePrismaMock();
+    mock.regulatoryAlert.findFirst.mockResolvedValue({
+      ...makeInquiryRow(),
+      businessId: null,
+      metadata: {},
+    });
+
+    const svc = new RegulatorResponseService(mock as never);
+
+    await expect(svc.exportDossier(INQUIRY_ID, TENANT_ID, 'user-001')).rejects.toThrow(
+      /not linked to a business/i,
+    );
+    expect(mock.regulatoryDossierExport.create).not.toHaveBeenCalled();
   });
 
   it('includes sha256Hash and cryptoTimestamp in document section', async () => {

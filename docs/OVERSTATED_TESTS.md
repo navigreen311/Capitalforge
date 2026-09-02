@@ -55,7 +55,7 @@ Every row here is in the script's `KNOWN_OVERSTATED` allowlist.
 | `tests/e2e/financial-flow.test.ts:502` | year-end fee summary across **all cards** in the stack | one application in the fixture, and the assertions do not count cards |
 | `tests/unit/services/ach-controls.test.ts:485` | returns mapped alerts for **all** flagged debit events | one event, `toHaveLength(1)`. A mapper returning only the first event passes |
 | `tests/unit/services/ach-controls.test.ts:878` | returns zero violations when **all** events are clean | one event |
-| `tests/unit/services/complaint.test.ts:672` | returns a dossier with **all required** sections | asserts `inquiryDetails`, `documents`, `complaints`. Mocks `consentRecord`, `complianceCheck` and `achAuthorization` as `[]` and asserts on none of them — three of the six sections are unchecked |
+| `tests/unit/services/complaint.test.ts:672` | returns a dossier with **all required** sections | **Half fixed 2026-09-01.** It asserted three of six sections and stubbed the other three without asserting on them; it now asserts all six, plus that the dossier is persisted. Still listed because the cardinality half stands: one document and one complaint in the fixture, so it cannot tell "all documents" from "the first document" |
 | `tests/unit/services/credit-intelligence-gate.test.ts:158` | gates **each** bureau on its own credential | configures one bureau and asserts one other rejects. One pair of four |
 | `tests/unit/services/funding-round.test.ts:416` | perfect score when **all cards** approved at target credit | one card |
 

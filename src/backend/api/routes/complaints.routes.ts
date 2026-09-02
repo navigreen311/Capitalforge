@@ -27,7 +27,11 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
 import { ComplaintService } from '../../services/complaint.service.js';
-import { RegulatorResponseService } from '../../services/regulator-response.service.js';
+import {
+  RegulatorResponseService,
+  RegulatorInquiryNotFoundError,
+  InquiryHasNoBusinessError,
+} from '../../services/regulator-response.service.js';
 import type {
   CreateComplaintInput,
   UpdateComplaintInput,
@@ -555,7 +559,22 @@ complaintsRouter.post(
       try {
         dossier = await svc.exportDossier(String(id), tenantId, req.tenant!.userId);
       } catch (err) {
-        if (err instanceof Error && err.message.includes('not found')) {
+        // Typed, not string-matched. This was
+        // `err.message.includes('not found')`, so any future error whose message
+        // happened to contain those two words would have been reported as a
+        // missing inquiry — including a genuine failure, which would then read
+        // as "no such inquiry" to whoever was assembling a regulator response.
+        if (err instanceof InquiryHasNoBusinessError) {
+          // 422, not 404: the inquiry exists. Nothing is attached to it, so
+          // there is no dossier to assemble — which is a different fact from
+          // the inquiry being missing, and the two must not share a response.
+          res.status(422).json({
+            success: false,
+            error: { code: 'INQUIRY_HAS_NO_BUSINESS', message: err.message },
+          } satisfies ApiResponse);
+          return;
+        }
+        if (err instanceof RegulatorInquiryNotFoundError) {
           throw notFound(`Regulator inquiry ${id}`);
         }
         throw err;

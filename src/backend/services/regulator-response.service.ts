@@ -14,7 +14,7 @@
 // All state transitions emit ledger events.
 // ============================================================
 
-import { PrismaClient, type RegulatoryAlert } from '@prisma/client';
+import { Prisma, PrismaClient, type RegulatoryAlert } from '@prisma/client';
 import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
@@ -197,6 +197,33 @@ const REGULATOR_EVENTS = {
 
 // ── RegulatorResponseService ───────────────────────────────────────
 
+// ── Errors ──────────────────────────────────────────────────────
+//
+// Typed, because the route mapped failures with
+// `err.message.includes('not found')`. Any future error whose message happened
+// to contain those two words became a 404 — a bug waiting for somebody to write
+// an unlucky message.
+
+/** No such inquiry, or not this tenant. Deliberately the same answer. */
+export class RegulatorInquiryNotFoundError extends Error {
+  constructor(inquiryId: string) {
+    super(`Regulator inquiry ${inquiryId} not found.`);
+    this.name = 'RegulatorInquiryNotFoundError';
+  }
+}
+
+/** The inquiry is not linked to a business, so there is nothing to assemble. */
+export class InquiryHasNoBusinessError extends Error {
+  constructor(inquiryId: string) {
+    super(
+      `Regulator inquiry ${inquiryId} is not linked to a business, so no dossier can `
+      + 'be assembled. Attach the inquiry to a client first.',
+    );
+    this.name = 'InquiryHasNoBusinessError';
+  }
+}
+
+
 export class RegulatorResponseService {
   private readonly prisma: PrismaClient;
 
@@ -370,7 +397,7 @@ export class RegulatorResponseService {
     const inquiry = await this.prisma.regulatoryAlert.findFirst({
       where: { id: inquiryId, tenantId },
     });
-    if (!inquiry) throw new Error(`Regulator inquiry ${inquiryId} not found.`);
+    if (!inquiry) throw new RegulatorInquiryNotFoundError(inquiryId);
 
     const meta       = (inquiry.metadata as Record<string, unknown>) ?? {};
     const businessId = (meta['businessId'] as string | null) ?? null;
@@ -441,10 +468,20 @@ export class RegulatorResponseService {
     const inquiry = await this.prisma.regulatoryAlert.findFirst({
       where: { id: inquiryId, tenantId },
     });
-    if (!inquiry) throw new Error(`Regulator inquiry ${inquiryId} not found.`);
+    if (!inquiry) throw new RegulatorInquiryNotFoundError(inquiryId);
 
-    const meta       = (inquiry.metadata as Record<string, unknown>) ?? {};
-    const businessId = (meta['businessId'] as string | null) ?? null;
+    const meta = (inquiry.metadata as Record<string, unknown>) ?? {};
+
+    // From the column, not from `metadata['businessId']`. The JSON key is still
+    // written and is still read as a fallback for rows the backfill could not
+    // resolve, but the column is the link the database can enforce.
+    const businessId = inquiry.businessId ?? ((meta['businessId'] as string | null) ?? null);
+
+    // Refuse rather than assemble nothing. Every fetch below was
+    // `businessId ? query : Promise.resolve([])`, so an unattached inquiry
+    // produced a complete-looking dossier of five empty arrays — which reads as
+    // 'this business has no records' rather than 'no business was attached'.
+    if (!businessId) throw new InquiryHasNoBusinessError(inquiryId);
     const inquiryRecord = this._toRecord(inquiry);
 
     // ── Pull all related artefacts in parallel ───────────────────
@@ -500,7 +537,12 @@ export class RegulatorResponseService {
 
     const exportId = uuidv4();
 
-    await eventBus.publish(tenantId, {
+    // publishAndPersist, not publish. `publish` only dispatches to subscribers,
+    // and there are none at runtime — so exporting a regulator dossier left no
+    // record anywhere that it had happened. No ledger row, no AuditLog, a
+    // logger.info and nothing else. "Who pulled this, and when" is the first
+    // question asked about an evidence export.
+    await eventBus.publishAndPersist(tenantId, {
       eventType:     REGULATOR_EVENTS.DOSSIER_EXPORTED,
       aggregateType: 'regulatory_inquiry',
       aggregateId:   inquiryId,
@@ -511,7 +553,7 @@ export class RegulatorResponseService {
       },
     });
 
-    return {
+    const dossier: ComplianceDossier = {
       exportId,
       inquiryId,
       tenantId,
@@ -568,6 +610,27 @@ export class RegulatorResponseService {
       totalDocuments: documents.length,
       exportFormat:   'json',
     };
+    // Stored, so "the dossier we sent on the 14th" can be produced rather than
+    // regenerated. A regeneration differs from the original the moment any
+    // underlying row changes, which for a regulator artefact is the difference
+    // between evidence and a printout. `sections` is duplicated deliberately:
+    // the point is what was sent, not what the source rows say now.
+    await this.prisma.regulatoryDossierExport.create({
+      data: {
+        id:               exportId,
+        tenantId,
+        inquiryId,
+        businessId,
+        matterType:       dossier.matterType,
+        generatedAt:      dossier.generatedAt,
+        generatedBy:      requestedBy ?? null,
+        sections:         dossier.sections as unknown as Prisma.InputJsonValue,
+        documentCount:    documents.length,
+        legalHoldSummary: (legalHoldSummary ?? null) as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    return dossier;
   }
 
   // ── Deadline tracking ───────────────────────────────────────────
