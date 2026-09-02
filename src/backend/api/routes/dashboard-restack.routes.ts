@@ -3,14 +3,26 @@
 //
 // GET /api/v1/dashboard/restack  — tenant-scoped re-stack
 //   opportunities for businesses eligible for another round.
+//
+// This asked the same question as GET /api/restack/eligible and answered it
+// differently. It reimplemented eligibility inline: readiness `> 70` rather
+// than `>= 70`, ninety days measured from the last completed ROUND rather than
+// the last application, at least one completed round required, and no
+// utilization or active-application check at all. A client scoring exactly 70
+// was eligible on one surface and invisible on the other, and neither response
+// said which rule set had answered.
+//
+// The rules live in services/restack-trigger.ts now and this presents them.
+// The one thing the inline copy checked that the service did not — a round
+// already in progress — moved into the service, because it is an eligibility
+// rule rather than a presentation concern.
 // ============================================================
 
 import { Router, type Response } from 'express';
 import type { Request } from '../../types/http.js';
-import { prisma as sharedPrisma } from '../../config/database.js';
+import { scanAllForRestack } from '../../services/restack-trigger.js';
 import type { ApiResponse } from '@shared/types/index.js';
-
-// ── Lazy PrismaClient singleton ─────────────────────────────────────────────
+import logger from '../../config/logger.js';
 
 // ── Helper: extract tenantId from authenticated request ─────────────────────
 
@@ -43,96 +55,50 @@ dashboardRestackRouter.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const tenantId = getTenantId(req);
-      const db = sharedPrisma;
 
-      let opportunities: Array<{
-        client_id: string;
-        client_name: string;
-        client_initials: string;
-        current_round: number;
-        next_round: number;
-        estimated_additional_credit: number;
-        readiness_score: number;
-        last_funded_date: string | null;
-      }> = [];
+      // No inner try/catch swallowing this.
+      //
+      // A failed query used to be caught here, logged to the console, and
+      // answered as `success: true, opportunities: [], total_pipeline_value: 0`
+      // with a fresh `last_updated` timestamp. An outage was indistinguishable
+      // from a tenant with nobody ready to re-stack, and the answer carried a
+      // timestamp saying it was current. The dashboard has an error state; it
+      // was never reachable.
+      const scan = await scanAllForRestack(tenantId);
 
-      try {
-        // Find businesses with fundingReadinessScore > 70 that have at
-        // least one completed FundingRound and no in_progress round.
-        const businesses = await db.business.findMany({
-          where: {
-            tenantId,
-            status: 'active',
-            fundingReadinessScore: { gt: 70 },
-            fundingRounds: {
-              some: { status: 'completed' },
-            },
-          },
-          include: {
-            fundingRounds: {
-              orderBy: { roundNumber: 'desc' },
-            },
-          },
-        });
-
-        const ninetyDaysAgo = new Date();
-        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
-        // Filter: no in_progress round, last completed round > 90 days ago
-        opportunities = businesses
-          .filter((biz) => {
-            return !biz.fundingRounds.some((fr) => fr.status === 'in_progress');
-          })
-          .map((biz) => {
-            // Latest completed round
-            const completedRounds = biz.fundingRounds
-              .filter((fr) => fr.status === 'completed')
-              .sort((a, b) => b.roundNumber - a.roundNumber);
-
-            const lastCompleted = completedRounds[0]!;
-
-            // Skip businesses with missing data
-            if (!lastCompleted) return null;
-
-            // Only include if last completed round was > 90 days ago
-            if (lastCompleted.completedAt && lastCompleted.completedAt > ninetyDaysAgo) {
-              return null;
-            }
-
-            // Sum credit from approved applications in the last completed round
-            const achievedCredit = Number(lastCompleted.targetCredit ?? 0);
-            const estimatedAdditionalCredit = Math.round(achievedCredit * 0.75);
-
-            return {
-              client_id: biz.id,
-              client_name: biz.legalName,
-              client_initials: getInitials(biz.legalName),
-              current_round: lastCompleted.roundNumber,
-              next_round: lastCompleted.roundNumber + 1,
-              estimated_additional_credit: estimatedAdditionalCredit,
-              readiness_score: biz.fundingReadinessScore ?? 0,
-              last_funded_date: lastCompleted.completedAt?.toISOString() ?? null,
-            };
-          })
-          // Remove null entries from businesses with missing data
-          .filter((opp): opp is NonNullable<typeof opp> => opp !== null)
-          // Sort by readiness descending
-          .sort((a, b) => b.readiness_score - a.readiness_score);
-      } catch (dbErr) {
-        console.error('[restack] Database query failed, returning empty list:', dbErr);
-        // Fall through with empty opportunities array
-      }
-
-      const totalPipelineValue = opportunities.reduce(
-        (sum, opp) => sum + opp.estimated_additional_credit,
-        0,
-      );
+      const opportunities = scan.results.map((r) => ({
+        client_id: r.businessId,
+        client_name: r.businessName,
+        client_initials: getInitials(r.businessName),
+        current_round: r.currentRoundNumber,
+        next_round: r.recommendedRoundNumber,
+        // Nullable, and null means not assessed rather than zero. The engine
+        // draws that distinction and this used to flatten it with `?? 0`.
+        readiness_score: r.readinessScore,
+        last_funded_date: r.lastCompletedRoundAt,
+      }));
 
       const body: ApiResponse = {
         success: true,
         data: {
-          total_pipeline_value: totalPipelineValue,
           opportunities,
+          // `total_pipeline_value` is gone, and there is nothing to replace it
+          // with. It summed `estimated_additional_credit`, which was
+          // `Math.round(Number(lastCompleted.targetCredit ?? 0) * 0.75)` — the
+          // previous round's TARGET (the variable was named `achievedCredit`
+          // and read `targetCredit`), times a 0.75 that appears nowhere else
+          // and is derived from nothing. The comment above it claimed to "sum
+          // credit from approved applications in the last completed round";
+          // it read one field and summed nothing.
+          //
+          // Nothing here forecasts what a client will be approved for. A count
+          // of clients is a fact; the money figure was not.
+          eligible_count: opportunities.length,
+          // What the count is out of. Only clients whose readiness has been
+          // assessed are evaluated at all, and an empty list means something
+          // different when nobody has been scored.
+          active_count: scan.activeCount,
+          not_assessed_count: scan.notAssessedCount,
           last_updated: new Date().toISOString(),
         },
       };
@@ -140,12 +106,14 @@ dashboardRestackRouter.get(
       res.json(body);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error('[restack] Route handler error:', err);
+      logger.error('[dashboard-restack] Failed to scan for re-stack opportunities', {
+        error: message,
+      });
       const body: ApiResponse = {
         success: false,
         error: {
           code: 'RESTACK_FETCH_FAILED',
-          message,
+          message: 'Could not determine re-stack opportunities.',
         },
       };
       res.status(500).json(body);

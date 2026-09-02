@@ -29,6 +29,10 @@ import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';
+import {
+  checkRestackEligibility,
+  RestackBusinessNotFoundError,
+} from '../../services/restack-trigger.js';
 import logger from '../../config/logger.js';
 
 // ── Router ────────────────────────────────────────────────────
@@ -84,6 +88,12 @@ function sendError(
 }
 
 function handleUnexpected(err: unknown, res: Response, context: string): void {
+  if (err instanceof DocumentContextRequiredError) {
+    sendError(res, 422, 'DOCUMENT_CONTEXT_REQUIRED', err.message, {
+      documentType: err.documentType,
+    });
+    return;
+  }
   if (err instanceof ZodError) {
     sendError(res, 422, 'VALIDATION_ERROR', 'Invalid request body.', err.flatten().fieldErrors);
     return;
@@ -92,6 +102,22 @@ function handleUnexpected(err: unknown, res: Response, context: string): void {
     error: err instanceof Error ? err.message : String(err),
   });
   sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.');
+}
+
+/**
+ * A document that cannot be produced without something nobody supplied.
+ *
+ * The generators are pure `(ctx) => string`, and every missing field until now
+ * degraded to a `[placeholder]`. That is the right answer for a field. It is
+ * the wrong answer for the CLAIM a document is built around: a re-stack
+ * summary whose executive summary says "you are eligible" is not improved by
+ * putting the readiness score in brackets underneath.
+ */
+export class DocumentContextRequiredError extends Error {
+  constructor(public readonly documentType: string, public readonly missing: string) {
+    super(`${documentType} cannot be generated: ${missing}`);
+    this.name = 'DocumentContextRequiredError';
+  }
 }
 
 // ── Template Generators ──────────────────────────────────────
@@ -459,12 +485,85 @@ ${advisorName}
 CapitalForge`;
 }
 
+/**
+ * The eligibility verdict this document is built around.
+ *
+ * Injected by the route from `checkRestackEligibility`, not accepted from the
+ * caller's context blob. The document is handed to a client; a caller who could
+ * type `eligible: true` into a request body could hand a client a letter saying
+ * they qualify for funding they do not qualify for.
+ */
+export interface RestackSummaryVerdict {
+  eligible: boolean;
+  reasons: string[];
+  readinessScore: number | null;
+}
+
 function generateRestackOpportunitySummary(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
-  const estimatedCredit = ctx.estimated_credit ? '$' + Number(ctx.estimated_credit).toLocaleString() : '[estimate]';
-  const readinessScore = (ctx.readiness_score as string) ?? '[score]';
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // The executive summary is a verdict, so it comes from the engine or the
+  // document is not produced.
+  //
+  // This read `Based on your current credit profile and payment history, you
+  // are eligible for an additional round of business credit card funding` —
+  // unconditionally, in a document handed to a client, from a generator that
+  // received no eligibility result and checked nothing. Whatever
+  // restack-trigger had decided, the letter said yes.
+  const verdict = ctx.eligibility as RestackSummaryVerdict | undefined;
+  if (!verdict || typeof verdict.eligible !== 'boolean') {
+    throw new DocumentContextRequiredError(
+      'restack_opportunity_summary',
+      'no eligibility result was supplied. The executive summary states whether the '
+      + 'client qualifies for another round, and this document is given to the client, '
+      + 'so that sentence has to come from the re-stack engine rather than from the '
+      + 'request. Send business_id and the route will read it.',
+    );
+  }
+
+  const readinessScore = verdict.readinessScore === null
+    ? '[not assessed]'
+    : String(verdict.readinessScore);
+
+  const executiveSummary = verdict.eligible
+    ? 'Based on the re-stack review of your account, you are eligible for an additional '
+      + 'round of business credit card funding (re-stack).'
+    : 'Based on the re-stack review of your account, you are NOT currently eligible for '
+      + 'an additional round of business credit card funding. The findings are listed '
+      + 'below.';
+
+  const findings = verdict.reasons.length > 0
+    ? verdict.reasons.map((r) => `- ${r}`).join('\n')
+    : '- No findings were recorded.';
+
+  // Money, percentages and counts stay as brackets when absent, as everywhere
+  // else in this file.
+  const estimatedCredit = ctx.estimated_credit
+    ? '$' + Number(ctx.estimated_credit).toLocaleString()
+    : '[estimate]';
+
+  // These two used to fall back to 'Good' and 'Stable/Improving'. Every other
+  // field in every other generator degrades to a visible placeholder; these
+  // degraded to favourable assertions about a client's credit, in a document
+  // that client reads. A caller who supplied nothing got a letter rating their
+  // payment history Good.
+  const paymentRating = (ctx.payment_rating as string) ?? '[not supplied]';
+  const scoreTrend = (ctx.score_trend as string) ?? '[not supplied]';
+
+  const nextSteps = verdict.eligible
+    ? `RECOMMENDED NEXT STEPS
+
+1. Review current card portfolio and close any dormant accounts if beneficial
+2. Ensure all current balances are optimally distributed
+3. Schedule a re-stack strategy session with your advisor
+4. Prepare updated business documentation (bank statements, P&L)`
+    : `RECOMMENDED NEXT STEPS
+
+1. Review the findings above with your advisor
+2. Address the items that are within your control
+3. Ask your advisor when this review should be run again`;
 
   return `RE-STACK FUNDING OPPORTUNITY SUMMARY
 
@@ -474,27 +573,26 @@ Prepared by: ${advisorName}
 
 EXECUTIVE SUMMARY
 
-Based on your current credit profile and payment history, you are eligible for an additional round of business credit card funding (re-stack).
+${executiveSummary}
 
 ELIGIBILITY ANALYSIS
 
 - Re-Stack Readiness Score: ${readinessScore}/100
 - Estimated Additional Credit Available: ${estimatedCredit}
 - Time Since Last Funding Round: ${(ctx.months_since_last as string) ?? '[X]'} months
-- Payment History Rating: ${(ctx.payment_rating as string) ?? 'Good'}
+- Payment History Rating: ${paymentRating}
+
+FINDINGS
+
+${findings}
 
 KEY FACTORS
 
-- Credit score trajectory: ${(ctx.score_trend as string) ?? 'Stable/Improving'}
+- Credit score trajectory: ${scoreTrend}
 - Current utilization across existing cards: ${(ctx.utilization as string) ?? '[X]'}%
 - Number of eligible issuers for new applications: ${(ctx.eligible_issuers as string) ?? '[X]'}
 
-RECOMMENDED NEXT STEPS
-
-1. Review current card portfolio and close any dormant accounts if beneficial
-2. Ensure all current balances are optimally distributed
-3. Schedule a re-stack strategy session with your advisor
-4. Prepare updated business documentation (bank statements, P&L)
+${nextSteps}
 
 RISK CONSIDERATIONS
 
@@ -502,7 +600,7 @@ RISK CONSIDERATIONS
 - New accounts reduce average age of accounts
 - Ensure business cash flow supports additional credit obligations
 
-Contact ${advisorName} to discuss this opportunity and schedule your re-stack round.`;
+Contact ${advisorName} to discuss this review${verdict.eligible ? ' and schedule your re-stack round' : ''}.`;
 }
 
 function generateComplianceIncidentReport(ctx: Record<string, unknown>): string {
@@ -928,9 +1026,58 @@ documentGenRouter.post(
 
     try {
       const { document_type, context: ctx } = parsed.data;
+      const context = { ...ctx } as Record<string, unknown>;
+
+      // ── Figures this route reads rather than accepts ─────────
+      //
+      // The generators are pure and take a context blob. That is fine for a
+      // client's name and wrong for a verdict: this document tells a client
+      // whether they qualify for another funding round, and a caller who can
+      // type `eligible: true` into a request body can hand a client a letter
+      // saying they qualify when the engine said otherwise.
+      //
+      // So for this one document the route asks restack-trigger, with the
+      // caller's own tenant, and overwrites anything the caller sent under the
+      // same key. `business_id` is required — without it there is nobody to
+      // ask about, and the generator refuses.
+      if (document_type === 'restack_opportunity_summary') {
+        const businessId = typeof context.business_id === 'string' ? context.business_id : null;
+        if (!businessId) {
+          sendError(
+            res,
+            422,
+            'BUSINESS_ID_REQUIRED',
+            'restack_opportunity_summary states whether a client is eligible for another '
+            + 'round, and that verdict is read from the re-stack engine rather than taken '
+            + 'from the request. Supply context.business_id.',
+          );
+          return;
+        }
+        let verdict;
+        try {
+          verdict = await checkRestackEligibility(businessId, tenantId);
+        } catch (err) {
+          if (err instanceof RestackBusinessNotFoundError) {
+            sendError(
+              res,
+              404,
+              'BUSINESS_NOT_FOUND',
+              'No such business in this tenant, so no re-stack review exists to summarise.',
+            );
+            return;
+          }
+          throw err;
+        }
+        context.eligibility = {
+          eligible: verdict.eligible,
+          reasons: verdict.reasons,
+          readinessScore: verdict.readinessScore,
+        };
+        context.client_name = context.client_name ?? verdict.businessName;
+      }
 
       const generator = GENERATORS[document_type];
-      const text = generator(ctx as Record<string, unknown>);
+      const text = generator(context);
 
       const result = {
         id: `doc_gen_${Date.now()}`,
@@ -939,7 +1086,9 @@ documentGenRouter.post(
         tenantId,
         text,
         wordCount: text.split(/\s+/).length,
-        context: ctx,
+        // What the document was actually built from, including the figures
+        // this route read rather than accepted.
+        context,
       };
 
       logger.info('[DocumentGenRoutes] Document generated', {

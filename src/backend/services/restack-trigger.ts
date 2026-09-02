@@ -10,6 +10,22 @@
 //   - Days since last application >= 90
 //   - Current utilization <= 40%
 //   - No more than 2 active (non-decided) applications
+//   - No funding round already in progress
+//
+// THIS IS THE ONLY COPY OF THESE RULES.
+//
+// There were two. `dashboard-restack.routes.ts` reimplemented the question
+// inline with a different answer: readiness `> 70` rather than `>= 70`, ninety
+// days measured from the last completed ROUND rather than the last
+// application, at least one completed round required, and no utilization or
+// active-application check at all. A client scoring exactly 70 was eligible on
+// one surface and invisible on the other, and nothing in either response said
+// which rule set had answered.
+//
+// The last of those five differences was the dashboard being right: a client
+// with a round already in progress is not ready for another one. It is an
+// eligibility rule, not a presentation concern, so it moved here — which makes
+// GET /api/restack/eligible stricter than it was.
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
@@ -36,6 +52,9 @@ const MIN_DAYS_SINCE_LAST_APP = 90;
 const MAX_UTILIZATION = 0.40;
 const MAX_ACTIVE_APPLICATIONS = 2;
 
+/** A round in one of these states is under way, so another cannot start. */
+const IN_PROGRESS_ROUND_STATUSES = ['planning', 'in_progress'];
+
 // ── Types ────────────────────────────────────────────────────
 
 export interface RestackEligibilityResult {
@@ -49,6 +68,44 @@ export interface RestackEligibilityResult {
   currentUtilization: number | null;
   activeApplicationCount: number;
   recommendedRoundNumber: number;
+  /** Highest round number this business has reached. 0 when it has none. */
+  currentRoundNumber: number;
+  /**
+   * When the last completed round completed. Null when there is none, and also
+   * when a completed round carries no `completedAt` — the dashboard's inline
+   * copy treated a missing timestamp as passing its ninety-day test, so a
+   * round completed yesterday without one was offered as a 90-day-old
+   * opportunity.
+   */
+  lastCompletedRoundAt: string | null;
+  /** A round already under way, if there is one. */
+  roundInProgress: boolean;
+}
+
+/** No such business under this tenant. */
+export class RestackBusinessNotFoundError extends Error {
+  constructor(public readonly businessId: string) {
+    super(`Business not found: ${businessId}`);
+    this.name = 'RestackBusinessNotFoundError';
+  }
+}
+
+/**
+ * What a scan looked at, not only what it found.
+ *
+ * `scanAllForRestack` returned a bare array, and the endpoint above it
+ * answered `{ eligible, total: eligible.length }`. "3 eligible" with no
+ * denominator reads as three out of everybody; the pre-filter means it is
+ * three out of whoever has been assessed, and nothing said how many had not.
+ */
+export interface RestackScanResult {
+  results: RestackEligibilityResult[];
+  /** Active businesses in this tenant. */
+  activeCount: number;
+  /** Those that passed the readiness pre-filter and were actually evaluated. */
+  candidateCount: number;
+  /** Active businesses whose readiness has never been assessed. */
+  notAssessedCount: number;
 }
 
 // ── Core: Check Single Business Eligibility ──────────────────
@@ -83,17 +140,17 @@ export async function checkRestackEligibility(
   });
 
   if (!business) {
-    return {
-      businessId,
-      businessName: 'Unknown',
-      eligible: false,
-      reasons: ['Business not found'],
-      readinessScore: null,
-      daysSinceLastApp: null,
-      currentUtilization: null,
-      activeApplicationCount: 0,
-      recommendedRoundNumber: 1,
-    };
+    // Thrown, not answered.
+    //
+    // This returned `{ businessName: 'Unknown', eligible: false, reasons:
+    // ['Business not found'], recommendedRoundNumber: 1 }` and the route
+    // answered 200. A caller reading `eligible: false` could not tell "checked
+    // and not eligible" from "no such business", and the object carried a
+    // recommendation — round 1 — for a business that does not exist.
+    //
+    // Same answer for a business in another tenant, since the read is scoped:
+    // the response cannot be used to find out whether an id is real.
+    throw new RestackBusinessNotFoundError(businessId);
   }
 
   const reasons: string[] = [];
@@ -121,7 +178,7 @@ export async function checkRestackEligibility(
   }
 
   // 2. Days since last application
-  const lastApp = business.cardApplications[0]!;
+  const lastApp = business.cardApplications[0] ?? null;
   let daysSinceLastApp: number | null = null;
   if (lastApp) {
     const appDate = lastApp.submittedAt ?? lastApp.createdAt;
@@ -139,19 +196,33 @@ export async function checkRestackEligibility(
   }
 
   // 3. Current utilization
-  const latestCredit = business.creditProfiles[0]!;
-  const currentUtilization = latestCredit?.utilization
-    ? Number(latestCredit.utilization)
-    : null;
-  if (currentUtilization !== null) {
-    if (currentUtilization > MAX_UTILIZATION) {
-      eligible = false;
-      reasons.push(`Utilization ${Math.round(currentUtilization * 100)}% exceeds ${Math.round(MAX_UTILIZATION * 100)}% max`);
-    } else {
-      reasons.push(`Utilization ${Math.round(currentUtilization * 100)}% is within limit`);
-    }
+  //
+  // `latestCredit?.utilization ? Number(...) : null` treated 0 as absent,
+  // because 0 is falsy — so a client at 0% utilization, the best reading there
+  // is, was recorded as having no utilization data and the check was skipped.
+  // Nullish, not truthy: only a missing value is missing.
+  const latestCredit = business.creditProfiles[0] ?? null;
+  const rawUtilization = latestCredit?.utilization ?? null;
+  const currentUtilization = rawUtilization === null ? null : Number(rawUtilization);
+
+  if (currentUtilization === null) {
+    // Blocks, and says it could not be checked.
+    //
+    // This used to skip and pass, eight lines below a readiness check that
+    // blocks for exactly this reason. Two opposite policies for missing data
+    // in one function: an unassessed client was refused while a client with no
+    // credit profile sailed through the check meant to catch overextension.
+    // Missing data is not evidence that a client qualifies.
+    eligible = false;
+    reasons.push(
+      'Utilization could not be checked: no credit profile is recorded for this client. '
+      + `The limit is ${Math.round(MAX_UTILIZATION * 100)}%.`,
+    );
+  } else if (currentUtilization > MAX_UTILIZATION) {
+    eligible = false;
+    reasons.push(`Utilization ${Math.round(currentUtilization * 100)}% exceeds ${Math.round(MAX_UTILIZATION * 100)}% max`);
   } else {
-    reasons.push('No utilization data available — skipping utilization check');
+    reasons.push(`Utilization ${Math.round(currentUtilization * 100)}% is within limit`);
   }
 
   // 4. Active application count
@@ -166,9 +237,28 @@ export async function checkRestackEligibility(
     reasons.push(`${activeApplicationCount} active applications within limit`);
   }
 
+  // 5. A round already under way
+  //
+  // From the dashboard's inline copy, which was right about this and is the
+  // only place it was checked. Starting a second round while one is open is
+  // not a re-stack; it is two rounds.
+  const roundInProgress = business.fundingRounds.some(
+    (fr) => IN_PROGRESS_ROUND_STATUSES.includes(fr.status),
+  );
+  if (roundInProgress) {
+    eligible = false;
+    reasons.push('A funding round is already in progress');
+  } else {
+    reasons.push('No funding round in progress');
+  }
+
   // Recommended next round number
   const highestRound = business.fundingRounds[0]?.roundNumber ?? 0;
   const recommendedRoundNumber = highestRound + 1;
+
+  const lastCompleted = business.fundingRounds
+    .filter((fr) => fr.status === 'completed' && fr.completedAt !== null)
+    .sort((a, b) => b.roundNumber - a.roundNumber)[0];
 
   return {
     businessId,
@@ -180,38 +270,61 @@ export async function checkRestackEligibility(
     currentUtilization,
     activeApplicationCount,
     recommendedRoundNumber,
+    currentRoundNumber: highestRound,
+    lastCompletedRoundAt: lastCompleted?.completedAt?.toISOString() ?? null,
+    roundInProgress,
   };
 }
 
 // ── Core: Scan All Businesses for Restack Eligibility ────────
 
-export async function scanAllForRestack(
-  tenantId: string,
-): Promise<RestackEligibilityResult[]> {
+export async function scanAllForRestack(tenantId: string): Promise<RestackScanResult> {
   const prisma = getPrisma();
 
   // As above: required. Unscoped, this returned every tenant's businesses.
-  const whereClause: Record<string, unknown> = { status: 'active', tenantId };
+  const activeWhere = { status: 'active', tenantId };
 
-  // Pre-filter: only look at businesses with readiness >= threshold
-  whereClause.fundingReadinessScore = { gte: MIN_READINESS_SCORE };
-
-  const businesses = await prisma.business.findMany({
-    where: whereClause,
-    select: { id: true, tenantId: true },
-  });
+  // Pre-filter: only look at businesses with readiness >= threshold.
+  //
+  // Prisma's `gte` excludes NULLs, so a client nobody has assessed is never
+  // scanned. That is consistent — an unassessed client cannot be eligible,
+  // the readiness check refuses them by name — but it made them INVISIBLE:
+  // the endpoint answered "3 eligible" with no denominator, and no way to see
+  // that forty clients had never been scored. The counts below are what makes
+  // the pre-filter honest rather than lossy.
+  const [businesses, activeCount, notAssessedCount] = await prisma.$transaction([
+    prisma.business.findMany({
+      where: { ...activeWhere, fundingReadinessScore: { gte: MIN_READINESS_SCORE } },
+      select: { id: true, tenantId: true },
+    }),
+    prisma.business.count({ where: activeWhere }),
+    prisma.business.count({ where: { ...activeWhere, fundingReadinessScore: null } }),
+  ]);
 
   logger.info('[RestackTrigger] Scanning businesses for restack eligibility', {
     candidateCount: businesses.length,
-    tenantId: tenantId ?? 'all',
+    activeCount,
+    notAssessedCount,
+    tenantId,
   });
 
   const results: RestackEligibilityResult[] = [];
 
   for (const biz of businesses) {
-    const result = await checkRestackEligibility(biz.id, biz.tenantId);
-    if (result.eligible) {
-      results.push(result);
+    try {
+      const result = await checkRestackEligibility(biz.id, biz.tenantId);
+      if (result.eligible) {
+        results.push(result);
+      }
+    } catch (err) {
+      // The business was there a moment ago. A row deleted between the scan
+      // and the check is not a reason to fail the whole scan, and it is also
+      // not something to pass over in silence.
+      if (err instanceof RestackBusinessNotFoundError) {
+        logger.warn('[RestackTrigger] Business disappeared mid-scan', { businessId: biz.id });
+        continue;
+      }
+      throw err;
     }
   }
 
@@ -232,5 +345,10 @@ export async function scanAllForRestack(
     total: businesses.length,
   });
 
-  return results;
+  return {
+    results,
+    activeCount,
+    candidateCount: businesses.length,
+    notAssessedCount,
+  };
 }
