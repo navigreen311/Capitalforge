@@ -35,6 +35,7 @@ import {
   RegulatorResponseService,
   RegulatorInquiryNotFoundError,
   InquiryHasNoBusinessError,
+  UnknownDossierRequesterError,
 } from '../../services/regulator-response.service.js';
 import type {
   CreateComplaintInput,
@@ -52,7 +53,7 @@ import type {
   InquiryListFilters,
   RegulatorInquiryRecord,
   InquiryListResult,
-  ComplianceManifest,
+  RegulatorDossier,
   LegalHoldSummary,
 } from '../../services/regulator-response.service.js';
 import { PERMISSIONS } from '../../../shared/constants/index.js';
@@ -568,7 +569,7 @@ complaintsRouter.post(
       const { id }       = req.params;
 
       const svc = getRegulatoryService();
-      let dossier: ComplianceManifest;
+      let dossier: RegulatorDossier;
 
       try {
         dossier = await svc.exportDossier(String(id), tenantId, req.tenant!.userId);
@@ -591,6 +592,15 @@ complaintsRouter.post(
         if (err instanceof RegulatorInquiryNotFoundError) {
           throw notFound(`Regulator inquiry ${id}`);
         }
+        // The id that would be recorded in `generatedBy` on the stored export
+        // row. Same treatment as the sibling manifest's UnknownRequesterError.
+        if (err instanceof UnknownDossierRequesterError) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'UNKNOWN_REQUESTER', message: err.message },
+          } satisfies ApiResponse);
+          return;
+        }
         throw err;
       }
 
@@ -602,7 +612,7 @@ complaintsRouter.post(
         documentCount: dossier.totalDocuments,
       });
 
-      const body: ApiResponse<ComplianceManifest> = { success: true, data: dossier };
+      const body: ApiResponse<RegulatorDossier> = { success: true, data: dossier };
       res.status(200).json(body);
     } catch (err) {
       next(err);

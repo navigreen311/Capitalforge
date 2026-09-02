@@ -68,6 +68,12 @@ function makePrismaMock() {
     complianceCheck: {
       findMany: vi.fn().mockResolvedValue([]),
     },
+    // The requester is resolved before anything is assembled or written. A
+    // regulator dossier is kept as the artefact of record and its provenance
+    // line cannot name nobody.
+    user: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }),
+    },
   };
 }
 
@@ -768,7 +774,7 @@ describe('RegulatorResponseService — dossier export', () => {
     mock.achAuthorization.findMany.mockResolvedValue([]);
 
     const svc    = new RegulatorResponseService(mock as never);
-    const result = await svc.exportDossier(INQUIRY_ID, TENANT_ID);
+    const result = await svc.exportDossier(INQUIRY_ID, TENANT_ID, 'user-001');
 
     const doc = result.sections.documents[0];
     expect(doc.sha256Hash).toBe('deadbeef');
@@ -781,7 +787,7 @@ describe('RegulatorResponseService — dossier export', () => {
 
     const svc = new RegulatorResponseService(mock as never);
     await expect(
-      svc.exportDossier('nonexistent-id', TENANT_ID),
+      svc.exportDossier('nonexistent-id', TENANT_ID, 'user-001'),
     ).rejects.toThrow('not found');
   });
 });

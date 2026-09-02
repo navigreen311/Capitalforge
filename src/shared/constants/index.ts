@@ -24,6 +24,16 @@ export const EVENT_TYPES = {
   RISK_ALERT_RAISED: 'risk.alert.raised',
   SUITABILITY_ASSESSED: 'suitability.assessed',
   NOGO_TRIGGERED: 'nogo.triggered',
+  /**
+   * A per-business compliance manifest was assembled.
+   *
+   * The manifest is a pure read and left NO trace that it had happened — no
+   * ledger row, no audit record, a logger.info and nothing else. Its sibling
+   * artefact, the regulator dossier, has recorded its own exports all along.
+   * "Who pulled the client's whole compliance file, and when" is the first
+   * question asked about an evidence assembly, and it had no answer.
+   */
+  COMPLIANCE_MANIFEST_ASSEMBLED: 'compliance.manifest.assembled',
 
   // Rules / reference data / release governance
   RULE_CREATED: 'rule.created',

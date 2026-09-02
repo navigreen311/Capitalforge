@@ -188,6 +188,80 @@ existed and crashed on a state `GET /owners` calls valid.
 
 ---
 
+## Compliance evidence — two artefacts, two module ids
+
+Both were exported as a type called `ComplianceManifest`, from two services,
+with completely different shapes, distinguished only by which file a route
+imported from. Both were described to their callers as the artefact handed to
+counsel. Renamed 2026-09-02 to `ComplianceManifest` and `RegulatorDossier`.
+
+**Rule 1 splits them regardless of the name.** They differ in blast radius, and
+the difference is the whole of it: one writes nothing but its own audit trace,
+the other mints an id and creates an artefact of record.
+
+### `compliance_manifest_assemble`
+
+`GET /api/documents/export/:businessId` — everything compliance-relevant on
+file for one **business**: consents, acknowledgments, applications with adverse
+-action notices, fee schedules, ACH authorisations, suitability checks,
+compliance checks, document references, and the attributable ledger events.
+
+| | |
+|---|---|
+| Key | a business |
+| Permission | `compliance:read` |
+| Writes | **one ledger event** — `compliance.manifest.assembled` — and nothing else |
+| Idempotency | safe to retry; a retry adds a second assembly event, which is true |
+| Suggested tier | `auto_execute` |
+
+Declares `contents: 'references'`, `excludedRecordTypes` with reasons,
+`filteredFields` (four different date columns behind one `since`), a
+`ledgerScopeNote`, and `documentsVerified` / `documentsUnverifiable` /
+`timestampsTampered`. Refuses an unreadable or inverted date range (400) and a
+requester who does not resolve (400), because `assembledBy` on a document read
+by counsel cannot name nobody.
+
+Until 2026-09-02 it left **no trace at all** that a client's whole compliance
+file had been assembled.
+
+### `regulator_dossier_export` — WRITES AN ARTEFACT OF RECORD
+
+`POST /api/regulator/inquiries/:id/export-dossier` — the subset relevant to one
+**regulatory inquiry**: documents, complaints, consents, compliance checks, ACH
+authorisations, and the legal-hold summary.
+
+| | |
+|---|---|
+| Key | a regulatory inquiry |
+| Permission | `compliance:read` |
+| Writes | a `regulatoryDossierExport` row **and** a `regulator.dossier.exported` ledger event |
+| Idempotency | **none** — every call mints a new `exportId` |
+| Suggested tier | `propose` |
+
+**`at_most_once`.** A retry after a timeout produces a second export of the same
+inquiry, and the audit trail then shows two. On an evidence artefact that is
+exactly the thing to escalate rather than retry: "the dossier we sent on the
+14th" has to resolve to one row.
+
+Refuses with 422 `INQUIRY_HAS_NO_BUSINESS` when the inquiry exists but nothing
+is attached — deliberately not a 404, because "no such inquiry" and "nothing
+attached to it" are different facts and must not share a response. 404 for an
+unknown inquiry; 400 `UNKNOWN_REQUESTER` for an id that resolves to nobody.
+
+**It carries less than its sibling and now says so.** `excludedRecordTypes`
+names product acknowledgments, card applications, fee schedules, suitability
+checks and the ledger — all carried by `compliance_manifest_assemble` and none
+carried here. Without that list a reader cannot tell an omitted record type from
+one that is empty for the business, on the artefact that goes to a regulator.
+
+**Neither contains a document.** Both carry `storageKey`, `sha256Hash` and
+`cryptoTimestamp`; nothing in this repository fetches a byte or builds an
+archive. The manifest route sets `Content-Disposition: attachment`, so a browser
+saves a file that looks like a deliverable. Whether either should assemble real
+bytes is recorded in `docs/gaps.md`, not assumed.
+
+---
+
 ## Not yet swept
 
 Every other route file. Absence from this document means unreviewed, not

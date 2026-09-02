@@ -37,7 +37,9 @@
 import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../config/database.js';
 import logger from '../config/logger.js';
-import { verifyCryptoTimestamp } from './crypto-timestamp.js';
+import { documentTimestampIntegrity } from './crypto-timestamp.js';
+import { eventBus } from '../events/event-bus.js';
+import { EVENT_TYPES, AGGREGATE_TYPES } from '../../shared/constants/index.js';
 
 // ── Module-level prisma injection (test support) ───────────────
 
@@ -532,6 +534,40 @@ export class ComplianceDossierService {
       ...summary,
     });
 
+    // A trace that this happened.
+    //
+    // This assembly is a pure read and left NOTHING behind — no ledger row, no
+    // audit record, a logger.info and nothing else. Somebody could pull a
+    // client's entire compliance file, with every consent, every application,
+    // every document reference and the ledger, and no record existed that they
+    // had. The regulator dossier has persisted its own exports all along; two
+    // artefacts assembled from the same records with two policies on whether
+    // the assembly is recorded is one policy too many.
+    //
+    // publishAndPersist, not publish: `publish` only dispatches to subscribers
+    // and there are none at runtime, which is how three other services came to
+    // record nothing while appearing to.
+    //
+    // CONSEQUENCE FOR CALLERS: this endpoint is still safe to retry — it mints
+    // no id and writes no artefact — but a retry adds a second assembly event.
+    // Two rows means the file was assembled twice, which is true.
+    await eventBus.publishAndPersist(tenantId, {
+      eventType:     EVENT_TYPES.COMPLIANCE_MANIFEST_ASSEMBLED,
+      aggregateType: AGGREGATE_TYPES.BUSINESS,
+      aggregateId:   businessId,
+      payload: {
+        businessId,
+        assembledBy:  requestedBy,
+        assembledAt,
+        filterSince:  since ?? null,
+        filterUntil:  until ?? null,
+        documentsReferenced:   summary.totalDocuments,
+        documentsUnverifiable: summary.documentsUnverifiable,
+        timestampsTampered:    summary.timestampsTampered,
+      },
+      metadata: { requestedBy },
+    });
+
     return {
       assembledAt,
       generatedAt:       assembledAt, // Alias for assembledAt — test-friendly
@@ -741,17 +777,10 @@ export class ComplianceDossierService {
     },
     tenantId: string,
   ): VaultDocumentSummary {
-    let timestampIntegrity: 'verified' | 'unverifiable' | 'tampered' = 'unverifiable';
-
-    if (doc.sha256Hash && doc.cryptoTimestamp) {
-      const result = verifyCryptoTimestamp(doc.cryptoTimestamp, {
-        contentHash: doc.sha256Hash,
-        timestamp:   doc.createdAt.toISOString(),
-        tenantId,
-        documentId:  doc.id,
-      });
-      timestampIntegrity = result.valid ? 'verified' : 'tampered';
-    }
+    // Shared with regulator-response.service.ts, which did not verify at all
+    // until 2026-09-02. One copy, so the two artefacts cannot drift apart on
+    // what "verified" means.
+    const timestampIntegrity = documentTimestampIntegrity(doc, tenantId);
 
     return {
       id:              doc.id,

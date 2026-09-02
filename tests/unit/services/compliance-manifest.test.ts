@@ -18,9 +18,23 @@
 //     remain excluded carry their reasoning rather than only the exclusion.
 //   - `assembledBy` was whoever called, unverified, on a document handed to
 //     counsel.
+//   - Assembling it left NO trace. Somebody could pull a client's entire
+//     compliance file — every consent, every application, every document
+//     reference, the ledger — and no record existed that they had. Its sibling
+//     the regulator dossier has persisted its own exports all along.
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@backend/events/event-bus.js', () => ({
+  eventBus: {
+    publish: vi.fn().mockResolvedValue(undefined),
+    publishAndPersist: vi.fn().mockResolvedValue({ id: 'e1', publishedAt: new Date() }),
+  },
+}));
+
+import { eventBus } from '../../../src/backend/events/event-bus.js';
+import { EVENT_TYPES } from '../../../src/shared/constants/index.js';
 
 import {
   ComplianceDossierService,
@@ -317,5 +331,52 @@ describe('the exclusions carry their reasoning', () => {
   it('no longer lists the ledger as excluded', async () => {
     const m = await assemble();
     expect(m.excludedRecordTypes.map((e) => e.recordType)).not.toContain('ledger_events');
+  });
+});
+
+describe('assembling a manifest leaves a trace', () => {
+  const publishAndPersist = eventBus.publishAndPersist as unknown as ReturnType<typeof vi.fn>;
+  const publish = eventBus.publish as unknown as ReturnType<typeof vi.fn>;
+
+  it('records that the file was assembled, and by whom', async () => {
+    await assemble();
+
+    expect(publishAndPersist).toHaveBeenCalled();
+    const [tenantId, envelope] = publishAndPersist.mock.calls.at(-1) as [
+      string,
+      { eventType: string; aggregateId: string; payload: Record<string, unknown> },
+    ];
+
+    expect(tenantId).toBe(TENANT);
+    expect(envelope.eventType).toBe(EVENT_TYPES.COMPLIANCE_MANIFEST_ASSEMBLED);
+    expect(envelope.aggregateId).toBe(BUSINESS);
+    expect(envelope.payload.assembledBy).toBe(USER);
+  });
+
+  it('reaches the ledger rather than only the process', async () => {
+    // `publish` dispatches to subscribers and there are none at runtime, which
+    // is how three other services came to record nothing while appearing to.
+    await assemble();
+
+    expect(publishAndPersist).toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('carries the date range, so a partial assembly is not read as a full one', async () => {
+    await assemble({ since: '2026-01-01', until: '2026-06-01' });
+
+    const [, envelope] = publishAndPersist.mock.calls.at(-1) as [
+      string, { payload: Record<string, unknown> },
+    ];
+    expect(envelope.payload.filterSince).toBe('2026-01-01');
+    expect(envelope.payload.filterUntil).toBe('2026-06-01');
+  });
+
+  it('writes nothing when the requester does not resolve', async () => {
+    userFindFirst.mockResolvedValue(null);
+    publishAndPersist.mockClear();
+
+    await expect(assemble()).rejects.toBeInstanceOf(UnknownRequesterError);
+    expect(publishAndPersist).not.toHaveBeenCalled();
   });
 });
