@@ -905,6 +905,29 @@ export class CommComplianceService {
    * Scan advisor communication text for banned claims. Persists a
    * CommComplianceRecord and emits a ledger event.
    */
+  /**
+   * Confirm an advisor id resolves, without scanning anything.
+   *
+   * Exists so a caller can check its configuration at boot rather than
+   * discovering it on the first real scan. AnimaForge names a service
+   * principal in COMPLIANCE_SCAN_ADVISOR_ID and its render gate fails closed,
+   * so an id that resolves to nobody stops renders — and the operator finds
+   * out from a queue backing up rather than from a startup message.
+   *
+   * Persists nothing and publishes nothing, deliberately. The alternative was
+   * a boot probe running a real scan of benign text, which would file a
+   * CommComplianceRecord on every process start. Those records are compliance
+   * evidence; filling them with startup noise is the wrong price for a health
+   * check.
+   */
+  async verifyAdvisor(tenantId: string, advisorId: string): Promise<void> {
+    const advisor = await this.prisma.user.findFirst({
+      where:  { id: advisorId, tenantId },
+      select: { id: true },
+    });
+    if (!advisor) throw new UnknownAdvisorError(advisorId);
+  }
+
   async scanCommunication(params: {
     tenantId: string;
     advisorId: string;

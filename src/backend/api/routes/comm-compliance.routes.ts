@@ -48,6 +48,7 @@ import { TrainingService, TRACK_CATALOGUE, withoutEnforcementCases } from '../..
 import type { CertificationResult, TrackName } from '../../services/training.service.js';
 import { PERMISSIONS } from '../../../shared/constants/index.js';
 import { ScanChannelSchema } from '../../../shared/validators/consent.validators.js';
+import { SCAN_CHANNELS } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 
 export const commComplianceRouter = Router();
@@ -89,6 +90,10 @@ function requirePermission(permission: string) {
 // lists of channels had grown up around this and none of them matched — see
 // the note on CONSENT_CHANNELS in shared/types. The reason `video_script` is
 // distinct from `document` lives there too, with the other two extras.
+const PreflightBodySchema = z.object({
+  advisorId: z.string().uuid('advisorId must be a valid UUID'),
+});
+
 const ScanBodySchema = z.object({
   advisorId: z.string().uuid('advisorId must be a valid UUID'),
   channel:   ScanChannelSchema,
@@ -176,6 +181,46 @@ commComplianceRouter.post(
       // where it is never said.
       if (err instanceof UnanchoredVoiceDisclosureError) {
         next(badRequest(err.message, { disclosureIds: err.disclosureIds }));
+        return;
+      }
+      next(err);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/comm-compliance/scan/preflight
+//
+// Confirm the caller's credentials and advisorId are usable, without scanning.
+// Persists nothing. For a caller that wants to fail at boot rather than on the
+// first real scan — AnimaForge's render gate fails closed, so a service
+// principal that resolves to nobody stops renders, and the operator would
+// otherwise learn it from a queue backing up.
+// ─────────────────────────────────────────────────────────────────
+commComplianceRouter.post(
+  '/comm-compliance/scan/preflight',
+  tenantMiddleware,
+  requirePermission(PERMISSIONS.COMPLIANCE_WRITE),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { tenantId } = req.tenant!;
+      const parsed = PreflightBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw badRequest('Invalid request body.', parsed.error.flatten());
+      }
+
+      await getComplianceService().verifyAdvisor(tenantId, parsed.data.advisorId);
+
+      const body: ApiResponse<{ ok: true; advisorId: string; scanChannels: readonly string[] }> = {
+        success: true,
+        // The channel list travels back, so a caller can tell that the value
+        // it sends is still accepted rather than finding out from a 400 later.
+        data: { ok: true, advisorId: parsed.data.advisorId, scanChannels: SCAN_CHANNELS },
+      };
+      res.status(200).json(body);
+    } catch (err) {
+      if (err instanceof UnknownAdvisorError) {
+        next(badRequest('advisorId does not name an advisor in this tenant.'));
         return;
       }
       next(err);

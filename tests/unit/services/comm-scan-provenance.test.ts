@@ -292,3 +292,30 @@ describe('a voice script whose disclosure has no anchor', () => {
     expect(result.contentWithDisclosures).toContain('---');
   });
 });
+
+describe('preflight', () => {
+  it('confirms an advisor without scanning or persisting anything', async () => {
+    // A boot probe running a real scan would file a CommComplianceRecord on
+    // every process start, and those records are compliance evidence.
+    await service().verifyAdvisor(TENANT, ADVISOR);
+
+    expect(recordCreate).not.toHaveBeenCalled();
+    expect(publishAndPersist).not.toHaveBeenCalled();
+  });
+
+  it('refuses the same way a scan does', async () => {
+    userFindFirst.mockResolvedValue(null);
+
+    await expect(service().verifyAdvisor(TENANT, 'nobody')).rejects.toBeInstanceOf(
+      UnknownAdvisorError,
+    );
+  });
+
+  it('checks the tenant, not just the id', async () => {
+    userFindFirst.mockResolvedValue(null);
+    await service().verifyAdvisor(TENANT, 'other-tenant-user').catch(() => undefined);
+
+    const [{ where }] = userFindFirst.mock.calls[0] as [{ where: Record<string, unknown> }];
+    expect(where).toMatchObject({ id: 'other-tenant-user', tenantId: TENANT });
+  });
+});
