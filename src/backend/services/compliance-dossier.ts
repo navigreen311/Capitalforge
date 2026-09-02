@@ -202,6 +202,10 @@ export interface ComplianceManifest {
   filteredFields:    Readonly<Record<string, string>>;
   /** Record types this manifest does NOT contain. See EXCLUDED_RECORD_TYPES. */
   excludedRecordTypes: readonly ExcludedRecordType[];
+  /** Canonical-ledger events attributable to this business. */
+  ledgerEvents:      LedgerEventSummary[];
+  /** How those events were attributed, and what that misses. */
+  ledgerScopeNote:   string;
   /**
    * `references` — this manifest lists documents; it does not contain them.
    * A field rather than a comment, because the distinction is the whole
@@ -245,6 +249,7 @@ export interface ComplianceManifest {
     documentsVerified:     number;
     noGoTriggered:        boolean;
     openComplianceIssues: number;
+    ledgerEventsAttributed: number;
   };
 }
 
@@ -264,11 +269,32 @@ export const FILTERED_DATE_FIELDS = {
   suitabilityChecks: 'createdAt',
   complianceChecks:  'createdAt',
   documents:         'createdAt',
+  ledgerEvents:      'publishedAt',
 } as const;
 
 export interface ExcludedRecordType {
   recordType: string;
   reason:     string;
+}
+
+/**
+ * One canonical-ledger event touching this business.
+ *
+ * The envelope plus the payload. The payload is what makes the entry evidence
+ * rather than a timestamp, and every figure in it is already represented
+ * elsewhere in this manifest — the ledger is the record that it happened and
+ * in what order.
+ */
+export interface LedgerEventSummary {
+  id:            string;
+  eventType:     string;
+  aggregateType: string;
+  aggregateId:   string;
+  payload:       unknown;
+  version:       number;
+  publishedAt:   string;
+  /** Which of the two predicates matched. See LEDGER_SCOPE_NOTE. */
+  matchedBy:     'aggregate_id' | 'payload_business_id';
 }
 
 /**
@@ -282,41 +308,69 @@ export interface ExcludedRecordType {
  * docs/gaps.md rather than settled here. Declaring the omission is not the
  * same as defending it.
  */
+/**
+ * How ledger events are attributed to a business, stated because it is not
+ * exact.
+ *
+ * `ledger_events` is a system-wide stream. Nothing on the row names a
+ * business: `aggregateId` is sometimes the business id and more often the id
+ * of the thing that happened — an application, an ACH authorisation, a scan —
+ * and most publishers put `businessId` in the payload. So this matches on
+ * either, and reports which one matched per event.
+ *
+ * WHAT THAT MISSES: an event whose aggregateId is a child entity AND whose
+ * payload omits businessId. Those exist and are not counted here, which is why
+ * this note travels in the manifest rather than living only in this file. It
+ * is the difference between "these are the events" and "these are the events
+ * we can attribute", and a regulator reading a compliance manifest is owed the
+ * second sentence.
+ */
+export const LEDGER_SCOPE_NOTE =
+  'Ledger events are matched by aggregateId = businessId OR payload.businessId = '
+  + 'businessId. Nothing on a ledger row names a business directly, so an event '
+  + 'whose aggregateId is a child entity (an application, an authorisation) and '
+  + 'whose payload omits businessId is NOT included. This section is what can be '
+  + 'attributed to this business, not everything that touched it.';
+
 export const EXCLUDED_RECORD_TYPES: readonly ExcludedRecordType[] = [
   {
     recordType: 'comm_compliance_records',
     reason:
-      'Communication scans — every advisor message and marketing script checked '
-      + 'for banned claims, including the violations found. Not included; not yet '
-      + 'decided whether it belongs in a per-business manifest.',
-  },
-  {
-    recordType: 'ledger_events',
-    reason:
-      'The canonical audit ledger for this business. Not included; it is the '
-      + 'system-wide event spine rather than a per-business record set, and '
-      + 'scoping it to one business has not been designed.',
+      'Communication scans. DECIDED 2026-09-02 that these belong in this manifest, '
+      + 'as an index without message content: that a communication was scanned, '
+      + 'when, against which rules, the outcome and the violations found. NOT YET '
+      + 'INCLUDED because the record cannot be scoped to a business — '
+      + 'comm_compliance_records carries tenantId and advisorId and no businessId, '
+      + 'and an advisor scans messages for many clients, so there is nothing to '
+      + 'derive the link from. Adding a nullable businessId is sized in '
+      + 'docs/gaps.md; a marketing video script legitimately has no client, which '
+      + 'is why it would be nullable.',
   },
   {
     recordType: 'ai_decision_logs',
     reason:
-      'Recorded decisions — currently issuer eligibility only. Not included; '
-      + 'eight of the nine modules named in AI_MODULE_SOURCES still write '
-      + 'nothing, so a section here would be mostly empty and read as "no '
-      + 'decisions were made".',
+      'Recorded decisions. Considered and excluded 2026-09-02, on the reasoning '
+      + 'rather than by default: AI_MODULE_SOURCES names nine modules and only '
+      + 'issuer_eligibility writes a row, so a section here would be almost empty '
+      + 'for every business and would read as "no decisions were made about this '
+      + 'client" — the absence-as-value shape, in the document where it does the '
+      + 'most damage. Revisit when the other eight write: at that point the '
+      + 'section becomes a real record of what a placement strategy was built on, '
+      + 'and the argument for excluding it stops holding. See docs/gaps.md §7b.',
   },
   {
     recordType: 'regulatory_dossier_exports',
     reason:
-      'Previous exports of this kind. Not included; a manifest listing its own '
-      + 'predecessors is a decision nobody has taken.',
+      'Prior exports of this kind. Excluded 2026-09-02: a manifest listing its '
+      + 'own predecessors tells a reader about this system rather than about the '
+      + 'business, and the export history is available to whoever administers the '
+      + 'system without being carried to a regulator.',
   },
   {
     recordType: 'business_owners',
     reason:
-      'Beneficial owners, including encrypted SSNs. Deliberately excluded and '
-      + 'not a gap: these are retrieved through a separately permissioned '
-      + 'endpoint.',
+      'Beneficial owners, including encrypted SSNs. Deliberately excluded and not '
+      + 'a gap: these are retrieved through a separately permissioned endpoint.',
   },
 ] as const;
 
@@ -404,6 +458,7 @@ export class ComplianceDossierService {
       suitabilityChecks,
       complianceChecks,
       documents,
+      ledgerEvents,
     ] = await Promise.all([
       this._fetchConsents(tenantId, businessId, dateFilter),
       this._fetchAcknowledgments(tenantId, businessId, dateFilter),
@@ -413,6 +468,7 @@ export class ComplianceDossierService {
       this._fetchSuitabilityChecks(tenantId, businessId, dateFilter),
       this._fetchComplianceChecks(tenantId, businessId, dateFilter),
       this._fetchDocuments(tenantId, businessId, dateFilter),
+      this._fetchLedgerEvents(tenantId, businessId, dateFilter),
     ]);
 
     // Verify cryptographic timestamps on all vault documents
@@ -464,6 +520,9 @@ export class ComplianceDossierService {
       ).length,
       noGoTriggered:        suitabilityChecks.some((s) => s.noGoTriggered),
       openComplianceIssues: complianceChecks.filter((c) => !c.resolvedAt).length,
+      /** Attributable ledger events. Not "events about this business" — see
+       *  ledgerScopeNote for the difference. */
+      ledgerEventsAttributed: ledgerEvents.length,
     };
 
     svcLog.info('[assemble] Dossier assembled', {
@@ -481,6 +540,8 @@ export class ComplianceDossierService {
       filterUntil:       until ?? null,
       filteredFields:    FILTERED_DATE_FIELDS,
       excludedRecordTypes: EXCLUDED_RECORD_TYPES,
+      ledgerEvents:      ledgerEvents.map((e) => this._toLedgerSummary(e, businessId)),
+      ledgerScopeNote:   LEDGER_SCOPE_NOTE,
       contents:          'references',
       business:          this._toBusinessSnapshot(business),
       consentRecords:    consents.map(this._toConsentSummary),
@@ -595,6 +656,58 @@ export class ComplianceDossierService {
       where: { tenantId, businessId, ...dateFilter },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  /**
+   * Ledger events attributable to this business.
+   *
+   * Two predicates because nothing on a ledger row names a business: see
+   * LEDGER_SCOPE_NOTE, which travels in the manifest for the same reason this
+   * comment exists here.
+   *
+   * Filtered on `publishedAt` — the ledger has no createdAt — which is one more
+   * clock, and it is declared in FILTERED_DATE_FIELDS with the rest.
+   */
+  private async _fetchLedgerEvents(
+    tenantId:   string,
+    businessId: string,
+    dateFilter: Record<string, unknown>,
+  ) {
+    return this.prisma.ledgerEvent.findMany({
+      where: {
+        tenantId,
+        OR: [
+          { aggregateId: businessId },
+          { payload: { path: ['businessId'], equals: businessId } },
+        ],
+        ...this._mapDateField(dateFilter, 'publishedAt'),
+      },
+      orderBy: { publishedAt: 'asc' },
+    });
+  }
+
+  private _toLedgerSummary(
+    e: {
+      id: string;
+      eventType: string;
+      aggregateType: string;
+      aggregateId: string;
+      payload: unknown;
+      version: number;
+      publishedAt: Date;
+    },
+    businessId: string,
+  ): LedgerEventSummary {
+    return {
+      id:            e.id,
+      eventType:     e.eventType,
+      aggregateType: e.aggregateType,
+      aggregateId:   e.aggregateId,
+      payload:       e.payload,
+      version:       e.version,
+      publishedAt:   e.publishedAt.toISOString(),
+      matchedBy:     e.aggregateId === businessId ? 'aggregate_id' : 'payload_business_id',
+    };
   }
 
   private async _fetchDocuments(

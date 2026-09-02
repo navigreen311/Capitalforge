@@ -13,7 +13,9 @@
 //     createdAt.
 //   - It was called a "packet" that "can be zipped and handed to regulators".
 //     It contains document references and nothing builds an archive.
-//   - Four record types were absent with nothing saying so.
+//   - Four record types were absent with nothing saying so. Two are now
+//     included (the ledger) or decided-and-blocked (the scans); the two that
+//     remain excluded carry their reasoning rather than only the exclusion.
 //   - `assembledBy` was whoever called, unverified, on a document handed to
 //     counsel.
 // ============================================================
@@ -44,6 +46,7 @@ const findMany = {
   suitabilityCheck: vi.fn(),
   complianceCheck: vi.fn(),
   document: vi.fn(),
+  ledgerEvent: vi.fn(),
 };
 
 function service() {
@@ -58,6 +61,7 @@ function service() {
     suitabilityCheck: { findMany: findMany.suitabilityCheck },
     complianceCheck: { findMany: findMany.complianceCheck },
     document: { findMany: findMany.document },
+    ledgerEvent: { findMany: findMany.ledgerEvent },
   } as never);
 }
 
@@ -203,7 +207,6 @@ describe('what the manifest says it is', () => {
     const named = m.excludedRecordTypes.map((e) => e.recordType);
 
     expect(named).toContain('comm_compliance_records');
-    expect(named).toContain('ledger_events');
     expect(named).toContain('ai_decision_logs');
     expect(named).toContain('regulatory_dossier_exports');
     expect(m.excludedRecordTypes).toEqual(EXCLUDED_RECORD_TYPES);
@@ -230,5 +233,86 @@ describe('who assembled it', () => {
 
     await expect(assemble()).rejects.toBeInstanceOf(UnknownRequesterError);
     expect(businessFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('the canonical ledger', () => {
+  const event = (over: Record<string, unknown> = {}) => ({
+    id: 'evt-1',
+    eventType: 'statement.ingested',
+    aggregateType: 'statement_record',
+    aggregateId: 'stmt-1',
+    payload: { businessId: BUSINESS, issuer: 'Chase' },
+    version: 1,
+    publishedAt: new Date('2026-05-01'),
+    ...over,
+  });
+
+  it('is included, matched on either the aggregate id or the payload', async () => {
+    findMany.ledgerEvent.mockResolvedValue([event()]);
+
+    const m = await assemble();
+
+    const [{ where }] = findMany.ledgerEvent.mock.calls[0] as [{ where: Record<string, unknown> }];
+    expect(where['tenantId']).toBe(TENANT);
+    expect(where['OR']).toEqual([
+      { aggregateId: BUSINESS },
+      { payload: { path: ['businessId'], equals: BUSINESS } },
+    ]);
+    expect(m.ledgerEvents).toHaveLength(1);
+    expect(m.summary.ledgerEventsAttributed).toBe(1);
+  });
+
+  it('says which predicate matched each event', async () => {
+    findMany.ledgerEvent.mockResolvedValue([
+      event({ id: 'a', aggregateId: BUSINESS, aggregateType: 'business' }),
+      event({ id: 'b', aggregateId: 'stmt-1' }),
+    ]);
+
+    const m = await assemble();
+
+    expect(m.ledgerEvents[0]!.matchedBy).toBe('aggregate_id');
+    expect(m.ledgerEvents[1]!.matchedBy).toBe('payload_business_id');
+  });
+
+  it('states what the attribution misses, in the manifest', async () => {
+    // An event whose aggregateId is a child entity and whose payload omits
+    // businessId is not found, and a regulator is owed that sentence rather
+    // than a count presented as complete.
+    const m = await assemble();
+
+    expect(m.ledgerScopeNote).toMatch(/NOT included/);
+    expect(m.ledgerScopeNote).toMatch(/not everything that touched it/);
+  });
+
+  it('is filtered on publishedAt, and says so', async () => {
+    const m = await assemble({ since: '2026-01-01' });
+
+    const [{ where }] = findMany.ledgerEvent.mock.calls[0] as [{ where: Record<string, unknown> }];
+    expect(where['publishedAt']).toBeDefined();
+    expect(m.filteredFields['ledgerEvents']).toBe('publishedAt');
+  });
+});
+
+describe('the exclusions carry their reasoning', () => {
+  it('says the decision log was considered, and what would change the answer', async () => {
+    const entry = EXCLUDED_RECORD_TYPES.find((e) => e.recordType === 'ai_decision_logs');
+
+    expect(entry!.reason).toMatch(/only issuer_eligibility writes/i);
+    expect(entry!.reason).toMatch(/Revisit when the other eight write/i);
+  });
+
+  it('says the scans belong but cannot yet be scoped', async () => {
+    // Decided 2026-09-02 that they belong; blocked because
+    // comm_compliance_records has no businessId to scope on.
+    const entry = EXCLUDED_RECORD_TYPES.find((e) => e.recordType === 'comm_compliance_records');
+
+    expect(entry!.reason).toMatch(/DECIDED/);
+    expect(entry!.reason).toMatch(/no businessId/i);
+  });
+
+  it('no longer lists the ledger as excluded', async () => {
+    const m = await assemble();
+    expect(m.excludedRecordTypes.map((e) => e.recordType)).not.toContain('ledger_events');
   });
 });

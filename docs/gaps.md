@@ -636,7 +636,7 @@ there are none, because a letter confirming a consent that was never captured
 is the document that endpoint exists not to produce.
 
 
-### 3f. The compliance manifest is an index, not a packet — DECISION NEEDED, 2026-09-01
+### 3f. Manifest and packet are two modules — DECIDED 2026-09-02
 
 `GET /api/documents/export/:businessId` assembles a JSON manifest: the
 compliance records, plus **references** to the vault documents — `storageKey`,
@@ -650,44 +650,90 @@ assembly", output that "can be zipped and handed to regulators / counsel". It
 now says what it is, and the payload carries `contents: 'references'` so a
 reader sees it without reading this file.
 
-**The decision: should it assemble the bytes?** The old PRODUCTION NOTE
-proposed a streaming ZIP builder pulling from S3. That is real work — an
-archive stream, per-document S3 reads, a response that cannot be buffered in
-memory, and a size limit somebody has to choose — and it changes what the
-module IS. A manual describing `build_packet` cannot be written until this is
-settled, because the two answers describe different modules:
+**Decided: a packet is not a bigger manifest. It is a different act.**
 
-- **Index.** Fast, small, safe to generate often, and the recipient needs vault
-  access to do anything with it. Honest as long as it says so, which it now
-  does.
-- **Packet.** Self-contained, handed over as one file, and it becomes a
-  distribution channel for documents including any on legal hold — which is a
-  question about who may receive them, not only about how they are streamed.
+An index says what exists; a packet transfers it. They are two modules, and
+this one is the manifest. `build_packet` as a module name describes the
+manifest and should be read that way until a packet module exists.
 
-Not built. The manifest is honest about being a manifest in the meantime.
+**The packet is a separate module, unstarted, and gated on one question:** who
+may receive a document under legal hold. It only arises for the packet — an
+index naming a document under hold discloses that it exists, which is already
+true of the case; a packet hands over the bytes, and that is a disclosure
+decision rather than a streaming one.
 
-### 3g. Four record types the manifest does not contain — DECISION NEEDED, 2026-09-01
+That question reaches further than this module. `assemble_evidence` has the
+same shape: it names documents, and any future version that transfers them
+inherits the same decision. So it is one ruling covering both, not a detail of
+whichever gets built first.
 
-Declared in `excludedRecordTypes` now, so nobody has to infer them from an
-absence. Whether any belongs is a product call:
+The engineering, when it is unblocked, is the old PRODUCTION NOTE: an archive
+stream, per-document S3 reads, a response that cannot be buffered in memory,
+and a size limit somebody chooses. None of it is the hard part.
 
-- **`comm_compliance_records`** — every advisor message and marketing script
-  scanned for banned claims, with the violations found. The most obviously
-  regulator-relevant record the system holds, and the strongest candidate.
-- **`ledger_events`** — the canonical audit spine. It is a system-wide event
-  stream rather than a per-business record set, and scoping it to one business
-  has not been designed.
-- **`ai_decision_logs`** — issuer eligibility only, today. Eight of the nine
-  modules in `AI_MODULE_SOURCES` still write nothing (§7b), so a section here
-  would be mostly empty and would read as "no decisions were made" — the
-  absence-as-value shape, in the document where it matters most.
-- **`regulatory_dossier_exports`** — prior exports of this kind. A manifest
-  listing its own predecessors is a decision nobody has taken.
+### 3g. What the manifest contains — DECIDED 2026-09-02, one item blocked
 
-`business_owners` is excluded deliberately and is not a gap: beneficial owners
-with encrypted SSNs are retrieved through a separately permissioned endpoint.
+**`ledger_events` — INCLUDED.** The canonical audit spine now travels in the
+manifest, with the payload, because the envelope alone is a timestamp rather
+than evidence.
 
-Both of these are Ivan's call after the manuals are written.
+Nothing on a ledger row names a business, so attribution is by
+`aggregateId = businessId OR payload.businessId = businessId`, and each event
+reports which predicate matched. **What that misses is stated in the manifest
+itself** (`ledgerScopeNote`): an event whose aggregateId is a child entity —
+an application, an authorisation — and whose payload omits businessId is not
+found. The section is what can be attributed, not everything that touched the
+business, and a regulator is owed the second sentence.
+
+**`comm_compliance_records` — DECIDED IN, BLOCKED OUT.** They belong, as an
+index without message content: that a communication was scanned, when, against
+which rules, the outcome, and the violations found. Not the text. A regulator
+asking "show me your communication monitoring" is answered by the index; one
+who wants the messages asks for those specifically, and that is retrieval under
+supervision rather than a bulk export an agent triggered.
+
+**It cannot be built yet.** `comm_compliance_records` carries `tenantId` and
+`advisorId` and **no `businessId`**. A scan is attributed to the advisor who
+ran it, and an advisor scans messages for many clients, so there is nothing to
+derive the link from. Two ways forward:
+
+- **Add a nullable `businessId`** and have `POST /comm-compliance/scan` accept
+  it. Nullable is not a compromise here: a `video_script` scanned before render
+  legitimately has no client. Half a day for the column and the capture path.
+  Every existing row is null permanently, so the manifest would carry scans
+  from the day it ships and nothing before — the same shape as §3e.
+- **Leave scans out of a per-business manifest** and answer the monitoring
+  question from a tenant-level report. Arguably the more honest scope:
+  monitoring is a programme, not a per-client fact, and a marketing script
+  belongs to no client at all.
+
+Recorded in `excludedRecordTypes` with that reasoning, so the manifest says the
+scans belong and says why they are absent.
+
+**Two things about content, if the first option is taken.** The message text is
+**inline, in two columns**: `content` as submitted and `contentWithDisclosures`
+as it would go out. "Index without content" is therefore a field selection over
+two columns that someone can widen by accident, not a structural separation —
+so it needs a test asserting the serialised manifest carries neither, which
+fails even if a third content column is added later.
+
+**`ai_decision_logs` — EXCLUDED, and the reasoning is recorded rather than the
+exclusion alone.** `AI_MODULE_SOURCES` names nine modules and only
+`issuer_eligibility` writes a row (§7b). A section here would be almost empty
+for every business and would read as "no decisions were made about this
+client" — the absence-as-value shape, in the document where it does the most
+damage. **Revisit when the other eight write:** at that point the section
+becomes a real record of what a placement strategy was built on, and the
+argument for excluding it stops holding. This is a decision with an expiry, not
+a permanent omission.
+
+**`regulatory_dossier_exports` — EXCLUDED.** A manifest listing its own
+predecessors tells a reader about this system rather than about the business.
+The export history is available to whoever administers the system without
+being carried to a regulator.
+
+**`business_owners`** remains excluded and is not a gap: beneficial owners with
+encrypted SSNs are retrieved through a separately permissioned endpoint.
 
 ### 3d. The dispute that looked filed — refused 2026-09-01
 
