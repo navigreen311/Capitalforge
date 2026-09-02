@@ -93,6 +93,7 @@ model User {
 
   @@unique([tenantId, email])
   @@map("users")
+  createdApplications CardApplication[] @relation("CardApplicationCreatedBy")
 }
 
 /**
@@ -470,6 +471,29 @@ model CardApplication {
   ///
   /// If you remove the constraint, that test fails. That is deliberate.
   approvedCreditLimit Decimal?
+  /**
+   * The user who created the application — the "maker" in maker-checker.
+   *
+   * Was a key inside `adverseActionNotice`, a Json column named for something
+   * else entirely, read back through a generic `_extractMetadata` helper. Three
+   * consequences, and the third is why it moved:
+   *
+   *   - nothing declared the key existed, so nothing could require it;
+   *   - the day an application carries a real adverse action notice, that
+   *     payload and the maker share one unnamespaced Json field;
+   *   - a missing maker made `checkMakerChecker` report "No approver
+   *     specified" — because `createdByUserId` was '' and the approver branch
+   *     is tested first — so an advisor who HAD supplied an approver was told
+   *     they had not, on the gate that enforces "no agent submits".
+   *
+   * Nullable: applications created before this column existed have no recorded
+   * maker, and the backfill can only recover the ones whose Json carried it.
+   * `checkMakerChecker` reports that state as its own reason rather than
+   * blaming the approver.
+   */
+  createdByUserId     String?
+  createdBy           User?     @relation("CardApplicationCreatedBy", fields: [createdByUserId], references: [id])
+
   introApr            Decimal?
   introAprExpiry      DateTime?
   regularApr          Decimal?

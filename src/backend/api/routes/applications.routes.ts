@@ -651,8 +651,11 @@ router.post(
         !Array.isArray(application.adverseActionNotice)
           ? (application.adverseActionNotice as Record<string, unknown>)
           : {};
+      // From the column, falling back to the Json for rows the backfill could
+      // not resolve. The column is the one the database can enforce.
       const createdByUserId =
-        typeof meta.createdByUserId === 'string' ? meta.createdByUserId : '';
+        application.createdByUserId
+        ?? (typeof meta.createdByUserId === 'string' ? meta.createdByUserId : '');
       const approverUserId =
         typeof (req.body as { approvedByUserId?: unknown }).approvedByUserId === 'string'
           ? ((req.body as { approvedByUserId: string }).approvedByUserId)

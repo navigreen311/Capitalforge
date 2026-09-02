@@ -179,8 +179,11 @@ export class ApplicationPipelineService {
     // Verify all assigned advisors belong to this tenant
     await this._assertAdvisorsExist(input.assignedAdvisorIds, caller.tenantId);
 
-    // Build metadata JSON (stored in adverseActionNotice field for now —
-    // we use a dedicated metadata column pattern)
+    // `createdByUserId` is a column now — see the 20260901140000 migration. It
+    // is still written into the Json as well, because rows created before the
+    // column exist with only the Json and readers fall back to it; dropping it
+    // here would make new rows and old rows disagree about where the maker
+    // lives while both are still being read.
     const metadata: Record<string, unknown> = {
       assignedAdvisorIds: input.assignedAdvisorIds,
       createdByUserId: caller.userId,
@@ -202,6 +205,7 @@ export class ApplicationPipelineService {
         annualFee: input.annualFee != null ? new Prisma.Decimal(input.annualFee) : null,
         cashAdvanceFee:
           input.cashAdvanceFee != null ? new Prisma.Decimal(input.cashAdvanceFee) : null,
+        createdByUserId: caller.userId,
         adverseActionNotice: metadata as Prisma.InputJsonValue,
       },
     });
@@ -510,10 +514,14 @@ export class ApplicationPipelineService {
     caller: CallerContext,
   ): Promise<void> {
     const existingMeta = this._extractMetadata(application as Parameters<typeof this._extractMetadata>[0]);
+    // Column first, then the Json for un-backfilled rows. The old fallback to
+    // `caller.userId` is gone: treating the submitting user as the maker when
+    // no maker is recorded makes every self-submission look like a
+    // maker-checker violation, or worse, passes one where the two happen to
+    // differ. An absent maker is now its own reported reason.
     const createdByUserId: string =
-      typeof existingMeta.createdByUserId === 'string'
-        ? existingMeta.createdByUserId
-        : caller.userId;
+      (application as { createdByUserId?: string | null }).createdByUserId
+      ?? (typeof existingMeta.createdByUserId === 'string' ? existingMeta.createdByUserId : '');
 
     const makerChecker = {
       createdByUserId,

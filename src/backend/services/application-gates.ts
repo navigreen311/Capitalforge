@@ -337,6 +337,27 @@ export class ApplicationGateChecker {
   async checkMakerChecker(context: MakerCheckerContext): Promise<GateCheckResult> {
     const GATE = 'maker_checker';
 
+    // The maker is checked FIRST, and reported as its own cause.
+    //
+    // The approver branch used to be tested first, and a missing maker arrived
+    // as ''. So an application with no recorded creator failed with "No
+    // approver specified" — told to an advisor who had supplied one — on the
+    // gate that enforces "no agent submits". A refusal that names the wrong
+    // cause is worse than no message: it sends somebody to fix the thing that
+    // was never broken.
+    if (!context.createdByUserId || context.createdByUserId.trim() === '') {
+      return {
+        passed: false,
+        gate: GATE,
+        reason:
+          'This application has no recorded creator, so maker-checker cannot be '
+          + 'evaluated. It is not that an approver is missing — the application does '
+          + 'not record who made it, and a second pair of eyes cannot be confirmed '
+          + 'against nobody. Applications created before 1 September 2026 may not '
+          + 'carry one.',
+      };
+    }
+
     if (!context.approverUserId || context.approverUserId.trim() === '') {
       return {
         passed: false,

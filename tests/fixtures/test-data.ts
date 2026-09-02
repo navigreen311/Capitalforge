@@ -319,6 +319,13 @@ export function createTestApplication(
     decidedAt: null,
     declineReason: null,
     adverseActionNotice: null,
+    // A real application always records its maker — the pipeline writes the
+    // column on create. The fixture omitted it, and the old
+    // `?? caller.userId` fallback in the pipeline masked that by treating the
+    // submitting user as the creator. With the fallback gone, an application
+    // with no maker fails maker-checker saying exactly that, which is what
+    // this fixture was quietly relying on not happening.
+    createdByUserId: 'test-user-maker',
     createdAt: now(-3_600_000),
     updatedAt: now(),
     ...overrides,

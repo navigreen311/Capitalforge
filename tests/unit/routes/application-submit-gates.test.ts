@@ -95,6 +95,7 @@ beforeEach(() => {
     id: APP_ID,
     businessId: BUSINESS_ID,
     status: 'draft',
+    createdByUserId: MAKER,
     adverseActionNotice: { createdByUserId: MAKER },
     business: { id: BUSINESS_ID, legalName: 'Acme', tenantId: TENANT },
   });
@@ -256,5 +257,32 @@ describe('consentCapturedAt', () => {
     expect(data.status).toBe('submitted');
     expect(data.submittedAt).toBeInstanceOf(Date);
     expect(data).not.toHaveProperty('consentCapturedAt');
+  });
+});
+
+describe('a missing maker names itself', () => {
+  it('does not report an absent creator as an absent approver', async () => {
+    // The approver branch was tested first and a missing maker arrived as '',
+    // so this said "No approver specified" to somebody who had supplied one —
+    // on the gate that enforces "no agent submits". A refusal naming the wrong
+    // cause sends people to fix the thing that was never broken.
+    applicationFindFirst.mockResolvedValue({
+      id: APP_ID,
+      businessId: BUSINESS_ID,
+      status: 'draft',
+      createdByUserId: null,
+      adverseActionNotice: {},
+      business: { id: BUSINESS_ID, legalName: 'Acme', tenantId: TENANT },
+    });
+
+    const res = await submit({ approvedByUserId: CHECKER });
+    const body = (await res.json()) as {
+      error?: { details?: { issues?: { gate: string; reason?: string }[] } };
+    };
+
+    const issue = body.error?.details?.issues?.find((i) => i.gate === 'maker_checker');
+    expect(res.status).toBe(422);
+    expect(issue?.reason).toMatch(/no recorded creator/i);
+    expect(issue?.reason).not.toMatch(/No approver specified/i);
   });
 });
