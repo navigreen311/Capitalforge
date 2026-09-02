@@ -233,18 +233,56 @@ function buildCreditRecommendations(profile: {
 
 export const clientDetailRouter = Router({ mergeParams: true });
 
-// ── Every handler requires business:read ────────────────────────────────────
+// ── Permissions: a floor on the router, then three module boundaries ────────
 //
-// This router carried NO permission middleware at all — unlike documentRouter,
-// which gates on COMPLIANCE_READ. Everything protecting /owners and /credit/*
-// was the tenancy guard and whatever authenticates upstream, and a missing
-// tenant surfaced as a 500 from getTenantId rather than a 401.
+// This router carried NO permission middleware at all until 2026-09-02 —
+// unlike documentRouter, which gates on COMPLIANCE_READ. Everything protecting
+// /owners and /credit/* was the tenancy guard and whatever authenticates
+// upstream, and a missing tenant surfaced as a 500 rather than a 401.
 //
-// `business:read` is the floor, not a considered ceiling: it is the existing
-// idiom for reading a business, and this router reads businesses. Whether
-// /owners and /credit/* deserve something stricter than the endpoint returning
-// a client's name is a live question — see docs/callable-modules.md.
+// `business:read` went on the router as the floor. It was never the ceiling:
+// one permission covered a legal name and a date of birth alike, so within
+// this router the grant was the only thing separating them.
+//
+// THE THREE READ MODULES, and the boundary between them.
+//
+// The line is whether the response is REGULATED DATA ABOUT A NATURAL PERSON,
+// not whether it is sensitive in general — a boundary a reviewer can apply
+// without judgement calls, and one that maps onto compliance entries that
+// already exist.
+//
+//   client_read         business:read
+//                       /, /documents, /acknowledgments, /compliance,
+//                       /compliance/status, /repayment
+//
+//   client_read_pii     + business:read:pii
+//                       /owners, /timeline, /ach-authorization
+//
+//   client_read_credit  + business:read:credit
+//                       /credit/business, /credit/personal, /credit/history,
+//                       /credit/recommendations
+//
+// NOT SPLIT BY PATH DEPTH. `/credit/*` happens to be a clean group by prefix;
+// `/timeline` and `/repayment` both sit at the top level and belong to
+// different modules. Grouping by prefix is the mistake this whole exercise
+// exists to correct, and it would have put /timeline with the business facts.
+//
+// /ach-authorization is in the PII module by decision, not by category. It is
+// formally an authorisation against a business account — but on a small
+// business the owner and the business are effectively the same person, and
+// personal guarantees are everywhere in this venture. The formal distinction
+// does not survive contact with the product.
+//
+// The floor stays on the router: a caller needs business:read AND the specific
+// one. That way a handler added tomorrow inherits the floor rather than
+// inheriting nothing, which is how this router came to have no gate at all.
 clientDetailRouter.use(requirePermissions(PERMISSIONS.BUSINESS_READ));
+
+/** client_read_pii — natural-person identifiers. */
+const readPii = requirePermissions(PERMISSIONS.BUSINESS_READ_PII);
+
+/** client_read_credit — bureau-derived data. */
+const readCredit = requirePermissions(PERMISSIONS.BUSINESS_READ_CREDIT);
 
 // ── Ownership is checked at the mount, not here ─────────────────────────────
 //
@@ -280,7 +318,7 @@ clientDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunct
 });
 
 // GET /owners
-clientDetailRouter.get('/owners', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/owners', readPii, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -351,7 +389,7 @@ clientDetailRouter.get('/acknowledgments', async (req: Request, res: Response, _
 });
 
 // GET /ach-authorization
-clientDetailRouter.get('/ach-authorization', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/ach-authorization', readPii, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -372,7 +410,7 @@ clientDetailRouter.get('/ach-authorization', async (req: Request, res: Response,
 });
 
 // GET /credit/business
-clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/credit/business', readCredit, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -389,7 +427,7 @@ clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _
 });
 
 // GET /credit/personal — personal bureau scores for the owners
-clientDetailRouter.get('/credit/personal', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/credit/personal', readCredit, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -414,7 +452,7 @@ clientDetailRouter.get('/credit/personal', async (req: Request, res: Response, _
 });
 
 // GET /credit/history — score movement across the pulls on record
-clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/credit/history', readCredit, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -493,7 +531,7 @@ clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _n
 });
 
 // GET /credit/recommendations — derived from the credit profile on record
-clientDetailRouter.get('/credit/recommendations', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/credit/recommendations', readCredit, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -630,7 +668,7 @@ clientDetailRouter.get('/repayment', async (req: Request, res: Response, _next: 
 });
 
 // GET /timeline
-clientDetailRouter.get('/timeline', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/timeline', readPii, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 

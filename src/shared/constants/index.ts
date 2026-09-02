@@ -117,6 +117,32 @@ export const ROLES = {
 // Permissions
 export const PERMISSIONS = {
   BUSINESS_READ: 'business:read',
+  /**
+   * Reading natural-person identifiers on a business: beneficial owners with
+   * dates of birth, addresses and ssnLast4; the client timeline, whose ledger
+   * payloads carry consent evidence references and IP addresses; and the ACH
+   * authorisation.
+   *
+   * Separate from BUSINESS_READ because a legal name and a date of birth are
+   * not the same disclosure, and one permission covering both means the grant
+   * is the only thing between them.
+   *
+   * ACH sits here by decision rather than by formal category: an authorisation
+   * is against a business account, but on a small business the owner and the
+   * business are effectively the same person, and personal guarantees are
+   * everywhere in this venture. The formal distinction does not survive
+   * contact with the product.
+   */
+  BUSINESS_READ_PII: 'business:read:pii',
+  /**
+   * Reading bureau-derived credit data — scores, history, and the
+   * recommendations computed from them.
+   *
+   * Separate because compliance/bureau-report-handling-v1 already restricts
+   * what may be done with this data downstream, and a permission that names it
+   * is what lets a grant match that restriction.
+   */
+  BUSINESS_READ_CREDIT: 'business:read:credit',
   BUSINESS_WRITE: 'business:write',
   APPLICATION_SUBMIT: 'application:submit',
   APPLICATION_APPROVE: 'application:approve',

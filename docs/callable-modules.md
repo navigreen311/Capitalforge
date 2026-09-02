@@ -9,10 +9,26 @@ complete list of what the API exposes — it is the list of what has been read
 closely enough to be granted. An endpoint absent from this file has not been
 reviewed for grantability, which is different from being forbidden.
 
-**The rule this file exists to enforce:** a module id groups calls that share a
-blast radius, not calls that share a URL prefix. Two endpoints under one router
-can be a read and an outbound email, and one grant covering both is a grant
-nobody can reason about.
+## The two rules this file exists to enforce
+
+**1. A module id groups calls that share a blast radius, not calls that share a
+URL prefix.** Two endpoints under one router can be a read and an outbound
+email, and one grant covering both is a grant nobody can reason about.
+
+**2. Path depth is not evidence of blast radius.** This is the same mistake one
+level down, and it nearly happened here.
+
+Splitting the client reads, `/credit/*` looked like a natural group *because of
+the path* — and it happens to be one. But `/timeline` sits at the top level
+beside `/`, and belongs with `/owners`: its ledger payloads carry consent
+evidence references and IP addresses. `/repayment` also sits at the top level,
+and belongs with the business facts. Grouping by prefix would have put
+`/timeline` in the wrong module and nothing would have failed.
+
+Depth tells you how a URL was designed. Blast radius is what the response
+contains and what a holder of the grant can then do. Derive the second from
+reading the responses, and check the first only to see whether it happens to
+agree.
 
 ---
 
@@ -30,11 +46,12 @@ of any handler — individual handlers vary in whether they also filter on
 `/api/v1/clients/:clientId` are aliases. A registry naming one will not stop
 calls to the other.
 
-### `client_read`
+### The client reads — three ids, not one
 
-Thirteen GETs: profile, owners, acknowledgments, ACH authorisation, business
-credit, personal credit, credit history, credit recommendations, repayment,
-timeline, compliance, compliance status, documents.
+Thirteen GETs. They were one module id until 2026-09-02, when the same mistake
+that separated the reads from the writes turned out to exist one level down:
+`GET /` returns a legal name, `/owners` returns dates of birth and `/credit/*`
+returns bureau data, and one grant covered all three.
 
 | | |
 |---|---|
@@ -61,67 +78,53 @@ timeline, compliance, compliance status, documents.
   credit pull on record it returns `[]` with
   `basis: 'no_credit_profile_on_record'` rather than recommendations.
 
-### PROPOSED — splitting `client_read` again
+### The three read modules
 
-**Not built. This is a proposal.**
+Built 2026-09-02. The boundary is **whether the response is regulated data
+about a natural person** — not whether it is sensitive in general. That is a
+line a reviewer can apply without judgement calls, and it maps onto compliance
+entries that already exist.
 
-`client_read` was split off from three writes because a grant covering both
-reading a client's name and mailing that client is a grant nobody can reason
-about. The same mistake exists one level down, inside `client_read`: **`GET /`
-returns a legal name; `/owners` returns dates of birth and `/credit/*` returns
-bureau data, and one grant covers all three.**
-
-As of 2026-09-02 the router requires `business:read` and nothing finer, so the
-permission system does not separate them either. The floor is now in place; the
-ceiling is this proposal.
-
-#### The boundary
-
-The line is **whether the response is regulated data about a natural person**,
-not whether it is sensitive in general. That is a boundary a reviewer can apply
-without judgement calls, and it maps onto compliance entries that already
-exist.
-
-| Proposed id | Endpoints | Why together |
+| Id | Permission | Endpoints |
 |---|---|---|
-| `client_read` | `/`, `/documents`, `/acknowledgments`, `/compliance`, `/compliance/status`, `/repayment`, `/ach-authorization` | Business-level facts and the firm's own records about the engagement. No bureau data, no personal identifiers beyond the business itself. |
-| `client_read_pii` | `/owners`, `/timeline` | Natural-person identifiers. `/owners` returns dates of birth, addresses and `ssnLast4`; `/timeline` returns ledger payloads carrying consent evidence references and IP addresses. Governed by `compliance/consumer-privacy-rights-v1`. |
-| `client_read_credit` | `/credit/business`, `/credit/personal`, `/credit/history`, `/credit/recommendations` | Bureau-derived data, governed by `compliance/bureau-report-handling-v1`, which already restricts what may be done with it downstream. |
+| `client_read` | `business:read` | `/`, `/documents`, `/acknowledgments`, `/compliance`, `/compliance/status`, `/repayment` |
+| `client_read_pii` | `business:read` + `business:read:pii` | `/owners`, `/timeline`, `/ach-authorization` |
+| `client_read_credit` | `business:read` + `business:read:credit` | `/credit/business`, `/credit/personal`, `/credit/history`, `/credit/recommendations` |
 
-#### Tiers
+`business:read` stays on the router as a floor, so a handler added tomorrow
+inherits a gate rather than inheriting nothing — which is how this router came
+to have no gate at all.
+
+**`/ach-authorization` is in the PII module by decision, not by category.**
+Formally it is an authorisation against a business account. On a small business
+the owner and the business are effectively the same person, and personal
+guarantees are everywhere in this venture, so the formal distinction does not
+survive contact with the product.
+
+#### Tiers — all three `auto_execute`
 
 | Id | Tier | Reasoning |
 |---|---|---|
 | `client_read` | `auto_execute` | Business facts the firm recorded about its own engagement. |
-| `client_read_pii` | `auto_execute`, **narrow grants only** | Still a read, so the act is safe; the exposure is the breadth of who holds the grant. The control is who gets it, not what happens when it runs. |
-| `client_read_credit` | `auto_execute`, **narrow grants only** | Same, plus a downstream constraint the manual already carries: this data may never be attached to a lender packet or rendered as Burkham's own assertion of creditworthiness. |
+| `client_read_pii` | `auto_execute`, **narrow grants only** | Still a read, so the act is safe; the exposure is the breadth of who holds the grant. |
+| `client_read_credit` | `auto_execute`, **narrow grants only** | Same, plus a downstream constraint: this data may never be attached to a lender packet or rendered as Burkham's own assertion of creditworthiness. |
 
-None of the three should be `propose`. Making a read wait for a human is a
-control that trains people to approve without looking, and it does not reduce
-what the grant holder can see — the grant already decided that.
+**None of the three is `propose`, and the reasoning generalises.** Making a
+read wait for a human is a control that trains people to approve without
+looking, and it does not reduce what the grant holder can see — the grant
+already decided that. For a read, the control is **who holds the grant**, not
+what happens when it runs. Reserve `propose` for calls that change something or
+reach somebody.
 
-#### What it costs
+#### Who holds them
 
-- **Three permissions**, not one. `business:read`, `business:read:pii`,
-  `business:read:credit`, applied per handler rather than to the router. Under
-  an hour.
-- **Three module ids** in the registry, and any existing `client_read` grant
-  has to be re-issued as one, two or three.
-- **`/ach-authorization` is the debatable one.** It returns bank authorisation
-  details for a business, not a natural person, so it sits in `client_read`
-  above — but an account authorisation reads as personal to most people. If it
-  moves, it moves to `client_read_pii`.
-
-#### What I would not do
-
-**Do not split by URL depth or by tab.** `/credit/*` looks like a natural group
-because of the path, and it happens to be one here — but `/timeline` sits at
-the top level and belongs with `/owners`, while `/repayment` sits at the top
-level and belongs with the business facts. Grouping by prefix is the mistake
-this whole exercise exists to correct, and it would have put `/timeline` in the
-wrong module.
-
----
+`business:read:pii` and `business:read:credit` go to super admin, tenant admin,
+compliance officer and advisor. **They are deliberately withheld from
+`readonly` and `client`** — both previously reached dates of birth and bureau
+data with exactly the same permission as an advisor, because one permission
+covered a legal name and a social security number alike. If a client portal
+turns out to need its own owners, that is a grant to add deliberately, and it
+will be visible as one.
 
 ### `client_profile_update`
 
