@@ -99,17 +99,19 @@ dashboardNavCountsRouter.get(
           },
         }),
 
-        // Expired consent records
-        db.consentRecord.count({
-          where: {
-            tenantId,
-            status: 'expired',
-          },
-        }),
+        // No expired-consent count. Nothing writes `status: 'expired'` and
+        // nothing can — ConsentRecord has no expiry column — so this counted
+        // zero for every tenant, forever, and added it to two badges as though
+        // it were a measurement.
+        Promise.resolve(null),
       ]);
 
-      // Action queue total = pending consent + unresolved compliance + expired consents
-      const totalActionQueue = actionQueueCount + unresolvedCompliance + expiredConsents;
+      // The total counts what can be counted. Expired consent is excluded
+      // rather than added as a zero: adding an unmeasurable category as 0 makes
+      // the badge look complete, and the sidebar already renders a null badge as
+      // its own state — "unknown", not "none" — which is the honest rendering
+      // for a category nothing can measure.
+      const totalActionQueue = actionQueueCount + unresolvedCompliance;
 
       const body: ApiResponse = {
         success: true,
@@ -119,7 +121,13 @@ dashboardNavCountsRouter.get(
           funding_rounds: activeRounds,
           compliance: unresolvedCompliance,
           complaints: openComplaints,
-          consent_issues: pendingConsentApps + expiredConsents,
+          consent_issues: pendingConsentApps,
+          /**
+           * Null, not zero. Consent expiry is not modelled — no expiry column
+           * exists on ConsentRecord — so no consent can become expired and none
+           * can be counted. Zero here would read as "none have expired".
+           */
+          expired_consents: expiredConsents,
           last_updated: new Date().toISOString(),
         },
       };
