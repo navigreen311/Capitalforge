@@ -22,10 +22,15 @@ vi.mock('@prisma/client', () => ({
   Prisma: { DbNull: Symbol('DbNull') },
 }));
 
+const businessFindFirst = vi.fn();
+const decisionCreate = vi.fn().mockResolvedValue({ id: 'log-1' });
+
 vi.mock('@backend/config/database.js', () => ({
   prisma: {
     issuer: { findUnique: issuerFindUnique },
+    business: { findFirst: businessFindFirst },
     cardApplication: { findMany: vi.fn().mockResolvedValue([]) },
+    aiDecisionLog: { create: decisionCreate },
     $on: vi.fn(),
   },
 }));
@@ -79,5 +84,34 @@ describe('a genuine failure whose message happens to say "not found"', () => {
 
     expect(res.status).toBe(500);
     expect(body.error?.message ?? '').not.toMatch(/Issuer not found/);
+  });
+});
+
+describe('the business the question is asked about', () => {
+  it('is read within the calling tenant, not by id alone', async () => {
+    // This was `findUnique({ where: { id } })`. Any authenticated caller could
+    // pass any business id and read back its credit score, age and revenue as
+    // `currentValue` on the rule violations. The mount-table guard covers
+    // `:id` and `:clientId` in a PATH; this one arrives as a query parameter.
+    issuerFindUnique.mockResolvedValue({ id: 'chase', name: 'Chase', rules: [] });
+    businessFindFirst.mockResolvedValue(null);
+
+    const res = await fetch(`${baseUrl}/api/issuers/chase/eligibility?businessId=other-tenant-biz`);
+
+    expect(res.status).toBe(404);
+    const [{ where }] = businessFindFirst.mock.calls[0] as [{ where: Record<string, unknown> }];
+    expect(where).toMatchObject({ id: 'other-tenant-biz', tenantId: 'tenant-1' });
+  });
+
+  it('answers the same way for a business that does not exist', async () => {
+    // Identical, so the response cannot be used to enumerate ids.
+    issuerFindUnique.mockResolvedValue({ id: 'chase', name: 'Chase', rules: [] });
+    businessFindFirst.mockResolvedValue(null);
+
+    const res = await fetch(`${baseUrl}/api/issuers/chase/eligibility?businessId=nope`);
+    const body = (await res.json()) as { error?: { message?: string } };
+
+    expect(res.status).toBe(404);
+    expect(body.error?.message).toMatch(/Business not found/);
   });
 });

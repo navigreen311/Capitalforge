@@ -424,15 +424,19 @@ dealCommitteeRouter.get(
     const limit      = Math.min(parseInt(req.query['limit'] as string ?? '20', 10), 100);
 
     try {
-      const decisions = await getBusinessDecisionExplanations(
+      const { decisions, coverage } = await getBusinessDecisionExplanations(
         businessId,
         tenant.tenantId,
         limit,
       );
 
+      // `coverage` travels with the answer. This returned a bare array, so an
+      // empty one read as "no decisions were made about this business" when
+      // what was true was "nothing writes to the decision log" — on the
+      // endpoint built to explain why a recommendation was made.
       res.status(200).json({
         success: true,
-        data:    decisions,
+        data:    { decisions, coverage },
         meta:    { total: decisions.length },
       } satisfies ApiResponse);
     } catch (err) {

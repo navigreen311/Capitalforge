@@ -29,15 +29,39 @@ export function setPrismaClient(client: PrismaClient): void {
 
 // ── Types ─────────────────────────────────────────────────────
 
-export type AiModuleSource =
-  | 'stacking_optimizer'
-  | 'suitability_engine'
-  | 'credit_intelligence'
-  | 'udap_scorer'
-  | 'decline_recovery'
-  | 'contract_analysis'
-  | 'comm_compliance'
-  | 'fraud_detection';
+/**
+ * Every module that is supposed to record a decision.
+ *
+ * An array rather than a bare union, because two other places need the values
+ * at runtime: the admin endpoint's zod enum, and the decision-explanation
+ * reader, which subtracts the modules that HAVE recorded something from this
+ * list to say which ones never have. A hand-kept second copy of these names
+ * would drift, and the drift would show up as a surface quietly under-reporting
+ * what it cannot see.
+ */
+export const AI_MODULE_SOURCES = [
+  /**
+   * Issuer eligibility — Chase 5/24 and its relatives.
+   *
+   * Not a model. It is deterministic rule evaluation, and the table is named
+   * for AI decisions, which reads slightly wrong here. Recorded anyway: the
+   * question is what a placement strategy was built on, and a second table
+   * answering the same question would be worse than the name. `confidence`
+   * and `modelVersion` stay null, because inventing either would be the
+   * fabrication this log exists to prevent.
+   */
+  'issuer_eligibility',
+  'stacking_optimizer',
+  'suitability_engine',
+  'credit_intelligence',
+  'udap_scorer',
+  'decline_recovery',
+  'contract_analysis',
+  'comm_compliance',
+  'fraud_detection',
+] as const;
+
+export type AiModuleSource = (typeof AI_MODULE_SOURCES)[number];
 
 export type AiDecisionType =
   | 'recommendation'

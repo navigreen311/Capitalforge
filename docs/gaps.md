@@ -1292,7 +1292,7 @@ function, and the point is to reach someone planning work before that.
 
 ---
 
-## 7b. Nothing records that an eligibility question was asked — open, 2026-09-01
+## 7b. ~~Nothing records that an eligibility question was asked~~ — issuer eligibility records, 2026-09-01
 
 **`GET /issuers/:id/eligibility` computes an answer and returns it. Nothing
 keeps it.** The context is rebuilt from live data on every call — held cards,
@@ -1362,7 +1362,49 @@ is cleaner and costs a round trip; the first cannot be forgotten by a caller.
 **Recommend the first**, because the failure being fixed is precisely that
 nobody remembered to record.
 
-**Not built.** Flagged during the `lender_match` module review, 2026-09-01.
+### Built, same day
+
+**`GET /issuers/:id/eligibility` writes a row**, when a `businessId` was named
+— a default-context preview is a decision about nobody, and logging it would
+fill the record a compliance officer reads with UI probes. The whole
+`EligibilityResult` goes into `output`, `caveats` and `unevaluatedRules`
+included, with `businessId` alongside it because that is the JSONB path the
+reader filters on. The `EligibilityContext` is hashed into `inputHash` rather
+than stored, so two answers can be compared without keeping a second copy of a
+client's credit profile. `confidence` and `modelVersion` stay null: this is
+rule evaluation, and a confidence figure invented for it would be the
+fabrication this log exists to catch. A failed write does not fail the answer,
+but it is reported — the response carries `decisionNotRecorded` saying the
+answer cannot be produced later.
+
+**The empty list now says what it is.** `getBusinessDecisionExplanations`
+returns `{ decisions, coverage }`, and `coverage` is derived from the table
+rather than asserted: a `groupBy` over `moduleSource` gives the modules that
+have actually recorded something for this tenant, and everything else in
+`AI_MODULE_SOURCES` is named as silent. When nothing has recorded anything the
+note says so outright — *an empty list here means nothing writes to the
+decision log, not that no decisions were made*.
+
+`AI_MODULE_SOURCES` is now the single list. The union derives from it, and so
+does the admin endpoint's zod enum, which was a second hand-kept copy of the
+same nine names.
+
+**Also closed while here: a cross-tenant read.** `buildContextFromBusiness` ran
+`findUnique({ where: { id: businessId } })` with no tenant filter, so any
+authenticated caller could pass any business id and read back its credit score,
+age and revenue as `currentValue` on the rule violations. The mount-table guard
+covers `:id` and `:clientId` in a path; this id arrives as a query parameter,
+which `check-route-tenancy`'s own comment names as what it cannot see. Missing
+and other-tenant now answer identically.
+
+**Still open: the other eight modules.** `stacking_optimizer`,
+`suitability_engine`, `credit_intelligence`, `udap_scorer`, `decline_recovery`,
+`contract_analysis`, `comm_compliance` and `fraud_detection` are all named in
+the union and none writes a row. A day or so, mostly finding where each
+engine's decision actually surfaces. Until then `coverage.silent` names them on
+every read, which is the honest interim answer.
+
+**Flagged during the `lender_match` module review, 2026-09-01.**
 
 ## 6b. ~~A signer is a business, not a person~~ — fixed 2026-08-07
 

@@ -321,6 +321,22 @@ export class IssuerNotFoundError extends Error {
   }
 }
 
+/**
+ * The business the eligibility question was asked about does not exist for
+ * this caller.
+ *
+ * Typed for the same reason as `IssuerNotFoundError`, and separate from it
+ * because the two are different answers: one says the issuer is unknown, the
+ * other that the business is. The route used to reach both through
+ * `err.message.includes('not found')`.
+ */
+export class EligibilityBusinessNotFoundError extends Error {
+  constructor(public readonly businessId: string) {
+    super(`Business not found: ${businessId}`);
+    this.name = 'EligibilityBusinessNotFoundError';
+  }
+}
+
 export class IssuerRulesEngine {
   constructor(private readonly prisma: PrismaClient) {}
 
