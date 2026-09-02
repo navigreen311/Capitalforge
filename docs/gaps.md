@@ -863,9 +863,61 @@ unassessed, which is worse than the current understatement.
 3. **Leave it and say so in the score's own output** — a `componentsUnavailable`
    field, the way the compliance manifest reports `documentsUnverifiable`.
 
+**Founder's lean, 2026-09-02 — option 2, not acted on.** Reweight to 90 and say
+so. The reasoning, recorded because the lean is not yet a ruling:
+
+  - **Option 3 is more principled and less useful.** Declaring the component
+    unavailable in the score's own output is the honest treatment and it makes
+    every score in the system carry a caveat nobody can act on. A caveat that
+    attaches to every row is not information; it is noise that readers learn to
+    skip, and it would attach to a score that is otherwise sound.
+  - **Option 1 is a decision, not a fix.** Choosing a debt data source — bureau
+    balances, an advisor-attested figure at intake, something else — is a
+    product decision about what Burkham asks clients for and what it trusts. It
+    does not belong in a defect sweep.
+
+**Held pending what else reads that score.** The ruling waits until the full set
+of consumers is known; reweighting changes every number in the database and every
+threshold read off it, and that is not a change to make while the reader list is
+still growing. See §3n.
+
 Not a defect in the sense the sweep has been using: nothing here states a
 falsehood. It is a scale that quietly lost a tenth of itself, which is the kind
 of thing that reads as fine until somebody asks why nobody scores above 90.
+
+### 3n. Three thresholds read off one column, none of them defined — open, 2026-09-02
+
+`Business.fundingReadinessScore` is read by at least three surfaces that each
+apply their own cut-off, and nothing anywhere states what any of the numbers
+means:
+
+| Where | Threshold | What passing it is taken to mean |
+|---|---|---|
+| `restack-trigger.ts` `MIN_READINESS_SCORE` | `>= 70` | Fundable enough to be considered for another round |
+| `FundingRoundsTab.tsx` `canStartRound2` | `>= 75` | Allowed to start Round 2 from the UI |
+| The client detail readiness card | `>= 75` green, `>= 55` amber, else red | How worried an advisor should be |
+| `funding-readiness.ts` `resolveTrack` | `>= 70` / `>= 40` | Which product track the client is routed to |
+
+**This is the four-writers defect on the reading side.** The writers were fixed
+on 2026-09-02 — three of four were recomputing the score without its credit
+component, so the column was whatever the last writer happened to know (see
+`docs/decisions/restack-recommend.md`, entry 8). The readers have the mirror
+problem: one column, four independent opinions about where its meaningful
+boundaries are, and no shared definition to check any of them against.
+
+The concrete inconsistency: a client scoring 72 is **eligible** for a re-stack
+according to the engine and **cannot start Round 2** according to the button in
+the UI that would act on that eligibility. Nothing in either surface tells an
+advisor that, and nothing tells them which number to believe.
+
+70 and 40 at least come from one place — `resolveTrack`'s track boundaries, which
+the re-stack gate borrowed (entry 6). The two 75s and the 55 come from nowhere
+that can be traced.
+
+**Not a fix for today.** Reconciling them means deciding what the score means
+first, and that is the same decision §3m is waiting on. Recorded so it is a known
+item rather than a note in one engine's header, which is where it currently
+lives.
 
 ### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
 

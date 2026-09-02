@@ -1,8 +1,12 @@
 // ============================================================
 // CapitalForge — Dashboard Re-Stack Opportunities Routes
 //
-// GET /api/v1/dashboard/restack  — tenant-scoped re-stack
+// GET /api/v1/dashboard/restack-opportunities  — tenant-scoped re-stack
 //   opportunities for businesses eligible for another round.
+//
+//   The path is `/restack-opportunities`, not `/restack`. This header said
+//   `/restack` and the mount in dashboard-index.routes.ts has always said
+//   otherwise; a reader following the header got a 404.
 //
 // This asked the same question as GET /api/restack/eligible and answered it
 // differently. It reimplemented eligibility inline: readiness `> 70` rather

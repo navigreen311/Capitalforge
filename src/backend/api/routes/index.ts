@@ -586,7 +586,6 @@ apiRouter.use('/sandbox', sandboxRouter);
 // POST  /api/hardship/:id/settlement    — attach settlement offer
 // POST  /api/businesses/:id/hardship    — open hardship case (business-level)
 // GET   /api/businesses/:id/hardship    — list cases (business-level)
-// GET   /api/businesses/:id/restack/*   — re-stack readiness & triggers
 import { hardshipRouter } from './hardship.routes.js';
 apiRouter.use('/hardship', hardshipRouter);
 apiRouter.use('/', hardshipRouter);
