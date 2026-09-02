@@ -34,6 +34,14 @@ const creditFindFirst = vi.fn();
 const ledgerFindMany = vi.fn();
 const achFindFirst = vi.fn();
 
+// The router requires business:read as of 2026-09-02. This test is about the
+// tenancy boundary, not the permission gate, so the gate is stubbed open —
+// otherwise a permission failure would masquerade as a scoping pass.
+vi.mock('@backend/middleware/rbac.middleware.js', () => ({
+  requirePermissions: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 vi.mock('@prisma/client', () => ({
   PrismaClient: vi.fn().mockImplementation(() => ({
     business: { findFirst: businessFindFirst },

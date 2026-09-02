@@ -45,6 +45,8 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import { ComplianceService } from '../../services/compliance.service.js';
 import { emailService } from '../../services/email.service.js';
 import { isValidTimezone } from '../../services/timezone.js';
+import { requirePermissions } from '../../middleware/rbac.middleware.js';
+import { PERMISSIONS } from '../../../shared/constants/index.js';
 
 /**
  * Business columns a client-detail PATCH may write.
@@ -231,6 +233,19 @@ function buildCreditRecommendations(profile: {
 
 export const clientDetailRouter = Router({ mergeParams: true });
 
+// ── Every handler requires business:read ────────────────────────────────────
+//
+// This router carried NO permission middleware at all — unlike documentRouter,
+// which gates on COMPLIANCE_READ. Everything protecting /owners and /credit/*
+// was the tenancy guard and whatever authenticates upstream, and a missing
+// tenant surfaced as a 500 from getTenantId rather than a 401.
+//
+// `business:read` is the floor, not a considered ceiling: it is the existing
+// idiom for reading a business, and this router reads businesses. Whether
+// /owners and /credit/* deserve something stricter than the endpoint returning
+// a client's name is a live question — see docs/callable-modules.md.
+clientDetailRouter.use(requirePermissions(PERMISSIONS.BUSINESS_READ));
+
 // ── Ownership is checked at the mount, not here ─────────────────────────────
 //
 // `api/routes/index.ts` installs requireOwnedBusiness('clientId') on
@@ -271,9 +286,44 @@ clientDetailRouter.get('/owners', async (req: Request, res: Response, _next: Nex
 
   try {
     logger.debug('GET client owners', { clientId, tenantId });
-    const owners = await prisma.businessOwner.findMany({ where: { businessId: clientId } });
+    // Explicit select. This was `findMany({ where })` with no projection, so
+    // every column came back — including `ssn`, the full number, beside the
+    // `ssnLast4` that exists precisely so the full one does not have to travel.
+    //
+    // Nothing consumed it: no frontend component reads `.ssn`, and the only
+    // plaintext-SSN path in the system is the offboarding data export, which
+    // selects it deliberately and writes an audit row recording that the
+    // export contained them. A client-detail read is not that path.
+    const owners = await prisma.businessOwner.findMany({
+      where: { businessId: clientId },
+      select: {
+        id: true,
+        businessId: true,
+        firstName: true,
+        lastName: true,
+        title: true,
+        ownershipPercent: true,
+        email: true,
+        isSignatory: true,
+        ssnLast4: true,
+        dateOfBirth: true,
+        address: true,
+        personalGuarantee: true,
+        isBeneficialOwner: true,
+        kycStatus: true,
+        kycVerifiedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
     // No owners on file is a real answer, and the UI needs to show it as such.
-    ok(res, owners, { total: owners.length });
+    // The basis says which answer it is: shared rule 2 in the operating
+    // instructions requires an empty result to carry one, and three endpoints
+    // here returned a bare count, so an agent had nothing to pass through.
+    ok(res, owners, {
+      total: owners.length,
+      basis: owners.length === 0 ? 'no_owners_on_record' : 'business_owner_records',
+    });
   } catch (error) {
     logger.error('Prisma query failed for owners', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_OWNERS_FAILED', 'Unable to load business owners.');
@@ -288,7 +338,12 @@ clientDetailRouter.get('/acknowledgments', async (req: Request, res: Response, _
   try {
     logger.debug('GET client acknowledgments', { clientId, tenantId });
     const acks = await prisma.productAcknowledgment.findMany({ where: { businessId: clientId } });
-    ok(res, acks, { total: acks.length });
+    ok(res, acks, {
+      total: acks.length,
+      basis: acks.length === 0
+        ? 'no_acknowledgments_on_record'
+        : 'product_acknowledgment_records',
+    });
   } catch (error) {
     logger.error('Prisma query failed for acknowledgments', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_ACKNOWLEDGMENTS_FAILED', 'Unable to load acknowledgments.');
@@ -640,7 +695,10 @@ clientDetailRouter.get('/documents', async (req: Request, res: Response, _next: 
       where: { businessId: clientId, tenantId },
       orderBy: { createdAt: 'desc' },
     });
-    ok(res, docs, { total: docs.length });
+    ok(res, docs, {
+      total: docs.length,
+      basis: docs.length === 0 ? 'no_documents_on_record' : 'document_vault_records',
+    });
   } catch (error) {
     logger.error('Prisma query failed for documents', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_DOCUMENTS_FAILED', 'Unable to load documents.');

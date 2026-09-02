@@ -60,6 +60,14 @@ vi.mock('@prisma/client', () => ({
   Prisma: { DbNull: Symbol('DbNull') },
 }));
 
+// The router requires business:read as of 2026-09-02. It had no permission
+// middleware at all before, which is what made /owners and /credit/* reachable
+// with nothing but a valid token and the tenancy guard.
+vi.mock('@backend/middleware/rbac.middleware.js', () => ({
+  requirePermissions: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 vi.mock('@backend/services/compliance.service.js', () => ({
   ComplianceService: vi.fn().mockImplementation(() => ({})),
 }));

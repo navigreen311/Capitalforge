@@ -26,15 +26,25 @@ vi.mock('@prisma/client', () => ({
   Prisma: { DbNull: Symbol('DbNull'), Decimal: Number },
 }));
 
+const ownerFindMany = vi.fn();
+const documentFindMany = vi.fn();
+
 vi.mock('@backend/config/database.js', () => ({
   prisma: {
     business: {
       findFirst: businessFindFirst,
       updateMany: businessUpdateMany,
     },
-    businessOwner: { findMany: vi.fn().mockResolvedValue([]) },
+    businessOwner: { findMany: ownerFindMany },
+    document: { findMany: documentFindMany },
+    productAcknowledgment: { findMany: vi.fn().mockResolvedValue([]) },
     $on: vi.fn(),
   },
+}));
+
+vi.mock('@backend/middleware/rbac.middleware.js', () => ({
+  requirePermissions: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 vi.mock('@backend/services/email.service.js', () => ({
@@ -68,6 +78,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   businessFindFirst.mockResolvedValue({ id: CLIENT, tenantId: TENANT, legalName: 'Acme', owners: [] });
   businessUpdateMany.mockResolvedValue({ count: 1 });
+  ownerFindMany.mockResolvedValue([]);
+  documentFindMany.mockResolvedValue([]);
 });
 
 function patch(body: Record<string, unknown>) {
@@ -135,5 +147,52 @@ describe('a consent request for a client with no owners', () => {
     expect(res.status).toBe(422);
     expect(body.error?.code).toBe('NO_OWNER_ON_FILE');
     expect(sendMail).not.toHaveBeenCalled();
+  });
+});
+
+describe('what /owners returns', () => {
+  it('selects ssnLast4 and never the full ssn', async () => {
+    // The query had no projection, so every column came back — including the
+    // full number, beside the ssnLast4 that exists so it does not have to
+    // travel. Nothing consumed it: no frontend component reads `.ssn`.
+    await fetch(`${baseUrl}/api/clients/${CLIENT}/owners`);
+
+    const [{ select }] = ownerFindMany.mock.calls[0] as [{ select: Record<string, boolean> }];
+    expect(select).toBeDefined();
+    expect(select['ssnLast4']).toBe(true);
+    expect(select).not.toHaveProperty('ssn');
+  });
+
+  it('carries a basis when empty, so shared rule 2 can be followed', async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${CLIENT}/owners`);
+    const body = (await res.json()) as { meta?: { total: number; basis: string } };
+
+    expect(body.meta?.total).toBe(0);
+    expect(body.meta?.basis).toBe('no_owners_on_record');
+  });
+
+  it('says which records it read when it is not empty', async () => {
+    ownerFindMany.mockResolvedValue([{ id: 'o-1', firstName: 'A', lastName: 'B' }]);
+
+    const res = await fetch(`${baseUrl}/api/clients/${CLIENT}/owners`);
+    const body = (await res.json()) as { meta?: { basis: string } };
+
+    expect(body.meta?.basis).toBe('business_owner_records');
+  });
+});
+
+describe('the other two empty results', () => {
+  it('give /documents a basis', async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${CLIENT}/documents`);
+    const body = (await res.json()) as { meta?: { basis: string } };
+
+    expect(body.meta?.basis).toBe('no_documents_on_record');
+  });
+
+  it('give /acknowledgments a basis', async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${CLIENT}/acknowledgments`);
+    const body = (await res.json()) as { meta?: { basis: string } };
+
+    expect(body.meta?.basis).toBe('no_acknowledgments_on_record');
   });
 });
