@@ -278,14 +278,14 @@ describe('ApplicationGateChecker', () => {
         id: 'ack-1',
         signedAt: new Date(),
       });
-      const result = await gateChecker.checkProductRealityAcknowledged(BUSINESS_ID);
+      const result = await gateChecker.checkProductRealityAcknowledged(BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(true);
       expect(result.gate).toBe('product_reality');
     });
 
     it('fails when no acknowledgment exists', async () => {
       (mockPrisma.productAcknowledgment.findFirst as Mock).mockResolvedValue(null);
-      const result = await gateChecker.checkProductRealityAcknowledged(BUSINESS_ID);
+      const result = await gateChecker.checkProductRealityAcknowledged(BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(false);
       expect(result.reason).toMatch(/product reality/i);
     });
@@ -299,7 +299,7 @@ describe('ApplicationGateChecker', () => {
       });
       (mockPrisma.consentRecord.findFirst as Mock).mockResolvedValue({ id: 'consent-1' });
 
-      const result = await gateChecker.checkConsentCaptured(APP_ID, BUSINESS_ID);
+      const result = await gateChecker.checkConsentCaptured(APP_ID, BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(true);
     });
 
@@ -308,14 +308,14 @@ describe('ApplicationGateChecker', () => {
         consentCapturedAt: null,
       });
 
-      const result = await gateChecker.checkConsentCaptured(APP_ID, BUSINESS_ID);
+      const result = await gateChecker.checkConsentCaptured(APP_ID, BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(false);
       expect(result.reason).toMatch(/per-application consent/i);
     });
 
     it('fails when application not found', async () => {
       (mockPrisma.cardApplication.findUnique as Mock).mockResolvedValue(null);
-      const result = await gateChecker.checkConsentCaptured(APP_ID, BUSINESS_ID);
+      const result = await gateChecker.checkConsentCaptured(APP_ID, BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(false);
       expect(result.reason).toMatch(/not found/i);
     });
@@ -326,7 +326,7 @@ describe('ApplicationGateChecker', () => {
       });
       (mockPrisma.consentRecord.findFirst as Mock).mockResolvedValue(null);
 
-      const result = await gateChecker.checkConsentCaptured(APP_ID, BUSINESS_ID);
+      const result = await gateChecker.checkConsentCaptured(APP_ID, BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(false);
       expect(result.reason).toMatch(/no active application consent/i);
     });
@@ -341,13 +341,13 @@ describe('ApplicationGateChecker', () => {
         overriddenBy: null,
         score: 80,
       });
-      const result = await gateChecker.checkSuitabilityPassed(BUSINESS_ID);
+      const result = await gateChecker.checkSuitabilityPassed(BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(true);
     });
 
     it('fails when no suitability check exists', async () => {
       (mockPrisma.suitabilityCheck.findFirst as Mock).mockResolvedValue(null);
-      const result = await gateChecker.checkSuitabilityPassed(BUSINESS_ID);
+      const result = await gateChecker.checkSuitabilityPassed(BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(false);
       expect(result.reason).toMatch(/no suitability assessment/i);
     });
@@ -359,7 +359,7 @@ describe('ApplicationGateChecker', () => {
         overriddenBy: null,
         score: 20,
       });
-      const result = await gateChecker.checkSuitabilityPassed(BUSINESS_ID);
+      const result = await gateChecker.checkSuitabilityPassed(BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(false);
       expect(result.reason).toMatch(/no-go triggered/i);
     });
@@ -372,7 +372,7 @@ describe('ApplicationGateChecker', () => {
         overrideReason: 'Exceptional case approved',
         score: 20,
       });
-      const result = await gateChecker.checkSuitabilityPassed(BUSINESS_ID);
+      const result = await gateChecker.checkSuitabilityPassed(BUSINESS_ID, TENANT_ID);
       expect(result.passed).toBe(true);
     });
   });

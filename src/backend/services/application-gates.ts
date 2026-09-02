@@ -72,10 +72,14 @@ export class ApplicationGateChecker {
     const log = logger.child({ applicationId, businessId, tenantId });
     log.info('Running pre-submission gate checks');
 
+    // Every gate takes the tenant. Each one queries on a business id, and a
+    // gate that passes on another business's record is a wrong decision rather
+    // than a disclosure — so the scoping is in the query rather than in an
+    // argument about who calls it.
     const coreGates = await Promise.all([
-      this.checkProductRealityAcknowledged(businessId),
-      this.checkConsentCaptured(applicationId, businessId),
-      this.checkSuitabilityPassed(businessId),
+      this.checkProductRealityAcknowledged(businessId, tenantId),
+      this.checkConsentCaptured(applicationId, businessId, tenantId),
+      this.checkSuitabilityPassed(businessId, tenantId),
       this.checkKybKycVerified(businessId, tenantId),
       this.checkMakerChecker(makerChecker),
     ]);
@@ -84,7 +88,7 @@ export class ApplicationGateChecker {
 
     // Gate #6: Credit Union Membership Disclosure (conditional)
     if (issuerType === 'credit_union') {
-      const cuGate = await this.checkCuMembershipDisclosure(applicationId, businessId);
+      const cuGate = await this.checkCuMembershipDisclosure(applicationId, businessId, tenantId);
       results.push(cuGate);
     }
 
@@ -102,12 +106,23 @@ export class ApplicationGateChecker {
    * The business must have signed the "product_reality" acknowledgment.
    * References: ProductAcknowledgment.acknowledgmentType = 'product_reality'
    */
-  async checkProductRealityAcknowledged(businessId: string): Promise<GateCheckResult> {
+  async checkProductRealityAcknowledged(
+    businessId: string,
+    tenantId: string,
+  ): Promise<GateCheckResult> {
     const GATE = 'product_reality';
     try {
+      // Scoped. businessId always arrives as `application.businessId` from a
+      // row already proven to be the caller's, and checkAll is the only entry
+      // point — but that is an argument about every call site, and these gates
+      // decide whether an application may be submitted. A gate that passes on
+      // another business's record is a wrong decision rather than a
+      // disclosure, and "nothing calls it individually" is one call site away
+      // from being false with nothing failing when it changes.
       const ack = await this.prisma.productAcknowledgment.findFirst({
         where: {
           businessId,
+          business: { tenantId },
           acknowledgmentType: 'product_reality',
         },
         select: { id: true, signedAt: true },
@@ -140,7 +155,11 @@ export class ApplicationGateChecker {
    * CardApplication row) AND an active ConsentRecord of type 'application' must
    * exist for the business.
    */
-  async checkConsentCaptured(applicationId: string, businessId: string): Promise<GateCheckResult> {
+  async checkConsentCaptured(
+    applicationId: string,
+    businessId: string,
+    tenantId: string,
+  ): Promise<GateCheckResult> {
     const GATE = 'consent_captured';
     try {
       // Check per-application consent timestamp
@@ -164,9 +183,18 @@ export class ApplicationGateChecker {
       }
 
       // Check active ConsentRecord for the business
+      // Scoped. businessId always arrives as `application.businessId` from a
+      // row already proven to be the caller's, and checkAll is the only entry
+      // point — but that is an argument about every call site, and these gates
+      // decide whether an application may be submitted. A gate that passes on
+      // another business's record is a wrong decision rather than a
+      // disclosure, and "nothing calls it individually" is one call site away
+      // from being false with nothing failing when it changes.
       const activeConsent = await this.prisma.consentRecord.findFirst({
         where: {
           businessId,
+          tenantId,
+         
           consentType: 'application',
           status: 'active',
         },
@@ -199,11 +227,21 @@ export class ApplicationGateChecker {
    * The most recent SuitabilityCheck must exist and must NOT have noGoTriggered = true.
    * A business with a no-go finding cannot submit any application.
    */
-  async checkSuitabilityPassed(businessId: string): Promise<GateCheckResult> {
+  async checkSuitabilityPassed(
+    businessId: string,
+    tenantId: string,
+  ): Promise<GateCheckResult> {
     const GATE = 'suitability';
     try {
+      // Scoped. businessId always arrives as `application.businessId` from a
+      // row already proven to be the caller's, and checkAll is the only entry
+      // point — but that is an argument about every call site, and these gates
+      // decide whether an application may be submitted. A gate that passes on
+      // another business's record is a wrong decision rather than a
+      // disclosure, and "nothing calls it individually" is one call site away
+      // from being false with nothing failing when it changes.
       const latestCheck = await this.prisma.suitabilityCheck.findFirst({
-        where: { businessId },
+        where: { businessId, business: { tenantId } },
         orderBy: { createdAt: 'desc' },
         select: {
           noGoTriggered: true,
@@ -291,7 +329,9 @@ export class ApplicationGateChecker {
 
       // KYC: all beneficial owners must be verified
       const owners = await this.prisma.businessOwner.findMany({
-        where: { businessId, isBeneficialOwner: true },
+        // `tenantId` was already a parameter of this method and was not used
+        // here. Not a missing filter — an unused one.
+        where: { businessId, business: { tenantId }, isBeneficialOwner: true },
         select: { id: true, firstName: true, lastName: true, kycStatus: true },
       });
 
@@ -389,9 +429,22 @@ export class ApplicationGateChecker {
    * they understand that credit union membership is a separate
    * prerequisite from the credit card application.
    */
+  /**
+   * GATE 6, AND IT IS INERT. It cannot fire.
+   *
+   * `checkAll` runs it only when `issuerType === 'credit_union'`, and neither
+   * of the two callers passes an issuerType — because `CardApplication` has an
+   * issuer NAME and no issuer TYPE column, so nothing anywhere can produce the
+   * value. Six gates are described; five run.
+   *
+   * Left as it is rather than wired to an invented source. Recorded here so
+   * the gate list is not read as six enforced controls, and recorded in the
+   * submit_application notes for the same reason.
+   */
   async checkCuMembershipDisclosure(
     applicationId: string,
     businessId: string,
+    tenantId: string,
   ): Promise<GateCheckResult> {
     const GATE = 'cu_membership_disclosure';
     try {
@@ -399,6 +452,7 @@ export class ApplicationGateChecker {
       const ack = await this.prisma.productAcknowledgment.findFirst({
         where: {
           businessId,
+          business: { tenantId },
           acknowledgmentType: 'cu_membership_disclosure',
         },
         select: { id: true, signedAt: true },

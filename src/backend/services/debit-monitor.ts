@@ -188,6 +188,13 @@ export class DebitMonitor {
     const existingAuth = await this.prisma.achAuthorization.findFirst({
       where: {
         businessId: input.businessId,
+        // Scoped, though the business was verified fourteen lines above. That
+        // verification is a separate query, so the safety was an arrangement
+        // between two statements rather than a property of this one — the
+        // same shape that let an ACH authorisation and fifty debit events
+        // leak across tenants from the complaint service. This decides
+        // whether a debit against somebody's bank account is unauthorised.
+        business: { tenantId: input.tenantId },
         status: 'active',
         processorName: { equals: input.processorName, mode: 'insensitive' },
       },

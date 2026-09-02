@@ -736,6 +736,34 @@ Additions have provenance as of 2026-09-02: `evidenceItems` records who
 attached each item and when. Under this ruling that is the whole history,
 because there is nothing else to record.
 
+
+### 3k. Submission gate 6 is inert — recorded, not fixed, 2026-09-02
+
+`ApplicationGateChecker.checkAll` describes six pre-submission gates. **Five
+run.**
+
+`cu_membership_disclosure` executes only when `issuerType === 'credit_union'`.
+Neither caller passes an issuerType, and neither can: `CardApplication` carries
+an issuer NAME and no issuer TYPE column, so no value anywhere in the system
+produces `'credit_union'`. The gate has never fired and cannot.
+
+Recorded rather than fixed because wiring it means deciding how an issuer's
+type is known — a column, a lookup against the issuer registry, or a
+classification derived from the name — and that is a data-model decision rather
+than a bug. Inventing a source here would give this path a fact the other one
+does not have.
+
+**What matters meanwhile is that it is described as enforced.** The gate list
+appears in `application-gates.ts`, in `applications.routes.ts`, and in any
+manual describing `submit_application`. All three now say five enforced and
+one inert. A control counted but not running is the shape a compliance review
+is least likely to catch, because the code names it and the tests exercise it
+directly.
+
+It is scoped to the tenant like the other five as of 2026-09-02 — the day
+something wires it up is not the day to remember it was the one gate reading
+across tenants.
+
 ### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
 
 Nothing answers "show me your communication monitoring" at the level the

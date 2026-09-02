@@ -630,8 +630,12 @@ router.post(
       // tcpa OR application on ANY channel, a product_reality acknowledgment,
       // and suitability noGoTriggered — and nothing else. The status path
       // (PUT /applications/:id/status) runs ApplicationGateChecker.checkAll,
-      // which is six: product_reality, consent_captured, suitability, kyb_kyc,
-      // maker_checker and, for credit-union issuers, cu_membership_disclosure.
+      // which is six on paper and FIVE IN FACT: product_reality,
+      // consent_captured, suitability, kyb_kyc and maker_checker all run.
+      // cu_membership_disclosure is INERT — it fires only for issuerType
+      // 'credit_union', and CardApplication has an issuer NAME and no issuer
+      // TYPE column, so nothing anywhere can produce that value. Five enforced
+      // controls, described as six, wherever the gate list appears.
       //
       // So two routes reached `submitted` with different controls, and the one
       // named "submit" was the weaker of the two. specification.md section 1
