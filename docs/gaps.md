@@ -252,6 +252,51 @@ identically if you only look at the reasons.
 
 ---
 
+## 1e. Four queries that compute an answer nobody reads — 2026-09-03
+
+**Cost: varies. Three are a deletion; one may be a control nobody finished.**
+
+Found by counting what the unused-variable warning stream had been carrying. That
+stream had already hidden three dead compliance gates in
+`applications.routes.ts` — `hasConsent`, `hasAck` and `hasFeeSchedule`, each
+queried, computed and discarded, so an application could be created already
+submitted with no consent on file. Those are fixed and the rule is an error in
+that file now.
+
+The count that followed found 232 unused-variable warnings, 99 of them in
+service or route files, of which 22 are an assigned value that is never read.
+**None of the 22 is a discarded control**, which is the finding: three for three
+in one file was that file, not a rate.
+
+Four of the 22 are worth recording anyway. Each does work and throws the answer
+away, and each is the shape of a control started and not wired up:
+
+| where | computes |
+|---|---|
+| `services/workflow-engine.service.ts:304` | `pendingApprovals` — the approval steps not yet completed |
+| `services/portfolio-benchmarking.service.ts:415` | `totalClients` — a database round-trip for a count |
+| `services/multi-tenant.service.ts:496` | `flags` — a feature-flag fetch |
+| `services/voiceforge-compliance.ts:485` | `categoriesSeen` — the distinct violation categories |
+
+**`pendingApprovals` is the one to read.** It filters an approval chain down to
+the steps still outstanding — who has yet to approve — and drops it. Nothing
+gates on it today, so nothing is currently wrong; but "who still has to approve"
+is not an intermediate value, it is an answer, and a workflow engine that
+computes it and discards it is one edit away from a caller believing it was
+enforced.
+
+The other three are likelier to be leftovers than unfinished controls.
+`totalClients` in particular is a query whose result never leaves the function.
+
+**What it would take.** For each: either wire it to the thing it was computed
+for, or delete it. Neither is a large change, and the point of recording them is
+that the difference between the two is a judgement about intent, and the person
+who knows is not the person who will next read the line.
+
+**Not fixed here.** They were counted, not touched.
+
+---
+
 ## 2. Figures that are absent rather than zero
 
 These endpoints answer normally. Individual figures come back `null` with the
