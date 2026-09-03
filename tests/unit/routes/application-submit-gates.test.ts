@@ -34,6 +34,9 @@ const suitabilityFindFirst = vi.fn();
 const complianceFindFirst = vi.fn();
 const ownerFindMany = vi.fn();
 const auditCreate = vi.fn();
+// The create path. These tests are the first in this file to drive it - the
+// harness was built for /submit, which only ever updates.
+const applicationCreate = vi.fn();
 
 vi.mock('@prisma/client', () => ({
   PrismaClient: vi.fn().mockImplementation(() => ({
@@ -41,6 +44,7 @@ vi.mock('@prisma/client', () => ({
       findFirst: applicationFindFirst,
       findUnique: applicationFindUnique,
       update: applicationUpdate,
+      create: applicationCreate,
     },
     productAcknowledgment: { findMany: ackFindMany, findFirst: vi.fn().mockResolvedValue({ id: 'ack-1', signedAt: new Date() }) },
     consentRecord: { findMany: consentFindMany, findFirst: consentFindFirst },
@@ -89,6 +93,20 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+
+  applicationCreate.mockResolvedValue({
+    id: APP_ID,
+    businessId: BUSINESS_ID,
+    status: 'draft',
+    submittedAt: null,
+    creditLimit: null,
+    fundingRoundId: null,
+    issuer: 'chase',
+    cardProduct: 'ink-business-preferred',
+    business: { id: BUSINESS_ID, legalName: 'Acme' },
+    fundingRound: null,
+    createdAt: new Date(),
+  });
 
   // A draft whose maker is recorded, and whose every other gate passes.
   applicationFindFirst.mockResolvedValue({
@@ -284,5 +302,59 @@ describe('a missing maker names itself', () => {
     expect(res.status).toBe(422);
     expect(issue?.reason).toMatch(/no recorded creator/i);
     expect(issue?.reason).not.toMatch(/No approver specified/i);
+  });
+});
+
+// ============================================================
+// POST /applications refuses to create one already submitted
+//
+// The third route to `submitted`, and the last one running controls of its own.
+// It read consent records and product acknowledgments into `hasConsent` and
+// `hasAck` and never read either variable, so an application could be created
+// submitted with no consent on file and no product-reality acknowledgment. Its
+// suitability read carried no tenantId and ignored `overriddenBy`, so an
+// overridden no-go passed on /submit and blocked here.
+//
+// It is refused rather than gated: three of the gates key on an application id,
+// and per-application consent is captured against an application that exists.
+// See docs/decisions/submit-application.md entry 1.
+// ============================================================
+
+describe('POST /applications — submission is a separate act', () => {
+  function create(body: Record<string, unknown>) {
+    return fetch(`${baseUrl}/api/applications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        businessId: BUSINESS_ID,
+        issuer: 'chase',
+        cardProduct: 'ink-business-preferred',
+        ...body,
+      }),
+    });
+  }
+
+  it('refuses status: submitted, and names the route that gates', async () => {
+    const res = await create({ status: 'submitted', declarations: ALL_DECLARED });
+    const body = (await res.json()) as Body;
+
+    expect(res.status).toBe(422);
+    expect(body.error?.code).toBe('SUBMIT_IS_A_SEPARATE_ACT');
+    expect(body.error?.message).toContain('/submit');
+  });
+
+  it('refuses it even with every declaration confirmed', async () => {
+    // The inline block asked for four declarations and then let the application
+    // through with no consent and no acknowledgment. Confirming the declarations
+    // was the whole of its gate, so a caller who satisfied it satisfied nothing.
+    const res = await create({ status: 'submitted', declarations: ALL_DECLARED });
+
+    expect(res.status).toBe(422);
+  });
+
+  it('still creates a draft', async () => {
+    const res = await create({});
+
+    expect([200, 201]).toContain(res.status);
   });
 });
