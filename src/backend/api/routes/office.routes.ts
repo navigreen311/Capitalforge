@@ -120,6 +120,15 @@ export type IdempotencySupport = 'key' | 'natural' | 'at_most_once';
 /** Role minted into the internal token. Permissions are what actually gate. */
 const OFFICE_ROLE = 'office_broker';
 
+/**
+ * Mirrors `ConsentTypeSchema`. Checked here so a bad value is refused as a
+ * payload error naming the legal values, rather than reaching CapitalForge and
+ * coming back as a zod field error an agent cannot act on.
+ *
+ * The schema is still the authority - this refuses early, it does not permit.
+ */
+const CONSENT_TYPES = ['tcpa', 'data_sharing', 'referral', 'application', 'product_reality'];
+
 // -- Payload errors --------------------------------------------
 
 /** The caller's payload is unusable. 422 - the module exists, the request does not. */
@@ -190,10 +199,14 @@ interface ModuleSpec {
 // do not resolve against this Forge - and an exclusion that does not resolve is
 // an endpoint that quietly becomes grantable under a second name.
 //
-// The Burkham Pack does not currently use them. It declares `client_lookup`
-// where this says `client_read` (and where the manuals split one name into
-// three), and `record_consent` where this says `consent_grant`. The Pack is what
-// changes: it is the assertion, this is the dispatch.
+// Where the Burkham Pack already has a workable name, the name is kept - see
+// `record_consent` below. Where it does not, the Pack is what changes: it
+// declares `client_lookup` for what the manuals split into `client_read`,
+// `client_read_pii` and `client_read_credit`, and one name cannot address three
+// grants with three different permission sets.
+//
+// The test is whether the name is the problem. A one-to-one rename is three
+// artifacts edited to fix nothing.
 
 const MODULES: Readonly<Record<string, ModuleSpec>> = {
   // -- client_read ---------------------------------------------
@@ -291,8 +304,25 @@ const MODULES: Readonly<Record<string, ModuleSpec>> = {
       },
       history: {
         method: 'GET',
-        returns: 'score history, per profileType',
-        request: (p) => ({ path: `/api/clients/${seg(p, 'client_id')}/credit/history` }),
+        returns: 'score history, for one profileType',
+        // `profileType` is a REQUIRED query parameter, not an optional filter -
+        // the handler 400s without it rather than defaulting to either. The
+        // first version of this binding omitted it and every call answered
+        // PROFILE_TYPE_REQUIRED; it was found by exercising all sixteen
+        // operations against a running server, not by review.
+        request: (p) => {
+          const profileType = requireString(p, 'profile_type');
+          if (profileType !== 'personal' && profileType !== 'business') {
+            throw new PayloadError(
+              `profile_type must be 'personal' or 'business', not '${profileType}'`,
+            );
+          }
+          return {
+            path:
+              `/api/clients/${seg(p, 'client_id')}/credit/history` +
+              `?profileType=${encodeURIComponent(profileType)}`,
+          };
+        },
       },
       recommendations: {
         method: 'GET',
@@ -302,26 +332,35 @@ const MODULES: Readonly<Record<string, ModuleSpec>> = {
     },
   },
 
-  // -- consent_grant -------------------------------------------
+  // -- record_consent ------------------------------------------
   //
-  // RECORDS A CONSENT ROW. IT DOES NOT CONTACT ANYONE.
+  // The Pack's spelling, kept. An earlier version of this file bound it as
+  // `consent_grant` and split the re-consent email into a second module. Both
+  // were withdrawn on 3 September 2026, and the reasoning is worth keeping
+  // because the instinct was reasonable and still wrong.
   //
-  // `POST /api/clients/:clientId/consent/request` - which emails a client asking
-  // them to re-consent - is a DIFFERENT ACT and is deliberately NOT bound here.
-  // The two sat under one name in the Burkham Pack (`record_consent`), and one
-  // grant covering both would let an agent authorised to file a consent record
-  // send mail to a client instead.
+  // ON THE NAME. `record_consent` is what the Burkham Pack declares. Renaming it
+  // here would have made the Pack, the registry row and the exclusion list all
+  // wrong, and this adapter is naming authority - so three artifacts get edited
+  // to fix nothing. A name only changes when a name is the problem.
   //
-  // Its module id is `client_consent_request`, already named as a separate
-  // module in capitalforge-client-read.md section 1. It is unbound until it has
-  // its own operating instruction and its own grant - a write that reaches a
-  // person is not something to bind because it was nearby.
+  // ON THE SPLIT. `POST /api/clients/:clientId/consent/request` emails a client
+  // asking them to re-consent. It is a different act from recording a consent
+  // row, and one grant covering both would let an agent authorised to file a
+  // record send mail to a client instead.
   //
-  // This is the client_read split again, done before the grant exists rather
-  // than after.
-  consent_grant: {
-    manual: 'capitalforge-consent-grant.md',
-    manualVersion: '1.1',
+  // It is not bound, and splitting it into its own module was the wrong fix. A
+  // module id exists so that something can be granted; this should never be
+  // granted, so it needs no id. Naming it would create a registry row, a manual
+  // and a grantable surface for an act nobody has decided an agent may perform.
+  //
+  // WHAT KEEPS IT OUT is that this module binds one operation and that operation
+  // is the write to the consent table. There is no view that reaches the email,
+  // and `office-adapter.test.ts` exercises every operation on every module and
+  // asserts none of them builds that path.
+  record_consent: {
+    manual: 'capitalforge-record-consent.md',
+    manualVersion: '1.2',
     isMutating: true,
     idempotencySupport: 'natural',
     permissions: [PERMISSIONS.BUSINESS_READ, PERMISSIONS.CONSENT_MANAGE],
@@ -329,15 +368,40 @@ const MODULES: Readonly<Record<string, ModuleSpec>> = {
       grant: {
         method: 'POST',
         returns: 'the consent record written',
-        request: (p) => ({
-          path: `/api/businesses/${seg(p, 'business_id')}/consent`,
-          body: {
-            channel: requireString(p, 'channel'),
-            ...(typeof p['method'] === 'string' ? { method: p['method'] } : {}),
-            ...(typeof p['evidenceRef'] === 'string' ? { evidenceRef: p['evidenceRef'] } : {}),
-            ...(typeof p['notes'] === 'string' ? { notes: p['notes'] } : {}),
-          },
-        }),
+        // Built against GrantConsentBodySchema, not against what a caller might
+        // plausibly send. The first version of this binding invented `method`
+        // and `notes` and omitted `consentType`, which the schema requires -
+        // every call answered VALIDATION_ERROR. Found by making the call, the
+        // same way credit/history was.
+        //
+        // `ipAddress` is deliberately not passed. The schema captures it
+        // "server-side when possible", and a brokered call has no consenting
+        // party's address to offer - the agent is not the client. Sending the
+        // broker's own address would put a plausible, wrong IP on a consent
+        // record that a regulator may later read as the client's.
+        request: (p) => {
+          const consentType = requireString(p, 'consent_type');
+          if (!CONSENT_TYPES.includes(consentType)) {
+            throw new PayloadError(
+              `consent_type must be one of ${CONSENT_TYPES.join(', ')}, not '${consentType}'`,
+            );
+          }
+          return {
+            path: `/api/businesses/${seg(p, 'business_id')}/consent`,
+            body: {
+              channel: requireString(p, 'channel'),
+              consentType,
+              ...(typeof p['evidence_ref'] === 'string'
+                ? { evidenceRef: p['evidence_ref'] }
+                : {}),
+              ...(p['metadata'] !== null &&
+              typeof p['metadata'] === 'object' &&
+              !Array.isArray(p['metadata'])
+                ? { metadata: p['metadata'] }
+                : {}),
+            },
+          };
+        },
       },
     },
   },

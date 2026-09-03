@@ -193,12 +193,12 @@ describe('the manifest is derived from the dispatch map', () => {
 // record_consent is split
 // ============================================================
 
-describe('consent_grant records; it does not contact anyone', () => {
+describe('record_consent records; it does not contact anyone', () => {
   it('binds exactly one operation, and it is the write to the consent table', async () => {
     seen = [];
-    const res = await call('POST', '/consent_grant', {
+    const res = await call('POST', '/record_consent', {
       headers: auth(),
-      body: { business_id: 'biz-1', channel: 'sms' },
+      body: { business_id: 'biz-1', channel: 'sms', consent_type: 'tcpa' },
     });
 
     expect(res.status).toBe(200);
@@ -214,9 +214,9 @@ describe('consent_grant records; it does not contact anyone', () => {
     // module (`client_consent_request`), unbound until it has its own manual and
     // its own grant.
     seen = [];
-    const res = await call('POST', '/consent_grant', {
+    const res = await call('POST', '/record_consent', {
       headers: auth(),
-      body: { view: 'request', business_id: 'biz-1', channel: 'sms' },
+      body: { view: 'request', business_id: 'biz-1', channel: 'sms', consent_type: 'tcpa' },
     });
 
     expect(res.status).toBe(422);
@@ -237,7 +237,15 @@ describe('consent_grant records; it does not contact anyone', () => {
       for (const view of entry.operations) {
         await call('POST', `/${entry.module_id}`, {
           headers: auth(),
-          body: { view, client_id: 'client-1', business_id: 'biz-1', channel: 'sms' },
+          body: {
+            view,
+            client_id: 'client-1',
+            business_id: 'biz-1',
+            channel: 'sms',
+            consent_type: 'tcpa',
+            inquiry_id: 'inq-1',
+            profile_type: 'business',
+          },
         });
       }
     }
@@ -248,7 +256,19 @@ describe('consent_grant records; it does not contact anyone', () => {
     }
   });
 
-  it('does not dispatch client_consent_request, because it is not bound', async () => {
+  it('keeps the name the Pack declares', () => {
+    // Renaming a module the Pack already names workably would make the Pack, the
+    // registry row and the exclusion list wrong to fix nothing. An earlier
+    // version of this adapter bound it as `consent_grant`.
+    expect(moduleIds()).toContain('record_consent');
+    expect(moduleIds()).not.toContain('consent_grant');
+  });
+
+  it('gives the re-consent email no module id at all', async () => {
+    // Not bound, and not a separate module either. A module id exists so that
+    // something can be granted; nobody has decided an agent may send this mail,
+    // so an id would create a grantable surface for an act with no decision
+    // behind it.
     const res = await call('POST', '/client_consent_request', {
       headers: auth(),
       body: { client_id: 'client-1' },
@@ -256,7 +276,9 @@ describe('consent_grant records; it does not contact anyone', () => {
 
     expect(res.status).toBe(404);
     expect((res.body as { error: { code: string } }).error.code).toBe('MODULE_NOT_BOUND');
-    expect(moduleIds()).not.toContain('client_consent_request');
+    for (const id of moduleIds()) {
+      expect(id).not.toMatch(/consent_request/);
+    }
   });
 });
 
@@ -386,6 +408,27 @@ describe('dispatch', () => {
     expect((res.body as { error: { code: string } }).error.code).toBe('PAYLOAD_INVALID');
   });
 
+  it('passes the required profileType that credit/history 400s without', async () => {
+    // Found by exercising the module against a running server, not by review:
+    // every credit/history call answered PROFILE_TYPE_REQUIRED because the
+    // binding omitted a query parameter the handler requires.
+    seen = [];
+    await call('POST', '/client_read_credit', {
+      headers: auth(),
+      body: { view: 'history', client_id: 'client-1', profile_type: 'personal' },
+    });
+    expect(seen[0]!.path).toBe('/api/clients/client-1/credit/history?profileType=personal');
+  });
+
+  it('refuses a profile_type that is neither personal nor business', async () => {
+    const res = await call('POST', '/client_read_credit', {
+      headers: auth(),
+      body: { view: 'history', client_id: 'client-1', profile_type: 'corporate' },
+    });
+    expect(res.status).toBe(422);
+    expect((res.body as { error: { code: string } }).error.code).toBe('PAYLOAD_INVALID');
+  });
+
   it('encodes a caller-supplied id into the path', async () => {
     seen = [];
     await call('POST', '/client_read', {
@@ -406,7 +449,7 @@ describe('dispatch', () => {
       for (const view of views) {
         await call('POST', `/${moduleId}`, {
           headers: auth(),
-          body: { view, client_id: 'client-1', business_id: 'biz-1' },
+          body: { view, client_id: 'client-1', business_id: 'biz-1', profile_type: 'business' },
         });
       }
     }
