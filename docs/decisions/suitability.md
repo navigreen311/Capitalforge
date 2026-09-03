@@ -202,3 +202,24 @@ decision; it does not alter the verdict. `score`, `noGoTriggered` and
 written. A reader checking `noGoTriggered` alone will conclude the client was
 refused. The override is visible in `overriddenBy`, which is the field
 `submit_application` reads.
+
+---
+
+## 5. Confirmed 2026-09-03 — `suitability_check` stays out of the Pack
+
+Entry 0 decided it. This entry is the confirmation, so that the decision is dated
+twice rather than quietly inherited.
+
+Nothing has changed: CapitalForge still has no Office adapter, so declaring the
+module would fail Gate 2 for every venture naming it, and V32 would be right to
+refuse. The operating instruction documents an endpoint a human calls and says so
+in its header.
+
+**What would reverse this** is one thing and not several: a CapitalForge adapter
+serving `GET {base_url}/_modules` with `suitability_check` bound. On that day the
+Pack declaration, the registry row and the grant follow, and this entry gets a
+successor naming the date.
+
+Recorded because a decision that is only ever implied by an absence gets remade
+by whoever notices the absence next.
+
