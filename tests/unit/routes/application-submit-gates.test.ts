@@ -155,7 +155,10 @@ function submit(body: Record<string, unknown>) {
 }
 
 interface Body {
-  error?: { code: string; details?: { failedGates?: string[] } };
+  // `message` is asserted on the create-path refusal, which names the route that
+  // does gate. Absent here, the assertion was a type error rather than a failing
+  // test, so the whole Lint & Type Check job stopped before any test ran.
+  error?: { code: string; message?: string; details?: { failedGates?: string[] } };
 }
 
 describe('maker-checker on POST /applications/:id/submit', () => {
