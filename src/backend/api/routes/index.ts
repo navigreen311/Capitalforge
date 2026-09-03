@@ -60,6 +60,20 @@ const PUBLIC_API_PATHS: readonly RegExp[] = [
   // The inbound one carries STOP replies, so it must stay reachable — an
   // opt-out that 401s is an opt-out that is not honoured.
   /^\/voiceforge\/webhooks\/sms-(?:inbound|status)$/,
+
+  // The Office bridge. Opted out of the USER auth gate because it is not
+  // reached by a user: The Office presents the tenant credential from
+  // `forge_tenant_credential` as a bearer token, and office.routes.ts compares
+  // it in constant time before anything else runs. Same shape as the webhook
+  // entries above - authenticated in the handler, by a mechanism a bearer JWT
+  // is not.
+  //
+  // It does not widen anything. The adapter mints a short-lived internal token
+  // scoped to the called module's permissions and makes CapitalForge's own
+  // request, so the ownership guard, the tenancy filter and RBAC all run on the
+  // real path. This entry buys the adapter the right to be asked, not the right
+  // to read.
+  /^\/office(?:\/|$)/,
 ];
 
 apiRouter.use((req, res, next) => {
@@ -72,6 +86,19 @@ apiRouter.use((req, res, next) => {
 
 // -- OpenAPI docs (public) --
 apiRouter.use('/', openApiRouter);
+
+// -- The Office bridge (tenant credential, not a user token) --
+//
+// Mounted only when it is configured. An adapter that answered /_modules while
+// holding no credential to check would tell The Office that CapitalForge is
+// bridged when it is not, and Gate 0 would pass on a Forge nobody can
+// authenticate to. Absent configuration means absent surface: The Office reads
+// a 404 as "adapter serves no manifest", which is the truth.
+import { officeRouter } from './office.routes.js';
+import { officeBridgeConfigured } from '../../config/office.js';
+if (officeBridgeConfigured()) {
+  apiRouter.use('/office', officeRouter);
+}
 
 // -- Health (public) --
 apiRouter.use('/health', healthRouter);
