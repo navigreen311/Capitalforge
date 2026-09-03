@@ -17,63 +17,44 @@ import {
 import { createTwoFactorService, isMfaEnrolled } from './two-factor.service.js';
 import { createTenantStatusService } from './tenant-status.service.js';
 import { ROLES, PERMISSIONS } from '@shared/constants/index.js';
+import { effectivePermissionsForRole } from '../middleware/rbac.middleware.js';
 import type { TenantContext } from '@shared/types/index.js';
 
 // ── Constants ────────────────────────────────────────────────
 
 const BCRYPT_ROUNDS = 12;
 
-// ── Role → permission mapping (mirrors rbac.middleware) ──────
-// Kept here to avoid a circular dependency on the middleware layer.
-
-type RoleKey = keyof typeof ROLES;
-type RoleVal = typeof ROLES[RoleKey];
+// ── Role → permission mapping ────────────────────────────────
+//
+// This header read "mirrors rbac.middleware", and below it sat a second copy of the
+// table, "kept here to avoid a circular dependency on the middleware layer".
+//
+// There is no cycle. `rbac.middleware.ts` imports express types and
+// `@shared/constants` and nothing else; it has never imported this file. The
+// dependency the comment avoided did not exist, and the mirror it justified is what
+// made business:read:pii and business:read:credit unreachable for every signed-in
+// user once the client_read split added them to one table and not the other.
+//
+// A mirror is a copy with a note on it promising to stay in step.
 type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
 
-const ROLE_DEFAULT_PERMISSIONS: Record<RoleVal, Permission[]> = {
-  [ROLES.SUPER_ADMIN]:       Object.values(PERMISSIONS) as Permission[],
-  [ROLES.TENANT_ADMIN]:      [
-    PERMISSIONS.BUSINESS_READ,
-    PERMISSIONS.BUSINESS_WRITE,
-    PERMISSIONS.APPLICATION_SUBMIT,
-    PERMISSIONS.APPLICATION_APPROVE,
-    PERMISSIONS.COMPLIANCE_READ,
-    PERMISSIONS.COMPLIANCE_WRITE,
-    PERMISSIONS.CONSENT_MANAGE,
-    PERMISSIONS.DOCUMENT_READ,
-    PERMISSIONS.DOCUMENT_WRITE,
-    PERMISSIONS.ACH_MANAGE,
-    PERMISSIONS.ADMIN_TENANT,
-    PERMISSIONS.ADMIN_USERS,
-    PERMISSIONS.REPORTS_VIEW,
-  ] as Permission[],
-  [ROLES.COMPLIANCE_OFFICER]: [
-    PERMISSIONS.BUSINESS_READ,
-    PERMISSIONS.COMPLIANCE_READ,
-    PERMISSIONS.COMPLIANCE_WRITE,
-    PERMISSIONS.CONSENT_MANAGE,
-    PERMISSIONS.DOCUMENT_READ,
-    PERMISSIONS.REPORTS_VIEW,
-  ] as Permission[],
-  [ROLES.ADVISOR]: [
-    PERMISSIONS.BUSINESS_READ,
-    PERMISSIONS.BUSINESS_WRITE,
-    PERMISSIONS.APPLICATION_SUBMIT,
-    PERMISSIONS.CONSENT_MANAGE,
-    PERMISSIONS.DOCUMENT_READ,
-    PERMISSIONS.DOCUMENT_WRITE,
-    PERMISSIONS.REPORTS_VIEW,
-  ] as Permission[],
-  [ROLES.CLIENT]: [
-    PERMISSIONS.BUSINESS_READ,
-    PERMISSIONS.APPLICATION_SUBMIT,
-    PERMISSIONS.DOCUMENT_READ,
-  ] as Permission[],
-  [ROLES.READONLY]: [
-    PERMISSIONS.BUSINESS_READ,
-    PERMISSIONS.DOCUMENT_READ,
-  ] as Permission[],
-};
+// Role permissions live in ONE table, and it is not this file.
+//
+// There were two. `ROLE_PERMISSIONS` in rbac.middleware.ts is what a gate is checked
+// against; this file had its own copy, and the copy is what goes into the token. The
+// client_read split added business:read:pii and business:read:credit to the first and
+// not to the second.
+//
+// That is not a stale list that eventually catches up. `effectivePermissions` gives a
+// non-empty token list precedence over the role map outright - the token wins - so
+// every signed-in user carried a permission set that could never include the two new
+// ones, and every /ach-authorization, /owners, /timeline and /credit/* request answered
+// 403 to a caller whose role was meant to reach it. A browser test caught it as
+// "should report absence, not fail": the endpoint was reporting neither.
+//
+// So the second table is gone rather than corrected. A permission added to the gate is
+// now in the token by construction, and the failure cannot recur by somebody updating
+// one of two places.
 
 // ── DTO shapes ────────────────────────────────────────────────
 
@@ -170,7 +151,7 @@ export function createAuthService(prisma: PrismaClient) {
   // ── Internal helpers ──────────────────────────────────────
 
   function permissionsForRole(role: string): Permission[] {
-    return ROLE_DEFAULT_PERMISSIONS[role as RoleVal] ?? [];
+    return [...effectivePermissionsForRole(role)] as Permission[];
   }
 
   async function buildContext(

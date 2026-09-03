@@ -34,6 +34,7 @@ import {
 } from '../../../src/backend/middleware/rbac.middleware.js';
 
 import { ROLES, PERMISSIONS } from '../../../src/shared/constants/index.js';
+import { effectivePermissionsForRole } from '../../../src/backend/middleware/rbac.middleware.js';
 import type { TenantContext }  from '../../../src/shared/types/index.js';
 
 // ── Env setup ────────────────────────────────────────────────
@@ -250,6 +251,56 @@ function makePrismaMock(userOverride?: Record<string, unknown>) {
     },
   } as unknown as import('@prisma/client').PrismaClient;
 }
+
+describe('the token carries what the gates check', () => {
+  // There were two role -> permission tables: ROLE_PERMISSIONS in
+  // rbac.middleware.ts, which a gate is checked against, and a copy in
+  // auth.service.ts, which is what goes into the token. The client_read split
+  // added business:read:pii and business:read:credit to the first and not the
+  // second, and `effectivePermissions` gives a non-empty token list precedence
+  // over the role map outright - so every signed-in user carried a set that
+  // could never contain them, and /ach-authorization, /owners, /timeline and
+  // /credit/* answered 403 to callers whose role was meant to reach them.
+  //
+  // The second table is gone. These tests are what stops it coming back.
+
+  function claims(token: string): { permissions?: string[]; role?: string } {
+    const payload = token.split('.')[1]!;
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  }
+
+  it('mints exactly the permissions the middleware would enforce', async () => {
+    const svc    = createAuthService(makePrismaMock());
+    const result = await svc.login({
+      email:    'alice@example.com',
+      password: 'Str0ng!password#',
+      tenantId: 'tenant-abc',
+    });
+    if (isMfaChallenge(result)) throw new Error('expected a session, got a challenge');
+
+    const minted = new Set(claims(result.tokens.accessToken).permissions ?? []);
+    const gated  = effectivePermissionsForRole(ROLES.ADVISOR);
+
+    expect([...minted].sort()).toEqual([...gated].sort());
+  });
+
+  it('carries the two permissions the client_read split added', async () => {
+    // Named separately from the equality above, because the equality would pass
+    // just as happily if both sides lost them together.
+    const svc    = createAuthService(makePrismaMock());
+    const result = await svc.login({
+      email:    'alice@example.com',
+      password: 'Str0ng!password#',
+      tenantId: 'tenant-abc',
+    });
+    if (isMfaChallenge(result)) throw new Error('expected a session, got a challenge');
+
+    const minted = new Set(claims(result.tokens.accessToken).permissions ?? []);
+
+    expect(minted.has(PERMISSIONS.BUSINESS_READ_PII)).toBe(true);
+    expect(minted.has(PERMISSIONS.BUSINESS_READ_CREDIT)).toBe(true);
+  });
+});
 
 describe('AuthService.login', () => {
   it('returns tokens and safe user on valid credentials', async () => {
