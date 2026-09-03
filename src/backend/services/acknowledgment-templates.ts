@@ -284,12 +284,26 @@ export const ALL_ACK_TYPES: AcknowledgmentType[] = [
 ];
 
 /**
- * Gate acknowledgment types that must be signed BEFORE any card
- * application can be submitted.
+ * Gate acknowledgment types that must be signed BEFORE any card application can
+ * be submitted.
+ *
+ * `fee_schedule` was removed on 2026-09-03. It was named required here and read
+ * by no gate: `ApplicationGatesService` gate 1 checks `product_reality` and
+ * nothing checks a fee schedule, so the constant asserted a control that did not
+ * exist. Gating it instead would have refused submissions on a record nothing
+ * captures - the shape of the debt-service gate in suitability_check, which is
+ * a control no client can cure.
+ *
+ * Gating becomes available the day a fee schedule is recorded against a
+ * business. Until then this list says what is actually enforced.
+ *
+ * A second thing is true and is not fixed here: `assertPreSubmissionGate`, which
+ * consumes this constant, has no production caller. Its own docstring says it is
+ * "checked before any CardApplication transitions to submitted" and no
+ * submission path invokes it. See docs/decisions/submit-application.md entry 4.
  */
 export const PRE_SUBMISSION_REQUIRED: AcknowledgmentType[] = [
   'product_reality',
-  'fee_schedule',
 ];
 
 /**

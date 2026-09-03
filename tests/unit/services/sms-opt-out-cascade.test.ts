@@ -28,7 +28,14 @@ const consentUpdate = vi.fn();
 
 vi.mock('@prisma/client', () => ({
   PrismaClient: vi.fn().mockImplementation(() => ({
-    business: { findMany: businessFindMany },
+    business: {
+      findMany: businessFindMany,
+      // revokeConsent resolves the business itself now, because an API
+      // revocation must suppress the number without a STOP having arrived.
+      // On this path that means the business is looked up twice - once here to
+      // match the number, once inside the revocation.
+      findFirst: vi.fn(async () => ({ phoneNumber: '+15551234567' })),
+    },
     doNotCallList: { upsert: dncUpsert },
     consentRecord: {
       findMany: consentFindMany,

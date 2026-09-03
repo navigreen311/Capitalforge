@@ -91,25 +91,11 @@ export function smsConfigStatus(): SmsConfigStatus {
 
 // ── Phone normalisation ──────────────────────────────────────
 
-/**
- * Normalise to E.164 so a DNC entry cannot be missed on formatting.
- *
- * Only North American numbers are handled, because that is the only
- * numbering plan whose country code can be inferred from a bare 10-digit
- * string. Anything else must already carry a '+'.
- */
-export function normalisePhone(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (trimmed.startsWith('+')) {
-    const digits = trimmed.slice(1).replace(/\D/g, '');
-    return digits.length >= 8 ? `+${digits}` : null;
-  }
-  const digits = trimmed.replace(/\D/g, '');
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  return null;
-}
+// `normalisePhone` moved to utils/phone.ts and is re-exported here so existing
+// importers keep working. It had to move: consent.service.ts needs it, this file
+// imports ConsentService, and the cycle handed one side an uninitialised binding.
+import { normalisePhone } from '../utils/phone.js';
+export { normalisePhone };
 
 // ── Quiet hours ──────────────────────────────────────────────
 
@@ -377,6 +363,11 @@ export async function recordOptOut(
   });
   const matched = candidates.find((b) => normalisePhone(b.phoneNumber) === phoneNumber) ?? null;
 
+  // Kept even though revokeConsent now suppresses too, because this covers the
+  // case that one cannot: a STOP from a number matching no business still has to
+  // reach the list, and revokeConsent needs a businessId. Where both run the
+  // upsert is idempotent and this one wins the `source`, which is right - the
+  // client's own words outrank the firm acting on their behalf.
   await prisma.doNotCallList.upsert({
     where: { tenantId_phoneNumber: { tenantId, phoneNumber } },
     create: {

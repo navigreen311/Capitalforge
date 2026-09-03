@@ -148,14 +148,26 @@ const BUSINESS_ID = 'biz-001';
 
 function makeTestDeps() {
   const store = makeConsentStore();
+  const dncUpsert = vi.fn(async () => ({}));
   const mockPrisma = {
     consentRecord: store,
+    // Revoking sms or voice consent suppresses the number as part of the same
+    // transaction - a revocation that leaves the number dialable by anything
+    // checking the do-not-call list is a revocation in name only. This business
+    // has a number, so these tests exercise the suppressing path.
+    business: {
+      findFirst: vi.fn(async () => ({ phoneNumber: '(555) 123-4567' })),
+    },
+    doNotCallList: { upsert: dncUpsert },
     // The array form: Prisma takes lazy PrismaPromises, the store returns eager
     // ones. Same result, and what is under test is the merge, not the isolation.
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   } as unknown as ConstructorParameters<typeof ConsentService>[0];
 
   const service = new ConsentService(mockPrisma as never);
+  // Exposed so a test can assert the number was suppressed, not merely that the
+  // consent row flipped.
+  (service as unknown as { __dncUpsert?: unknown }).__dncUpsert = dncUpsert;
   const gate = new ConsentGate(service);
 
   return {
@@ -286,6 +298,54 @@ describe('ConsentService', () => {
   // ── Revoke + cascade ─────────────────────────────────────────
 
   describe('revokeConsent()', () => {
+    it('suppresses the number as part of the revocation', async () => {
+      // Revoking sms consent means stop texting this business. A revocation that
+      // withdraws the legal basis and leaves the number dialable by anything
+      // checking the do-not-call list is a revocation in name only - the consent
+      // row says revoked and the next campaign query says callable.
+      //
+      // An inbound STOP already did both. This is the same act through the API.
+      const { service } = makeTestDeps();
+      await service.grantConsent({
+        tenantId: TENANT_ID, businessId: BUSINESS_ID, channel: 'sms',
+        consentType: 'tcpa', evidenceRef: 'ev-1',
+      });
+
+      await service.revokeConsent({
+        tenantId: TENANT_ID, businessId: BUSINESS_ID, channel: 'sms',
+        revocationReason: 'client asked',
+      });
+
+      const upsert = (service as unknown as { __dncUpsert: ReturnType<typeof vi.fn> }).__dncUpsert;
+      expect(upsert).toHaveBeenCalledOnce();
+      const arg = upsert.mock.calls[0]![0] as {
+        create: { phoneNumber: string; source: string };
+        update: Record<string, unknown>;
+      };
+      // Normalised, so a lookup cannot miss it on formatting.
+      expect(arg.create.phoneNumber).toBe('+15551234567');
+      // Distinguishable from a client's own STOP.
+      expect(arg.create.source).toBe('consent_revoked');
+      // An existing row is not downgraded - a number suppressed by the client's
+      // own words stays attributed to them.
+      expect(arg.update).toEqual({});
+    });
+
+    it('suppresses nothing when the channel is not a phone channel', async () => {
+      const { service } = makeTestDeps();
+      await service.grantConsent({
+        tenantId: TENANT_ID, businessId: BUSINESS_ID, channel: 'email',
+        consentType: 'tcpa', evidenceRef: 'ev-2',
+      });
+
+      await service.revokeConsent({
+        tenantId: TENANT_ID, businessId: BUSINESS_ID, channel: 'email',
+      });
+
+      const upsert = (service as unknown as { __dncUpsert: ReturnType<typeof vi.fn> }).__dncUpsert;
+      expect(upsert).not.toHaveBeenCalled();
+    });
+
     it('revokes active consent records and returns count', async () => {
       // Grant first
       await deps.service.grantConsent({

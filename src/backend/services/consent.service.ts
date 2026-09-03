@@ -17,6 +17,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../config/database.js';
+import { normalisePhone } from '../utils/phone.js';
 import type {
   ConsentChannel,
   ConsentType,
@@ -235,8 +236,60 @@ export class ConsentService {
     // In one transaction, because a partially-applied revocation is the worst
     // available outcome: some records revoked, the method throws, and the caller
     // cannot tell how far it got. TCPA revocation is all-or-nothing.
-    await this.prisma.$transaction(
-      activeRecords.map((record) => {
+    // ── Suppress the number as part of the same act ──────────────
+    //
+    // Revoking SMS or voice consent means stop contacting this business on the
+    // phone. A revocation that withdraws the legal basis and leaves the number
+    // dialable by any path that checks the do-not-call list is a revocation in
+    // name only - the consent row says revoked and the next campaign query says
+    // callable.
+    //
+    // An inbound STOP already does both: recordOptOut upserts the DNC row and
+    // then revokes the consent behind it. This is the same act arriving through
+    // the API, and it was doing half of it.
+    //
+    // `source` distinguishes them. An opt-out is the client speaking; this is
+    // the firm acting on the client's behalf, and a later reader asking why a
+    // number is suppressed should be able to tell those apart.
+    //
+    // A business with no phone number suppresses nothing and is not an error -
+    // there is no number to put on the list.
+    //
+    // See docs/decisions/consent.md entry 1.
+    const suppressPhone = input.channel === 'sms' || input.channel === 'voice';
+    let phoneToSuppress: string | null = null;
+    if (suppressPhone) {
+      const business = await this.prisma.business.findFirst({
+        where:  { id: input.businessId, tenantId: input.tenantId },
+        select: { phoneNumber: true },
+      });
+      phoneToSuppress = normalisePhone(business?.phoneNumber);
+    }
+
+    await this.prisma.$transaction([
+      ...(phoneToSuppress
+        ? [
+            this.prisma.doNotCallList.upsert({
+              where: {
+                tenantId_phoneNumber: {
+                  tenantId:    input.tenantId,
+                  phoneNumber: phoneToSuppress,
+                },
+              },
+              create: {
+                tenantId:    input.tenantId,
+                phoneNumber: phoneToSuppress,
+                businessId:  input.businessId,
+                source:      'consent_revoked',
+                reason:      input.revocationReason ?? `${input.channel} consent revoked`,
+              },
+              // An existing row is not downgraded. A number already suppressed
+              // by an inbound STOP stays attributed to the client's own words.
+              update: {},
+            }),
+          ]
+        : []),
+      ...activeRecords.map((record) => {
         const existing =
           record.metadata != null && typeof record.metadata === 'object'
             ? (record.metadata as Record<string, unknown>)
@@ -256,7 +309,7 @@ export class ConsentService {
           },
         });
       }),
-    );
+    ]);
 
     // Re-fetch updated records for response and event payload
     const updatedRecords = await this.prisma.consentRecord.findMany({
