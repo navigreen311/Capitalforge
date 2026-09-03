@@ -325,10 +325,29 @@ jobs:
     # See the `changes` job for why this is a job-level condition rather
     # than a workflow-level paths-ignore.
     if: needs.changes.outputs.docs_only != 'true'
-    # The suite takes about eight minutes locally; the first request to each
-    # route also pays for a dev-server compile, which global setup does up
-    # front. This is a ceiling, not an expectation.
-    timeout-minutes: 30
+    # A ceiling, not an expectation - and it was within forty seconds of being
+    # neither. The run that merged #84 took 29m20s against a 30-minute cap:
+    # 17.8 minutes of test time and roughly eleven of checkout, dependencies,
+    # browsers, Postgres, migrations and seed. The next commit that adds tests
+    # would have been killed rather than answered.
+    #
+    # A killed job and a failed job read the same in the checks list and mean
+    # opposite things. One says a test found something; the other says nobody
+    # knows. This suite has already spent thirty minutes reporting nothing once,
+    # when a module-resolution error hung the dev server, and the shape of that
+    # result is what made it expensive to diagnose.
+    #
+    # 45 leaves room for the suite to grow by about fifteen minutes of test time
+    # - some forty per cent more tests - before the cap is the thing that stops
+    # it. It is deliberately not 60: the failure this cap exists to bound is
+    # every test failing at its own 60-second timeout, and that burns the whole
+    # ceiling in runner minutes before anyone is told.
+    #
+    # The cap is the lever here because `workers: 1` is not one. Three workers
+    # made the API return 500s under load, which surfaced as data corruption -
+    # playwright.config.ts records it. If this needs raising again, the answer
+    # is sharding the suite across jobs, not a larger number.
+    timeout-minutes: 45
 
     env:
       # The workflow sets NODE_ENV=test for the vitest jobs. Next treats any
