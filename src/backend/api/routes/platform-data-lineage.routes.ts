@@ -2,15 +2,17 @@
 // CapitalForge — Platform Data Lineage Routes
 //
 // Endpoints:
-//   GET  /api/platform/data-lineage/:businessId/events — mock lineage events
-//   POST /api/platform/data-lineage/:businessId/export — mock lineage report
+//   GET  /api/platform/data-lineage/:businessId/events — reports that nothing
+//        records a lineage event; it does not answer with one
+//   POST /api/platform/data-lineage/:businessId/export — refused, 501
 // ============================================================
 
 import { Router, Response } from 'express';
 import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import type { ApiResponse } from '../../../shared/types/index.js';
-import logger from '../../config/logger.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
+import { businessBelongsToTenant } from '../../services/business-ownership.js';
 
 export const platformDataLineageRouter = Router();
 
@@ -37,78 +39,59 @@ function validationError(res: Response, err: ZodError) {
 // GET /api/platform/data-lineage/:businessId/events
 // ============================================================
 
-function mockEvents(businessId: string) {
-  const baseTime = Date.now();
-  return [
-    {
-      id: `dle_${businessId}_001`,
-      businessId,
-      eventType: 'data.created',
-      source: 'onboarding-service',
-      description: 'Business profile created during onboarding',
-      timestamp: new Date(baseTime - 30 * 86_400_000).toISOString(),
-      metadata: { fields: ['legalName', 'ein', 'address'], actor: 'system' },
-    },
-    {
-      id: `dle_${businessId}_002`,
-      businessId,
-      eventType: 'data.enriched',
-      source: 'kyb-service',
-      description: 'Business data enriched with KYB verification results',
-      timestamp: new Date(baseTime - 28 * 86_400_000).toISOString(),
-      metadata: { provider: 'Middesk', fields: ['verificationStatus', 'sosFilingStatus'] },
-    },
-    {
-      id: `dle_${businessId}_003`,
-      businessId,
-      eventType: 'data.updated',
-      source: 'credit-service',
-      description: 'Credit profile pulled and attached',
-      timestamp: new Date(baseTime - 25 * 86_400_000).toISOString(),
-      metadata: { bureau: 'Experian', fields: ['creditScore', 'tradelines'] },
-    },
-    {
-      id: `dle_${businessId}_004`,
-      businessId,
-      eventType: 'data.shared',
-      source: 'application-service',
-      description: 'Data shared with issuer for card application',
-      timestamp: new Date(baseTime - 20 * 86_400_000).toISOString(),
-      metadata: { issuer: 'Chase', applicationId: 'app_mock_001', consentId: 'consent_001' },
-    },
-    {
-      id: `dle_${businessId}_005`,
-      businessId,
-      eventType: 'data.accessed',
-      source: 'reporting-service',
-      description: 'Data accessed for compliance audit report generation',
-      timestamp: new Date(baseTime - 10 * 86_400_000).toISOString(),
-      metadata: { reportType: 'compliance-audit', accessedBy: 'compliance_officer' },
-    },
-    {
-      id: `dle_${businessId}_006`,
-      businessId,
-      eventType: 'data.retained',
-      source: 'retention-service',
-      description: 'Retention policy evaluated — data marked for 7-year hold',
-      timestamp: new Date(baseTime - 5 * 86_400_000).toISOString(),
-      metadata: { retentionPolicy: '7-year-regulatory', expiresAt: new Date(baseTime + 7 * 365 * 86_400_000).toISOString() },
-    },
-  ];
-}
+// ── GET /api/platform/data-lineage/:businessId/events ────────
+//
+// Nothing records a data-lineage event, so this reports that rather than
+// answering.
+//
+// It used to call `mockEvents(businessId)`, which generated six events for
+// whatever id it was handed — "Business profile created during onboarding",
+// "enriched with KYB verification results", "Retention policy evaluated — data
+// marked for 7-year hold" — each with a source service, an actor and a
+// timestamp counted backwards from now. A lineage is the record of what
+// happened to a client's data. Generating one is the single least appropriate
+// place in this product to invent a history.
+//
+// An empty list would be the wrong fix. `events: []` says this client's data has
+// no recorded history, which is a claim about the client. `recorded: false` says
+// nothing anywhere records one, which is a claim about the system — and it is
+// the true one.
+platformDataLineageRouter.get(
+  '/:businessId/events',
+  async (req: Request, res: Response) => {
+    const businessId = req.params.businessId as string;
+    const tenantId = req.tenant?.tenantId;
 
-platformDataLineageRouter.get('/:businessId/events', (req: Request, res: Response) => {
-  const businessId = req.params.businessId as string;
-  logger.info(`[platform-data-lineage] GET /${businessId}/events`);
+    if (!tenantId) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required.' },
+      };
+      return res.status(401).json(body);
+    }
 
-  const events = mockEvents(businessId);
+    // Scoped even though the answer carries no client data: an unscoped id would
+    // still confirm which business ids exist on other tenants.
+    if (!(await businessBelongsToTenant(sharedPrisma, businessId, tenantId))) {
+      const body: ApiResponse = {
+        success: false,
+        error: { code: 'NOT_FOUND', message: `No business found with id ${businessId}.` },
+      };
+      return res.status(404).json(body);
+    }
 
-  return ok(res, {
-    businessId,
-    events,
-    totalEvents: events.length,
-  });
-});
+    return ok(res, {
+      businessId,
+      recorded: false,
+      notRecordedReason:
+        'No data-lineage event has ever been recorded. No table holds one and no '
+        + 'service writes one, so there is no history to show for any client. This '
+        + 'is not the same as a client whose data has not changed.',
+      events: [],
+      totalEvents: 0,
+    });
+  },
+);
 
 // ============================================================
 // POST /api/platform/data-lineage/:businessId/export
@@ -119,23 +102,25 @@ const ExportSchema = z.object({
   includeMetadata: z.boolean().default(true),
 });
 
+// ── POST /api/platform/data-lineage/:businessId/export ───────
+//
+// Refused. It built a downloadable lineage report — filename, format, size —
+// from the same generated events, so a compliance officer could save a document
+// describing six things that never happened to a client's data.
 platformDataLineageRouter.post('/:businessId/export', (req: Request, res: Response) => {
-  const businessId = req.params.businessId as string;
-  logger.info(`[platform-data-lineage] POST /${businessId}/export`);
-
   const parsed = ExportSchema.safeParse(req.body ?? {});
   if (!parsed.success) return validationError(res, parsed.error);
 
-  const { format, includeMetadata } = parsed.data;
-  const events = mockEvents(businessId);
-
-  return ok(res, {
-    businessId,
-    fileName: `data-lineage-${businessId}-${new Date().toISOString().slice(0, 10)}.${format}`,
-    format,
-    mimeType: format === 'pdf' ? 'application/pdf' : format === 'csv' ? 'text/csv' : 'application/json',
-    content: `[Mock ${format.toUpperCase()} data lineage report for business ${businessId} — ${events.length} events${includeMetadata ? ' with metadata' : ''}]`,
-    eventCount: events.length,
-    generatedAt: new Date().toISOString(),
-  });
+  const body: ApiResponse = {
+    success: false,
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message:
+        'Data-lineage export is not implemented. Nothing records a lineage event, so '
+        + 'there is nothing to export. This used to return a report built from six '
+        + 'generated events — profile created, KYB enrichment, retention policy '
+        + 'evaluated — for whatever business id was supplied.',
+    },
+  };
+  return res.status(501).json(body);
 });

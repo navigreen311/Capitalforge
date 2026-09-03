@@ -8,18 +8,32 @@
 // GET    /acknowledgments         — product acknowledgments
 // GET    /ach-authorization       — ACH authorization status
 // GET    /credit/business         — business credit scores
-// GET    /credit/history          — 12-month score history      [STUB]
-// GET    /credit/recommendations  — credit optimization tips    [STUB]
-// GET    /repayment               — repayment schedule          [STUB]
+// GET    /credit/history          — score history, per profileType
+// GET    /credit/recommendations  — recommendations from the latest pull
+// GET    /repayment               — repayment schedule
 // GET    /timeline                — client event timeline
 // GET    /compliance              — compliance checks
 // GET    /documents               — documents for this business
-// POST   /compliance/run          — trigger compliance check    [STUB]
-// POST   /consent/request         — request re-consent          [STUB]
-// PATCH  /                        — update business fields
+// POST   /compliance/run          — run a compliance check and persist it
+// POST   /consent/request         — email a re-consent request
+// PATCH  /                        — update business profile fields
 //
-// Endpoints marked [STUB] have no implementation behind them and return
-// sample data flagged via `meta.stub` — see ./_stub-response.ts.
+// NOTHING HERE IS A STUB.
+//
+// Those five lines carried a [STUB] marker and this block said they "have no
+// implementation behind them and return sample data flagged via `meta.stub`".
+// All five read real records; none imports _stub-response.ts any more. The
+// markers outlived the fixes that removed them.
+//
+// A HEADER THAT UNDERSTATES IS THE SAME DEFECT AS ONE THAT OVERSTATES, and it
+// is harder to catch, because nobody audits a file for being better than it
+// claims. Elsewhere in this repository the damage runs the other way — "AI-style
+// pattern scan" over twenty regexes, a spot-rate table that does not exist,
+// "can be zipped and handed to regulators" over something nothing zips — and
+// those get found when somebody relies on the claim and it fails. This one
+// fails silently in the other direction: a manual author reads the header
+// first, writes five working endpoints down as untrustworthy, and an agent is
+// denied capabilities that work. Nothing breaks, so nothing reports it.
 // ============================================================
 
 import { Router, type Response, type NextFunction } from 'express';
@@ -31,6 +45,8 @@ import type { ApiResponse } from '../../../shared/types/index.js';
 import { ComplianceService } from '../../services/compliance.service.js';
 import { emailService } from '../../services/email.service.js';
 import { isValidTimezone } from '../../services/timezone.js';
+import { requirePermissions } from '../../middleware/rbac.middleware.js';
+import { PERMISSIONS } from '../../../shared/constants/index.js';
 
 /**
  * Business columns a client-detail PATCH may write.
@@ -51,9 +67,28 @@ const UPDATABLE_BUSINESS_FIELDS = new Set([
   'monthlyRevenue',
   'phoneNumber',
   'timezone',
-  'status',
-  'advisorId',
-  'fundingReadinessScore',
+  // NOT HERE, DELIBERATELY, as of 2026-09-02:
+  //
+  //   fundingReadinessScore  A computed assessment. `restack_recommend` gates
+  //                          on it, and three separate fixes protected its
+  //                          null-vs-zero distinction — unassessed is not a
+  //                          score of nothing. A module that lets a caller set
+  //                          its own inputs is not assessing anything. If
+  //                          something legitimately writes it, that is a
+  //                          scoring path with its own provenance, not a PATCH
+  //                          on a lookup surface.
+  //
+  //   advisorId              Reassigning a client to a different advisor.
+  //   status                 Changing a client's status.
+  //
+  // Both are real operations and neither is a lookup. They rode on the same
+  // grant as reading a client's name, which is the wrong shape: see
+  // docs/callable-modules.md, where this surface is split into a read module,
+  // a profile-edit module and the two writes.
+  //
+  // Nothing was removed from a working path — the edit-profile form sends
+  // twelve fields and none of these three is among them.
+  //
   // The edit-profile form has always sent these. `website` and `employees`
   // were rejected outright as un-updatable; `naicsCode` was on this list
   // before it was a column, so it passed the allowlist and then failed at
@@ -198,6 +233,71 @@ function buildCreditRecommendations(profile: {
 
 export const clientDetailRouter = Router({ mergeParams: true });
 
+// ── Permissions: a floor on the router, then three module boundaries ────────
+//
+// This router carried NO permission middleware at all until 2026-09-02 —
+// unlike documentRouter, which gates on COMPLIANCE_READ. Everything protecting
+// /owners and /credit/* was the tenancy guard and whatever authenticates
+// upstream, and a missing tenant surfaced as a 500 rather than a 401.
+//
+// `business:read` went on the router as the floor. It was never the ceiling:
+// one permission covered a legal name and a date of birth alike, so within
+// this router the grant was the only thing separating them.
+//
+// THE THREE READ MODULES, and the boundary between them.
+//
+// The line is whether the response is REGULATED DATA ABOUT A NATURAL PERSON,
+// not whether it is sensitive in general — a boundary a reviewer can apply
+// without judgement calls, and one that maps onto compliance entries that
+// already exist.
+//
+//   client_read         business:read
+//                       /, /documents, /acknowledgments, /compliance,
+//                       /compliance/status, /repayment
+//
+//   client_read_pii     + business:read:pii
+//                       /owners, /timeline, /ach-authorization
+//
+//   client_read_credit  + business:read:credit
+//                       /credit/business, /credit/personal, /credit/history,
+//                       /credit/recommendations
+//
+// NOT SPLIT BY PATH DEPTH. `/credit/*` happens to be a clean group by prefix;
+// `/timeline` and `/repayment` both sit at the top level and belong to
+// different modules. Grouping by prefix is the mistake this whole exercise
+// exists to correct, and it would have put /timeline with the business facts.
+//
+// /ach-authorization is in the PII module by decision, not by category. It is
+// formally an authorisation against a business account — but on a small
+// business the owner and the business are effectively the same person, and
+// personal guarantees are everywhere in this venture. The formal distinction
+// does not survive contact with the product.
+//
+// The floor stays on the router: a caller needs business:read AND the specific
+// one. That way a handler added tomorrow inherits the floor rather than
+// inheriting nothing, which is how this router came to have no gate at all.
+clientDetailRouter.use(requirePermissions(PERMISSIONS.BUSINESS_READ));
+
+/** client_read_pii — natural-person identifiers. */
+const readPii = requirePermissions(PERMISSIONS.BUSINESS_READ_PII);
+
+/** client_read_credit — bureau-derived data. */
+const readCredit = requirePermissions(PERMISSIONS.BUSINESS_READ_CREDIT);
+
+// ── Ownership is checked at the mount, not here ─────────────────────────────
+//
+// `api/routes/index.ts` installs requireOwnedBusiness('clientId') on
+// /clients/:clientId before this router, so every handler below is reached only
+// for a client belonging to the caller's tenant.
+//
+// It was briefly duplicated inside this router. One mechanism run twice is a
+// second query, not a second layer — and the copy that is easy to forget is the
+// one further from the mount table that decides what `:clientId` means.
+//
+// Handlers here still filter on tenantId where they already did. That is not
+// redundancy either: a `where` naming both columns is the thing an index serves,
+// and it keeps each query true on its own terms.
+
 // GET / — client profile
 clientDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
@@ -218,15 +318,50 @@ clientDetailRouter.get('/', async (req: Request, res: Response, _next: NextFunct
 });
 
 // GET /owners
-clientDetailRouter.get('/owners', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/owners', readPii, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
   try {
     logger.debug('GET client owners', { clientId, tenantId });
-    const owners = await prisma.businessOwner.findMany({ where: { businessId: clientId } });
+    // Explicit select. This was `findMany({ where })` with no projection, so
+    // every column came back — including `ssn`, the full number, beside the
+    // `ssnLast4` that exists precisely so the full one does not have to travel.
+    //
+    // Nothing consumed it: no frontend component reads `.ssn`, and the only
+    // plaintext-SSN path in the system is the offboarding data export, which
+    // selects it deliberately and writes an audit row recording that the
+    // export contained them. A client-detail read is not that path.
+    const owners = await prisma.businessOwner.findMany({
+      where: { businessId: clientId },
+      select: {
+        id: true,
+        businessId: true,
+        firstName: true,
+        lastName: true,
+        title: true,
+        ownershipPercent: true,
+        email: true,
+        isSignatory: true,
+        ssnLast4: true,
+        dateOfBirth: true,
+        address: true,
+        personalGuarantee: true,
+        isBeneficialOwner: true,
+        kycStatus: true,
+        kycVerifiedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
     // No owners on file is a real answer, and the UI needs to show it as such.
-    ok(res, owners, { total: owners.length });
+    // The basis says which answer it is: shared rule 2 in the operating
+    // instructions requires an empty result to carry one, and three endpoints
+    // here returned a bare count, so an agent had nothing to pass through.
+    ok(res, owners, {
+      total: owners.length,
+      basis: owners.length === 0 ? 'no_owners_on_record' : 'business_owner_records',
+    });
   } catch (error) {
     logger.error('Prisma query failed for owners', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_OWNERS_FAILED', 'Unable to load business owners.');
@@ -241,7 +376,12 @@ clientDetailRouter.get('/acknowledgments', async (req: Request, res: Response, _
   try {
     logger.debug('GET client acknowledgments', { clientId, tenantId });
     const acks = await prisma.productAcknowledgment.findMany({ where: { businessId: clientId } });
-    ok(res, acks, { total: acks.length });
+    ok(res, acks, {
+      total: acks.length,
+      basis: acks.length === 0
+        ? 'no_acknowledgments_on_record'
+        : 'product_acknowledgment_records',
+    });
   } catch (error) {
     logger.error('Prisma query failed for acknowledgments', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_ACKNOWLEDGMENTS_FAILED', 'Unable to load acknowledgments.');
@@ -249,7 +389,7 @@ clientDetailRouter.get('/acknowledgments', async (req: Request, res: Response, _
 });
 
 // GET /ach-authorization
-clientDetailRouter.get('/ach-authorization', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/ach-authorization', readPii, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -270,7 +410,7 @@ clientDetailRouter.get('/ach-authorization', async (req: Request, res: Response,
 });
 
 // GET /credit/business
-clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/credit/business', readCredit, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -279,7 +419,15 @@ clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _
     const profiles = await prisma.creditProfile.findMany({
       where: { businessId: clientId, profileType: 'business' },
     });
-    ok(res, { scores: profiles }, { total: profiles.length });
+    // An unqualified empty result here reads as a statement about the client's
+    // credit, which is what shared rule 1a exists to prevent: no pull on
+    // record is not a thin file, a low score, or a client without credit.
+    ok(res, { scores: profiles }, {
+      total: profiles.length,
+      basis: profiles.length === 0
+        ? 'no_business_credit_profile_on_record'
+        : 'business_credit_profiles',
+    });
   } catch (error) {
     logger.error('Prisma query failed for business credit', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_CREDIT_FAILED', 'Unable to load business credit.');
@@ -287,7 +435,7 @@ clientDetailRouter.get('/credit/business', async (req: Request, res: Response, _
 });
 
 // GET /credit/personal — personal bureau scores for the owners
-clientDetailRouter.get('/credit/personal', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/credit/personal', readCredit, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -304,7 +452,14 @@ clientDetailRouter.get('/credit/personal', async (req: Request, res: Response, _
       if (!latestByBureau.has(p.bureau)) latestByBureau.set(p.bureau, p);
     }
 
-    ok(res, { scores: [...latestByBureau.values()] }, { total: latestByBureau.size });
+    // Same reasoning as /credit/business: an empty result is no pull on
+    // record, and unqualified it reads as a statement about the client.
+    ok(res, { scores: [...latestByBureau.values()] }, {
+      total: latestByBureau.size,
+      basis: latestByBureau.size === 0
+        ? 'no_personal_credit_profile_on_record'
+        : 'personal_credit_profiles',
+    });
   } catch (error) {
     logger.error('Prisma query failed for personal credit', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_PERSONAL_CREDIT_FAILED', 'Unable to load personal credit.');
@@ -312,7 +467,7 @@ clientDetailRouter.get('/credit/personal', async (req: Request, res: Response, _
 });
 
 // GET /credit/history — score movement across the pulls on record
-clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/credit/history', readCredit, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -391,7 +546,7 @@ clientDetailRouter.get('/credit/history', async (req: Request, res: Response, _n
 });
 
 // GET /credit/recommendations — derived from the credit profile on record
-clientDetailRouter.get('/credit/recommendations', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/credit/recommendations', readCredit, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -528,7 +683,7 @@ clientDetailRouter.get('/repayment', async (req: Request, res: Response, _next: 
 });
 
 // GET /timeline
-clientDetailRouter.get('/timeline', async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
+clientDetailRouter.get('/timeline', readPii, async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
   const clientId = req.params.clientId!;
   const tenantId = getTenantId(req);
 
@@ -539,7 +694,10 @@ clientDetailRouter.get('/timeline', async (req: Request, res: Response, _next: N
       orderBy: { publishedAt: 'desc' },
       take: 50,
     });
-    ok(res, events, { total: events.length });
+    ok(res, events, {
+      total: events.length,
+      basis: events.length === 0 ? 'no_timeline_events_on_record' : 'ledger_events',
+    });
   } catch (error) {
     logger.error('Prisma query failed for timeline', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_TIMELINE_FAILED', 'Unable to load the client timeline.');
@@ -593,7 +751,10 @@ clientDetailRouter.get('/documents', async (req: Request, res: Response, _next: 
       where: { businessId: clientId, tenantId },
       orderBy: { createdAt: 'desc' },
     });
-    ok(res, docs, { total: docs.length });
+    ok(res, docs, {
+      total: docs.length,
+      basis: docs.length === 0 ? 'no_documents_on_record' : 'document_vault_records',
+    });
   } catch (error) {
     logger.error('Prisma query failed for documents', { clientId, tenantId, error });
     err(res, 500, 'CLIENT_DOCUMENTS_FAILED', 'Unable to load documents.');
@@ -667,7 +828,22 @@ clientDetailRouter.post('/consent/request', async (req: Request, res: Response, 
       return;
     }
 
-    const owner = business.owners[0]!;
+    // A client with no owners is a state this module calls valid — GET /owners
+    // returns [] and says so — and this asserted one existed. The `!` was the
+    // lie hiding it: `owners[0]` is undefined for any such client, and the
+    // existence check above has already passed, so the crash is reachable by
+    // every client whose owners nobody has recorded.
+    const owner = business.owners[0] ?? null;
+    if (!owner) {
+      err(
+        res,
+        422,
+        'NO_OWNER_ON_FILE',
+        'No beneficial owner is recorded for this client, so there is nobody to '
+        + 'send a consent request to. Add an owner, or supply recipientEmail.',
+      );
+      return;
+    }
     const to = recipientEmail?.trim() || null;
 
     if (!to) {

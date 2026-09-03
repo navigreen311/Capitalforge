@@ -16,7 +16,14 @@ import type { Request } from '../../types/http.js';
 import { PrismaClient } from '@prisma/client';
 import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
-import { IssuerRulesEngine, EligibilityContext } from '../../services/issuer-rules-engine.js';
+import {
+  IssuerRulesEngine,
+  IssuerNotFoundError,
+  EligibilityBusinessNotFoundError,
+  EligibilityContext,
+} from '../../services/issuer-rules-engine.js';
+import { createHash } from 'node:crypto';
+import { logAiDecision } from '../../services/decision-explainability.service.js';
 import logger from '../../config/logger.js';
 import { isCreditUnionIssuerName, parseIssuer } from '../../../shared/constants/issuers.js';
 import { tallyHeldCardsForFiveTwentyFour } from '../../services/held-cards.service.js';
@@ -142,16 +149,81 @@ issuerRulesRouter.get(
       let context: EligibilityContext;
 
       if (businessId && typeof businessId === 'string') {
-        context = await buildContextFromBusiness(db, businessId, id);
+        context = await buildContextFromBusiness(db, businessId, id, req.tenant!.tenantId);
       } else {
         // Return a default context check (useful for testing / UI previews)
         context = getDefaultContext();
       }
 
       const result = await engine.checkIssuerEligibility(id, context);
-      return ok(res, result);
+
+      // ── Record that the question was asked ──────────────────
+      //
+      // The context is rebuilt from live data on every call — held cards, open
+      // applications, inquiries, the issuer's current rules — so re-running
+      // this URL next week produces a different answer with no trace of the
+      // earlier one. This is the answer a placement strategy is built on.
+      //
+      // What is lost is not mainly the verdict. It is `unevaluatedRules` and
+      // `caveats`, and those are the volatile part: a rule blocking today
+      // because nobody recorded its threshold evaluates normally once somebody
+      // does, and a held card attested next month silently improves the past.
+      // So when a client is declined, nobody can show what the system said or
+      // on what basis.
+      //
+      // `AiDecisionLog` has held exactly this shape all along, and its
+      // moduleSource union names eight engines, none of which wrote a row —
+      // the only writer was an admin endpoint a human posts to by hand. See
+      // docs/gaps.md §7b.
+      //
+      // Recorded only when a business was named. A default-context preview is
+      // a decision about nobody, and logging it would fill the record a
+      // compliance officer reads with UI probes.
+      let decisionLogId: string | null = null;
+      let decisionRecorded: string | null = null;
+      if (businessId && typeof businessId === 'string') {
+        try {
+          decisionLogId = await logAiDecision({
+            tenantId: req.tenant!.tenantId,
+            moduleSource: 'issuer_eligibility',
+            decisionType: 'classification',
+            // `businessId` is the key `getBusinessDecisionExplanations`
+            // filters on — a JSONB path query against `output`. Omit it and
+            // the row is written and never found again.
+            output: { businessId, ...result } as unknown as Record<string, unknown>,
+            // The context is hashed, not stored: two answers can be compared
+            // without keeping a second copy of a client's credit profile.
+            inputHash: createHash('sha256').update(JSON.stringify(context)).digest('hex'),
+            // No confidence and no model version. This is rule evaluation, and
+            // a confidence figure invented for it would be the exact thing
+            // this log exists to catch.
+          });
+        } catch (logErr) {
+          // Said out loud rather than swallowed. A decision the system failed
+          // to record is a fact about this answer, and the caller is the only
+          // one in a position to ask for it again.
+          logger.error('[issuer-rules] eligibility decision was not recorded', {
+            id,
+            businessId,
+            error: logErr instanceof Error ? logErr.message : String(logErr),
+          });
+          decisionRecorded =
+            'This answer was not written to the decision log. It cannot be produced later '
+            + 'as a record of what was said, or on what basis.';
+        }
+      }
+
+      return ok(res, { ...result, decisionLogId, decisionNotRecorded: decisionRecorded });
     } catch (err) {
-      if (err instanceof Error && err.message.includes('not found')) {
+      // Typed, not string-matched. This was
+      // `err.message.includes('not found')`, so any future error whose message
+      // happened to contain those two words became a 404 — a genuine failure
+      // reported as "no such issuer" to somebody deciding where to place a
+      // client. Same hazard removed from the dossier route.
+      if (
+        err instanceof IssuerNotFoundError
+        || err instanceof EligibilityBusinessNotFoundError
+      ) {
         return notFound(res, err.message);
       }
       return serverError(res, err);
@@ -243,9 +315,20 @@ async function buildContextFromBusiness(
   db: PrismaClient,
   businessId: string,
   issuerId: string,
+  tenantId: string,
 ): Promise<EligibilityContext> {
-  const business = await db.business.findUnique({
-    where: { id: businessId },
+  // Scoped. This was `findUnique({ where: { id: businessId } })` — no tenant
+  // filter at all, so any authenticated caller could pass any business id and
+  // read back its credit score, business age and revenue as `currentValue` on
+  // the rule violations.
+  //
+  // The mount-table guard does not reach here: it covers `:id` and
+  // `:clientId` in a path, and this business id arrives as a query parameter
+  // on `/issuers/:id/eligibility`. `npm run check:route-tenancy` cannot see it
+  // either, for the same reason — its own comment says a business id arriving
+  // as a query parameter is what it does not cover.
+  const business = await db.business.findFirst({
+    where: { id: businessId, tenantId },
     include: {
       creditProfiles: {
         orderBy: { pulledAt: 'desc' },
@@ -257,7 +340,9 @@ async function buildContextFromBusiness(
   });
 
   if (!business) {
-    throw new Error(`Business not found: ${businessId}`);
+    // Same answer for a business that does not exist and one belonging to
+    // another tenant, so the response cannot be used to enumerate ids.
+    throw new EligibilityBusinessNotFoundError(businessId);
   }
 
   // Get the issuer name for matching card applications

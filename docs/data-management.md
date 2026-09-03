@@ -151,7 +151,12 @@ npx tsx scripts/migrate-data.ts transform \
 ```
 
 Current transforms defined:
-- **v1 → v2:** normalizes `entityType` to lowercase, adds `fundingReadinessScore` default of 0
+- **v1 → v2:** normalizes `entityType` to lowercase, and carries an absent
+  `fundingReadinessScore` through as `null`. It defaulted to `0` until
+  2026-09-02; that 0 reached the column and presented a client nobody had
+  assessed as one assessed at the bottom of the scale. The column is
+  three-state and null is not zero — see `docs/decisions/restack-recommend.md`,
+  entry 8.
 
 ---
 

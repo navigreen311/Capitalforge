@@ -101,6 +101,25 @@ function makeConsentStore() {
       },
     ),
 
+    // Single-row update. Like Prisma, `data` REPLACES each field it names —
+    // including a Json column, which is the whole reason revokeConsent has to
+    // merge `metadata` itself rather than hand Prisma a partial object.
+    update: vi.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Record<string, unknown>;
+      }) => {
+        const record = records.get(where.id);
+        if (!record) throw new Error(`No ConsentRecord with id ${where.id}`);
+        const updated = { ...record, ...data };
+        records.set(where.id, updated);
+        return updated;
+      },
+    ),
+
     findFirst: vi.fn(async ({ where }: { where?: Record<string, unknown> }) => {
       const all = Array.from(records.values());
       if (!where) return all[0] ?? null;
@@ -129,14 +148,23 @@ const BUSINESS_ID = 'biz-001';
 
 function makeTestDeps() {
   const store = makeConsentStore();
-  const mockPrisma = { consentRecord: store } as unknown as ConstructorParameters<
-    typeof ConsentService
-  >[0];
+  const mockPrisma = {
+    consentRecord: store,
+    // The array form: Prisma takes lazy PrismaPromises, the store returns eager
+    // ones. Same result, and what is under test is the merge, not the isolation.
+    $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+  } as unknown as ConstructorParameters<typeof ConsentService>[0];
 
   const service = new ConsentService(mockPrisma as never);
   const gate = new ConsentGate(service);
 
-  return { store, service, gate };
+  return {
+    store,
+    service,
+    gate,
+    transaction: (mockPrisma as unknown as { $transaction: ReturnType<typeof vi.fn> })
+      .$transaction,
+  };
 }
 
 // ----------------------------------------------------------------
@@ -291,17 +319,19 @@ describe('ConsentService', () => {
     });
 
     it('publishes consent.revoked event for each revoked record', async () => {
-      const publishSpy = vi.spyOn(
-        eventBus,
-        'publishAndPersist',
-      );
+      const publishSpy = vi.spyOn(eventBus, 'publishAndPersist');
 
-      await deps.service.grantConsent({
-        tenantId: TENANT_ID,
-        businessId: BUSINESS_ID,
-        channel: 'sms',
-        consentType: 'tcpa',
-      });
+      // TWO records. This granted one and asserted `toHaveBeenCalledWith`, which
+      // is "at least once with" — so a single publish outside the loop would have
+      // satisfied a test whose name is "for each". The count is the assertion.
+      for (const consentType of ['tcpa', 'data_sharing'] as ConsentType[]) {
+        await deps.service.grantConsent({
+          tenantId: TENANT_ID,
+          businessId: BUSINESS_ID,
+          channel: 'sms',
+          consentType,
+        });
+      }
 
       publishSpy.mockClear();
 
@@ -311,11 +341,14 @@ describe('ConsentService', () => {
         channel: 'sms',
       });
 
-      // Should publish one CONSENT_REVOKED event
-      expect(publishSpy).toHaveBeenCalledWith(
-        TENANT_ID,
-        expect.objectContaining({ eventType: 'consent.revoked' }),
+      const revokedEvents = publishSpy.mock.calls.filter(
+        ([, envelope]) => envelope.eventType === 'consent.revoked',
       );
+      expect(revokedEvents).toHaveLength(2);
+      for (const [tenantId, envelope] of revokedEvents) {
+        expect(tenantId).toBe(TENANT_ID);
+        expect(envelope.eventType).toBe('consent.revoked');
+      }
     });
 
     it('CONSENT_REVOKED payload includes cascade targets', async () => {
@@ -348,12 +381,21 @@ describe('ConsentService', () => {
       expect(payload.cascadeTarget).toContain('voiceforge');
     });
 
-    it('preserves history — revoked records remain in store', async () => {
+    it('preserves history — the record survives revocation with its grant-time evidence', async () => {
+      // This test used to assert only that the row was not deleted, under a name
+      // that claims history is preserved. It passed while revocation overwrote
+      // `metadata` wholesale and destroyed who granted the consent and from where
+      // — which is the part of the history an audit actually reads. The row
+      // surviving is the cheap half of the claim; this asserts the other half.
       await deps.service.grantConsent({
         tenantId: TENANT_ID,
         businessId: BUSINESS_ID,
         channel: 'sms',
         consentType: 'tcpa',
+        ipAddress: '203.0.113.7',
+        evidenceRef: 'docusign://envelope/abc',
+        actorId: 'user-advisor-99',
+        metadata: { formVersion: '2.1', userAgent: 'Mozilla/5.0' },
       });
 
       expect(deps.store._records.size).toBe(1);
@@ -362,13 +404,56 @@ describe('ConsentService', () => {
         tenantId: TENANT_ID,
         businessId: BUSINESS_ID,
         channel: 'sms',
+        revocationReason: 'Client called in',
+        ipAddress: '198.51.100.4',
+        actorId: 'user-compliance-3',
       });
 
-      // Record was updated, NOT deleted
+      // Updated, NOT deleted.
       expect(deps.store._records.size).toBe(1);
       const record = Array.from(deps.store._records.values())[0]!;
       expect(record['status']).toBe('revoked');
       expect(record['revokedAt']).toBeInstanceOf(Date);
+      expect(record['revocationReason']).toBe('Client called in');
+
+      // Grant-time evidence survives the revocation.
+      expect(record['evidenceRef']).toBe('docusign://envelope/abc');
+      const metadata = record['metadata'] as Record<string, unknown>;
+      expect(metadata['actorId']).toBe('user-advisor-99');
+      expect(metadata['grantedByIp']).toBe('203.0.113.7');
+      expect(metadata['formVersion']).toBe('2.1');
+      expect(metadata['userAgent']).toBe('Mozilla/5.0');
+
+      // And the revocation is recorded alongside it, under its own keys, so
+      // neither actor overwrites the other.
+      expect(metadata['revokedByIp']).toBe('198.51.100.4');
+      expect(metadata['revokedByActorId']).toBe('user-compliance-3');
+      expect(metadata['revokedAt']).toEqual(expect.any(String));
+    });
+
+    it('revokes every matching record atomically, in one transaction', async () => {
+      // A partially-applied revocation is the worst available outcome: the caller
+      // cannot tell how far it got, and TCPA revocation is all-or-nothing.
+      for (const consentType of ['tcpa', 'data_sharing'] as ConsentType[]) {
+        await deps.service.grantConsent({
+          tenantId: TENANT_ID,
+          businessId: BUSINESS_ID,
+          channel: 'sms',
+          consentType,
+        });
+      }
+
+      const result = await deps.service.revokeConsent({
+        tenantId: TENANT_ID,
+        businessId: BUSINESS_ID,
+        channel: 'sms',
+      });
+
+      expect(result.revokedCount).toBe(2);
+      expect(deps.transaction).toHaveBeenCalledTimes(1);
+      for (const record of deps.store._records.values()) {
+        expect(record['status']).toBe('revoked');
+      }
     });
 
     it('does not revoke consent for a different channel', async () => {
@@ -550,6 +635,12 @@ describe('ConsentService', () => {
       expect(voiceRecord?.status).toBe('revoked');
       expect(voiceRecord?.revocationReason).toBe('DNC request');
       expect(smsRecord?.status).toBe('active');
+
+      // The evidence is the point of the export. This test supplied evidenceRef
+      // on both grants and asserted on neither, under the name "full history" —
+      // so an export that dropped the proof would have passed it.
+      expect(voiceRecord?.evidenceRef).toBe('ev-001');
+      expect(smsRecord?.evidenceRef).toBe('ev-002');
     });
 
     it('returns empty records when no consent history exists', async () => {

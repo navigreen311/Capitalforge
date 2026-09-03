@@ -29,11 +29,23 @@ import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse } from '@shared/types/index.js';
+import {
+  checkRestackEligibility,
+  RestackBusinessNotFoundError,
+} from '../../services/restack-trigger.js';
+import { ConsentService } from '../../services/consent.service.js';
+import { prisma as sharedPrisma } from '../../config/database.js';
 import logger from '../../config/logger.js';
 
 // ── Router ────────────────────────────────────────────────────
 
 export const documentGenRouter = Router();
+
+let _consentService: ConsentService | null = null;
+function getConsentService(): ConsentService {
+  _consentService ??= new ConsentService();
+  return _consentService;
+}
 
 documentGenRouter.use(tenantMiddleware);
 
@@ -84,6 +96,12 @@ function sendError(
 }
 
 function handleUnexpected(err: unknown, res: Response, context: string): void {
+  if (err instanceof DocumentContextRequiredError) {
+    sendError(res, 422, 'DOCUMENT_CONTEXT_REQUIRED', err.message, {
+      documentType: err.documentType,
+    });
+    return;
+  }
   if (err instanceof ZodError) {
     sendError(res, 422, 'VALIDATION_ERROR', 'Invalid request body.', err.flatten().fieldErrors);
     return;
@@ -94,14 +112,30 @@ function handleUnexpected(err: unknown, res: Response, context: string): void {
   sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.');
 }
 
+/**
+ * A document that cannot be produced without something nobody supplied.
+ *
+ * The generators are pure `(ctx) => string`, and every missing field until now
+ * degraded to a `[placeholder]`. That is the right answer for a field. It is
+ * the wrong answer for the CLAIM a document is built around: a re-stack
+ * summary whose executive summary says "you are eligible" is not improved by
+ * putting the readiness score in brackets underneath.
+ */
+export class DocumentContextRequiredError extends Error {
+  constructor(public readonly documentType: string, public readonly missing: string) {
+    super(`${documentType} cannot be generated: ${missing}`);
+    this.name = 'DocumentContextRequiredError';
+  }
+}
+
 // ── Template Generators ──────────────────────────────────────
 
 function generateDeclineReconsiderationLetter(ctx: Record<string, unknown>): string {
-  const businessName = (ctx.business_name as string) ?? 'Acme Holdings LLC';
-  const issuer = (ctx.issuer as string) ?? 'Chase';
-  const cardName = (ctx.card_name as string) ?? 'Ink Business Unlimited';
-  const declineReason = (ctx.decline_reason as string) ?? 'too many recent inquiries';
-  const applicantName = (ctx.applicant_name as string) ?? 'John Smith';
+  const businessName = (ctx.business_name as string) ?? '[Business]';
+  const issuer = (ctx.issuer as string) ?? '[Issuer]';
+  const cardName = (ctx.card_name as string) ?? '[Card]';
+  const declineReason = (ctx.decline_reason as string) ?? '[decline reason]';
+  const applicantName = (ctx.applicant_name as string) ?? '[Applicant]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return `${date}
@@ -133,11 +167,64 @@ ${businessName}`;
 }
 
 function generateBusinessPurposeStatement(ctx: Record<string, unknown>): string {
-  const businessName = (ctx.business_name as string) ?? 'Acme Holdings LLC';
-  const industry = (ctx.industry as string) ?? 'Professional Services';
-  const creditAmount = (ctx.credit_amount as string) ?? '$150,000';
-  const purpose = (ctx.purpose as string) ?? 'working capital and operational expenses';
-  const revenue = (ctx.annual_revenue as string) ?? '$500,000';
+  const businessName = (ctx.business_name as string) ?? '[Business]';
+  const industry = (ctx.industry as string) ?? '[industry]';
+  // Brackets, not figures. Every other field in these generators falls back to a
+  // visible placeholder; these two fell back to money. A Business Purpose
+  // Statement is signed by the client, and one asserting $150,000 sought against
+  // $500,000 of revenue — when neither was supplied — reads exactly like one
+  // where both were.
+  const creditAmount = (ctx.credit_amount as string) ?? '[credit amount]';
+  const purpose = (ctx.purpose as string) ?? '[purpose]';
+  const revenue = (ctx.annual_revenue as string) ?? '[annual revenue]';
+
+  // The client signs this statement, and this paragraph asserted their
+  // solvency: "${businessName} generates sufficient monthly cash flow to
+  // service all credit obligations within the 0% APR introductory periods."
+  //
+  // Nothing checked that, and nothing here could — the statement is assembled
+  // from a request body. It also presumed the client holds 0% introductory-APR
+  // cards. A capacity claim in a document the client puts their name to is the
+  // same defect as the re-stack summary's executive summary, one step worse:
+  // there it was the system asserting; here it is the client, on the system's
+  // say-so.
+  const repaymentBasis =
+    typeof ctx.repayment_basis === 'string' && ctx.repayment_basis.trim() !== ''
+      ? (ctx.repayment_basis as string)
+      : `[repayment basis — state how ${businessName} will service these obligations]`;
+
+  // The allocation comes from the client or it is a bracket.
+  //
+  // It was four fixed lines — Inventory 40%, Marketing 25%, Equipment 20%,
+  // Working capital 15% — identical in every statement this system produced.
+  // A Business Purpose Statement is the document that evidences credit is for
+  // business rather than personal use, and the allocation is the part doing that
+  // evidencing. Nobody here knows how a given client will spend the money, and
+  // the document whose purpose is proving business use is the wrong place to
+  // guess at it.
+  //
+  // `use_of_funds` is an array of {purpose, percent} when the client has stated
+  // one. When they have not, the section says so in a form nobody will mistake
+  // for an answer — and a statement that goes out with the bracket still in it
+  // is a statement somebody has to fill in before it means anything, which is
+  // the correct outcome.
+  const useOfFunds = Array.isArray(ctx.use_of_funds) ? ctx.use_of_funds : null;
+  const allocation =
+    useOfFunds && useOfFunds.length > 0
+      ? useOfFunds
+          .map((u) => {
+            const item = u as { purpose?: unknown; percent?: unknown };
+            const purposeText =
+              typeof item.purpose === 'string' && item.purpose.trim()
+                ? item.purpose
+                : '[purpose]';
+            const pct =
+              typeof item.percent === 'number' ? ` (${item.percent}%)` : '';
+            return `- ${purposeText}${pct}`;
+          })
+          .join('\n')
+      : '[The client has not stated an allocation. This section must be completed '
+        + 'with the client before the statement is used.]';
 
   return `BUSINESS PURPOSE STATEMENT
 
@@ -152,14 +239,11 @@ ${businessName} is seeking a total credit facility of ${creditAmount} for the pu
 INTENDED USE OF FUNDS
 
 The requested credit will be allocated as follows:
-- Inventory and supply chain management (40%)
-- Marketing and client acquisition (25%)
-- Equipment and technology upgrades (20%)
-- Working capital reserve (15%)
+${allocation}
 
 REPAYMENT STRATEGY
 
-${businessName} generates sufficient monthly cash flow to service all credit obligations within the 0% APR introductory periods. Our repayment strategy includes:
+${repaymentBasis}
 - Monthly minimum payments maintained across all accounts
 - Strategic balance paydown prioritized by APR expiration dates
 - Revenue-based accelerated repayment during peak business periods
@@ -180,12 +264,12 @@ Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long',
 }
 
 function generateApplicationCoverLetter(ctx: Record<string, unknown>): string {
-  const businessName = (ctx.business_name as string) ?? 'Acme Holdings LLC';
-  const issuer = (ctx.issuer as string) ?? 'Chase';
-  const cardName = (ctx.card_name as string) ?? 'Ink Business Preferred';
-  const applicantName = (ctx.applicant_name as string) ?? 'John Smith';
-  const applicantTitle = (ctx.applicant_title as string) ?? 'Managing Member';
-  const yearsInBusiness = (ctx.years_in_business as string) ?? '3';
+  const businessName = (ctx.business_name as string) ?? '[Business]';
+  const issuer = (ctx.issuer as string) ?? '[Issuer]';
+  const cardName = (ctx.card_name as string) ?? '[Card]';
+  const applicantName = (ctx.applicant_name as string) ?? '[Applicant]';
+  const applicantTitle = (ctx.applicant_title as string) ?? '[Title]';
+  const yearsInBusiness = (ctx.years_in_business as string) ?? '[years in business]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return `${date}
@@ -254,7 +338,7 @@ function generateHardshipWorkoutProposal(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? 'Client';
   const issuer = (ctx.issuer as string) ?? 'Issuer';
   const currentBalance = ctx.current_balance ? '$' + Number(ctx.current_balance).toLocaleString() : '[balance]';
-  const hardshipReason = (ctx.hardship_reason as string) ?? 'temporary financial difficulty';
+  const hardshipReason = (ctx.hardship_reason as string) ?? '[hardship reason]';
   const currentApr = (ctx.current_apr as string) ?? '[current APR]';
   const monthlyRevenue = ctx.monthly_revenue ? '$' + Number(ctx.monthly_revenue).toLocaleString() : '[monthly revenue]';
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
@@ -300,7 +384,7 @@ function generateFeeDisclosureLetter(ctx: Record<string, unknown>): string {
   const programFeeFlat = ctx.program_fee_flat ? '$' + Number(ctx.program_fee_flat).toLocaleString() : '[flat fee]';
   const programFeePct = (ctx.program_fee_pct as string) ?? '[X]';
   const fundingEstimate = ctx.funding_estimate ? '$' + Number(ctx.funding_estimate).toLocaleString() : '[estimate]';
-  const refundPolicy = (ctx.refund_policy as string) ?? 'Non-refundable after funding round commences.';
+  const refundPolicy = (ctx.refund_policy as string) ?? '[refund policy]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return `FEE DISCLOSURE LETTER
@@ -318,12 +402,6 @@ PROGRAM FEE SCHEDULE
 - Program Fee (Flat): ${programFeeFlat}
 - Percentage of Funding Fee: ${programFeePct}% of total funded amount
 - Estimated Total Fees: Based on a funding estimate of ${fundingEstimate}
-
-ADDITIONAL FEES
-
-- Expedited Processing Fee: $0 (included in program fee)
-- Document Preparation Fee: $0 (included in program fee)
-- Restack Analysis Fee: $0 for first restack, standard rates apply for subsequent rounds
 
 PAYMENT TERMS
 
@@ -384,38 +462,126 @@ ${advisorName}
 CapitalForge`;
 }
 
+/**
+ * A card on file whose introductory APR period is ending.
+ *
+ * Injected by the route from `card_applications`, not accepted from the
+ * caller. The letter tells a client something about their own accounts, and
+ * `expiring_cards` used to be whatever a caller put in the request body — or,
+ * when they put nothing, a sentence asserting that one or more of their cards
+ * was expiring, with no card behind it.
+ */
+export interface ExpiringCard {
+  cardProduct: string;
+  issuer: string;
+  /** ISO date. Null when the card has an intro APR whose end nobody recorded. */
+  introAprExpiry: string | null;
+  daysRemaining: number | null;
+  /** Percent, e.g. 24.99. Null when not recorded. */
+  regularApr: number | null;
+  /**
+   * Closing balance from the most recent statement LINKED TO THIS CARD.
+   *
+   * Null is common and is not zero: `card_applications` has no balance column,
+   * so this is only available where a statement was imported and carried a
+   * `cardApplicationId`. The letter says so rather than printing a figure.
+   */
+  latestStatementBalance: number | null;
+  latestStatementDate: string | null;
+}
+
 function generateAprExpiryWarningLetter(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
   const ownerName = (ctx.owner_name as string) ?? clientName;
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
 
-  let cardDetails = 'Your card introductory APR period is expiring soon. Please contact your advisor for details.';
-  if (Array.isArray(ctx.expiring_cards)) {
-    const cards = ctx.expiring_cards as Array<Record<string, unknown>>;
-    cardDetails = 'The following cards have introductory APR periods expiring soon:\n\n' +
-      cards.map(c =>
-        `- ${c.card_name ?? 'Card'} (${c.issuer ?? 'Issuer'}): Balance $${Number(c.balance ?? 0).toLocaleString()}, expires in ${c.days_remaining ?? '??'} days`
-      ).join('\n');
+  // The opening sentence used to read, unconditionally:
+  //
+  //   "one or more of your business credit cards have 0% introductory APR
+  //    periods expiring soon"
+  //
+  // to a client, from a generator that had read no cards. When `expiring_cards`
+  // was absent the body said "Your card introductory APR period is expiring
+  // soon. Please contact your advisor for details." — an URGENT letter about a
+  // card nobody had looked up. The cards are read from card_applications now.
+  const cards = ctx.expiring_cards as ExpiringCard[] | undefined;
+  if (!Array.isArray(cards)) {
+    throw new DocumentContextRequiredError(
+      'apr_expiry_warning_letter',
+      'no cards were supplied. This letter states that a client has cards whose '
+      + 'introductory APR is ending, so the cards are read from the applications on '
+      + 'file rather than from the request. Send business_id and the route will read '
+      + 'them.',
+    );
   }
+  if (cards.length === 0) {
+    throw new DocumentContextRequiredError(
+      'apr_expiry_warning_letter',
+      'no card on file has an introductory APR period ending in the window. An URGENT '
+      + 'letter about cards that are not expiring is the document this endpoint exists '
+      + 'not to produce.',
+    );
+  }
+
+  const dated = cards.filter((c) => c.daysRemaining !== null);
+  const undated = cards.filter((c) => c.daysRemaining === null);
+
+  const line = (c: ExpiringCard): string => {
+    const balance =
+      c.latestStatementBalance === null
+        ? 'balance not recorded'
+        : `balance $${c.latestStatementBalance.toLocaleString()} as of ${c.latestStatementDate}`;
+    const when =
+      c.daysRemaining === null
+        ? 'expiry date not recorded'
+        : `expires ${c.introAprExpiry} (${c.daysRemaining} days)`;
+    const after =
+      c.regularApr === null
+        ? 'rate after expiry not recorded'
+        : `then ${c.regularApr}% APR`;
+    return `- ${c.cardProduct} (${c.issuer}): ${when}, ${after}, ${balance}`;
+  };
+
+  const sections = [
+    dated.length > 0 ? dated.map(line).join('\n') : null,
+    undated.length > 0
+      ? 'The following cards have an introductory APR recorded with no end date, so '
+        + 'how long is left cannot be stated:\n\n'
+        + undated.map(line).join('\n')
+      : null,
+  ].filter(Boolean).join('\n\n');
+
+  const opening =
+    dated.length > 0
+      ? `${dated.length === 1 ? 'One of your' : `${dated.length} of your`} business credit `
+        + `card${dated.length === 1 ? '' : 's'} ${dated.length === 1 ? 'has an' : 'have'} `
+        + 'introductory APR period ending. Acting before it ends limits the interest you pay.'
+      : 'Your account shows introductory APR periods whose end dates are not recorded, so '
+        + 'this letter cannot say how long is left. Your advisor can confirm them with the '
+        + 'issuer.';
 
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-  return `URGENT: APR EXPIRY WARNING
+  return `APR EXPIRY WARNING
 
 Date: ${date}
 
 Dear ${ownerName},
 
-This letter is to advise you that one or more of your business credit cards have 0% introductory APR periods expiring soon. Immediate action is recommended to minimize interest charges.
+${opening}
 
 EXPIRING CARDS
 
-${cardDetails}
+${sections}
+
+Balances are shown only where a statement carrying that card was imported.
+CapitalForge does not hold a live balance for a card, so a card with no
+balance above is not a card with nothing owed on it.
 
 RECOMMENDED ACTIONS
 
 1. Review your current balances and payment schedule
-2. Consider balance transfer options to extend 0% APR periods
+2. Consider balance transfer options to extend an introductory APR period
 3. Accelerate payments on cards with the nearest expiration dates
 4. Contact your advisor to discuss restack or refinancing options
 
@@ -423,19 +589,92 @@ WHAT HAPPENS WHEN APR EXPIRES
 
 Once the introductory period ends, the variable APR will apply to any remaining balance. This can significantly increase your monthly payment obligations.
 
-Please contact ${advisorName} immediately to discuss your options and develop an action plan.
+Please contact ${advisorName} to discuss your options and develop an action plan.
 
 Sincerely,
 ${advisorName}
 CapitalForge`;
 }
 
+/**
+ * The eligibility verdict this document is built around.
+ *
+ * Injected by the route from `checkRestackEligibility`, not accepted from the
+ * caller's context blob. The document is handed to a client; a caller who could
+ * type `eligible: true` into a request body could hand a client a letter saying
+ * they qualify for funding they do not qualify for.
+ */
+export interface RestackSummaryVerdict {
+  eligible: boolean;
+  reasons: string[];
+  readinessScore: number | null;
+}
+
 function generateRestackOpportunitySummary(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
-  const estimatedCredit = ctx.estimated_credit ? '$' + Number(ctx.estimated_credit).toLocaleString() : '[estimate]';
-  const readinessScore = (ctx.readiness_score as string) ?? '[score]';
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // The executive summary is a verdict, so it comes from the engine or the
+  // document is not produced.
+  //
+  // This read `Based on your current credit profile and payment history, you
+  // are eligible for an additional round of business credit card funding` —
+  // unconditionally, in a document handed to a client, from a generator that
+  // received no eligibility result and checked nothing. Whatever
+  // restack-trigger had decided, the letter said yes.
+  const verdict = ctx.eligibility as RestackSummaryVerdict | undefined;
+  if (!verdict || typeof verdict.eligible !== 'boolean') {
+    throw new DocumentContextRequiredError(
+      'restack_opportunity_summary',
+      'no eligibility result was supplied. The executive summary states whether the '
+      + 'client qualifies for another round, and this document is given to the client, '
+      + 'so that sentence has to come from the re-stack engine rather than from the '
+      + 'request. Send business_id and the route will read it.',
+    );
+  }
+
+  const readinessScore = verdict.readinessScore === null
+    ? '[not assessed]'
+    : String(verdict.readinessScore);
+
+  const executiveSummary = verdict.eligible
+    ? 'Based on the re-stack review of your account, you are eligible for an additional '
+      + 'round of business credit card funding (re-stack).'
+    : 'Based on the re-stack review of your account, you are NOT currently eligible for '
+      + 'an additional round of business credit card funding. The findings are listed '
+      + 'below.';
+
+  const findings = verdict.reasons.length > 0
+    ? verdict.reasons.map((r) => `- ${r}`).join('\n')
+    : '- No findings were recorded.';
+
+  // Money, percentages and counts stay as brackets when absent, as everywhere
+  // else in this file.
+  const estimatedCredit = ctx.estimated_credit
+    ? '$' + Number(ctx.estimated_credit).toLocaleString()
+    : '[estimate]';
+
+  // These two used to fall back to 'Good' and 'Stable/Improving'. Every other
+  // field in every other generator degrades to a visible placeholder; these
+  // degraded to favourable assertions about a client's credit, in a document
+  // that client reads. A caller who supplied nothing got a letter rating their
+  // payment history Good.
+  const paymentRating = (ctx.payment_rating as string) ?? '[not supplied]';
+  const scoreTrend = (ctx.score_trend as string) ?? '[not supplied]';
+
+  const nextSteps = verdict.eligible
+    ? `RECOMMENDED NEXT STEPS
+
+1. Review current card portfolio and close any dormant accounts if beneficial
+2. Ensure all current balances are optimally distributed
+3. Schedule a re-stack strategy session with your advisor
+4. Prepare updated business documentation (bank statements, P&L)`
+    : `RECOMMENDED NEXT STEPS
+
+1. Review the findings above with your advisor
+2. Address the items that are within your control
+3. Ask your advisor when this review should be run again`;
 
   return `RE-STACK FUNDING OPPORTUNITY SUMMARY
 
@@ -445,27 +684,26 @@ Prepared by: ${advisorName}
 
 EXECUTIVE SUMMARY
 
-Based on your current credit profile and payment history, you are eligible for an additional round of business credit card funding (re-stack).
+${executiveSummary}
 
 ELIGIBILITY ANALYSIS
 
 - Re-Stack Readiness Score: ${readinessScore}/100
 - Estimated Additional Credit Available: ${estimatedCredit}
 - Time Since Last Funding Round: ${(ctx.months_since_last as string) ?? '[X]'} months
-- Payment History Rating: ${(ctx.payment_rating as string) ?? 'Good'}
+- Payment History Rating: ${paymentRating}
+
+FINDINGS
+
+${findings}
 
 KEY FACTORS
 
-- Credit score trajectory: ${(ctx.score_trend as string) ?? 'Stable/Improving'}
+- Credit score trajectory: ${scoreTrend}
 - Current utilization across existing cards: ${(ctx.utilization as string) ?? '[X]'}%
 - Number of eligible issuers for new applications: ${(ctx.eligible_issuers as string) ?? '[X]'}
 
-RECOMMENDED NEXT STEPS
-
-1. Review current card portfolio and close any dormant accounts if beneficial
-2. Ensure all current balances are optimally distributed
-3. Schedule a re-stack strategy session with your advisor
-4. Prepare updated business documentation (bank statements, P&L)
+${nextSteps}
 
 RISK CONSIDERATIONS
 
@@ -473,16 +711,16 @@ RISK CONSIDERATIONS
 - New accounts reduce average age of accounts
 - Ensure business cash flow supports additional credit obligations
 
-Contact ${advisorName} to discuss this opportunity and schedule your re-stack round.`;
+Contact ${advisorName} to discuss this review${verdict.eligible ? ' and schedule your re-stack round' : ''}.`;
 }
 
 function generateComplianceIncidentReport(ctx: Record<string, unknown>): string {
   const incidentType = (ctx.incident_type as string) ?? '[Type]';
   const severity = (ctx.severity as string) ?? '[Severity]';
   const description = (ctx.description as string) ?? '[Description of the incident]';
-  const affectedClients = (ctx.affected_clients as string) ?? 'None identified';
-  const rootCause = (ctx.root_cause as string) ?? 'Under investigation';
-  const remediation = (ctx.remediation as string) ?? 'Investigation initiated; corrective actions pending';
+  const affectedClients = (ctx.affected_clients as string) ?? '[affected clients]';
+  const rootCause = (ctx.root_cause as string) ?? '[root cause]';
+  const remediation = (ctx.remediation as string) ?? '[remediation]';
   const reportedBy = (ctx.reported_by as string) ?? '[Reporter]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -501,7 +739,7 @@ ${description}
 AFFECTED PARTIES
 
 Affected Clients: ${affectedClients}
-Regulatory Implications: ${(ctx.regulatory_implications as string) ?? 'Under assessment'}
+Regulatory Implications: ${(ctx.regulatory_implications as string) ?? '[regulatory implications]'}
 
 ROOT CAUSE ANALYSIS
 
@@ -521,7 +759,7 @@ REMEDIATION PLAN
 
 REGULATORY NOTIFICATION
 
-Required: ${(ctx.notification_required as string) ?? 'To be determined'}
+Required: ${(ctx.notification_required as string) ?? '[notification required]'}
 Deadline: ${(ctx.notification_deadline as string) ?? 'N/A'}
 
 This report is confidential and intended for internal compliance review only.`;
@@ -530,11 +768,11 @@ This report is confidential and intended for internal compliance review only.`;
 function generateClientProgressReport(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
-  const period = (ctx.period as string) ?? 'Current Quarter';
-  const fundingStatus = (ctx.funding_status as string) ?? 'In progress';
-  const scoreChange = (ctx.score_change as string) ?? 'Stable';
-  const paymentPerformance = (ctx.payment_performance as string) ?? 'On track';
-  const nextSteps = (ctx.next_steps as string) ?? '1. Continue current strategy\n2. Monitor upcoming APR expirations';
+  const period = (ctx.period as string) ?? '[reporting period]';
+  const fundingStatus = (ctx.funding_status as string) ?? '[funding status]';
+  const scoreChange = (ctx.score_change as string) ?? '[score change]';
+  const paymentPerformance = (ctx.payment_performance as string) ?? '[payment performance]';
+  const nextSteps = (ctx.next_steps as string) ?? '[next steps]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return `CLIENT PROGRESS REPORT
@@ -555,11 +793,11 @@ CREDIT HEALTH
 Credit Score Change: ${scoreChange}
 Average Utilization: ${(ctx.avg_utilization as string) ?? '[X]'}%
 Payment Performance: ${paymentPerformance}
-Delinquencies: ${(ctx.delinquencies as string) ?? 'None'}
+Delinquencies: ${(ctx.delinquencies as string) ?? '[delinquencies]'}
 
 MILESTONES ACHIEVED
 
-- ${(ctx.milestones as string) ?? 'Program enrollment completed'}
+- ${(ctx.milestones as string) ?? '[milestones]'}
 
 RECOMMENDED NEXT STEPS
 
@@ -567,7 +805,7 @@ ${nextSteps}
 
 ADVISOR NOTES
 
-${(ctx.advisor_notes as string) ?? 'Client is progressing well within the program timeline.'}`;
+${(ctx.advisor_notes as string) ?? '[advisor notes]'}`;
 }
 
 function generateFundingRoundSummary(ctx: Record<string, unknown>): string {
@@ -646,7 +884,7 @@ Date: ${callDate}
 Duration: ${callDuration} minutes
 Client: ${clientName}
 Advisor: ${advisorName}
-Call Type: ${(ctx.call_type as string) ?? 'Strategy Session'}
+Call Type: ${(ctx.call_type as string) ?? '[call type]'}
 
 PURPOSE
 
@@ -658,7 +896,7 @@ ${topicsDiscussed}
 
 KEY DECISIONS
 
-${(ctx.key_decisions as string) ?? '- No major decisions recorded'}
+${(ctx.key_decisions as string) ?? '[key decisions]'}
 
 ACTION ITEMS
 
@@ -666,14 +904,18 @@ ${actionItems}
 
 FOLLOW-UP
 
-Next Scheduled Call: ${(ctx.next_call_date as string) ?? 'To be scheduled'}
-Priority Items: ${(ctx.priority_items as string) ?? 'See action items above'}
+Next Scheduled Call: ${(ctx.next_call_date as string) ?? '[next call date]'}
+Priority Items: ${(ctx.priority_items as string) ?? '[priority items]'}
 
 COMPLIANCE NOTE
 
 This call summary was generated from VoiceForge call recording and may require advisor review for accuracy.`;
 }
 
+// A past-due notice. `Late Fee Applied` fell back to '$0.00' while every other
+// field in this function fell back to a bracket — so "no late fee was stated"
+// and "the late fee is zero" produced the same line, in a document telling
+// somebody what they owe. A bracket is not a claim about money; $0.00 is.
 function generateCollectionNotice(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
   const amountDue = ctx.amount_due ? '$' + Number(ctx.amount_due).toLocaleString() : '[amount]';
@@ -697,7 +939,7 @@ PAYMENT DETAILS
 Amount Due: ${amountDue}
 Original Due Date: ${dueDate}
 Days Past Due: ${(ctx.days_past_due as string) ?? '[X]'}
-Late Fee Applied: ${ctx.late_fee ? '$' + Number(ctx.late_fee).toLocaleString() : '$0.00'}
+Late Fee Applied: ${ctx.late_fee === undefined || ctx.late_fee === null ? '[late fee]' : '$' + Number(ctx.late_fee).toLocaleString()}
 
 PAYMENT OPTIONS
 
@@ -722,11 +964,68 @@ Sincerely,
 CapitalForge Accounts Receivable`;
 }
 
+/**
+ * One recorded consent, as the letter states it.
+ *
+ * Injected by the route from `ConsentService.getConsentStatuses`, not taken
+ * from the caller's context. This letter is the client's copy of what the
+ * system holds about their consent; assembling it from a request body means
+ * confirming to a client whatever the caller typed.
+ */
+export interface ConsentLetterRecord {
+  channel: string;
+  consentType: string;
+  status: string;
+  grantedAt: string;
+  evidenceRef: string | null;
+}
+
 function generateConsentConfirmationLetter(ctx: Record<string, unknown>): string {
   const clientName = (ctx.client_name as string) ?? '[Client]';
-  const consentDate = (ctx.consent_date as string) ?? new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const channels = Array.isArray(ctx.channels) ? (ctx.channels as string[]).join(', ') : 'Voice, SMS, Email';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // Four defaults used to live here, and the letter is a client's copy of a
+  // consent record:
+  //
+  //   consent_date      ?? new Date()   — today, asserted as the date consent
+  //                                       was given
+  //   channels          ?? 'Voice, SMS, Email'
+  //                                     — consent to all three channels,
+  //                                       asserted when none were supplied
+  //   consent_method    ?? 'Electronic signature via client portal'
+  //   consent_reference ?? 'CST-' + Date.now()
+  //                                     — an invented evidence pointer
+  //
+  // The reference is the worst of the four. `evidenceRef` is the field that
+  // carries proof a consent happened; generating one from a timestamp gives a
+  // client a reference number that resolves to nothing.
+  const consents = ctx.consents as ConsentLetterRecord[] | undefined;
+  if (!Array.isArray(consents)) {
+    throw new DocumentContextRequiredError(
+      'consent_confirmation_letter',
+      'no consent records were supplied. This letter is the copy given to the client of '
+      + 'what the '
+      + 'system holds — the channels, the dates and the evidence reference — so it is read '
+      + 'from the consent record rather than from the request. Send business_id and the '
+      + 'route will read it.',
+    );
+  }
+  if (consents.length === 0) {
+    throw new DocumentContextRequiredError(
+      'consent_confirmation_letter',
+      'no consent is recorded for this client, so there is nothing to confirm. A letter '
+      + 'confirming a consent that was never captured is the document this endpoint exists '
+      + 'not to produce.',
+    );
+  }
+
+  const rows = consents
+    .map(
+      (c) =>
+        `- ${c.channel} (${c.consentType}): ${c.status}, recorded ${c.grantedAt}\n`
+        + `  Evidence reference: ${c.evidenceRef ?? '[not recorded]'}`,
+    )
+    .join('\n');
 
   return `CONSENT CONFIRMATION LETTER
 
@@ -735,14 +1034,18 @@ To: ${clientName}
 
 Dear ${clientName},
 
-This letter confirms that your communication consent preferences have been recorded in our system.
+This letter confirms the communication consent recorded in our system for your account.
 
 CONSENT DETAILS
 
-Consent Date: ${consentDate}
-Consented Channels: ${channels}
-Consent Method: ${(ctx.consent_method as string) ?? 'Electronic signature via client portal'}
-Consent Reference: ${(ctx.consent_reference as string) ?? 'CST-' + Date.now().toString(36).toUpperCase()}
+${rows}
+
+Consent Method: [not recorded]
+
+CapitalForge records the channel, the date, the IP address and an evidence
+reference for each consent. It does not record the METHOD by which consent was
+given, so this letter cannot state one. If you need the method confirmed,
+contact CapitalForge Compliance and quote the evidence reference above.
 
 SCOPE OF CONSENT
 
@@ -770,7 +1073,7 @@ function generateAdverseActionResponse(ctx: Record<string, unknown>): string {
   const issuer = (ctx.issuer as string) ?? '[Issuer]';
   const cardName = (ctx.card_name as string) ?? '[Card]';
   const noticeDate = (ctx.notice_date as string) ?? '[date]';
-  const declineReasons = (ctx.decline_reasons as string) ?? 'The stated reasons have been reviewed and are addressed below.';
+  const declineReasons = (ctx.decline_reasons as string) ?? '[decline reasons]';
   const advisorName = (ctx.advisor_name as string) ?? '[Advisor]';
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -820,6 +1123,33 @@ ${advisorName}
 CapitalForge`;
 }
 
+// ── The fees this letter names are the fees that exist ───────
+//
+// It listed three under ADDITIONAL FEES, each at $0:
+//
+//     Expedited Processing Fee: $0 (included in program fee)
+//     Document Preparation Fee: $0 (included in program fee)
+//     Restack Analysis Fee: $0 for first restack, standard rates apply
+//
+// Those three names appeared nowhere else in this codebase and nowhere in
+// Burkham Wickmont's. They were not the placement schedule either — that is per
+// product and flat per placement: $500 business credit card, $5,000 equipment
+// finance, $7,500 line of credit, $10,000 term loan, $20,000 SBA, $7,500 invoice
+// factoring, in packages/billing/src/successFeeSeed.ts, where `successFeeFor`
+// refuses a fee the Compliance Review Board has not approved.
+//
+// Founder decision, 2026-09-01: they do not exist. The firm charges flat success
+// fees per placement and nothing else. An expedited processing fee, a document
+// preparation fee and a restack analysis fee were never decided, and a letter
+// template is not where a fee gets introduced.
+//
+// So the section is gone rather than priced. The letter generates again, and
+// everything left in it — the flat program fee, the percentage-of-funding fee,
+// the funding estimate — comes from the caller and falls back to a bracket.
+//
+// The rule this leaves behind: a disclosure names the fees that exist. Adding a
+// line here means adding a fee somewhere first.
+
 // ── Template dispatcher ──────────────────────────────────────
 
 const GENERATORS: Record<GeneratedDocumentType, (ctx: Record<string, unknown>) => string> = {
@@ -868,8 +1198,179 @@ documentGenRouter.post(
 
     try {
       const { document_type, context: ctx } = parsed.data;
+      const context = { ...ctx } as Record<string, unknown>;
+
+      // ── Figures this route reads rather than accepts ─────────
+      //
+      // The generators are pure and take a context blob. That is fine for a
+      // client's name and wrong for a verdict: this document tells a client
+      // whether they qualify for another funding round, and a caller who can
+      // type `eligible: true` into a request body can hand a client a letter
+      // saying they qualify when the engine said otherwise.
+      //
+      // So for this one document the route asks restack-trigger, with the
+      // caller's own tenant, and overwrites anything the caller sent under the
+      // same key. `business_id` is required — without it there is nobody to
+      // ask about, and the generator refuses.
+      if (document_type === 'restack_opportunity_summary') {
+        const businessId = typeof context.business_id === 'string' ? context.business_id : null;
+        if (!businessId) {
+          sendError(
+            res,
+            422,
+            'BUSINESS_ID_REQUIRED',
+            'restack_opportunity_summary states whether a client is eligible for another '
+            + 'round, and that verdict is read from the re-stack engine rather than taken '
+            + 'from the request. Supply context.business_id.',
+          );
+          return;
+        }
+        let verdict;
+        try {
+          verdict = await checkRestackEligibility(businessId, tenantId);
+        } catch (err) {
+          if (err instanceof RestackBusinessNotFoundError) {
+            sendError(
+              res,
+              404,
+              'BUSINESS_NOT_FOUND',
+              'No such business in this tenant, so no re-stack review exists to summarise.',
+            );
+            return;
+          }
+          throw err;
+        }
+        context.eligibility = {
+          eligible: verdict.eligible,
+          reasons: verdict.reasons,
+          readinessScore: verdict.readinessScore,
+        };
+        context.client_name = context.client_name ?? verdict.businessName;
+      }
+
+      if (document_type === 'consent_confirmation_letter') {
+        const businessId = typeof context.business_id === 'string' ? context.business_id : null;
+        if (!businessId) {
+          sendError(
+            res,
+            422,
+            'BUSINESS_ID_REQUIRED',
+            'consent_confirmation_letter is the copy given to the client of the consent this '
+            + 'system '
+            + 'holds, so the channels, dates and evidence references are read from the '
+            + 'consent record. Supply context.business_id.',
+          );
+          return;
+        }
+        const statuses = await getConsentService().getConsentStatuses(tenantId, businessId);
+        context.consents = statuses.map((c) => ({
+          channel: c.channel,
+          consentType: c.consentType,
+          status: c.status,
+          grantedAt: c.grantedAt.toISOString().slice(0, 10),
+          evidenceRef: c.evidenceRef,
+        }));
+      }
+
+      if (document_type === 'apr_expiry_warning_letter') {
+        const businessId = typeof context.business_id === 'string' ? context.business_id : null;
+        if (!businessId) {
+          sendError(
+            res,
+            422,
+            'BUSINESS_ID_REQUIRED',
+            'apr_expiry_warning_letter tells a client which of their cards have an '
+            + 'introductory APR ending, so the cards are read from the applications on '
+            + 'file. Supply context.business_id.',
+          );
+          return;
+        }
+
+        // How far ahead to look. Ninety days by default because that is the
+        // window the letter's own advice assumes; a caller may narrow or widen
+        // it, and the letter states what it found rather than the window.
+        const windowDays =
+          typeof context.window_days === 'number' && context.window_days > 0
+            ? context.window_days
+            : 90;
+        const horizon = new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000);
+
+        // Scoped through the business, not by businessId alone.
+        const applications = await sharedPrisma.cardApplication.findMany({
+          where: {
+            businessId,
+            business: { tenantId },
+            cancelledAt: null,
+            introApr: { not: null },
+            OR: [
+              // Ending inside the window...
+              { introAprExpiry: { gte: new Date(), lte: horizon } },
+              // ...or recorded with an intro APR and no end date at all. Not
+              // dropped: a card whose expiry nobody recorded is why the letter
+              // has a second section, rather than a shorter first one.
+              { introAprExpiry: null },
+            ],
+          },
+          select: {
+            id: true,
+            issuer: true,
+            cardProduct: true,
+            introAprExpiry: true,
+            regularApr: true,
+          },
+          orderBy: { introAprExpiry: 'asc' },
+        });
+
+        // The most recent statement carrying each card, for the balance.
+        // `card_applications` has no balance column, so this is the only place
+        // a figure could come from, and it is frequently absent.
+        const statements = await sharedPrisma.statementRecord.findMany({
+          where: {
+            tenantId,
+            businessId,
+            cardApplicationId: { in: applications.map((a) => a.id) },
+            supersededAt: null,
+          },
+          select: {
+            cardApplicationId: true,
+            closingBalance: true,
+            statementDate: true,
+          },
+          orderBy: { statementDate: 'desc' },
+        });
+        const latestByCard = new Map<string, (typeof statements)[number]>();
+        for (const st of statements) {
+          if (st.cardApplicationId && !latestByCard.has(st.cardApplicationId)) {
+            latestByCard.set(st.cardApplicationId, st);
+          }
+        }
+
+        const dayMs = 24 * 60 * 60 * 1000;
+        context.expiring_cards = applications.map((a) => {
+          const st = latestByCard.get(a.id) ?? null;
+          return {
+            cardProduct: a.cardProduct,
+            issuer: a.issuer,
+            introAprExpiry: a.introAprExpiry
+              ? a.introAprExpiry.toISOString().slice(0, 10)
+              : null,
+            daysRemaining: a.introAprExpiry
+              ? Math.max(0, Math.ceil((a.introAprExpiry.getTime() - Date.now()) / dayMs))
+              : null,
+            regularApr: a.regularApr === null ? null : Number(a.regularApr),
+            latestStatementBalance:
+              st?.closingBalance === null || st?.closingBalance === undefined
+                ? null
+                : Number(st.closingBalance),
+            latestStatementDate: st?.statementDate
+              ? st.statementDate.toISOString().slice(0, 10)
+              : null,
+          };
+        });
+      }
+
       const generator = GENERATORS[document_type];
-      const text = generator(ctx as Record<string, unknown>);
+      const text = generator(context);
 
       const result = {
         id: `doc_gen_${Date.now()}`,
@@ -878,7 +1379,9 @@ documentGenRouter.post(
         tenantId,
         text,
         wordCount: text.split(/\s+/).length,
-        context: ctx,
+        // What the document was actually built from, including the figures
+        // this route read rather than accepted.
+        context,
       };
 
       logger.info('[DocumentGenRoutes] Document generated', {

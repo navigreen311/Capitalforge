@@ -151,9 +151,13 @@ describe('calculateFundingReadiness()', () => {
       expect(() => calculateFundingReadiness({})).not.toThrow();
     });
 
-    it('returns score of 0 when all inputs are null', () => {
+    it('returns NO score when all inputs are null, rather than a score of 0', () => {
+      // This asserted `toBe(0)` until 2 September 2026. Zero is a measurement;
+      // an input set with no credit in it produces no measurement. The
+      // 25-point credit component cannot be scored, so neither can the total.
       const result = calculateFundingReadiness({});
-      expect(result.score).toBe(0);
+      expect(result.score).toBeNull();
+      expect(result.notAssessedReason).toBe('no_credit_profile_on_record');
     });
 
     it('score is always between 0 and 100', () => {
@@ -190,7 +194,11 @@ describe('calculateFundingReadiness()', () => {
     it('uses best of personal vs business credit score', () => {
       const onlyPersonal = calculateFundingReadiness({ personalCreditScore: 750 });
       const both         = calculateFundingReadiness({ personalCreditScore: 750, businessCreditScore: 100 });
-      expect(both.componentScores.creditScore).toBeGreaterThanOrEqual(onlyPersonal.componentScores.creditScore);
+      // Both have credit, so neither component is the not-assessed null.
+      expect(onlyPersonal.componentScores.creditScore).not.toBeNull();
+      expect(both.componentScores.creditScore).toBeGreaterThanOrEqual(
+        onlyPersonal.componentScores.creditScore!,
+      );
     });
 
     it('returns 0 debtBurden points for very high DTR', () => {
@@ -234,8 +242,10 @@ describe('calculateFundingReadiness()', () => {
         industry:            'retail', // 0.2 multiplier → 3pts
         existingDebtBalance: 0,        // 10pts
       });
-      // Score is 38–40 range; test track logic at boundary
-      if (result.score >= 40) {
+      // Score is 38–40 range; test track logic at boundary.
+      // Credit is supplied, so this is a real score rather than null.
+      expect(result.score).not.toBeNull();
+      if (result.score! >= 40) {
         expect(result.track).toBe('credit_builder');
       } else {
         expect(result.track).toBe('alternative');
@@ -653,7 +663,13 @@ describe('createBusiness() — with mocked Prisma and EventBus', () => {
     expect(result.business).toBeDefined();
     expect(result.business.legalName).toBe('Test Co LLC');
     expect(result.readiness).toBeDefined();
-    expect(typeof result.readiness.score).toBe('number');
+    // NOT a number at intake. No bureau has been pulled for a business that
+    // did not exist a moment ago, so the client is unassessed rather than
+    // scored out of 75. `restack_recommend` refuses an unassessed client by
+    // name rather than reporting a low score, and the roster renders
+    // "Not assessed" rather than a zero.
+    expect(result.readiness.score).toBeNull();
+    expect(result.readiness.notAssessedReason).toBe('no_credit_profile_on_record');
   });
 
   it('publishes BUSINESS_CREATED event', async () => {

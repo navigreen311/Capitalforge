@@ -13,7 +13,8 @@ import { SectionCard } from '@/components/ui/card';
 interface FundingRoundsTabProps {
   clientId: string;
   clientName: string;
-  readinessScore: number;
+  /** Null when no score has been computed — see the gate below. */
+  readinessScore: number | null;
 }
 
 interface CardInRound {
@@ -146,7 +147,16 @@ function ProgressBar({ pct, achieved, target }: { pct: number; achieved: number;
 export function FundingRoundsTab({ clientId, clientName, readinessScore }: FundingRoundsTabProps) {
   const [tooltipVisible, setTooltipVisible] = useState(false);
 
-  const canStartRound2 = readinessScore >= 75;
+  // Null is not below the threshold, it is no answer. `null >= 75` is false,
+  // so the button was already disabled — but the tooltip read "Client must
+  // reach Readiness Score 75+", which states that the client is below a
+  // threshold nobody has measured them against.
+  //
+  // This 75 is also a THIRD number read off the same column: restack_recommend
+  // gates at 70 and the readiness card colours at 75/55. Recorded in
+  // docs/decisions/restack-recommend.md, entry 6.
+  const notAssessed = readinessScore === null;
+  const canStartRound2 = readinessScore !== null && readinessScore >= 75;
   const progressPct = Math.round((CURRENT_ROUND.achieved / CURRENT_ROUND.target) * 100);
 
   return (
@@ -169,7 +179,9 @@ export function FundingRoundsTab({ clientId, clientName, readinessScore }: Fundi
           </button>
           {tooltipVisible && !canStartRound2 && (
             <div className="absolute right-0 top-full mt-2 z-10 w-64 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white shadow-lg">
-              Client must reach Readiness Score 75+ before starting Round 2
+              {notAssessed
+                ? 'Readiness has not been assessed for this client — no credit profile is on record.'
+                : 'Client must reach Readiness Score 75+ before starting Round 2'}
               <div className="absolute -top-1 right-4 h-2 w-2 rotate-45 bg-gray-900" />
             </div>
           )}

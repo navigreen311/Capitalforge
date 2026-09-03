@@ -22,7 +22,7 @@ be made before any of it can be built.
 
 ## 1. Endpoints that refuse
 
-Twenty-two endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
+Twenty-three endpoints answer `501 NOT_IMPLEMENTED`. Each says why in its response
 body, so a caller does not have to read the source to find out.
 
 The last two arrived differently from the rest. They were not refusals that had
@@ -41,6 +41,7 @@ It answers `501` now.
 | `POST /api/tax/documents/generate`<br>`GET /api/tax/documents`<br>`GET /api/tax/documents/:id/download`<br>`GET /api/tax/documents/:id/summary` | No tax document exists anywhere. These served a 1099-INT marked *final* with $2,345.67 of interest income, a $3,200 deductible fee summary and an IRC 163(j) worksheet — the same figures for every client and year. | **Product.** A 1099-INT is an IRS information return. Needs a `tax_documents` table, a generator driven by the invoices and interest actually recorded, and a status that distinguishes a draft from something filed. Somebody has to own the correctness of the numbers. |
 | `POST /api/platform/integrations/:id/connect`<br>`POST /api/platform/integrations/:id/test`<br>`POST /api/integrations/:provider/connect`<br>`DELETE /api/integrations/:provider/disconnect` | Nothing contacts Plaid, QuickBooks, Xero, DocuSign or Stripe. No table records a connection. | **Integration.** Per provider: OAuth or key exchange, a `integration_connections` table, and a sync that fetches rather than returning a fixed count. |
 | `GET /api/rewards/:clientId/points-balances` | Nothing records points or cash back, and no issuer integration reads them. | **Integration + table.** Balances come from the issuer; there is no source today. |
+| `POST /api/rewards/:clientId/export` | The same balances, exported as a text report — 124,500 Amex points, 89,200 Chase points, $312.47 cash back, $3,206.72 total, identical for every client, and no tenant check on `:clientId`. Its sibling above had already been refused; this was missed. Refused 2026-09-01. | **Integration + table.** Same source as the balances it reported. |
 | ~~`GET /api/contracts/:id/detail`~~ | **Built 2026-08-07.** A `Contract` table holds title, counterparty, type, value, dates and renewal. `autoRenews` is a nullable Boolean on purpose: null means nobody has read the clause, false means it does not renew, and only the first is somebody's to go and find out. An unknown id answers 404 rather than a plausible agreement. | **Done.** |
 | `POST /api/compliance/disclosures/:id/file` | Nothing submits to a regulator, and no table records a filing. | **Product.** Filing is a real-world act with a real-world receipt; the system needs to model what "filed" means before it can claim it. |
 | `POST /api/statements/anomalies/:id/dismiss`<br>`POST /api/statements/anomalies/:id/steps/:step` | A `StatementAnomaly` is computed while reading a statement and carries no identifier, so there is nothing to key a dismissal to. | **Product then table.** Anomalies need stable identity first — deciding what makes two anomalies "the same" across reads — and then somewhere to record a dismissal. |
@@ -547,6 +548,7 @@ specific, and that is the point of listing them apart from the closed rows.
 | `POST /api/tax/documents/generate` + 3 more | A 1099-INT is an IRS information return. Somebody has to own the correctness of the numbers, and no table records the interest they would be computed from. A wrong 1099 is worse than no 1099. |
 | `POST /api/compliance/disclosures/:id/file` | Filing is a real-world act with a real-world receipt. The system needs to model what "filed" means before it can claim it. |
 | `POST /api/statements/anomalies/:id/dismiss` + `/steps/:step` | A `StatementAnomaly` is computed while reading a statement and carries no identifier. Deciding what makes two anomalies "the same" across reads comes before anywhere to record a dismissal. |
+| `POST /api/statements/disputes` — refused 2026-09-01 | Nothing records a dispute and nothing acts on one. Unlike its two neighbours above, this is not blocked on identity: a dispute has real content and an obvious home. It is blocked on whether CapitalForge files billing-error disputes at all, which is a compliance question with a statutory clock attached, not an engineering one. See 3d. |
 | `POST /api/platform/billing/send-overdue-reminders` | Who, when, how often — and what happens when a send fails. |
 | `POST /api/declines/:id/reminder` | The same question. Both send real messages. |
 
@@ -565,6 +567,572 @@ decision, not three. Answering it once unblocks all three.
 `PATCH /api/platform/offboarding/:id/advance`. A stage moves when the export or
 the deletion actually happens. Advancing it by hand is how a workflow comes to
 claim a deletion that never ran.
+
+
+
+### 3e. Nothing records HOW a consent was obtained — open, 2026-09-01
+
+`generateConsentConfirmationLetter` printed
+`Consent Method: ${ctx.consent_method ?? 'Electronic signature via client
+portal'}` — a statement, in the client's own copy of their consent record, of
+how that consent was captured.
+
+**There is no such field.** `ConsentRecord` holds `channel`, `consentType`,
+`status`, `grantedAt`, `revokedAt`, `revocationReason`, `ipAddress`,
+`evidenceRef` and `metadata`. No method column exists anywhere in the schema,
+and `consent_method` appears in exactly one place in the codebase: the string
+that letter used to print. The default was not a stale value — it was the
+whole field.
+
+The letter now says `[not recorded]` and explains that the system records the
+channel, the date, the IP address and an evidence reference, not the method.
+
+**Why this matters more than the default did.** The `consent_grant` manual
+states that `evidenceRef` is the only field carrying proof a consent happened.
+That is correct, and this letter contradicted it: it asserted a method the
+record does not hold, beside a `Consent Reference` that was
+`'CST-' + Date.now().toString(36)` when none was supplied — an invented
+evidence pointer, given to a client, resolving to nothing.
+
+### DECISION NEEDED — not a migration
+
+**Do not add the column on engineering judgement.** The work is half a day: a
+`method` column on `ConsentRecord`
+(`portal_signature | voice_recorded | sms_reply | wet_signature | imported`),
+set at capture, plus the four or five call sites that create a consent. That is
+not the question.
+
+The question is whether the method of consent is something Burkham should be
+recording at all. Two things bear on it:
+
+- **Every existing row is `[not recorded]`, permanently, and that is correct.**
+  The method of a consent captured last year is genuinely unknown. Backfilling
+  a guess would be this same defect one migration further from anyone noticing
+  — a column full of `portal_signature` that nobody ever verified, indexed and
+  queryable and wrong. So the column improves consents captured AFTER it ships
+  and nothing before, and the letter keeps saying `[not recorded]` for the back
+  catalogue either way.
+
+- **`evidenceRef` may already be the answer.** The `consent_grant` manual says
+  it is the only field carrying proof, and it is a pointer to the artefact — a
+  call recording, a signed form, a portal event. Whoever opens that artefact
+  learns the method from it. A `method` column would be a summary of something
+  the evidence already establishes, which is worth having only if somebody
+  needs to filter or report on it without opening the evidence.
+
+**The case for adding it** is that a regulator asking "how were these consents
+obtained" wants a count by method, not a folder of recordings, and TCPA
+disputes turn on exactly that. **The case against** is a column that is null
+for every historical row and only as good as the discipline of whoever sets it.
+
+Flagged 2026-09-01. Awaiting a decision; the letter is honest either way.
+
+**Two more defaults were in the same letter**, and both are fixed with it: the
+consent date fell back to today, and the channels fell back to
+`'Voice, SMS, Email'` — telling a client they had consented to all three when
+nobody had said so, on the letter that is their record of what they agreed to.
+The letter is now built from the consent records themselves and refuses when
+there are none, because a letter confirming a consent that was never captured
+is the document that endpoint exists not to produce.
+
+
+
+
+### 3i. Every module read before the conventions existed is stale against them — open, 2026-09-02
+
+**This is a conformance sweep, not a defect sweep, and it should happen once at
+the end rather than per module.**
+
+Ten modules were swept between 1 and 2 September. The conventions that now
+govern how a module answers were written *during* that sweep, mostly near the
+end, so most modules were read and fixed against rules that did not exist yet.
+They are not wrong. They are inconsistent with what came after, and an agent
+reading three manuals written to three different standards is the problem the
+conventions exist to prevent.
+
+**The conventions, and when they appeared:**
+
+| Convention | Where it lives | Written |
+|---|---|---|
+| An empty result carries a `basis` | shared rule 2 | 2 Sep, after eight modules |
+| A module id groups by blast radius, not URL prefix | `docs/callable-modules.md` rule 1 | 2 Sep, from the client split |
+| Path depth is not evidence of blast radius | `docs/callable-modules.md` rule 2 | 2 Sep, same |
+| A refusal is not an absence | shared rule 1a | 2 Sep, last |
+| Never infer what you cannot read | shared rule 1b | 2 Sep, last |
+| A count travels with its denominator | shared rule 7 | 2 Sep, from the restack scan |
+
+**The sample, measured rather than guessed.** `statement_pull` was read and
+fixed on 1 September, before all six. Against them today it opens four to six
+items:
+
+- no `basis` on any empty result in the module — the anomaly report, the
+  statement list, the line-items refusal;
+- `channel` on ingest is a free string, where `scan_communication` now has an
+  enum drawn from one shared list;
+- the anomaly report gives a count with no denominator — how many statements
+  were scanned, not only how many carried anomalies;
+- read and write endpoints share one module id, with the ingest/reconcile
+  split never made;
+- the two 501 refusals predate rule 1a and are not described as refusals in
+  those terms anywhere an agent would read.
+
+**Expect a similar count per module**, weighted towards the ones read earliest.
+Roughly thirty to fifty items across the ten, nearly all of them one-line
+response-shape changes or a paragraph in a manual.
+
+**Why once, at the end.** Doing it per module means re-reading each one every
+time a convention is added, and the conventions are still settling — three of
+the six are less than a day old. A single pass after the last module is read
+costs one traversal instead of ten, and it is the point at which the
+convention set is stable enough to be worth conforming to.
+
+**What this is not.** None of these is a live defect. The fixes shipped during
+the sweep stand; this is the difference between a module that is correct and a
+set of modules that are consistent. Recorded so it is not rediscovered per
+module and fixed piecemeal, which is exactly the shape the sweep found
+everywhere else — a class found and fixed three times, each time only in the
+surface someone was looking at.
+
+
+### 3j. Evidence is append-only, and an item attached in error is annotated — DECIDED 2026-09-02
+
+`attachEvidence` adds references to a complaint. **Nothing removes one, and
+nothing records that one was removed.**
+
+There is no detach endpoint, so within the API evidence is append-only — which
+is arguably the right property for an evidence record. The gap is what happens
+outside it: a reference edited out of `evidenceDocIds` by a migration, a
+support script or direct SQL leaves no trace at all. The array is simply
+shorter, and the complaint file cannot answer whether an item was never
+attached or was taken away.
+
+As of 2026-09-02 `evidenceItems` records who attached each item and when, so
+additions have provenance. Removals still have none, because there is no
+removal to record.
+
+**DECIDED: append-only, with annotation. There is no detach endpoint and there
+will not be one.**
+
+An item attached in error is annotated, never removed. That is what a
+regulator expects of an evidence record, and it is the reason the alternative
+was rejected rather than deferred: a `detachEvidence` that marks `removedAt`
+would work, but it makes withdrawal a normal operation on a file whose value
+depends on nothing having been withdrawn.
+
+Three things follow, none of them an endpoint:
+
+1. **The manuals say evidence cannot be withdrawn.** An agent that attaches
+   the wrong reference cannot undo it and must say so.
+2. **Annotation is the correction.** An item attached in error is answered by
+   a note recorded against the complaint, not by a shorter array.
+3. **A check that nothing outside the API shortens those arrays.** The API is
+   already append-only by construction — no code path removes a reference —
+   so what needs guarding is everything else: a migration, a support script,
+   direct SQL. Not built; the check has no natural home yet, and it is worth
+   recording that the guarantee currently rests on nobody having written the
+   code to break it.
+
+Additions have provenance as of 2026-09-02: `evidenceItems` records who
+attached each item and when. Under this ruling that is the whole history,
+because there is nothing else to record.
+
+
+### 3k. Submission gate 6 is inert — recorded, not fixed, 2026-09-02
+
+`ApplicationGateChecker.checkAll` describes six pre-submission gates. **Five
+run.**
+
+`cu_membership_disclosure` executes only when `issuerType === 'credit_union'`.
+Neither caller passes an issuerType, and neither can: `CardApplication` carries
+an issuer NAME and no issuer TYPE column, so no value anywhere in the system
+produces `'credit_union'`. The gate has never fired and cannot.
+
+Recorded rather than fixed because wiring it means deciding how an issuer's
+type is known — a column, a lookup against the issuer registry, or a
+classification derived from the name — and that is a data-model decision rather
+than a bug. Inventing a source here would give this path a fact the other one
+does not have.
+
+**What matters meanwhile is that it is described as enforced.** The gate list
+appears in `application-gates.ts`, in `applications.routes.ts`, and in any
+manual describing `submit_application`. All three now say five enforced and
+one inert. A control counted but not running is the shape a compliance review
+is least likely to catch, because the code names it and the tests exercise it
+directly.
+
+It is scoped to the tenant like the other five as of 2026-09-02 — the day
+something wires it up is not the day to remember it was the one gate reading
+across tenants.
+
+
+### 3l. Two ways a route escapes the ownership guard — open, 2026-09-02
+
+Both were found under `restack_recommend`, and both are classes rather than
+instances.
+
+#### The mount prefix does not match, and the route file cannot show it
+
+`requireOwnedBusiness` is installed as `apiRouter.use('/businesses/:id', ...)`.
+Express matches `use` against the **request path**, which is why a router
+mounted at `'/'` declaring `/businesses/:id/...` in its own paths *is* covered
+— that is load-bearing enough to be proven in
+`business-ownership-mount.test.ts`.
+
+The inverse is not covered and looks identical in the route file.
+`hardshipRouter` mounts at `/hardship` and declared
+`/businesses/:id/restack/readiness`. The request path is
+`/api/hardship/businesses/:id/...`, which does not start with `/businesses/`,
+so the guard never ran. **Nothing in `hardship.routes.ts` distinguishes that
+from the covered case** — the declared path is the same; only the mount line in
+`index.ts` differs.
+
+The two deleted routes were the instance. The class is every router mounted at
+a non-root prefix that declares `/businesses/:id/...` in its own paths.
+`check-route-tenancy` computes effective paths and would catch a fresh one, so
+the exposure is bounded — provided the second problem below is fixed.
+
+#### `hasTenant`: mentioning the tenant is not scoping to it
+
+`check-route-tenancy` ends with:
+
+```ts
+const hasTenant = /tenantId/.test(body);
+if (!unscoped && hasTenant) continue;
+```
+
+A handler that mentions `tenantId` anywhere passes. The deleted readiness route
+mentioned it to **stamp a ledger event** and used it to scope nothing, and the
+check passed it — an unguarded business id and a ledger write, silently clean.
+
+**This is the fourth instance of marker-presence in these scripts**, after a
+501 exempting fifteen templates, one `await getConsentService()` exempting
+sixteen generators, and a comment satisfying the ownership-helper test. It sits
+in this guard's last remaining fallback, which is the one place the class had
+not yet been found.
+
+**Why it has not been tightened yet.** The fallback exists because a handler
+that passes a business id to a service is unanalysable from the route file, and
+without it the check reports every such handler. Removing it turns
+`check-route-tenancy` from three allowlisted entries into something closer to
+the service guard's thirty-three — a triage, not a build break, and it should
+land reporting-only the way `check-service-tenancy` did.
+
+**The better fix is narrower:** require that `tenantId` appear in a `where`, a
+service-call argument list, or an ownership-helper call — not merely somewhere
+in the body. A `tenantId` that only reaches an event payload or a log line is
+not evidence of scoping, and that distinction is checkable.
+
+Not built. Recorded because the class is now known and the instance that
+exposed it has been deleted, which is exactly how a finding gets forgotten.
+
+### 3m. The debt component of the readiness score cannot be earned — open, 2026-09-02
+
+`scoreDebtBurden` is worth **10 of the score's 100 points** and no caller has
+ever supplied either of its inputs.
+
+`existingDebtBalance` appears in exactly one place outside
+`funding-readiness.ts`: `createBusiness` passing an explicit `null`.
+`monthlyDebtService` appears nowhere at all. There is no column for either —
+`Business` carries `annualRevenue` and `monthlyRevenue` and no debt field, and
+`HeldCard` carries `creditLimit` with no balance.
+
+So the branch that returns `{ points: 0, label: 'no data' }` is the only branch
+production ever reaches. **Every score in the database is out of 90**, and it is
+compared against thresholds written for 100 — `>= 70` for the re-stack floor,
+`>= 75` for "Start Round 2", `>= 40` for the credit-builder track. A client who
+would score 78 with a clean debt picture scores 78 anyway, because the ten
+points were never available to anyone; a client is not penalised relative to
+their peers, but every threshold is effectively eleven per cent stricter than it
+reads.
+
+This is the same shape as the credit component fixed on 2026-09-02 (see
+`docs/decisions/restack-recommend.md`, entry 8) with one difference that decides
+the treatment: credit **exists** in the database and the recompute was throwing
+it away, so it was a code fix. Debt does not exist anywhere. Returning null for
+it — the consistent treatment — would make **every** business permanently
+unassessed, which is worse than the current understatement.
+
+**Three options, none chosen:**
+
+1. **Find a data source.** Card balances from a bureau pull, or an advisor-
+   attested figure at intake. Then the component works as designed and this
+   closes.
+2. **Reweight to 90 and document it.** Honest arithmetic on the data that
+   exists; the thresholds then mean what they say. Changes every score in the
+   database.
+3. **Leave it and say so in the score's own output** — a `componentsUnavailable`
+   field, the way the compliance manifest reports `documentsUnverifiable`.
+
+**Founder's lean, 2026-09-02 — option 2, not acted on.** Reweight to 90 and say
+so. The reasoning, recorded because the lean is not yet a ruling:
+
+  - **Option 3 is more principled and less useful.** Declaring the component
+    unavailable in the score's own output is the honest treatment and it makes
+    every score in the system carry a caveat nobody can act on. A caveat that
+    attaches to every row is not information; it is noise that readers learn to
+    skip, and it would attach to a score that is otherwise sound.
+  - **Option 1 is a decision, not a fix.** Choosing a debt data source — bureau
+    balances, an advisor-attested figure at intake, something else — is a
+    product decision about what Burkham asks clients for and what it trusts. It
+    does not belong in a defect sweep.
+
+**Held pending what else reads that score.** The ruling waits until the full set
+of consumers is known; reweighting changes every number in the database and every
+threshold read off it, and that is not a change to make while the reader list is
+still growing. See §3n.
+
+Not a defect in the sense the sweep has been using: nothing here states a
+falsehood. It is a scale that quietly lost a tenth of itself, which is the kind
+of thing that reads as fine until somebody asks why nobody scores above 90.
+
+### 3n. Three thresholds read off one column, none of them defined — open, 2026-09-02
+
+`Business.fundingReadinessScore` is read by at least three surfaces that each
+apply their own cut-off, and nothing anywhere states what any of the numbers
+means:
+
+| Where | Threshold | What passing it is taken to mean |
+|---|---|---|
+| `restack-trigger.ts` `MIN_READINESS_SCORE` | `>= 70` | Fundable enough to be considered for another round |
+| `FundingRoundsTab.tsx` `canStartRound2` | `>= 75` | Allowed to start Round 2 from the UI |
+| The client detail readiness card | `>= 75` green, `>= 55` amber, else red | How worried an advisor should be |
+| `funding-readiness.ts` `resolveTrack` | `>= 70` / `>= 40` | Which product track the client is routed to |
+
+**This is the four-writers defect on the reading side.** The writers were fixed
+on 2026-09-02 — three of four were recomputing the score without its credit
+component, so the column was whatever the last writer happened to know (see
+`docs/decisions/restack-recommend.md`, entry 8). The readers have the mirror
+problem: one column, four independent opinions about where its meaningful
+boundaries are, and no shared definition to check any of them against.
+
+The concrete inconsistency: a client scoring 72 is **eligible** for a re-stack
+according to the engine and **cannot start Round 2** according to the button in
+the UI that would act on that eligibility. Nothing in either surface tells an
+advisor that, and nothing tells them which number to believe.
+
+70 and 40 at least come from one place — `resolveTrack`'s track boundaries, which
+the re-stack gate borrowed (entry 6). The two 75s and the 55 come from nowhere
+that can be traced.
+
+**Not a fix for today.** Reconciling them means deciding what the score means
+first, and that is the same decision §3m is waiting on. Recorded so it is a known
+item rather than a note in one engine's header, which is where it currently
+lives.
+
+### 3o. `lender_match` is a named module with no content — open, 2026-09-02
+
+**The Burkham Wickmont Pack declares a module this Forge does not have.**
+
+`lender_match` appears in `theoffice/packs/burkham-wickmont.draft.yaml` under
+`forge_modules_operated`, and in the split draft it is granted at
+**`auto_execute`** — the highest trust tier, the one that runs without a human
+in the loop.
+
+It does not exist in CapitalForge. No service, no route, no handler, no symbol,
+no module id. A repository-wide search for `lender_match`, `lenderMatch`,
+`matchLenders` and `lender-match` returns exactly one hit: a line in this file
+saying *"Flagged during the `lender_match` module review, 2026-09-01"*, attached
+to the AI-decision-log coverage gap.
+
+**This is the same shape as the five Firewall rules** — a named control that
+resolves to nothing, where the name is doing all the work. A reader of the Pack
+sees a governed capability with a trust tier; there is no capability.
+
+**Two distinct problems, and the second is the worse one.**
+
+1. *The name resolves to nothing.* Nobody can grant, revoke, audit or test it,
+   and a review that believed it was reviewing something produced a gap entry
+   attributing its finding to a module that was never read.
+
+2. *Nothing checks that a Pack's declared modules exist in the Forge.* This was
+   found by hand, because a manual mentioned it. A Pack can name any module and
+   assign it any tier, and no seam between The Office and a Forge compares the
+   declaration against what the Forge actually exposes. Every other module id in
+   that list is real today; nothing keeps that true.
+
+**Also note the terminology.** CapitalForge places clients with card **issuers**,
+not lenders. If `lender_match` was meant to name something real, the candidates
+are `issuer-rules-engine.ts` (already swept), `stacking-criteria.service.ts`,
+`suitability-engine.ts` or `credit-optimizer.ts` — and the naming mismatch is
+itself evidence that the Pack entry was written from an idea of the product
+rather than from the product.
+
+**Not fixed, and the fix is not code in CapitalForge.** It is either removing the
+declaration, or building the module and naming it for what it does. The
+conformance check in problem 2 is the durable half and belongs in The Office.
+
+### 3h. There is no tenant-level communication monitoring report — open, 2026-09-02
+
+Nothing answers "show me your communication monitoring" at the level the
+question is actually asked.
+
+`comm_compliance_records` holds every scan — advisor messages and marketing
+scripts, the rules applied, the outcome, the violations found — and the only
+ways to read it are `GET /api/advisors/:id/qa-scores`, which is a different
+record entirely, and direct SQL. The compliance manifest deliberately does not
+carry scans (§3g): they are tenant-scoped by nature, so a per-business section
+would be sparse for reasons a reader could not see.
+
+**What the report would be.** Over a date range, for a tenant: how many
+communications were scanned, by channel; how many were approved; the
+violations found, by category and by claim, with counts; how many scans a
+person reviewed and how many nobody has read (`humanReviewedAt` is null for
+most of them); and the advisors those scans belong to. An INDEX, not the
+messages — the message text is inline in `content` and
+`contentWithDisclosures`, and a bulk export of client communications is
+retrieval under supervision rather than something an agent triggers. Any
+implementation must select fields explicitly and carry a test asserting the
+serialised report contains neither column, written so a third content column
+added later fails it too.
+
+**Why it matters more than it looks.** This is the record a regulator asks for
+by name, and today the honest answer is that the data exists and nothing reads
+it. The scans themselves became trustworthy on 2026-09-01 — the advisor is
+verified, the violation reaches the ledger, repeats are counted, the disclosed
+text is stored — which is what makes a report worth building now and would not
+have been true a week ago.
+
+**Not started.** Roughly a day: one aggregate query, a shaped response, a route
+gated on `COMPLIANCE_READ`, and the field-selection test. The design question
+is whether it belongs beside the manifest as an export or as a dashboard
+surface — a regulator wants a document, an operator wants a page, and they are
+not the same artefact.
+
+### 3f. Manifest and packet are two modules — DECIDED 2026-09-02
+
+`GET /api/documents/export/:businessId` assembles a JSON manifest: the
+compliance records, plus **references** to the vault documents — `storageKey`,
+`sha256Hash`, `cryptoTimestamp`. Nothing in this repository fetches a byte of
+the documents or builds an archive. The route sets
+`Content-Disposition: attachment`, so a browser saves a file and it looks like
+a deliverable.
+
+The service header used to call it "one-click regulator-ready packet
+assembly", output that "can be zipped and handed to regulators / counsel". It
+now says what it is, and the payload carries `contents: 'references'` so a
+reader sees it without reading this file.
+
+**Decided: a packet is not a bigger manifest. It is a different act.**
+
+An index says what exists; a packet transfers it. They are two modules, and
+this one is the manifest. `build_packet` as a module name describes the
+manifest and should be read that way until a packet module exists.
+
+**DECIDED 2026-09-02, after reading `assemble_evidence`:**
+
+**Manifests stay internal, and neither module transfers bytes.** Both produce
+reference lists and that is what they are. `build_packet` is the compliance
+manifest; `assemble_evidence` is the complaint evidence index. Neither is a
+transfer mechanism and neither should become one by accretion.
+
+**When a packet exists, transfer under legal hold is decided per recipient**,
+not per module and not once for the system. A document under hold handed to
+counsel, to a regulator, and to the complaining client are three different
+disclosures with three different answers, and a rule that resolves them
+together would have to resolve them at the most permissive.
+
+**A complaint file is the first case, because it has a counterparty by
+design.** `assemble_evidence` is confirmed structurally identical to
+`build_packet` — reference lists, no bytes — but different in the one way that
+matters here: a regulator or the complaining client is the *intended*
+recipient, where a compliance manifest is internal until somebody decides
+otherwise. So the per-recipient rules get exercised there first, and that is
+the module to reason from when the packet is built.
+
+The engineering, when it is unblocked, is the old PRODUCTION NOTE: an archive
+stream, per-document S3 reads, a response that cannot be buffered in memory,
+and a size limit somebody chooses. None of it is the hard part.
+
+The engineering, when it is unblocked, is the old PRODUCTION NOTE: an archive
+stream, per-document S3 reads, a response that cannot be buffered in memory,
+and a size limit somebody chooses. None of it is the hard part.
+
+### 3g. What the manifest contains — DECIDED 2026-09-02, one item blocked
+
+**`ledger_events` — INCLUDED.** The canonical audit spine now travels in the
+manifest, with the payload, because the envelope alone is a timestamp rather
+than evidence.
+
+Nothing on a ledger row names a business, so attribution is by
+`aggregateId = businessId OR payload.businessId = businessId`, and each event
+reports which predicate matched. **What that misses is stated in the manifest
+itself** (`ledgerScopeNote`): an event whose aggregateId is a child entity —
+an application, an authorisation — and whose payload omits businessId is not
+found. The section is what can be attributed, not everything that touched the
+business, and a regulator is owed the second sentence.
+
+**`comm_compliance_records` — DECIDED OUT, on scope.** Considered for
+inclusion as an index without message content, and rejected — not because it is
+hard, but because it is the wrong shape.
+
+A scan is **tenant-scoped by nature.** `comm_compliance_records` carries
+`tenantId` and `advisorId` and no `businessId`, and that is not a gap in the
+schema: there is no per-client fact to record. An advisor scans messages across
+many clients, and a `video_script` scanned before render relates to none.
+Communication monitoring is a programme, not a per-client fact.
+
+Adding a nullable `businessId` would have produced a per-business section that
+is sparse for reasons a reader could not see from the manifest — the same shape
+the decision log is excluded for, one paragraph down. The per-business framing
+was the error, not the missing column.
+
+"Show me your communication monitoring" is answered by a tenant-level report.
+See §3h.
+
+**`ai_decision_logs` — EXCLUDED, and the reasoning is recorded rather than the
+exclusion alone.** `AI_MODULE_SOURCES` names nine modules and only
+`issuer_eligibility` writes a row (§7b). A section here would be almost empty
+for every business and would read as "no decisions were made about this
+client" — the absence-as-value shape, in the document where it does the most
+damage. **Revisit when the other eight write:** at that point the section
+becomes a real record of what a placement strategy was built on, and the
+argument for excluding it stops holding. This is a decision with an expiry, not
+a permanent omission.
+
+**`regulatory_dossier_exports` — EXCLUDED.** A manifest listing its own
+predecessors tells a reader about this system rather than about the business.
+The export history is available to whoever administers the system without
+being carried to a regulator.
+
+**`business_owners`** remains excluded and is not a gap: beneficial owners with
+encrypted SSNs are retrieved through a separately permissioned endpoint.
+
+### 3d. The dispute that looked filed — refused 2026-09-01
+
+`POST /api/statements/disputes` answered **201** with
+`id: "disp-<timestamp>"`, `status: "open"` and
+`estimatedResolution: "5-10 business days"`, and pushed the dispute onto a
+module-level array. Nothing read that array. Nothing persisted it. It emptied
+on every restart, and no `statement_disputes` table exists.
+
+It also never read `req.tenant`: no tenant scoping, and no check that the
+statement id existed or belonged to the caller. Any authenticated caller could
+file a dispute against any statement id, real or invented, and be told it was
+open.
+
+**Why it survived the sweep that refused its two neighbours.** Anomaly
+dismissal and investigation steps also wrote to module-level objects, and both
+were converted to 501 on 2026-08-07. This one was three lines away and was
+missed because a 201 carrying an id looks like a record was created. The other
+two returned nothing you could mistake for a receipt.
+
+**Why an invented SLA is the worst part.** Of everything in this document, a
+billing-error dispute is the record with an actual statutory clock on it. The
+answer did not merely fail to file — it told the caller when to expect
+resolution. Nobody chases a dispute they have been told is in progress.
+
+**What building it costs: about a day.** `tradeline_disputes` already exists
+and is the model — tenant id, subject id, reason, status
+(`pending | submitted | resolved | rejected`), `filedAt`, `resolvedAt`,
+`resolutionNote`. A `statement_disputes` table in that shape, a create that
+verifies the statement belongs to the tenant, a list-by-statement read, and a
+status transition. The engineering is small.
+
+**What is actually blocking it is not the day.** It is whether CapitalForge
+files disputes with issuers at all, or only records that a client raised one.
+Those are different products: the first has a deadline and a counterparty, the
+second is a note. The endpoint's own answer — "5-10 business days" — assumed
+the first. Nobody decided it.
 
 ### "No money moves" is true for reasons that can change without anyone noticing
 
@@ -1079,6 +1647,12 @@ request, not of the product, and there is nothing about them to enumerate.
 - `/financial-control/tax` — tax document generation
 - `/funding-rounds/[id]` — advisor and target close date; round economics
 - `/multi-tenant` — subscription invoices; advisor and client counts; activity log; impersonation
+- `/platform/workflows` — an execution log. Nothing executes a saved rule, so no
+  workflow has ever fired. The page rendered `MOCK_EXECUTION_LOG` — entries naming
+  a workflow, a trigger, an action taken and a count of clients affected, with a
+  success/failure filter — while the endpoint beneath it answered
+  `execution: {runs: false}`. Recorded as removed on 2026-08-08 in two documents
+  and actually removed 2026-09-01
 - `/platform/visionaudioforge` — document and audio analysis
 - `/referrals` — advisor referral tracking
 - `/rewards` — best card per category
@@ -1245,6 +1819,120 @@ function, and the point is to reach someone planning work before that.
 - Coaching is keyed on **tier alone** and asserts client facts it never reads.
 
 ---
+
+## 7b. ~~Nothing records that an eligibility question was asked~~ — issuer eligibility records, 2026-09-01
+
+**`GET /issuers/:id/eligibility` computes an answer and returns it. Nothing
+keeps it.** The context is rebuilt from live data on every call — held cards,
+open applications, inquiries, the issuer's current rules — so re-running the
+same URL next week produces a different answer with no trace of the earlier
+one. This is the answer a placement strategy is built on.
+
+What is lost is not mainly the verdict. It is everything qualifying the
+verdict, and that is the volatile part:
+
+- **`unevaluatedRules`.** A rule blocking today because nobody finished
+  recording its threshold evaluates normally once somebody does. The record
+  that an advisor was told the rule was unconfigured disappears with the fix.
+- **`caveats`.** The 5/24 figure is a floor whose height depends on which held
+  cards had been attested *at the time of asking*. An attestation added later
+  silently improves the past.
+- **The held-card tally itself**, which is an advisor's claim, not a
+  measurement — and claims get corrected.
+
+So when a client is declined, nobody can show what the system said, on what
+basis, or which of the three the advisor actually relied on.
+
+### The table already exists, and nothing writes to it
+
+`AiDecisionLog` (`ai_decision_logs`) carries exactly this shape:
+`moduleSource`, `decisionType`, `inputHash`, `output`, `confidence`,
+`overriddenBy`, `modelVersion`, `latencyMs`. Its `moduleSource` union names
+`stacking_optimizer`, `suitability_engine`, `credit_intelligence`,
+`udap_scorer` and four more.
+
+**None of those eight write a row.** The only writer in the codebase is
+`POST /api/ai-governance/decisions`, an admin endpoint gated on
+`COMPLIANCE_WRITE` — a human posting a decision by hand. The engines that
+actually decide things do not call it.
+
+And there is a reader. `GET /api/businesses/:id/decisions/explain` returns
+`{ data: [], meta: { total: 0 } }` — which is what a compliance officer sees
+for a business the system has made a dozen recommendations about. An empty
+list reads as *no decisions were made*, not as *no decision has ever been
+recorded by anything*. Same shape as section 2: a computed absence rendering
+as a valid value, here on the surface whose whole purpose is to answer "why
+did you recommend that".
+
+### What recording costs
+
+- **The write, for issuer eligibility alone: about half a day.** A call to
+  `logAiDecision` at the end of `checkIssuerEligibility`'s route, with the
+  whole `EligibilityResult` — caveats and `unevaluatedRules` included — as
+  `output`, plus the `EligibilityContext` hashed into `inputHash` so two
+  answers can be compared without storing a client's credit profile twice.
+  `businessId` must go into `output`, because that is the key
+  `getBusinessDecisionExplanations` filters on.
+- **The other seven module sources: a day or so**, mostly finding where each
+  engine's decision actually surfaces.
+- **The empty-list fix is independent and smaller**: the explain endpoint
+  should distinguish "nothing recorded" from "nothing decided" whether or not
+  the writes are built. Until an engine writes, the honest answer is that this
+  system does not record its decisions — which is worth saying out loud on the
+  page a regulator would be shown.
+
+### The objection, and the answer
+
+Recording on a `GET` makes a read write. Two ways out: accept it (the write is
+a fact about the question having been asked, not about the client), or make the
+recording explicit — the surface that *acts* on an answer posts it. The second
+is cleaner and costs a round trip; the first cannot be forgotten by a caller.
+**Recommend the first**, because the failure being fixed is precisely that
+nobody remembered to record.
+
+### Built, same day
+
+**`GET /issuers/:id/eligibility` writes a row**, when a `businessId` was named
+— a default-context preview is a decision about nobody, and logging it would
+fill the record a compliance officer reads with UI probes. The whole
+`EligibilityResult` goes into `output`, `caveats` and `unevaluatedRules`
+included, with `businessId` alongside it because that is the JSONB path the
+reader filters on. The `EligibilityContext` is hashed into `inputHash` rather
+than stored, so two answers can be compared without keeping a second copy of a
+client's credit profile. `confidence` and `modelVersion` stay null: this is
+rule evaluation, and a confidence figure invented for it would be the
+fabrication this log exists to catch. A failed write does not fail the answer,
+but it is reported — the response carries `decisionNotRecorded` saying the
+answer cannot be produced later.
+
+**The empty list now says what it is.** `getBusinessDecisionExplanations`
+returns `{ decisions, coverage }`, and `coverage` is derived from the table
+rather than asserted: a `groupBy` over `moduleSource` gives the modules that
+have actually recorded something for this tenant, and everything else in
+`AI_MODULE_SOURCES` is named as silent. When nothing has recorded anything the
+note says so outright — *an empty list here means nothing writes to the
+decision log, not that no decisions were made*.
+
+`AI_MODULE_SOURCES` is now the single list. The union derives from it, and so
+does the admin endpoint's zod enum, which was a second hand-kept copy of the
+same nine names.
+
+**Also closed while here: a cross-tenant read.** `buildContextFromBusiness` ran
+`findUnique({ where: { id: businessId } })` with no tenant filter, so any
+authenticated caller could pass any business id and read back its credit score,
+age and revenue as `currentValue` on the rule violations. The mount-table guard
+covers `:id` and `:clientId` in a path; this id arrives as a query parameter,
+which `check-route-tenancy`'s own comment names as what it cannot see. Missing
+and other-tenant now answer identically.
+
+**Still open: the other eight modules.** `stacking_optimizer`,
+`suitability_engine`, `credit_intelligence`, `udap_scorer`, `decline_recovery`,
+`contract_analysis`, `comm_compliance` and `fraud_detection` are all named in
+the union and none writes a row. A day or so, mostly finding where each
+engine's decision actually surfaces. Until then `coverage.silent` names them on
+every read, which is the honest interim answer.
+
+**Flagged during the `lender_match` module review, 2026-09-01.**
 
 ## 6b. ~~A signer is a business, not a person~~ — fixed 2026-08-07
 

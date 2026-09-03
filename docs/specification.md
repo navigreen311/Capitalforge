@@ -77,7 +77,10 @@ indicate rather than confirmed behaviour:
   that declare whether each came from a published rule or an unresearched default
   (`stacking-optimizer.service.ts:1590`)
 - **Place applications through a validated state machine** — draft → pending
-  consent → submitted → approved/declined, with maker-checker on submit and a
+  consent → submitted → approved/declined, with maker-checker on submit — true
+  of both routes to `submitted` since 2026-09-01, and true only of
+  `PUT /applications/:id/status` before that, while `POST /applications/:id/submit`
+  ran three inline checks and neither maker-checker nor KYB/KYC — and a
   decision transition that records `decidedAt`, `declineReason` and, since
   2026-08-08, the limit actually granted
 - **Group applications into funding rounds** and track graduation/readiness
@@ -121,9 +124,13 @@ about ten action types including `voiceforge`, `docusign`, `webhook`. The record
 is stored and listed.
 
 **No scheduler, runner or cron consumes it.** A saved workflow will never fire.
-Until 2026-08-08 the page also showed three executions from
-`MOCK_EXECUTION_LOG`, a frontend constant naming workflows that did not exist —
-0 workflows configured and 3 executions on the same screen.
+Until 2026-09-01 the page also showed executions from `MOCK_EXECUTION_LOG`, a frontend constant
+naming workflows that did not exist — 0 workflows configured and N executions on
+the same screen. It was recorded as removed on 2026-08-08 and was not; the
+constant went on driving a "Show Execution Log" panel for another three weeks
+while the endpoint beneath it answered `execution: {runs: false}`. Removed
+2026-09-01. The panel is now a `not_built` state saying no workflow has ever run,
+registered in `gaps.md` §5.
 
 ### It does not import statement documents
 
@@ -166,7 +173,7 @@ covers this.
 
 ### Other endpoints that refuse (501)
 
-Ten in total. Each states why in its response body rather than failing silently:
+Twelve in total. Each states why in its response body rather than failing silently:
 
 | endpoint | refuses because |
 |---|---|
@@ -178,6 +185,8 @@ Ten in total. Each states why in its response body rather than failing silently:
 | `POST /platform/integrations/:id/test` | same |
 | `GET /platform/crm/mrr-trend` | — |
 | `GET /rewards/:clientId/points-balances` | nothing records points or cash back |
+| `POST /rewards/:clientId/export` | exported those same balances as a document. Refused 2026-09-01 |
+| `POST /spend-governance/export-evidence` | returned an EVIDENCE report whose every figure — 142 transactions, three named violations with merchants and amounts — was written into the handler. Refused 2026-09-01 |
 | `POST /statements/anomalies/:id/dismiss` | anomalies are derived and carry no id |
 | `POST /statements/anomalies/:id/steps/:step` | same |
 

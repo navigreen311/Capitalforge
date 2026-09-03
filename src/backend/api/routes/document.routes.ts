@@ -5,7 +5,7 @@
 // GET    /api/businesses/:id/documents        — list with filters
 // GET    /api/documents/:id                   — retrieve with presigned URL
 // PUT    /api/documents/:id/legal-hold        — toggle legal hold
-// GET    /api/documents/export/:businessId    — compliance dossier export
+// GET    /api/documents/export/:businessId    — compliance manifest export
 //
 // All routes are tenant-scoped via TenantContext from requireAuth.
 // DOCUMENT_READ / DOCUMENT_WRITE permissions enforced via RBAC.
@@ -20,6 +20,7 @@ import { requireAuth } from '../../middleware/auth.middleware.js';
 import { requirePermissions } from '../../middleware/rbac.middleware.js';
 import { PERMISSIONS } from '@shared/constants/index.js';
 import type { ApiResponse } from '@shared/types/index.js';
+import { businessBelongsToTenant } from '../../services/business-ownership.js';
 import logger from '../../config/logger.js';
 import {
   DocumentVaultService,
@@ -33,7 +34,9 @@ import {
 import {
   ComplianceDossierService,
   BusinessNotFoundForDossierError,
-  type ComplianceDossier,
+  InvalidDateRangeError,
+  UnknownRequesterError,
+  type ComplianceManifest,
 } from '../../services/compliance-dossier.js';
 
 // ── Router & lazy singletons ───────────────────────────────────
@@ -247,8 +250,10 @@ documentRouter.get(
 // IMPORTANT: This route MUST be registered before GET /api/documents/:id
 // to prevent Express matching "export" as a document ID.
 //
-// Returns the full compliance dossier as a JSON payload.
-// In production, this should stream a ZIP archive.
+// Returns a compliance MANIFEST as JSON: the records, and REFERENCES to the
+// documents. It does not contain the documents, and nothing here builds an
+// archive. `contents: 'references'` and `excludedRecordTypes` say so in the
+// payload rather than only here.
 //
 // Query params:
 //   since — ISO date (optional)
@@ -283,17 +288,30 @@ documentRouter.get(
       });
 
       // Set headers to hint at downloadable content
-      res.setHeader('Content-Disposition', `attachment; filename="compliance-dossier-${businessId}.json"`);
+      res.setHeader('Content-Disposition', `attachment; filename="compliance-manifest-${businessId}.json"`);
       res.setHeader('Content-Type', 'application/json');
 
-      const body: ApiResponse<ComplianceDossier> = { success: true, data: dossier };
+      const body: ApiResponse<ComplianceManifest> = { success: true, data: dossier };
       res.status(200).json(body);
     } catch (err) {
       if (err instanceof BusinessNotFoundForDossierError) {
         notFound(res, err.message);
         return;
       }
-      serverError(res, 'Failed to assemble compliance dossier', err);
+      // An unreadable or inverted date range is the caller's to fix, and a
+      // manifest covering nothing because the range was unreadable reads
+      // exactly like one covering a client with no records.
+      if (err instanceof InvalidDateRangeError) {
+        badRequest(res, err.message);
+        return;
+      }
+      // The id that would be recorded in `assembledBy`. This manifest is
+      // handed to counsel; its provenance line cannot name nobody.
+      if (err instanceof UnknownRequesterError) {
+        badRequest(res, err.message);
+        return;
+      }
+      serverError(res, 'Failed to assemble compliance manifest', err);
     }
   },
 );
@@ -379,6 +397,35 @@ documentRouter.post(
       tenantId: ctx.tenantId,
       route: 'POST /documents/upload',
     });
+
+    // A business id from the request body, written into a row.
+    //
+    // `tenantId` beside it in the same `data` asserts the tenant; it does not
+    // check the business belongs to it. So a document could be filed against
+    // another tenant's business id and the row looked entirely normal
+    // afterwards — the first of the two failure modes business-ownership.ts
+    // was written for, arriving through a body field rather than a path.
+    //
+    // Refused rather than nulled: a caller who named a business meant to file
+    // the document against it, and silently storing it unattached is how a
+    // document goes missing from the vault it was uploaded to.
+    if (businessId !== undefined && businessId !== null && businessId !== '') {
+      let owned: boolean;
+      try {
+        owned = await businessBelongsToTenant(sharedPrisma, businessId, ctx.tenantId);
+      } catch (err) {
+        // Fails closed, as the middleware does: an ownership check that could
+        // not run is not an ownership check that passed.
+        serverError(res, 'Could not verify the business for this document', err);
+        return;
+      }
+      if (!owned) {
+        // Same answer for a business that does not exist and one belonging to
+        // another tenant.
+        badRequest(res, 'businessId does not name a business in this tenant');
+        return;
+      }
+    }
 
     try {
       const doc = await sharedPrisma.document.create({

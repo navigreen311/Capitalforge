@@ -49,6 +49,8 @@ interface ActionTask {
 interface ActionQueueResponse {
   total_count: number;
   tasks: ActionTask[];
+  /** Categories this queue cannot compute. An empty list is not an all-clear. */
+  not_measured: { category: string; reason: string }[];
   last_updated: string;
 }
 
@@ -143,122 +145,23 @@ dashboardActionQueueRouter.get('/', async (req: Request, res: Response) => {
       }
     }
 
-    // ── 3. Expired ConsentRecords ──────────────────────────
-    const expiredConsents = await db().consentRecord.findMany({
-      where: {
-        tenantId,
-        status: 'expired',
-      },
-      include: {
-        business: { select: { id: true, legalName: true } },
-      },
-    });
-
-    for (const consent of expiredConsents) {
-      tasks.push({
-        id: `consent-expired-${consent.id}`,
-        priority: 'critical',
-        type: 'expired_consent',
-        client_name: consent.business?.legalName ?? 'Unknown Client',
-        client_id: consent.businessId ?? '',
-        description: `${consent.consentType} consent (${consent.channel}) has expired — renewal required`,
-        due_date: consent.grantedAt.toISOString(),
-        action_url: `/clients/${consent.businessId}/consent`,
-        action_label: 'Renew Consent',
-      });
-    }
-
-    // ── 4. Unresolved ComplianceChecks ─────────────────────
-    const unresolvedChecks = await db().complianceCheck.findMany({
-      where: {
-        tenantId,
-        resolvedAt: null,
-        riskLevel: { in: ['high', 'critical'] },
-      },
-      include: {
-        business: { select: { id: true, legalName: true } },
-      },
-    });
-
-    for (const check of unresolvedChecks) {
-      tasks.push({
-        id: `compliance-${check.id}`,
-        priority: check.riskLevel === 'critical' ? 'critical' : 'high',
-        type: 'unresolved_compliance',
-        client_name: check.business?.legalName ?? 'Tenant-level',
-        client_id: check.businessId ?? '',
-        description: `${check.checkType} compliance check flagged ${check.riskLevel} risk — unresolved`,
-        due_date: check.createdAt.toISOString(),
-        action_url: check.businessId
-          ? `/clients/${check.businessId}/compliance/${check.id}`
-          : `/compliance/${check.id}`,
-        action_label: 'Resolve Finding',
-      });
-    }
-
-    // ── 5. APR Expiry Triggers ─────────────────────────────
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-
-    const aprExpiringApps = await db().cardApplication.findMany({
-      where: {
-        business: { tenantId },
-        introAprExpiry: { lte: thirtyDaysFromNow, gte: new Date() },
-        status: { notIn: ['declined', 'closed'] },
-      },
-      include: { business: { select: { id: true, legalName: true } } },
-    });
-
-    for (const app of aprExpiringApps) {
-      const daysLeft = Math.ceil(
-        (app.introAprExpiry!.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-      );
-      tasks.push({
-        id: `apr-expiry-${app.id}`,
-        priority: daysLeft <= 7 ? 'critical' : daysLeft <= 14 ? 'high' : 'medium',
-        type: 'apr_expiry',
-        client_name: app.business.legalName,
-        client_id: app.business.id,
-        description: `Intro APR expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'} — restack opportunity`,
-        due_date: app.introAprExpiry!.toISOString(),
-        action_url: `/applications/${app.id}/restack`,
-        action_label: 'Review Restack',
-      });
-    }
-
-    // ── 6. Pending DealCommitteeReview ─────────────────────
-    const pendingReviews = await db().dealCommitteeReview.findMany({
-      where: {
-        tenantId,
-        status: { in: ['pending', 'escalated', 'in_review'] },
-      },
-      // DealCommitteeReview has businessId but no explicit relation in the
-      // schema, so the business is looked up separately below.
-    });
-
-    // Batch-fetch business names for deal reviews
-    const reviewBusinessIds = pendingReviews.map((r) => r.businessId);
-    const reviewBusinesses = await db().business.findMany({
-      where: { id: { in: reviewBusinessIds } },
-      select: { id: true, legalName: true },
-    });
-    const bizMap = new Map(reviewBusinesses.map((b) => [b.id, b.legalName]));
-
-    for (const review of pendingReviews) {
-      tasks.push({
-        id: `deal-review-${review.id}`,
-        priority: review.status === 'escalated' ? 'critical' : 'high',
-        type: 'pending_deal_review',
-        client_name: bizMap.get(review.businessId) ?? 'Unknown',
-        client_id: review.businessId,
-        description: `Deal committee review (${review.riskTier} risk) — ${review.status}`,
-        due_date: review.createdAt.toISOString(),
-        action_url: `/deal-reviews/${review.id}`,
-        action_label: 'Review Deal',
-      });
-    }
-
-    // ── Sort: priority desc, due_date asc ──────────────────
+    // ── 3. Expired consent — not measurable, and not zero ──────
+    //
+    // This queried `consentRecord where status: 'expired'` and pushed a
+    // 'critical' task per row. It returned nothing, every time, for every
+    // tenant — because nothing writes that status, and nothing can:
+    // ConsentRecord has `grantedAt` and `revokedAt` and NO expiry column at
+    // all. `expired` appears in a comment on `status` and in this query, and
+    // nowhere else.
+    //
+    // Consent expiry is not unimplemented; it is unmodelled. There is no date
+    // to expire against.
+    //
+    // An empty action queue reads as "no consent has expired". The true
+    // statement is "nothing here can tell you whether any has", and those are
+    // different facts — the same distinction portfolio health and the advisor
+    // QA summary now draw. So the query is gone and the surface says so
+    // instead of contributing a silent zero.
 
     tasks.sort((a, b) => {
       const pw = PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
@@ -273,6 +176,19 @@ dashboardActionQueueRouter.get('/', async (req: Request, res: Response) => {
     const responseData: ActionQueueResponse = {
       total_count: tasks.length,
       tasks,
+      /**
+       * Categories this queue cannot compute, named so an empty list is not
+       * read as an all-clear. `total_count` counts the tasks it CAN see.
+       */
+      not_measured: [
+        {
+          category: 'expired_consent',
+          reason:
+            'Consent expiry is not modelled — ConsentRecord carries no expiry date, so '
+            + 'no consent can become expired and none can be counted. An empty queue is '
+            + 'not evidence that no consent has lapsed.',
+        },
+      ],
       last_updated: new Date().toISOString(),
     };
 

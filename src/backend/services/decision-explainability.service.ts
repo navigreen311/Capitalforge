@@ -14,6 +14,7 @@ import { prisma as sharedPrisma } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/event-bus.js';
 import { AGGREGATE_TYPES, ROLES } from '@shared/constants/index.js';
+import { AI_MODULE_SOURCES } from './ai-governance.service.js';
 import logger from '../config/logger.js';
 
 // ── Prisma singleton ──────────────────────────────────────────
@@ -342,26 +343,87 @@ export function buildSuitabilityExplanation(params: {
  * Returns the most recent decisions from AiDecisionLog for the given businessId.
  * The businessId is matched against AiDecisionLog entries whose output contains businessId.
  */
+/**
+ * What the decision log can and cannot account for.
+ *
+ * `recording` is not a hand-kept list — it is the set of modules that have
+ * actually written a row for this tenant. `silent` is every other module in
+ * `AI_MODULE_SOURCES`. A hand-kept list would drift, and the drift would show
+ * up as a surface quietly over-claiming its own coverage.
+ */
+export interface DecisionLogCoverage {
+  recording: string[];
+  silent: string[];
+  /** What an empty or short list means here. */
+  note: string;
+}
+
+export interface BusinessDecisionExplanations {
+  decisions: AiDecisionLogEntry[];
+  coverage: DecisionLogCoverage;
+}
+
+/**
+ * Decisions recorded about a business, and what the record does not cover.
+ *
+ * This returned a bare array, so `[]` was the answer for a business the system
+ * had made a dozen recommendations about — and an empty list reads as "no
+ * decisions were made", not as "nothing records decisions". For most of this
+ * table's life the second was true: `AI_MODULE_SOURCES` names nine modules and
+ * the only writer was `POST /api/ai-governance/decisions`, an admin endpoint a
+ * human posts to by hand.
+ *
+ * That is the absence-as-value shape from docs/gaps.md §2, on the surface
+ * whose entire purpose is answering why a recommendation was made. So the
+ * coverage travels with the answer, and it is derived from the table rather
+ * than asserted.
+ */
 export async function getBusinessDecisionExplanations(
   businessId: string,
   tenantId:   string,
   limit = 20,
-): Promise<AiDecisionLogEntry[]> {
+): Promise<BusinessDecisionExplanations> {
   const prisma = getPrisma();
 
   // Find log entries for this tenant that reference this businessId in their
   // output. The predicate is pushed into the database via a JSONB path filter,
   // so the tenant's full decision log is not read into memory to find them.
-  const logs = await prisma.aiDecisionLog.findMany({
-    where: {
-      tenantId,
-      output: { path: ['businessId'], equals: businessId },
-    },
-    orderBy: { createdAt: 'desc' },
-    take: limit,
-  });
+  const [logs, observed] = await Promise.all([
+    prisma.aiDecisionLog.findMany({
+      where: {
+        tenantId,
+        output: { path: ['businessId'], equals: businessId },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    }),
+    // Which modules have ever recorded anything for this tenant. Empirical:
+    // whether a module writes is a fact about the deployment, not a constant.
+    prisma.aiDecisionLog.groupBy({
+      by: ['moduleSource'],
+      where: { tenantId },
+    }),
+  ]);
 
-  return logs.map((l: typeof logs[number]) => ({
+  const recording = observed.map((o: { moduleSource: string }) => o.moduleSource);
+  const silent = AI_MODULE_SOURCES.filter((m) => !recording.includes(m));
+
+  const coverage: DecisionLogCoverage = {
+    recording,
+    silent,
+    note:
+      silent.length === AI_MODULE_SOURCES.length
+        ? 'No module has recorded a decision for this tenant. An empty list here means '
+          + 'nothing writes to the decision log, not that no decisions were made.'
+        : silent.length > 0
+          ? `${silent.length} of ${AI_MODULE_SOURCES.length} modules have never recorded a `
+            + `decision for this tenant (${silent.join(', ')}). Decisions they made are `
+            + 'absent from this list, and their absence is not evidence they made none.'
+          : 'Every module named in AI_MODULE_SOURCES has recorded at least one decision '
+            + 'for this tenant.',
+  };
+
+  const decisions = logs.map((l: typeof logs[number]) => ({
     id:             l.id,
     tenantId:       l.tenantId,
     moduleSource:   l.moduleSource,
@@ -376,6 +438,8 @@ export async function getBusinessDecisionExplanations(
     latencyMs:      l.latencyMs ?? undefined,
     createdAt:      l.createdAt,
   }));
+
+  return { decisions, coverage };
 }
 
 /**

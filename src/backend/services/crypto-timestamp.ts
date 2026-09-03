@@ -197,3 +197,44 @@ export function parseTokenRecord(record: CryptoTimestampRecord): {
     proofHash,
   };
 }
+
+// ── Document integrity, in one place ──────────────────────────
+
+/**
+ * Whether a stored document's timestamp token can be checked, and what
+ * happened when it was.
+ *
+ *   verified      hash and token present, and the token matches
+ *   tampered      checked and FAILED
+ *   unverifiable  never checkable — no hash, or no token. This is a gap in
+ *                 what was recorded, not evidence of tampering, and it is
+ *                 also not a clean bill of health.
+ *
+ * WHY THIS IS SHARED. `compliance-dossier.ts` verified documents and
+ * `regulator-response.service.ts` did not, on the two artefacts that go to
+ * counsel and to a regulator respectively. Rather than copy the logic into
+ * the second — two copies is two chances to be wrong, and the drift between
+ * them is exactly what these two services keep being fixed for — both call
+ * this.
+ */
+export type TimestampIntegrity = 'verified' | 'unverifiable' | 'tampered';
+
+export function documentTimestampIntegrity(
+  doc: {
+    id: string;
+    sha256Hash: string | null;
+    cryptoTimestamp: string | null;
+    createdAt: Date;
+  },
+  tenantId: string,
+): TimestampIntegrity {
+  if (!doc.sha256Hash || !doc.cryptoTimestamp) return 'unverifiable';
+
+  const result = verifyCryptoTimestamp(doc.cryptoTimestamp, {
+    contentHash: doc.sha256Hash,
+    timestamp:   doc.createdAt.toISOString(),
+    tenantId,
+    documentId:  doc.id,
+  });
+  return result.valid ? 'verified' : 'tampered';
+}

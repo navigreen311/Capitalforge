@@ -12,6 +12,33 @@
 //   >= 70  → Stacking track
 //   40-69  → Credit Builder
 //   < 40   → Alternative products (LOC / SBA referral)
+//
+// WITHOUT CREDIT THERE IS NO SCORE — see docs/decisions/restack-recommend.md
+//
+//   `scoreCreditScore` returned `{ points: 0, label: 'no data' }` when nobody
+//   had pulled the client's credit. On a component worth 25 of 100, that is
+//   not a lower score: it is a different measurement wearing the same scale.
+//   A client with no credit on file and a client with a 580 FICO were 25
+//   points apart in reality and 0 apart here, and the first also read worse
+//   than they were.
+//
+//   It now returns `points: null` with a `notAssessedReason`, and the whole
+//   result goes not-assessed: `score`, `track` and `componentScores.creditScore`
+//   are null. A fundability score missing its credit component is not a lower
+//   score, it is not a score.
+//
+//   `restack_recommend` already distinguishes the two states — it refuses an
+//   unassessed client by name rather than reporting "score 0 is below
+//   threshold" — and its scan already counts them. This makes the column say
+//   what those readers already assume.
+//
+// THE DEBT COMPONENT IS STRUCTURALLY UNEARNABLE — docs/gaps.md §3m
+//
+//   `scoreDebtBurden` is worth 10 points and no caller has ever supplied
+//   `existingDebtBalance` or `monthlyDebtService`. There is no column for
+//   either; `HeldCard` carries a limit but no balance. Every production score
+//   is therefore out of 90 and compared against thresholds written for 100.
+//   Recorded, not fixed: it needs a data source, not a code change.
 // ============================================================
 
 // ── Input / Output types ──────────────────────────────────────
@@ -48,18 +75,34 @@ export interface GapItem {
 }
 
 export interface FundingReadinessResult {
-  score: number; // 0–100, integer
-  track: FundingTrack;
+  /**
+   * 0–100, integer — or null when the score could not be computed.
+   *
+   * Null is not zero and must never be rendered as one. It means a component
+   * the score cannot do without was absent, and `notAssessedReason` names it.
+   */
+  score: number | null;
+  /** Null whenever `score` is null: there is no track without a score. */
+  track: FundingTrack | null;
   trackLabel: string;
   componentScores: {
-    revenue: number;       // 0–30
-    creditScore: number;   // 0–25
-    businessAge: number;   // 0–20
-    industryRisk: number;  // 0–15
-    debtBurden: number;    // 0–10
+    revenue: number;              // 0–30
+    creditScore: number | null;   // 0–25, null when no credit is on record
+    businessAge: number;          // 0–20
+    industryRisk: number;         // 0–15
+    debtBurden: number;           // 0–10 — see the header: always 0 today
   };
   gaps: GapItem[];
   summary: string;
+  /**
+   * Why there is no score, or null when there is one.
+   *
+   * A basis, not a sentence: it is meant to be reported verbatim rather than
+   * paraphrased into a claim about the client. Today the only value is
+   * `no_credit_profile_on_record`, which matches the basis the credit read
+   * endpoints already return for the same absence.
+   */
+  notAssessedReason: string | null;
 }
 
 // ── Industry risk table ───────────────────────────────────────
@@ -125,8 +168,16 @@ function scoreRevenue(annual: number | null): { points: number; label: string } 
   return { points: 2, label: `$${(annual / 1000).toFixed(0)}k` };
 }
 
-/** Credit score component — 0 to 25 points */
-function scoreCreditScore(personal: number | null, business: number | null): { points: number; label: string } {
+/**
+ * Credit score component — 0 to 25 points, or NOT ASSESSED.
+ *
+ * `points: null` means nobody has pulled this client's credit. It is not a
+ * score of zero and the caller must not substitute one; see the file header.
+ */
+function scoreCreditScore(
+  personal: number | null,
+  business: number | null,
+): { points: number | null; label: string; notAssessedReason: string | null } {
   // Prefer personal FICO/Vantage (300–850) — normalise business SBSS (0–300) to same range
   let best: number | null = personal;
 
@@ -136,14 +187,18 @@ function scoreCreditScore(personal: number | null, business: number | null): { p
     if (best === null || normBusiness > best) best = normBusiness;
   }
 
-  if (best === null) return { points: 0, label: 'no data' };
-  if (best >= 750) return { points: 25, label: String(Math.round(best)) };
-  if (best >= 720) return { points: 22, label: String(Math.round(best)) };
-  if (best >= 680) return { points: 18, label: String(Math.round(best)) };
-  if (best >= 640) return { points: 13, label: String(Math.round(best)) };
-  if (best >= 600) return { points: 8,  label: String(Math.round(best)) };
-  if (best >= 550) return { points: 4,  label: String(Math.round(best)) };
-  return { points: 1, label: String(Math.round(best)) };
+  if (best === null) {
+    return { points: null, label: 'not assessed', notAssessedReason: 'no_credit_profile_on_record' };
+  }
+
+  const label = String(Math.round(best));
+  if (best >= 750) return { points: 25, label, notAssessedReason: null };
+  if (best >= 720) return { points: 22, label, notAssessedReason: null };
+  if (best >= 680) return { points: 18, label, notAssessedReason: null };
+  if (best >= 640) return { points: 13, label, notAssessedReason: null };
+  if (best >= 600) return { points: 8,  label, notAssessedReason: null };
+  if (best >= 550) return { points: 4,  label, notAssessedReason: null };
+  return { points: 1, label, notAssessedReason: null };
 }
 
 /** Business age component — 0 to 20 points */
@@ -244,15 +299,22 @@ function buildGaps(
     });
   }
 
-  // Credit score gap
-  if (components.creditScore < 18) {
+  // Credit score gap.
+  //
+  // A null component is not "below 18" in the sense the impact rating means —
+  // there is nothing to be below. It is still a gap, because the score cannot
+  // be produced without it, and it is the highest-impact one there is.
+  if (components.creditScore === null || components.creditScore < 18) {
     gaps.push({
       dimension: 'Personal Credit Score',
-      currentValue: input.personalCreditScore
-        ? String(input.personalCreditScore)
-        : 'Not provided',
+      currentValue:
+        components.creditScore === null
+          ? 'No credit profile on record'
+          : input.personalCreditScore
+            ? String(input.personalCreditScore)
+            : 'Not provided',
       targetValue: '680+',
-      impact: components.creditScore < 8 ? 'high' : 'medium',
+      impact: components.creditScore === null || components.creditScore < 8 ? 'high' : 'medium',
       suggestion:
         'Work on reducing utilisation below 30%, paying down balances, and resolving any derogatory marks.',
     });
@@ -365,9 +427,30 @@ export function calculateFundingReadiness(input: FundingReadinessInput): Funding
     debtBurden:  debtComponent.points,
   };
 
+  const gaps = buildGaps(componentScores, input);
+
+  // No credit on record — no score, and no track. Returning the other four
+  // components' sum would be a number out of 75 presented on a 0–100 scale
+  // and routed against thresholds written for the full one.
+  if (creditComponent.points === null) {
+    return {
+      score: null,
+      track: null,
+      trackLabel: 'Not assessed',
+      componentScores,
+      gaps,
+      summary:
+        'Funding readiness has not been assessed: no credit profile is on record for '
+        + 'this business. A score cannot be produced without one. This is a fact about '
+        + 'the records, not about the client — it does not mean the credit is poor, '
+        + 'thin, or absent.',
+      notAssessedReason: creditComponent.notAssessedReason,
+    };
+  }
+
   const rawScore =
     componentScores.revenue +
-    componentScores.creditScore +
+    creditComponent.points +
     componentScores.businessAge +
     componentScores.industryRisk +
     componentScores.debtBurden;
@@ -376,7 +459,6 @@ export function calculateFundingReadiness(input: FundingReadinessInput): Funding
   const score = Math.min(100, Math.max(0, Math.round(rawScore)));
 
   const { track, trackLabel, summary } = resolveTrack(score);
-  const gaps = buildGaps(componentScores, input);
 
   return {
     score,
@@ -385,5 +467,6 @@ export function calculateFundingReadiness(input: FundingReadinessInput): Funding
     componentScores,
     gaps,
     summary,
+    notAssessedReason: null,
   };
 }

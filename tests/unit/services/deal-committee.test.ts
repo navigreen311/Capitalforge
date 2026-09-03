@@ -39,6 +39,7 @@ vi.mock('@prisma/client', () => {
   const mockFindUnique = vi.fn();
   const mockUpdate     = vi.fn();
   const mockFindMany   = vi.fn();
+  const mockGroupBy    = vi.fn().mockResolvedValue([]);
 
   const PrismaClient = vi.fn().mockImplementation(() => ({
     dealCommitteeReview: {
@@ -52,6 +53,10 @@ vi.mock('@prisma/client', () => {
       findUnique: mockFindUnique,
       findMany:   mockFindMany,
       update:     mockUpdate,
+      // Which modules have ever recorded anything for this tenant. The reader
+      // subtracts it from AI_MODULE_SOURCES to say which never have, so an
+      // empty decision list is not read as "no decisions were made".
+      groupBy:    mockGroupBy,
     },
     ledgerEvent: {
       findMany: mockFindMany,
@@ -112,10 +117,11 @@ function makeMockPrisma() {
   const mockFindUnique = vi.fn();
   const mockUpdate     = vi.fn();
   const mockFindMany   = vi.fn();
+  const mockGroupBy    = vi.fn().mockResolvedValue([]);
 
   return {
     dealCommitteeReview: { create: mockCreate, findUnique: mockFindUnique, findMany: mockFindMany, update: mockUpdate },
-    aiDecisionLog:       { create: mockCreate, findUnique: mockFindUnique, findMany: mockFindMany, update: mockUpdate },
+    aiDecisionLog:       { create: mockCreate, findUnique: mockFindUnique, findMany: mockFindMany, update: mockUpdate, groupBy: mockGroupBy },
     ledgerEvent:         { findMany: mockFindMany },
     suitabilityCheck:    { findFirst: mockFindFirst },
     _mocks: { mockCreate, mockFindFirst, mockFindUnique, mockUpdate, mockFindMany },
@@ -997,26 +1003,56 @@ describe('DecisionExplainabilityService', () => {
     it('queries by tenantId with businessId in output', async () => {
       mockPrisma.aiDecisionLog.findMany.mockResolvedValue([MOCK_AI_LOG]);
 
-      const results = await getBusinessDecisionExplanations('biz-001', 'tenant-001');
+      const { decisions } = await getBusinessDecisionExplanations('biz-001', 'tenant-001');
 
       expect(mockPrisma.aiDecisionLog.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ tenantId: 'tenant-001' }),
         }),
       );
-      expect(results).toHaveLength(1);
+      expect(decisions).toHaveLength(1);
     });
 
     it('maps Prisma records to AiDecisionLogEntry shape', async () => {
       mockPrisma.aiDecisionLog.findMany.mockResolvedValue([MOCK_AI_LOG]);
 
-      const results = await getBusinessDecisionExplanations('biz-001', 'tenant-001');
+      const { decisions } = await getBusinessDecisionExplanations('biz-001', 'tenant-001');
 
-      expect(results[0]).toMatchObject({
+      expect(decisions[0]).toMatchObject({
         id:           'log-001',
         moduleSource: 'suitability',
         decisionType: 'suitability_assessment',
       });
+    });
+
+    it('says which modules have never recorded a decision', async () => {
+      // An empty list used to be the whole answer, and it read as "no
+      // decisions were made about this business" when what was true was
+      // "nothing writes to the decision log".
+      mockPrisma.aiDecisionLog.findMany.mockResolvedValue([]);
+      mockPrisma.aiDecisionLog.groupBy.mockResolvedValue([]);
+
+      const { decisions, coverage } = await getBusinessDecisionExplanations(
+        'biz-001',
+        'tenant-001',
+      );
+
+      expect(decisions).toEqual([]);
+      expect(coverage.recording).toEqual([]);
+      expect(coverage.silent).toContain('issuer_eligibility');
+      expect(coverage.note).toMatch(/nothing writes to the decision log/i);
+    });
+
+    it('names the silent modules when only some record', async () => {
+      mockPrisma.aiDecisionLog.findMany.mockResolvedValue([MOCK_AI_LOG]);
+      mockPrisma.aiDecisionLog.groupBy.mockResolvedValue([{ moduleSource: 'issuer_eligibility' }]);
+
+      const { coverage } = await getBusinessDecisionExplanations('biz-001', 'tenant-001');
+
+      expect(coverage.recording).toEqual(['issuer_eligibility']);
+      expect(coverage.silent).toContain('stacking_optimizer');
+      expect(coverage.silent).not.toContain('issuer_eligibility');
+      expect(coverage.note).toMatch(/never recorded a decision/i);
     });
   });
 

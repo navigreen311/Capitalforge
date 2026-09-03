@@ -38,6 +38,31 @@ CapitalForge has a three-tier test pyramid:
 
 All tests are written in TypeScript. There are no JavaScript test files.
 
+### What `Lint & Type Check` does not cover
+
+**A green type check is not evidence the application builds.** `tsc` and webpack resolve
+modules by different rules, and on 2 September 2026 the difference was a passing
+`Lint & Type Check` sitting above a `Build` that could not compile at all:
+
+```
+✓ Lint & Type Check     2m09s
+✗ Build                 1m10s   Module not found: Can't resolve '@shared/types/index.js'
+```
+
+The root `tsconfig.json` is `moduleResolution: "NodeNext"`, which requires a `.js` suffix
+on an import. `src/frontend/tsconfig.json` is `moduleResolution: "Bundler"`, where the
+suffix is wrong. The first frontend file to import from `@shared` wrote it the backend's
+way; TypeScript accepted it and webpack could not resolve it, because the file on disk is
+`index.ts`.
+
+The same error then hung `Browser Tests` for thirty minutes inside Playwright's
+`[WebServer]` and the job was killed having completed **zero** of 497 tests. Three jobs,
+one import, and the one whose name suggests it checks imports was the one that passed.
+
+`next.config.js` now maps `.js` to `.ts`/`.tsx` for webpack, so both conventions resolve.
+The general point survives the fix: **`Lint & Type Check` green means the types agree, and
+nothing more.** Read `Build` before believing a branch compiles.
+
 ---
 
 ## Test Infrastructure

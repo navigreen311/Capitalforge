@@ -58,6 +58,19 @@ export interface EvidenceItem {
 }
 
 export interface UnauthorizedDebitBundle {
+  /**
+   * When this bundle was assembled, and that it is a snapshot.
+   *
+   * It is built when the complaint is filed and never rebuilt, so debits after
+   * that do not appear. Defensible for evidence — it is what was known at the
+   * time — but it read as a current view, and a reader comparing it against
+   * today's account would find it wrong rather than old.
+   *
+   * Null on a complaint filed before 2 September 2026: the bundle is not
+   * stored on the row, so there is no date to recover.
+   */
+  builtAt?: string | null;
+  isSnapshot?: boolean;
   achAuthorizationId: string;
   processorName: string;
   authorizedAmount?: number;
@@ -88,6 +101,12 @@ export interface CreateComplaintInput {
   /** Caller-supplied evidence doc / call record IDs to attach immediately */
   initialEvidenceDocIds?: string[];
   initialCallRecordIds?: string[];
+  /**
+   * Who filed it. Set by the route from the verified token, never from the
+   * request body — shared rule 7: if the module records it, the module
+   * derives it.
+   */
+  filedBy: string;
 }
 
 export interface UpdateComplaintInput {
@@ -109,7 +128,14 @@ export interface AttachEvidenceInput {
     title: string;
     notes?: string;
   }>;
-  addedBy?: string;
+  /**
+   * Who attached it. Set by the route from the verified token, NOT from the
+   * request body — shared rule 7: never supply a value the module was going
+   * to record about a third party. This was
+   * `parsed.data.addedBy ?? req.tenant.userId`, so a caller could attribute
+   * an evidence attachment to somebody else.
+   */
+  addedBy: string;
 }
 
 export interface ComplaintRecord {
@@ -123,6 +149,9 @@ export interface ComplaintRecord {
   status: ComplaintStatus;
   description: string;
   evidenceDocIds: string[];
+  evidenceItems?: EvidenceItemRecord[];
+  /** `no_evidence_on_record` where both arrays are empty. Shared rule 2. */
+  evidenceBasis?: 'no_evidence_on_record' | 'evidence_attached';
   callRecordIds: string[];
   evidenceBundle?: EvidenceItem[];
   unauthorizedDebitBundle?: UnauthorizedDebitBundle;
@@ -210,6 +239,69 @@ const COMPLAINT_EVENTS = {
 
 // ── ComplaintService ───────────────────────────────────────────────
 
+/** No such complaint under this tenant. */
+/**
+ * One piece of evidence, as attached.
+ *
+ * `type` used to be validated by the route and then used once, to pick which
+ * of two id arrays the reference went into — `call_record` to one, everything
+ * else to the other. A debit event and a screenshot were stored identically,
+ * and the title and notes a caller sent were discarded. A complaint file could
+ * not answer what it held.
+ */
+export interface EvidenceItemRecord {
+  type: 'document' | 'call_record' | 'debit_event' | 'screenshot' | 'other' | 'unknown';
+  referenceId: string;
+  title: string | null;
+  notes: string | null;
+  /** The verified user who attached it. Null on rows backfilled from ids. */
+  addedBy: string | null;
+  addedAt: string | null;
+  /** True where the item was reconstructed from a bare id by the migration. */
+  backfilled?: boolean;
+}
+
+export class ComplaintNotFoundError extends Error {
+  constructor(public readonly complaintId: string) {
+    super(`Complaint ${complaintId} was not found.`);
+    this.name = 'ComplaintNotFoundError';
+  }
+}
+
+/**
+ * The businessId a complaint names is not a business in this tenant.
+ *
+ * Typed, and checked BEFORE anything reads on it. `businessId` arrived in the
+ * request body, was written straight to the row, and for an
+ * unauthorized_debit complaint was then used to read an ACH authorisation and
+ * fifty debit events — with no tenant filter on that query either. Bank debit
+ * history for any business, to any authenticated caller who could guess an id.
+ *
+ * Neither guard saw it: the mount-table check covers a business id in a PATH,
+ * and `npm run check:route-tenancy` reads route files, while the unscoped
+ * `where` was inside this service.
+ */
+export class UnknownComplaintBusinessError extends Error {
+  constructor(public readonly businessId: string) {
+    super(`No business ${businessId} in this tenant.`);
+    this.name = 'UnknownComplaintBusinessError';
+  }
+}
+
+/** A status transition the workflow does not allow. */
+export class InvalidComplaintTransitionError extends Error {
+  constructor(
+    public readonly from: string,
+    public readonly to: string,
+    public readonly allowed: readonly string[],
+  ) {
+    super(
+      `Invalid status transition: ${from} -> ${to}. Allowed: [${allowed.join(', ')}].`,
+    );
+    this.name = 'InvalidComplaintTransitionError';
+  }
+}
+
 export class ComplaintService {
   private readonly prisma: PrismaClient;
 
@@ -227,17 +319,70 @@ export class ComplaintService {
     const id = uuidv4();
     const now = new Date();
 
+    // The business a complaint names is verified BEFORE anything reads on it.
+    //
+    // `businessId` arrived in the request body and was written straight to the
+    // row. For an unauthorized_debit complaint it was then used to read an ACH
+    // authorisation and fifty debit events, on a query with no tenant filter —
+    // bank debit history for any business, to any authenticated caller who
+    // could produce an id.
+    if (input.businessId) {
+      const business = await this.prisma.business.findFirst({
+        where:  { id: input.businessId, tenantId: input.tenantId },
+        select: { id: true },
+      });
+      if (!business) throw new UnknownComplaintBusinessError(input.businessId);
+    }
+
     const category = this._classifyCategory(input.category, input.description);
     const severity = input.severity ?? this._inferSeverity(category, input.description);
 
-    // Auto-collect call record IDs linked to the business
-    const callRecordIds = await this._autoAttachCallRecords(
-      input.businessId,
-      input.tenantId,
-      input.initialCallRecordIds ?? [],
-    );
-
+    // NOTHING IS AUTO-ATTACHED ANY MORE, and its absence is not a regression.
+    //
+    // This called `_autoAttachCallRecords(businessId, tenantId, supplied)`,
+    // which returned early without a businessId and then never used it:
+    //
+    //     advisorQaScore.findMany({ where: { tenantId, callRecordId: { not: null } },
+    //                               orderBy: { scoredAt: 'desc' }, take: 10 })
+    //
+    // The ten most recently QA-scored calls IN THE WHOLE TENANT, from any
+    // advisor, about any client — attached as evidence to this complaint. A
+    // complaint about one client carried recordings of conversations with ten
+    // others, in a file that may be handed to a regulator.
+    //
+    // It was not fixed by adding a filter. `AdvisorQaScore` has tenantId,
+    // advisorId and callRecordId and NO businessId, because a QA score is
+    // about an advisor's work rather than a client's file — the same shape as
+    // CommComplianceRecord. Inventing that relationship would be worse than
+    // not having it: a link nobody recorded, asserted so a convenience feature
+    // could keep working.
+    //
+    // So evidence is attached deliberately, by somebody who decided this call
+    // is evidence in this complaint. `initialCallRecordIds` still works and is
+    // the supported way to do it at intake.
+    const callRecordIds = input.initialCallRecordIds ?? [];
     const evidenceDocIds = input.initialEvidenceDocIds ?? [];
+
+    // The items, with their types kept. `type` used to be validated and then
+    // collapsed into one of two id arrays.
+    const evidenceItems: EvidenceItemRecord[] = [
+      ...callRecordIds.map((referenceId) => ({
+        type: 'call_record' as const,
+        referenceId,
+        title: null,
+        notes: null,
+        addedBy: input.filedBy,
+        addedAt: now.toISOString(),
+      })),
+      ...evidenceDocIds.map((referenceId) => ({
+        type: 'document' as const,
+        referenceId,
+        title: null,
+        notes: null,
+        addedBy: input.filedBy,
+        addedAt: now.toISOString(),
+      })),
+    ];
 
     const record = await this.prisma.complaint.create({
       data: {
@@ -252,19 +397,37 @@ export class ComplaintService {
         description:  input.description,
         evidenceDocIds: evidenceDocIds as unknown as object,
         callRecordIds:  callRecordIds  as unknown as object,
+        evidenceItems:  evidenceItems  as unknown as object,
         assignedTo:   input.assignedTo ?? null,
       },
     });
 
-    // Build unauthorized debit bundle immediately if applicable
+    // Build unauthorized debit bundle immediately if applicable.
+    //
+    // A SNAPSHOT, and it stays one. The bundle is built when the complaint is
+    // filed and never rebuilt, so debits after that do not appear. That is
+    // defensible for evidence — it is what was known at the time — but it was
+    // indistinguishable from a current view, so it now carries the date it was
+    // built and is readable as of-then rather than as now.
     let unauthorizedDebitBundle: UnauthorizedDebitBundle | undefined;
+    let debitBundleBuiltAt: Date | null = null;
     if (category === 'unauthorized_debit' && input.businessId) {
       unauthorizedDebitBundle = await this._buildUnauthorizedDebitBundle(
         input.businessId,
+        input.tenantId,
       );
+      if (unauthorizedDebitBundle) {
+        debitBundleBuiltAt = now;
+        unauthorizedDebitBundle.builtAt = now.toISOString();
+        unauthorizedDebitBundle.isSnapshot = true;
+        await this.prisma.complaint.update({
+          where: { id },
+          data:  { debitBundleBuiltAt: now },
+        });
+      }
     }
 
-    await eventBus.publish(input.tenantId, {
+    await eventBus.publishAndPersist(input.tenantId, {
       eventType:     COMPLAINT_EVENTS.CREATED,
       aggregateType: 'complaint',
       aggregateId:   id,
@@ -338,7 +501,15 @@ export class ComplaintService {
 
     let debitBundle: UnauthorizedDebitBundle | undefined;
     if (row.category === 'unauthorized_debit' && row.businessId) {
-      debitBundle = await this._buildUnauthorizedDebitBundle(row.businessId);
+      debitBundle = await this._buildUnauthorizedDebitBundle(row.businessId, tenantId);
+      if (debitBundle) {
+        // Read back, not rebuilt-and-restamped: the date is the one recorded
+        // when the complaint was filed, and null means it predates the column.
+        debitBundle.builtAt = row.debitBundleBuiltAt
+          ? row.debitBundleBuiltAt.toISOString()
+          : null;
+        debitBundle.isSnapshot = true;
+      }
     }
 
     return this._toRecord(row, debitBundle);
@@ -355,16 +526,17 @@ export class ComplaintService {
       where: { id, tenantId },
     });
     if (!existing) {
-      throw new Error(`Complaint ${id} not found.`);
+      throw new ComplaintNotFoundError(id);
     }
 
     // Validate status transition
     if (update.status && update.status !== existing.status) {
       const allowed = VALID_TRANSITIONS[existing.status as ComplaintStatus];
       if (!allowed.includes(update.status)) {
-        throw new Error(
-          `Invalid status transition: ${existing.status} → ${update.status}. ` +
-          `Allowed: [${allowed.join(', ')}].`,
+        throw new InvalidComplaintTransitionError(
+          existing.status,
+          update.status,
+          allowed,
         );
       }
     }
@@ -394,7 +566,7 @@ export class ComplaintService {
         update.status === 'closed'   ? COMPLAINT_EVENTS.CLOSED :
         COMPLAINT_EVENTS.STATUS_CHANGED;
 
-      await eventBus.publish(tenantId, {
+      await eventBus.publishAndPersist(tenantId, {
         eventType,
         aggregateType: 'complaint',
         aggregateId:   id,
@@ -407,7 +579,7 @@ export class ComplaintService {
     }
 
     if (update.escalatedTo && !existing.escalatedTo) {
-      await eventBus.publish(tenantId, {
+      await eventBus.publishAndPersist(tenantId, {
         eventType:     COMPLAINT_EVENTS.ESCALATED,
         aggregateType: 'complaint',
         aggregateId:   id,
@@ -429,19 +601,45 @@ export class ComplaintService {
       where: { id: input.complaintId, tenantId: input.tenantId },
     });
     if (!existing) {
-      throw new Error(`Complaint ${input.complaintId} not found.`);
+      throw new ComplaintNotFoundError(input.complaintId);
     }
 
     const currentDocIds    = (existing.evidenceDocIds as string[]) ?? [];
     const currentCallIds   = (existing.callRecordIds  as string[]) ?? [];
+    const currentItems     = (existing.evidenceItems as unknown as EvidenceItemRecord[]) ?? [];
 
+    // Already attached, by reference. Re-sending the same evidence is not a
+    // second attachment, and the count below has to agree with that.
+    const known = new Set(currentItems.map((i) => i.referenceId));
+    for (const id of [...currentDocIds, ...currentCallIds]) known.add(id);
+
+    const now = new Date().toISOString();
+    const added: EvidenceItemRecord[] = [];
     const newDocIds:  string[] = [];
     const newCallIds: string[] = [];
 
     for (const item of input.evidenceItems) {
+      if (known.has(item.referenceId)) continue;
+      known.add(item.referenceId);
+
+      // The type is KEPT. It used to be read once, to choose which of two id
+      // arrays the reference went into — `call_record` to one, everything else
+      // to the other — so a debit event and a screenshot were stored
+      // identically and the title and notes were discarded.
+      added.push({
+        type:        item.type,
+        referenceId: item.referenceId,
+        title:       item.title ?? null,
+        notes:       item.notes ?? null,
+        addedBy:     input.addedBy,
+        addedAt:     now,
+      });
+
       if (item.type === 'call_record') {
         newCallIds.push(item.referenceId);
       } else {
+        // The id arrays stay as a derived index, so everything reading them
+        // keeps working. `evidenceItems` is the record.
         newDocIds.push(item.referenceId);
       }
     }
@@ -454,16 +652,25 @@ export class ComplaintService {
       data: {
         evidenceDocIds: mergedDocIds  as unknown as object,
         callRecordIds:  mergedCallIds as unknown as object,
+        evidenceItems:  [...currentItems, ...added] as unknown as object,
       },
     });
 
-    await eventBus.publish(input.tenantId, {
+    // publishAndPersist, not publish. Evidence being attached to a complaint
+    // is exactly the event a regulator asks for, and it was broadcast
+    // in-process and written to no ledger row.
+    await eventBus.publishAndPersist(input.tenantId, {
       eventType:     COMPLAINT_EVENTS.EVIDENCE_ATTACHED,
       aggregateType: 'complaint',
       aggregateId:   input.complaintId,
       payload: {
-        newItems: input.evidenceItems.length,
-        addedBy:  input.addedBy,
+        // Items ADDED, not items sent. This reported
+        // `input.evidenceItems.length`, so re-sending the same fifty
+        // references — which the set-union merge correctly ignored — recorded
+        // fifty new attachments in the ledger that never happened.
+        newItems:      added.length,
+        itemsSubmitted: input.evidenceItems.length,
+        addedBy:       input.addedBy,
       },
     });
 
@@ -615,39 +822,24 @@ export class ComplaintService {
    * table (callRecordId field) and merge with caller-supplied IDs.
    * In production, replace with a dedicated CallRecord model query.
    */
-  private async _autoAttachCallRecords(
-    businessId: string | undefined,
-    _tenantId: string,
-    supplied: string[],
-  ): Promise<string[]> {
-    if (!businessId) return supplied;
+  // `_autoAttachCallRecords` was removed on 2026-09-02. See createComplaint
+  // for what it did and why nothing replaces it.
 
-    // Pull up to 10 most recent QA scores with call records
-    const qaScores = await this.prisma.advisorQaScore.findMany({
-      where: {
-        tenantId: _tenantId,
-        callRecordId: { not: null },
-      },
-      orderBy: { scoredAt: 'desc' },
-      take: 10,
-      select: { callRecordId: true },
-    });
-
-    const autoIds = qaScores
-      .map((q) => q.callRecordId as string | null)
-      .filter((id): id is string => id !== null);
-
-    return [...new Set([...supplied, ...autoIds])];
-  }
 
   /**
    * Build a full unauthorized-debit evidence bundle from ACH records.
    */
   private async _buildUnauthorizedDebitBundle(
     businessId: string,
+    tenantId: string,
   ): Promise<UnauthorizedDebitBundle | undefined> {
+    // Scoped through the business. This filtered on businessId alone and
+    // returned an ACH authorisation and fifty debit events for any business
+    // in any tenant. The caller-supplied businessId is verified before this
+    // runs; the filter here is the second half, so neither is load-bearing
+    // alone.
     const auth = await this.prisma.achAuthorization.findFirst({
-      where:   { businessId },
+      where:   { businessId, business: { tenantId } },
       orderBy: { authorizedAt: 'desc' },
       include: { debitEvents: { orderBy: { processedAt: 'desc' }, take: 50 } },
     });
@@ -711,6 +903,21 @@ export class ComplaintService {
       description: row.description,
       evidenceDocIds: (row.evidenceDocIds as string[]) ?? [],
       callRecordIds:  (row.callRecordIds  as string[]) ?? [],
+      evidenceItems:  (row.evidenceItems as unknown as EvidenceItemRecord[]) ?? [],
+      /**
+       * Why the evidence arrays are empty, where they are.
+       *
+       * `[]` alone reads as "nothing was ever attached", and it cannot be
+       * distinguished from anything else — including removal, which is not
+       * tracked at all: nothing in this service deletes an evidence
+       * reference, and if a row is edited outside it there is no record that
+       * something was there. See docs/gaps.md.
+       */
+      evidenceBasis:
+        ((row.evidenceDocIds as string[]) ?? []).length === 0
+        && ((row.callRecordIds as string[]) ?? []).length === 0
+          ? 'no_evidence_on_record'
+          : 'evidence_attached',
       rootCause:   row.rootCause   ?? null,
       resolution:  row.resolution  ?? null,
       assignedTo:  row.assignedTo  ?? null,

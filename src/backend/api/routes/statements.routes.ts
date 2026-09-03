@@ -20,6 +20,11 @@ import { Router, Response, NextFunction } from 'express';
 import type { Request } from '../../types/http.js';
 import {
   StatementReconciliationService,
+  UndatedStatementError,
+  BusinessNotFoundError,
+  StatementNotFoundError,
+  StatementAlreadyReconciledError,
+  UnattributedReconciliationError,
 } from '../../services/statement-reconciliation.service.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
@@ -51,14 +56,32 @@ function tenantId(req: Request): string {
   return req.tenant?.tenantId ?? 'unknown';
 }
 
+/**
+ * Map a thrown error to a status, by type.
+ *
+ * This matched on message substrings for all six endpoints:
+ *
+ *   includes('not found') || includes('does not belong')            -> 404
+ *   includes('already reconciled') || includes('required')
+ *     || includes('must be')                                        -> 422
+ *
+ * `required` and `must be` appear throughout Prisma and Express messages, so
+ * an internal failure — a dropped connection reported as "Argument x is
+ * required" — was handed to the caller as a validation error about their own
+ * payload. That is an instruction to go and fix something that was never
+ * wrong, and it turned an outage into six endpoints quietly blaming their
+ * callers. The 404 branch had the mirror problem: any future error mentioning
+ * "not found" asserted that the client's statement does not exist.
+ *
+ * The 4xx bodies also returned the thrown message verbatim, and the service's
+ * messages named the tenant: `Business <id> not found for tenant <tenantId>`.
+ * The typed errors no longer carry it.
+ */
 function handleError(res: Response, err: unknown, context: string): void {
   const message = err instanceof Error ? err.message : String(err);
   logger.error(`Statements route error [${context}]`, { error: message });
 
-  if (
-    message.includes('not found') ||
-    message.includes('does not belong')
-  ) {
+  if (err instanceof BusinessNotFoundError || err instanceof StatementNotFoundError) {
     res.status(404).json({
       success: false,
       error: { code: 'NOT_FOUND', message },
@@ -66,14 +89,26 @@ function handleError(res: Response, err: unknown, context: string): void {
     return;
   }
 
-  if (
-    message.includes('already reconciled') ||
-    message.includes('required') ||
-    message.includes('must be')
-  ) {
+  if (err instanceof StatementAlreadyReconciledError) {
+    res.status(409).json({
+      success: false,
+      error: { code: 'ALREADY_RECONCILED', message },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  if (err instanceof UndatedStatementError) {
     res.status(422).json({
       success: false,
-      error: { code: 'VALIDATION_ERROR', message },
+      error: { code: 'STATEMENT_UNDATED', message },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  if (err instanceof UnattributedReconciliationError) {
+    res.status(422).json({
+      success: false,
+      error: { code: 'RECONCILER_REQUIRED', message },
     } satisfies ApiResponse);
     return;
   }
@@ -114,15 +149,27 @@ statementsRouter.post(
         return;
       }
 
-      const result = await getService().ingestStatement({
-        tenantId: tid,
-        businessId,
-        rawData: rawData as Record<string, unknown>,
-        cardApplicationId:
-          typeof cardApplicationId === 'string' ? cardApplicationId : null,
-        sourceDocumentId:
-          typeof sourceDocumentId === 'string' ? sourceDocumentId : null,
-      });
+      let result;
+      try {
+        result = await getService().ingestStatement({
+          tenantId: tid,
+          businessId,
+          rawData: rawData as Record<string, unknown>,
+          cardApplicationId:
+            typeof cardApplicationId === 'string' ? cardApplicationId : null,
+          sourceDocumentId:
+            typeof sourceDocumentId === 'string' ? sourceDocumentId : null,
+        });
+      } catch (e) {
+        if (e instanceof UndatedStatementError) {
+          res.status(422).json({
+            success: false,
+            error: { code: 'STATEMENT_UNDATED', message: e.message },
+          } satisfies ApiResponse);
+          return;
+        }
+        throw e;
+      }
 
       res.status(201).json({
         success: true,
@@ -136,6 +183,12 @@ statementsRouter.post(
           anomalyCount: result.anomalies.length,
           balanceMismatchDetected: result.balanceMismatchDetected,
           feeAnomalyDetected: result.feeAnomalyDetected,
+          // What this import replaced. A retry now corrects rather than
+          // duplicating, and the caller is told which record it stood down.
+          supersededStatementRecordId: result.supersededStatementRecordId,
+          // And told when the record it replaced had been signed off, because
+          // that attestation does not carry over to figures nobody has seen.
+          supersededReconciledStatement: result.supersededReconciledStatement,
           warnings: result.normalized.warnings,
         },
       } satisfies ApiResponse);
@@ -270,7 +323,10 @@ statementsRouter.post(
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     const statementId = String(req.params.statementId);
     const tid = tenantId(req);
-    const reconciledBy = req.tenant?.userId ?? 'system';
+    // Not `?? 'system'`. An advisor attesting that they reviewed a statement
+    // cannot be recorded against a machine that reviewed nothing — the service
+    // refuses an absent actor with a 422 rather than inventing one.
+    const reconciledBy = req.tenant?.userId ?? '';
 
     try {
       const { notes } = req.body as Record<string, unknown>;
@@ -334,22 +390,12 @@ statementsRouter.post(
 );
 
 // ============================================================
-// Client-Level Statement & Anomaly Management (Mock Endpoints)
-// ============================================================
-
-// In-memory state for anomaly dismissals, investigation steps, and disputes
-const disputes: Array<{
-  id: string;
-  statementId: string;
-  clientId: string;
-  reason: string;
-  amount: number;
-  createdAt: string;
-}> = [];
-
-// ── GET /api/statements?client_id=X ─────────────────────────
+// Client-Level Statement & Anomaly Management
 //
-// Returns a mock list of statements for a client.
+// Was "(Mock Endpoints)", and the label was accurate: all four invented their
+// answers. The list and the line-items read the table now; the three that
+// wrote nowhere refuse.
+// ============================================================
 
 // ── GET /api/statements?client_id= ───────────────────────────
 //
@@ -532,57 +578,45 @@ statementsRouter.post(
   },
 );
 
-// ── POST /api/statements/disputes ───────────────────────────
+// ── POST /api/statements/disputes ────────────────────────
 //
-// Log a new dispute against a statement line item.
-
+// Refused, for the same reason as the dismissal and the investigation step
+// above — and this one survived that sweep because it looked like it worked.
+//
+// It answered 201 with `id: "disp-<timestamp>"`, `status: 'open'` and
+// `estimatedResolution: '5-10 business days'`, and pushed the dispute into a
+// module-level array. Nothing read that array, nothing persisted it, and it
+// emptied on restart. It also never read `req.tenant`: no tenant scoping, and
+// no check that the statement existed or belonged to the caller.
+//
+// A billing-error dispute is the one record in this module with a statutory
+// clock on it, so an invented id and an invented SLA are the worst available
+// answer — somebody believes the dispute was filed. Refusing is louder than a
+// 201 into a void.
+//
+// Persisting it is a feature, not a repair: a `statement_disputes` table with
+// tenant and statement keys, status transitions and a read endpoint, modelled
+// on `tradeline_disputes`, which already exists and does all of that. Sized in
+// docs/gaps.md.
 statementsRouter.post(
   '/disputes',
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
-    const { statementId, clientId, reason, amount } = req.body as Record<string, unknown>;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const statementId =
+      typeof body['statementId'] === 'string' ? body['statementId'] : null;
 
-    if (!statementId || typeof statementId !== 'string') {
-      res.status(422).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'statementId is required.' },
-      } satisfies ApiResponse);
-      return;
-    }
+    logger.info('Statement dispute refused — nothing records one', { statementId });
 
-    if (!reason || typeof reason !== 'string') {
-      res.status(422).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'reason is required.' },
-      } satisfies ApiResponse);
-      return;
-    }
-
-    if (amount === undefined || typeof amount !== 'number' || amount <= 0) {
-      res.status(422).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'amount must be a positive number.' },
-      } satisfies ApiResponse);
-      return;
-    }
-
-    const dispute = {
-      id: `disp-${Date.now()}`,
-      statementId,
-      clientId: typeof clientId === 'string' ? clientId : 'unknown',
-      reason,
-      amount,
-      createdAt: new Date().toISOString(),
-    };
-    disputes.push(dispute);
-
-    logger.info('Statement dispute logged', { disputeId: dispute.id, statementId, amount });
-
-    res.status(201).json({
-      success: true,
-      data: {
-        ...dispute,
-        status: 'open',
-        estimatedResolution: '5-10 business days',
+    res.status(501).json({
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Filing a statement dispute is not implemented. No table records one and no '
+          + 'process acts on one. This used to answer 201 with an invented id, a status of '
+          + '"open" and an estimated resolution of 5-10 business days, while keeping the '
+          + 'dispute in memory until the process restarted — so a dispute that was never '
+          + 'filed looked filed.',
       },
     } satisfies ApiResponse);
   },

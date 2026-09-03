@@ -355,8 +355,60 @@ rewardsRouter.get(
     const cardId = typeof req.query['cardId'] === 'string' ? req.query['cardId'] : undefined;
 
     try {
-      const benefits = cardBenefits.getBusinessBenefits(businessId, cardId);
-      const alerts   = cardBenefits.getExpiryAlerts(businessId);
+      // Read from card_benefits, the same rows /api/card-benefits/:clientId
+      // serves and the same rows mark-used writes.
+      //
+      // This used to call cardBenefits.getBusinessBenefits(), which reads a
+      // module-level Map that nothing has written since mark-used was rebuilt
+      // against Prisma. So this endpoint returned an empty list for every
+      // client, forever, and the /rewards page rendered "no benefits on record"
+      // — while /card-benefits, one navigation away, listed the same client's
+      // real benefits from the database.
+      //
+      // An empty answer from the wrong source is the worst of the three
+      // possible states: it is not an error, it is not a refusal, and it is
+      // indistinguishable from the truthful answer for a client who genuinely
+      // has none.
+      const applications = await sharedPrisma.cardApplication.findMany({
+        where: {
+          businessId,
+          ...(cardId ? { id: cardId } : {}),
+          business: { tenantId: req.tenant?.tenantId ?? '' },
+        },
+        select: { id: true },
+      });
+
+      const rows = applications.length
+        ? await sharedPrisma.cardBenefit.findMany({
+            where: { cardApplicationId: { in: applications.map((a) => a.id) } },
+            orderBy: [{ expiryDate: 'asc' }, { benefitName: 'asc' }],
+          })
+        : [];
+
+      const benefits = rows.map((r) => ({
+        id: r.id,
+        businessId,
+        cardApplicationId: r.cardApplicationId,
+        cardId: r.cardApplicationId,
+        definitionId: '',
+        benefitType: r.benefitType,
+        benefitName: r.benefitName,
+        // Null stays null. A benefit whose value nobody recorded is not a
+        // benefit worth nothing.
+        benefitValue: r.benefitValue === null ? null : Number(r.benefitValue),
+        expiryDate: r.expiryDate?.toISOString() ?? null,
+        utilized: r.utilized,
+        utilizedDate: r.utilizedDate?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+      }));
+
+      // Unused, dated, and expiring within 90 days. A benefit with no expiry
+      // date on record cannot be said to be expiring, so it is not counted.
+      const horizon = new Date();
+      horizon.setDate(horizon.getDate() + 90);
+      const alerts = benefits.filter(
+        (b) => !b.utilized && b.expiryDate !== null && new Date(b.expiryDate) <= horizon,
+      );
 
       res.status(200).json({
         success: true,
@@ -515,43 +567,45 @@ rewardsRouter.get(
 
 // ── POST /api/rewards/:clientId/export ──────────────────────
 //
-// Export a mock text rewards summary report.
+// Refused. It exported the balances its own sibling refuses to report.
+//
+// This built a "REWARDS PORTFOLIO REPORT" naming the client and asserting
+// 124,500 Amex Membership Rewards points, 89,200 Chase Ultimate Rewards points,
+// $312.47 of Capital One cash back and a total estimated value of $3,206.72 —
+// written into the handler, identical for every client, and followed by four
+// redemption recommendations derived from them.
+//
+// `GET /:clientId/points-balances` above was made a 501 because nothing records
+// a points balance and no issuer integration reads one. The same figures went
+// on being exported from here, in the one format that leaves the building: a
+// document. A balance a client reads off a report is money they believe they
+// have — it gets redeemed, and it gets counted against a card's annual fee when
+// deciding whether to keep the card.
+//
+// It also took no tenant. `clientId` came from the path and was never checked
+// against the caller, so any authenticated caller could export a report naming
+// any client id in any tenant. That mattered less than it sounds only because
+// the figures were the same for everyone, which is not a defence.
 
 rewardsRouter.post(
   '/:clientId/export',
   async (req: Request, res: Response): Promise<void> => {
-    const clientId = Array.isArray(req.params['clientId']) ? req.params['clientId'][0]! : (req.params['clientId'] ?? '');
+    const clientId = Array.isArray(req.params['clientId'])
+      ? req.params['clientId'][0]!
+      : (req.params['clientId'] ?? '');
 
-    logger.info('Rewards report exported', { clientId });
+    logger.info('[rewards] export refused — nothing records a balance to export', { clientId });
 
-    const report = [
-      'REWARDS PORTFOLIO REPORT',
-      `Client: ${clientId}`,
-      `Generated: ${new Date().toISOString()}`,
-      '='.repeat(50),
-      '',
-      'Program Balances:',
-      '  Amex Membership Rewards:   124,500 pts  (~$1,556.25)',
-      '  Chase Ultimate Rewards:     89,200 pts  (~$1,338.00)',
-      '  Capital One Cash Rewards:   $312.47 cash back',
-      '',
-      'Total Estimated Value: $3,206.72',
-      '',
-      'Recommendations:',
-      '  - Transfer 50,000 Amex MR to Delta SkyMiles for 1.4 cpp value',
-      '  - Redeem Chase UR via Pay Yourself Back for 1.5 cpp',
-      '  - Request Capital One cash-back statement credit',
-      '',
-      'END OF REPORT',
-    ].join('\n');
-
-    res.status(200).json({
-      success: true,
-      data: {
-        clientId,
-        format: 'text',
-        report,
-        generatedAt: new Date().toISOString(),
+    res.status(501).json({
+      success: false,
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message:
+          'Rewards export is not implemented. Nothing records points or cash back for a ' +
+          'client, so there is no balance to export. This used to answer 200 with a report ' +
+          'asserting per-programme balances and a total estimated value, the same figures ' +
+          'for every client — the values its sibling GET /points-balances already refuses ' +
+          'to report.',
       },
     } satisfies ApiResponse);
   },

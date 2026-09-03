@@ -10,11 +10,16 @@
 //
 // Edge cases handled:
 //   - Partial statements (missing fields filled with null, never thrown)
-//   - Multi-currency (amounts converted via spot-rate table or left in
-//     original currency with a currencyWarning flag)
+//   - Multi-currency: DETECTED AND WARNED ABOUT, NOT CONVERTED. This said
+//     "amounts converted via spot-rate table"; no spot-rate table exists
+//     anywhere in this repository and nothing converts anything. Non-USD
+//     transactions are flagged, `currency` on the output is the literal
+//     'USD', and consolidating a multi-currency balance is left to a reader.
 //   - Inconsistent date formats (ISO, MM/DD/YYYY, MM-DD-YYYY, etc.)
 //   - Amount formats with currency symbols and comma separators
-//   - Duplicate transaction detection within a single statement
+//   - Repeated rows within a single statement: collapsed out of
+//     `transactions` and carried on `removedDuplicates`, for the engine to
+//     report as duplicate-charge candidates
 // ============================================================
 
 import logger from '../config/logger.js';
@@ -59,6 +64,16 @@ export interface NormalizedStatement {
   isPartial: boolean;
   /** True when non-USD transactions were detected */
   hasMultiCurrency: boolean;
+  /**
+   * Rows this statement carried more than once, removed from `transactions`.
+   *
+   * Kept rather than counted: whether a repeated row is an import artefact or
+   * the issuer charging twice cannot be decided here, and deleting it decided
+   * the question silently — in favour of the reading that hides a double
+   * charge. `detectFeeAnomalies` reports these as candidates and
+   * `detectBalanceMismatch` names their sum as the amount it may be off by.
+   */
+  removedDuplicates: NormalizedTransaction[];
   /** Human-readable warnings about edge cases encountered */
   warnings: string[];
 }
@@ -259,24 +274,46 @@ function classifyTransaction(desc: string): {
 
 // ── Duplicate Transaction Detection ──────────────────────────
 
+/**
+ * Collapse rows this statement carries more than once — and keep what was
+ * collapsed.
+ *
+ * The removed rows used to be counted and dropped. That inverted the module:
+ * a same-day, same-amount, same-merchant charge is the canonical duplicate and
+ * the one a cardholder disputes, and it was deleted one step before
+ * `detectFeeAnomalies` went looking for duplicates. What could still be found
+ * was the same description and amount on *different* dates — two identical
+ * subscription renewals, two identical fuel stops. The true positives were
+ * removed and the false positives were reported.
+ *
+ * It reached the arithmetic too. The issuer's closing balance still contained
+ * the charge that had been dropped, so the expected balance came out low by
+ * exactly that amount and a real double charge surfaced as a
+ * `balance_mismatch` — critical over $50 — attributed to nothing.
+ *
+ * Both readings stay possible and neither can be settled from the data: the
+ * repeated row may be an import artefact, or the issuer may have charged
+ * twice. So the rows are carried out rather than judged here.
+ */
 function deduplicateTransactions(txns: NormalizedTransaction[]): {
   deduped: NormalizedTransaction[];
   duplicateCount: number;
+  removed: NormalizedTransaction[];
 } {
   const seen = new Set<string>();
   const deduped: NormalizedTransaction[] = [];
-  let duplicateCount = 0;
+  const removed: NormalizedTransaction[] = [];
 
   for (const txn of txns) {
     const key = `${txn.transactionDate}|${txn.amount}|${txn.description.slice(0, 30).toLowerCase()}`;
     if (seen.has(key)) {
-      duplicateCount++;
+      removed.push(txn);
     } else {
       seen.add(key);
       deduped.push(txn);
     }
   }
-  return { deduped, duplicateCount };
+  return { deduped, duplicateCount: removed.length, removed };
 }
 
 // ── Currency Detection ────────────────────────────────────────
@@ -379,10 +416,12 @@ export class StatementNormalizer {
     const normalizedTxns = rawTxns.map((t) => normalizeTransaction(t));
 
     // Deduplicate
-    const { deduped, duplicateCount } = deduplicateTransactions(normalizedTxns);
+    const { deduped, duplicateCount, removed } = deduplicateTransactions(normalizedTxns);
     if (duplicateCount > 0) {
       warnings.push(
-        `${duplicateCount} duplicate transaction(s) removed from statement.`,
+        `${duplicateCount} repeated transaction row(s) collapsed. They are carried on `
+        + 'removedDuplicates and reported as duplicate-charge candidates rather than '
+        + 'discarded, and the balance check names the amount it may be off by.',
       );
     }
 
@@ -444,6 +483,7 @@ export class StatementNormalizer {
       availableCredit,
       rewardsEarned,
       transactions: deduped,
+      removedDuplicates: removed,
       currency: 'USD',
       isPartial,
       hasMultiCurrency,

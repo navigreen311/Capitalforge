@@ -25,6 +25,10 @@ import {
 vi.mock('../../../src/backend/events/event-bus.js', () => ({
   eventBus: {
     publish: vi.fn().mockResolvedValue(undefined),
+    // A compliance violation is written to the ledger, not only broadcast.
+    // `publish` alone left the canonical ledger with no record that one had
+    // ever been detected.
+    publishAndPersist: vi.fn().mockResolvedValue({ id: 'evt-001', publishedAt: new Date() }),
   },
 }));
 
@@ -32,6 +36,13 @@ vi.mock('../../../src/backend/events/event-bus.js', () => ({
 
 function makePrismaMock() {
   return {
+    // The advisor a scan is filed against is verified against `users` in the
+    // same tenant. It used to be validated as a UUID and nothing else, so
+    // every record in this module — and the QA scores listed over it — hung
+    // off an attribution nobody checked.
+    user: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'advisor-001' }),
+    },
     commComplianceRecord: {
       create:   vi.fn().mockResolvedValue({ id: 'scan-001' }),
       findMany: vi.fn().mockResolvedValue([]),
@@ -259,10 +270,13 @@ describe('CommComplianceService.scanCommunication', () => {
   });
 
   it('persists a CommComplianceRecord on scan', async () => {
+    // `email`, not `voice`. This test is about persistence, and CLEAN_TEXT
+    // triggers three keyword disclosures that nothing in it anchors — which a
+    // voice script now refuses rather than appending below the sign-off.
     await svc.scanCommunication({
       tenantId:  'tenant-001',
       advisorId: 'advisor-001',
-      channel:   'voice',
+      channel:   'email',
       content:   CLEAN_TEXT,
     });
     expect(prismaMock.commComplianceRecord.create).toHaveBeenCalledOnce();
@@ -309,24 +323,40 @@ describe('Disclosure insertion engine', () => {
     expect(REQUIRED_DISCLOSURES.length).toBeGreaterThanOrEqual(5);
   });
 
-  it('insertRequiredDisclosures appends disclosures to content', () => {
-    const result = svc.insertRequiredDisclosures('Hello client.', ['disc-001']);
+  it('appendRequiredDisclosures appends disclosures to content', () => {
+    const result = svc.appendRequiredDisclosures('Hello client.', ['disc-001']);
     expect(result).toContain('REQUIRED DISCLOSURE');
     expect(result).toContain('hard inquiries');
   });
 
-  it('insertRequiredDisclosures with no trigger IDs returns content unchanged', () => {
+  it('appendRequiredDisclosures with no trigger IDs returns content unchanged', () => {
     const content = 'Hello client.';
-    const result = svc.insertRequiredDisclosures(content, []);
+    const result = svc.appendRequiredDisclosures(content, []);
     expect(result).toBe(content);
   });
 
-  it('scanCommunication injects no-affiliation disclosure', async () => {
+  it('does not attach the no-affiliation disclosure to text that raises no such question', async () => {
+    // disc-005 used to be added to EVERY scan unconditionally, so every
+    // communication came back carrying it whether or not anything in it
+    // suggested a government or issuer affiliation. A disclosure that appears
+    // on everything is a disclosure nobody reads, which costs you the one
+    // message where it mattered.
     const result = await svc.scanCommunication({
       tenantId:  'tenant-001',
       advisorId: 'advisor-001',
       channel:   'email',
       content:   CLEAN_TEXT,
+    });
+    expect(result.requiredDisclosures.some((d) => d.id === 'disc-005')).toBe(false);
+    expect(result.contentWithDisclosures).not.toContain('independent advisory service');
+  });
+
+  it('attaches it when affiliation is raised', async () => {
+    const result = await svc.scanCommunication({
+      tenantId:  'tenant-001',
+      advisorId: 'advisor-001',
+      channel:   'email',
+      content:   'We are an SBA partner and can help you access working capital.',
     });
     expect(result.requiredDisclosures.some((d) => d.id === 'disc-005')).toBe(true);
     expect(result.contentWithDisclosures).toContain('independent advisory service');
@@ -472,10 +502,15 @@ describe('QA call scoring', () => {
     );
   });
 
-  it('getAdvisorQaAverage returns sampleCount 0 for no data', async () => {
+  it('getAdvisorQaAverage reports no data as null, not as a score of zero', async () => {
+    // Was `expect(result.averageOverall).toBe(0)`. Zero is the worst score this
+    // scale has, and an advisor nobody has scanned has not earned it. The four
+    // sibling averages in the same object were already null; this one now
+    // matches them, and sampleCount still says how many rows there were.
     const result = await svc.getAdvisorQaAverage('advisor-001', 'tenant-001');
     expect(result.sampleCount).toBe(0);
-    expect(result.averageOverall).toBe(0);
+    expect(result.averageOverall).toBeNull();
+    expect(result.averageCompliance).toBeNull();
   });
 
   it('getAdvisorQaAverage computes averages correctly', async () => {

@@ -62,15 +62,6 @@ import {
   type CardSummary,
 } from '../../../src/backend/services/hardship.service.js';
 
-import {
-  computeRestackReadiness,
-  evaluateRestackReadiness,
-  buildOutreachTrigger,
-  recordRestackConversion,
-  RESTACK_ALERT_THRESHOLD,
-  setPrismaClient as setRestackPrisma,
-  type RestackReadinessInput,
-} from '../../../src/backend/services/auto-restack.service.js';
 
 import { eventBus } from '../../../src/backend/events/event-bus.js';
 import { PrismaClient } from '@prisma/client';
@@ -101,19 +92,6 @@ function makeHardshipInput(overrides?: Partial<HardshipTriggerInput>): HardshipT
   };
 }
 
-function makeRestackInput(overrides?: Partial<RestackReadinessInput>): RestackReadinessInput {
-  return {
-    onTimePaymentMonths:          9,
-    missedPaymentsSinceHardship:  0,
-    currentUtilization:           0.20,
-    baselineUtilization:          0.85,
-    currentCreditScore:           700,
-    baselineCreditScore:          620,
-    monthsSinceLastEvent:         12,
-    activeHardshipCase:           false,
-    ...overrides,
-  };
-}
 
 // ── Test setup ────────────────────────────────────────────────
 
@@ -123,7 +101,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma = new PrismaClient();
   setHardshipPrisma(mockPrisma as unknown as PrismaClient);
-  setRestackPrisma(mockPrisma as unknown as PrismaClient);
 });
 
 // ============================================================
@@ -327,180 +304,12 @@ describe('buildCardClosureSequence', () => {
 // SECTION 5: Re-Stack Readiness Scoring
 // ============================================================
 
-describe('computeRestackReadiness', () => {
-  it('returns score=0 and not_ready when active hardship case exists', () => {
-    const result = computeRestackReadiness(makeRestackInput({ activeHardshipCase: true }));
-    expect(result.score).toBe(0);
-    expect(result.band).toBe('not_ready');
-    expect(result.alertFired).toBe(false);
-  });
-
-  it('scores a strong recovery profile >= 70', () => {
-    const result = computeRestackReadiness(
-      makeRestackInput({
-        onTimePaymentMonths:         12,
-        missedPaymentsSinceHardship: 0,
-        currentUtilization:          0.10,
-        baselineUtilization:         0.90,
-        currentCreditScore:          730,
-        baselineCreditScore:         600,
-        monthsSinceLastEvent:        18,
-      }),
-    );
-    expect(result.score).toBeGreaterThanOrEqual(70);
-    expect(result.alertFired).toBe(true);
-  });
-
-  it('sets alertFired=true at exactly the threshold', () => {
-    // Use a profile tuned to land right at 70
-    const result = computeRestackReadiness(makeRestackInput());
-    if (result.score >= RESTACK_ALERT_THRESHOLD) {
-      expect(result.alertFired).toBe(true);
-    } else {
-      expect(result.alertFired).toBe(false);
-    }
-  });
-
-  it('heavy penalty on missed payments since hardship', () => {
-    const clean  = computeRestackReadiness(makeRestackInput({ missedPaymentsSinceHardship: 0 }));
-    const missed = computeRestackReadiness(makeRestackInput({ missedPaymentsSinceHardship: 2 }));
-    expect(missed.paymentHistoryScore).toBeLessThan(clean.paymentHistoryScore);
-  });
-
-  it('utilization improvement increases utilization score', () => {
-    const improved = computeRestackReadiness(
-      makeRestackInput({ currentUtilization: 0.10, baselineUtilization: 0.90 }),
-    );
-    const unimproved = computeRestackReadiness(
-      makeRestackInput({ currentUtilization: 0.75, baselineUtilization: 0.80 }),
-    );
-    expect(improved.utilizationScore).toBeGreaterThan(unimproved.utilizationScore);
-  });
-
-  it('credit score recovery from 620 to 720+ maximises credit component', () => {
-    const recovered = computeRestackReadiness(
-      makeRestackInput({ currentCreditScore: 725, baselineCreditScore: 600 }),
-    );
-    expect(recovered.creditRecoveryScore).toBeGreaterThanOrEqual(20);
-  });
-
-  it('longer time elapsed yields higher time component', () => {
-    const recent = computeRestackReadiness(makeRestackInput({ monthsSinceLastEvent: 3 }));
-    const aged   = computeRestackReadiness(makeRestackInput({ monthsSinceLastEvent: 24 }));
-    expect(aged.timeElapsedScore).toBeGreaterThan(recent.timeElapsedScore);
-  });
-
-  it('band is not_ready for score < 40', () => {
-    const result = computeRestackReadiness(
-      makeRestackInput({
-        onTimePaymentMonths:         0,
-        missedPaymentsSinceHardship: 3,
-        currentUtilization:          0.92,
-        baselineUtilization:         0.92,
-        currentCreditScore:          580,
-        baselineCreditScore:         600,
-        monthsSinceLastEvent:        1,
-      }),
-    );
-    expect(result.band).toBe('not_ready');
-  });
-
-  it('includes recommendations array', () => {
-    const result = computeRestackReadiness(makeRestackInput({ onTimePaymentMonths: 1 }));
-    expect(Array.isArray(result.recommendations)).toBe(true);
-    expect(result.recommendations.length).toBeGreaterThan(0);
-  });
-});
-
-// ============================================================
-// SECTION 6: Outreach Trigger & Conversion
-// ============================================================
-
-describe('buildOutreachTrigger', () => {
-  it('uses sms channel for optimal band', () => {
-    const t = buildOutreachTrigger('biz-1', 'adv-1', 90, 'optimal');
-    expect(t.channel).toBe('sms');
-  });
-
-  it('uses email channel for ready band', () => {
-    const t = buildOutreachTrigger('biz-1', null, 75, 'ready');
-    expect(t.channel).toBe('email');
-  });
-
-  it('uses in_app channel for approaching band', () => {
-    const t = buildOutreachTrigger('biz-1', null, 62, 'approaching');
-    expect(t.channel).toBe('in_app');
-  });
-
-  it('schedules trigger 1 day from now', () => {
-    const t = buildOutreachTrigger('biz-1', null, 75, 'ready');
-    const diffMs  = t.scheduledAt.getTime() - Date.now();
-    const diffDays = diffMs / (1000 * 60 * 60 * 24);
-    expect(diffDays).toBeGreaterThanOrEqual(0.9);
-    expect(diffDays).toBeLessThanOrEqual(1.1);
-  });
-
-  it('includes score-contextual message', () => {
-    const t = buildOutreachTrigger('biz-1', null, 80, 'ready');
-    expect(t.message).toContain('80');
-  });
-});
-
-describe('evaluateRestackReadiness', () => {
-  it('fires RESTACK_TRIGGER_FIRED event when score >= threshold', async () => {
-    const input = makeRestackInput({
-      onTimePaymentMonths:  12,
-      currentUtilization:   0.10,
-      baselineUtilization:  0.90,
-      currentCreditScore:   730,
-      baselineCreditScore:  600,
-      monthsSinceLastEvent: 18,
-    });
-    const result = await evaluateRestackReadiness('biz-1', 'tenant-1', 'adv-1', input);
-    if (result.alertFired) {
-      expect(eventBus.publishAndPersist).toHaveBeenCalled();
-    }
-  });
-
-  it('does NOT fire event when score < threshold', async () => {
-    const input = makeRestackInput({
-      onTimePaymentMonths:         0,
-      missedPaymentsSinceHardship: 2,
-      currentUtilization:          0.85,
-      baselineUtilization:         0.85,
-      currentCreditScore:          580,
-      baselineCreditScore:         600,
-      monthsSinceLastEvent:        1,
-    });
-    const result = await evaluateRestackReadiness('biz-1', 'tenant-1', null, input);
-    expect(result.alertFired).toBe(false);
-    expect(eventBus.publishAndPersist).not.toHaveBeenCalled();
-  });
-});
-
-describe('recordRestackConversion', () => {
-  it('emits restack.conversion.recorded event with attribution data', async () => {
-    await recordRestackConversion('biz-1', 'tenant-1', 'trigger-1', 'round-1', 5_000);
-    expect(eventBus.publishAndPersist).toHaveBeenCalledWith(
-      'tenant-1',
-      expect.objectContaining({
-        eventType: 'restack.conversion.recorded',
-        payload:   expect.objectContaining({
-          businessId:    'biz-1',
-          triggerId:     'trigger-1',
-          fundingRoundId: 'round-1',
-          revenueAmount: 5_000,
-        }),
-      }),
-    );
-  });
-
-  it('returns a conversion record with unique conversionId', async () => {
-    const c1 = await recordRestackConversion('biz-1', 'tenant-1', 't1', 'r1', 1_000);
-    const c2 = await recordRestackConversion('biz-1', 'tenant-1', 't2', 'r2', 1_000);
-    expect(c1.conversionId).not.toBe(c2.conversionId);
-  });
-});
+// The four restack describes — computeRestackReadiness, buildOutreachTrigger,
+// evaluateRestackReadiness, recordRestackConversion — were removed on
+// 2026-09-02 with auto-restack.service.ts. That engine scored re-stack
+// readiness from caller-supplied numbers and wrote restack.trigger.fired to
+// the ledger at score >= 70. restack-trigger.ts answers the same question
+// from the database; see tests/unit/services/restack-one-rule-set.test.ts.
 
 describe('generateCounselorReferral', () => {
   it('generates a referral with NFCC as primary agency', () => {

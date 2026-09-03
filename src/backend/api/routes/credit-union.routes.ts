@@ -204,12 +204,21 @@ creditUnionRouter.get(
         });
       }
 
-      // Fetch the business with its latest credit profile
-      const business = await db.business.findUnique({
-        where: { id: businessId },
+      // Fetch the business with its latest credit profile.
+      //
+      // Scoped. This was `findUnique({ where: { id: businessId } })`, so any
+      // authenticated caller could pass any business id and read its legal
+      // name, state of formation, revenue and credit score back out of the
+      // eligibility answer. The business id arrives as a query parameter, which
+      // is the shape `requireOwnedBusiness` cannot cover — it verifies
+      // `req.params`, and this id is never in a path.
+      const business = await db.business.findFirst({
+        where: { id: businessId, tenantId: req.tenant!.tenantId },
       });
 
       if (!business) {
+        // Same answer for a business that does not exist and one belonging to
+        // another tenant, so the response cannot be used to enumerate ids.
         return notFound(res, `Business not found: ${businessId}`);
       }
 
@@ -397,9 +406,12 @@ creditUnionRouter.post(
         return notFound(res, `Credit union not found: ${slug}`);
       }
 
-      // Verify the business exists
-      const business = await db.business.findUnique({
-        where: { id: businessId },
+      // Verify the business exists — within the calling tenant.
+      //
+      // Unscoped, this confirmed the existence of any business id and returned
+      // its legal name inside `joinInstructions.message`.
+      const business = await db.business.findFirst({
+        where: { id: businessId, tenantId: req.tenant!.tenantId },
         select: { id: true, legalName: true },
       });
 

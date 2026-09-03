@@ -26,8 +26,17 @@ import { prisma as sharedPrisma } from '../../config/database.js';
 import type { ApiResponse } from '../../../shared/types/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import { AppError, badRequest, notFound, forbidden } from '../../middleware/error-handler.js';
-import { ComplaintService } from '../../services/complaint.service.js';
-import { RegulatorResponseService } from '../../services/regulator-response.service.js';
+import {
+  ComplaintService,
+  ComplaintNotFoundError,
+  UnknownComplaintBusinessError,
+} from '../../services/complaint.service.js';
+import {
+  RegulatorResponseService,
+  RegulatorInquiryNotFoundError,
+  InquiryHasNoBusinessError,
+  UnknownDossierRequesterError,
+} from '../../services/regulator-response.service.js';
 import type {
   CreateComplaintInput,
   UpdateComplaintInput,
@@ -44,7 +53,7 @@ import type {
   InquiryListFilters,
   RegulatorInquiryRecord,
   InquiryListResult,
-  ComplianceDossier,
+  RegulatorDossier,
   LegalHoldSummary,
 } from '../../services/regulator-response.service.js';
 import { PERMISSIONS } from '../../../shared/constants/index.js';
@@ -135,7 +144,7 @@ const AttachEvidenceSchema = z.object({
     title:       z.string().min(1).max(255),
     notes:       z.string().max(1000).optional(),
   })).min(1).max(50),
-  addedBy: z.string().max(255).optional(),
+  // `addedBy` is NOT accepted. It is read from the verified token.
 });
 
 const ComplaintListQuerySchema = z.object({
@@ -203,6 +212,9 @@ complaintsRouter.post(
       const input: CreateComplaintInput = {
         tenantId,
         ...parsed.data,
+        // From the verified token. Shared rule 7: if the module records it,
+        // the module derives it.
+        filedBy: req.tenant!.userId,
       };
 
       const svc    = getComplaintService();
@@ -368,7 +380,10 @@ complaintsRouter.post(
         complaintId:   String(id),
         tenantId,
         evidenceItems: parsed.data.evidenceItems,
-        addedBy:       parsed.data.addedBy ?? req.tenant!.userId,
+        // The token, never the body. `parsed.data.addedBy ?? userId` let a
+        // caller attribute an evidence attachment to somebody else, on a
+        // record that answers who added what to a complaint file.
+        addedBy:       req.tenant!.userId,
       };
 
       const svc = getComplaintService();
@@ -377,7 +392,11 @@ complaintsRouter.post(
       try {
         result = await svc.attachEvidence(input);
       } catch (err) {
-        if (err instanceof Error && err.message.includes('not found')) {
+        // Typed, not string-matched. This was
+        // `err.message.includes('not found')`, so any future error whose
+        // message happened to contain those two words became a 404 saying the
+        // complaint does not exist.
+        if (err instanceof ComplaintNotFoundError) {
           throw notFound(`Complaint ${id}`);
         }
         throw err;
@@ -550,13 +569,37 @@ complaintsRouter.post(
       const { id }       = req.params;
 
       const svc = getRegulatoryService();
-      let dossier: ComplianceDossier;
+      let dossier: RegulatorDossier;
 
       try {
         dossier = await svc.exportDossier(String(id), tenantId, req.tenant!.userId);
       } catch (err) {
-        if (err instanceof Error && err.message.includes('not found')) {
+        // Typed, not string-matched. This was
+        // `err.message.includes('not found')`, so any future error whose message
+        // happened to contain those two words would have been reported as a
+        // missing inquiry — including a genuine failure, which would then read
+        // as "no such inquiry" to whoever was assembling a regulator response.
+        if (err instanceof InquiryHasNoBusinessError) {
+          // 422, not 404: the inquiry exists. Nothing is attached to it, so
+          // there is no dossier to assemble — which is a different fact from
+          // the inquiry being missing, and the two must not share a response.
+          res.status(422).json({
+            success: false,
+            error: { code: 'INQUIRY_HAS_NO_BUSINESS', message: err.message },
+          } satisfies ApiResponse);
+          return;
+        }
+        if (err instanceof RegulatorInquiryNotFoundError) {
           throw notFound(`Regulator inquiry ${id}`);
+        }
+        // The id that would be recorded in `generatedBy` on the stored export
+        // row. Same treatment as the sibling manifest's UnknownRequesterError.
+        if (err instanceof UnknownDossierRequesterError) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'UNKNOWN_REQUESTER', message: err.message },
+          } satisfies ApiResponse);
+          return;
         }
         throw err;
       }
@@ -569,7 +612,7 @@ complaintsRouter.post(
         documentCount: dossier.totalDocuments,
       });
 
-      const body: ApiResponse<ComplianceDossier> = { success: true, data: dossier };
+      const body: ApiResponse<RegulatorDossier> = { success: true, data: dossier };
       res.status(200).json(body);
     } catch (err) {
       next(err);

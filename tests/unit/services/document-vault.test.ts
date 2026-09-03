@@ -87,8 +87,10 @@ function makeMockPrisma() {
       count:      vi.fn().mockResolvedValue(1),
       delete:     vi.fn().mockResolvedValue(documentRow),
     },
+    user:                 { findFirst:  vi.fn().mockResolvedValue({ id: 'user-001' }) },
     business:             { findFirst:  vi.fn().mockResolvedValue(null) },
     consentRecord:        { findMany:   vi.fn().mockResolvedValue([]) },
+    ledgerEvent:          { findMany:   vi.fn().mockResolvedValue([]) },
     productAcknowledgment:{ findMany:   vi.fn().mockResolvedValue([]) },
     cardApplication:      { findMany:   vi.fn().mockResolvedValue([]) },
     costCalculation:      { findMany:   vi.fn().mockResolvedValue([]) },
@@ -804,6 +806,10 @@ function makeFullMockPrisma() {
   };
 
   return {
+    // The manifest names who assembled it, and that id is verified against
+    // `users` in the same tenant — it is the provenance line on a document
+    // handed to counsel.
+    user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
     business:             { findFirst: vi.fn().mockResolvedValue(business) },
     consentRecord:        { findMany:  vi.fn().mockResolvedValue([consent, revokedConsent]) },
     productAcknowledgment:{ findMany:  vi.fn().mockResolvedValue([acknowledgment]) },
@@ -813,6 +819,8 @@ function makeFullMockPrisma() {
     suitabilityCheck:     { findMany:  vi.fn().mockResolvedValue([suitability]) },
     complianceCheck:      { findMany:  vi.fn().mockResolvedValue([complianceCheck, openComplianceCheck]) },
     document:             { findMany:  vi.fn().mockResolvedValue([vaultDocument, legalHoldDocument]) },
+    // The canonical ledger travels in the manifest as of 2026-09-02.
+    ledgerEvent:          { findMany:  vi.fn().mockResolvedValue([]) },
   };
 }
 
@@ -925,6 +933,8 @@ describe('ComplianceDossierService — timestamp integrity', () => {
     });
 
     const prisma = {
+          ledgerEvent:          { findMany: vi.fn().mockResolvedValue([]) },
+      user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
       business:             { findFirst: vi.fn().mockResolvedValue({
         id: BUSINESS_ID, tenantId: TENANT_ID, legalName: 'Test Co', dba: null, ein: null,
         entityType: 'llc', stateOfFormation: null, dateOfFormation: null, industry: null,
@@ -978,6 +988,8 @@ describe('ComplianceDossierService — timestamp integrity', () => {
     });
 
     const prisma = {
+          ledgerEvent:          { findMany: vi.fn().mockResolvedValue([]) },
+      user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
       business:             { findFirst: vi.fn().mockResolvedValue({
         id: BUSINESS_ID, tenantId: TENANT_ID, legalName: 'Test Co', dba: null, ein: null,
         entityType: 'llc', stateOfFormation: null, dateOfFormation: null, industry: null,
@@ -1019,6 +1031,8 @@ describe('ComplianceDossierService — timestamp integrity', () => {
 
   it('marks document with no crypto timestamp as "unverifiable"', async () => {
     const prisma = {
+          ledgerEvent:          { findMany: vi.fn().mockResolvedValue([]) },
+      user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
       business:             { findFirst: vi.fn().mockResolvedValue({
         id: BUSINESS_ID, tenantId: TENANT_ID, legalName: 'Test Co', dba: null, ein: null,
         entityType: 'llc', stateOfFormation: null, dateOfFormation: null, industry: null,
@@ -1061,6 +1075,8 @@ describe('ComplianceDossierService — timestamp integrity', () => {
 describe('ComplianceDossierService — error handling', () => {
   it('throws BusinessNotFoundForDossierError when business does not exist', async () => {
     const prisma = {
+          ledgerEvent:          { findMany: vi.fn().mockResolvedValue([]) },
+      user:                 { findFirst: vi.fn().mockResolvedValue({ id: 'user-001' }) },
       business:             { findFirst: vi.fn().mockResolvedValue(null) },
       consentRecord:        { findMany: vi.fn().mockResolvedValue([]) },
       productAcknowledgment:{ findMany: vi.fn().mockResolvedValue([]) },

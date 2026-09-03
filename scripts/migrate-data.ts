@@ -296,7 +296,7 @@ async function importTenant(sourcePath: string, newTenantSlug: string): Promise<
         id: string; advisorId?: string; legalName: string; dba?: string; ein?: string;
         entityType: string; stateOfFormation?: string; dateOfFormation?: string;
         mcc?: string; industry?: string; annualRevenue?: string; monthlyRevenue?: string;
-        fundingReadinessScore?: number; status: string;
+        fundingReadinessScore?: number | null; status: string;
       };
       await tx.business.create({
         data: {
@@ -313,6 +313,8 @@ async function importTenant(sourcePath: string, newTenantSlug: string): Promise<
           industry: biz.industry,
           annualRevenue: biz.annualRevenue ? biz.annualRevenue : undefined,
           monthlyRevenue: biz.monthlyRevenue ? biz.monthlyRevenue : undefined,
+          // Passed through untouched, null included: an unassessed client
+          // stays unassessed across a tenant move.
           fundingReadinessScore: biz.fundingReadinessScore,
           status: biz.status,
         },
@@ -426,20 +428,39 @@ async function transformData(
   let transformed = { ...data };
 
   if (fromVersion === 1 && toVersion === 2) {
-    // v1→v2: add fundingReadinessScore default, normalize entityType to lowercase
+    // v1→v2: normalize entityType to lowercase, and carry an absent readiness
+    // score through as null.
+    //
+    // THIS USED TO WRITE `?? 0`, AND THAT 0 REACHED THE COLUMN.
+    //
+    //   `fundingReadinessScore` is three-state: a number, or null meaning the
+    //   client has never been assessed. Zero is a measurement — the worst one
+    //   available. A v1 business with no score, transformed and then imported,
+    //   landed as a client assessed at the bottom of the scale by a migration
+    //   that had assessed nothing.
+    //
+    //   Every other writer of this column was fixed on 2026-09-02 to preserve
+    //   the distinction (docs/decisions/restack-recommend.md, entry 8). This
+    //   one is a script and was missed. It could manufacture the exact state
+    //   the engine and the operating instruction both say cannot exist —
+    //   `restack_recommend` would report "Readiness score 0 is below threshold
+    //   of 70" about a client nobody has ever scored.
+    //
+    //   Null stays null. `entityType` keeps its default because 'llc' is a
+    //   guess about a form that exists; a score is a guess about a client.
     transformed = {
       ...data,
       schemaVersion: 2,
       businesses: data.businesses.map((b) => {
-        const biz = b as { entityType?: string; fundingReadinessScore?: number };
+        const biz = b as { entityType?: string; fundingReadinessScore?: number | null };
         return {
           ...b,
           entityType: biz.entityType?.toLowerCase() ?? 'llc',
-          fundingReadinessScore: biz.fundingReadinessScore ?? 0,
+          fundingReadinessScore: biz.fundingReadinessScore ?? null,
         };
       }),
     };
-    console.log('  ✓ Applied v1→v2 transformations: entityType normalization, fundingReadinessScore default');
+    console.log('  ✓ Applied v1→v2 transformations: entityType normalization, readiness score preserved (absent stays null)');
   } else {
     throw new Error(`No transform defined for v${fromVersion}→v${toVersion}`);
   }

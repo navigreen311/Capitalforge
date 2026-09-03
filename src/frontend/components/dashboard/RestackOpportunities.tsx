@@ -20,28 +20,28 @@ interface RestackOpportunity {
   client_initials: string;
   current_round: number;
   next_round: number;
-  estimated_additional_credit: number;
-  readiness_score: number;
+  /** Null when readiness has never been assessed. Not the same as zero. */
+  readiness_score: number | null;
   last_funded_date: string | null;
 }
 
 interface RestackData {
-  total_pipeline_value: number;
+  /**
+   * `total_pipeline_value` is gone from this response and there is nothing to
+   * replace it with. It summed an `estimated_additional_credit` that was the
+   * previous round's TARGET credit times 0.75 — a multiplier derived from
+   * nothing, under a comment claiming to sum approved applications. Nothing in
+   * this system forecasts what a client will be approved for.
+   */
+  eligible_count: number;
+  /** What the count is out of, so an empty list is readable. */
+  active_count: number;
+  not_assessed_count: number;
   opportunities: RestackOpportunity[];
   last_updated: string;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatCurrency(amount: number): string {
-  if (amount >= 1_000_000) {
-    return `$${(amount / 1_000_000).toFixed(1)}M`;
-  }
-  if (amount >= 1_000) {
-    return `$${(amount / 1_000).toFixed(0)}K`;
-  }
-  return `$${amount.toLocaleString()}`;
-}
 
 function formatDate(iso: string | null): string {
   if (!iso) return '--';
@@ -49,7 +49,12 @@ function formatDate(iso: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function getReadinessPill(score: number) {
+function getReadinessPill(score: number | null) {
+  // Not assessed is its own state. Rendering it as 0% put a client nobody has
+  // scored in the same grey pill as one scored zero.
+  if (score === null) {
+    return { bg: 'bg-gray-100 text-gray-500', label: 'not assessed' };
+  }
   if (score >= 80) {
     return { bg: 'bg-emerald-100 text-emerald-700', label: `${score}%` };
   }
@@ -134,7 +139,9 @@ function OpportunityRow({ opp }: { opp: RestackOpportunity }) {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900 truncate">{opp.client_name}</p>
         <p className="text-xs text-gray-500">
-          Round {opp.current_round} &middot; {formatCurrency(opp.estimated_additional_credit)} est.
+          {opp.current_round > 0
+            ? `Round ${opp.current_round} complete · ready for ${opp.next_round}`
+            : `No prior round · ready for round ${opp.next_round}`}
         </p>
       </div>
 
@@ -172,9 +179,11 @@ export function RestackOpportunities() {
 
   // ── Header action: pipeline value badge ───────────────────────────────────
 
+  // A count, not a forecast. This read `{formatCurrency(total_pipeline_value)}
+  // pipeline value` in gold, from a figure nothing measured.
   const pipelineAction = data ? (
     <span className="text-sm font-semibold text-brand-gold">
-      {formatCurrency(data.total_pipeline_value)} pipeline value
+      {data.eligible_count} {data.eligible_count === 1 ? 'client' : 'clients'} ready
     </span>
   ) : null;
 
@@ -192,6 +201,17 @@ export function RestackOpportunities() {
       {!isLoading && !error && data && data.opportunities.length === 0 && (
         <p className="text-sm text-gray-400 py-6 text-center">
           No clients ready for re-stack — next bureau refresh in {hoursUntilNextBureauRefresh()} hours.
+          {/* An empty list means something different when nobody has been
+              scored. Only clients with a readiness assessment are evaluated,
+              and this panel used to show the same sentence either way — and
+              the same sentence again when the query had failed outright. */}
+          {data.not_assessed_count > 0 && (
+            <>
+              <br />
+              {data.not_assessed_count} of {data.active_count} active clients have no readiness
+              assessment and were not evaluated.
+            </>
+          )}
         </p>
       )}
 

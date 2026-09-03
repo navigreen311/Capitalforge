@@ -42,7 +42,12 @@ interface BusinessProfile {
   operatingStates: string[];
   status: BusinessStatus;
   advisorName: string;
-  fundingReadinessScore: number;
+  /**
+   * Null when nobody has pulled this client's credit: the score cannot be
+   * computed without its 25-point credit component, so there is no score.
+   * Not a zero, and never to be rendered as one.
+   */
+  fundingReadinessScore: number | null;
   monthsInBusiness: number;
   annualRevenue: number;
   monthlyRevenue?: number;
@@ -317,9 +322,17 @@ export default function ClientDetailPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard
           label="Readiness Score"
-          value={biz.fundingReadinessScore}
-          sub="out of 100"
-          color={biz.fundingReadinessScore >= 75 ? 'text-emerald-600' : biz.fundingReadinessScore >= 55 ? 'text-amber-600' : 'text-red-600'}
+          value={biz.fundingReadinessScore ?? 'Not assessed'}
+          sub={biz.fundingReadinessScore === null ? 'no credit profile on record' : 'out of 100'}
+          color={
+            biz.fundingReadinessScore === null
+              ? 'text-gray-400'
+              : biz.fundingReadinessScore >= 75
+                ? 'text-emerald-600'
+                : biz.fundingReadinessScore >= 55
+                  ? 'text-amber-600'
+                  : 'text-red-600'
+          }
         />
         <StatCard
           label="Suitability Score"

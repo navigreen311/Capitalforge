@@ -33,6 +33,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
   [ROLES.TENANT_ADMIN]: new Set<Permission>([
     PERMISSIONS.BUSINESS_READ,
+    PERMISSIONS.BUSINESS_READ_PII,
+    PERMISSIONS.BUSINESS_READ_CREDIT,
     PERMISSIONS.BUSINESS_WRITE,
     PERMISSIONS.APPLICATION_SUBMIT,
     PERMISSIONS.APPLICATION_APPROVE,
@@ -49,6 +51,10 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
   [ROLES.COMPLIANCE_OFFICER]: new Set<Permission>([
     PERMISSIONS.BUSINESS_READ,
+    // A compliance officer reviews KYC on beneficial owners and reads bureau
+    // data in the course of a suitability or fair-lending review.
+    PERMISSIONS.BUSINESS_READ_PII,
+    PERMISSIONS.BUSINESS_READ_CREDIT,
     PERMISSIONS.COMPLIANCE_READ,
     PERMISSIONS.COMPLIANCE_WRITE,
     PERMISSIONS.CONSENT_MANAGE,
@@ -58,6 +64,10 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
   [ROLES.ADVISOR]: new Set<Permission>([
     PERMISSIONS.BUSINESS_READ,
+    // The advisor works the client file daily; withholding either would break
+    // the product rather than tighten it.
+    PERMISSIONS.BUSINESS_READ_PII,
+    PERMISSIONS.BUSINESS_READ_CREDIT,
     PERMISSIONS.BUSINESS_WRITE,
     PERMISSIONS.APPLICATION_SUBMIT,
     PERMISSIONS.CONSENT_MANAGE,
@@ -66,6 +76,14 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     PERMISSIONS.REPORTS_VIEW,
   ] as Permission[]),
 
+  // CLIENT and READONLY get BUSINESS_READ and neither of the two new ones.
+  //
+  // That is the split doing its work rather than an oversight: a read-only
+  // reviewer and a client-portal session had exactly the same reach into
+  // dates of birth and bureau data as an advisor, because one permission
+  // covered a legal name and a social security number alike. If a client
+  // portal turns out to need its own owners, that is a grant to add
+  // deliberately, and it will be visible as one.
   [ROLES.CLIENT]: new Set<Permission>([
     PERMISSIONS.BUSINESS_READ,
     PERMISSIONS.APPLICATION_SUBMIT,
@@ -105,6 +123,16 @@ function roleAtLeast(userRole: string, minimumRole: Role): boolean {
  * Resolves the effective permission set for a user.
  * Token permissions are authoritative; role defaults are the fallback.
  */
+/**
+ * The permissions a role carries, from the one map.
+ *
+ * Exported so a test can assert against the real table rather than restating
+ * it — a test that restates the role map proves the restatement.
+ */
+export function effectivePermissionsForRole(role: string): ReadonlySet<string> {
+  return effectivePermissions(role, []);
+}
+
 function effectivePermissions(
   role: string,
   tokenPermissions: string[],

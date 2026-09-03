@@ -82,13 +82,6 @@ import {
   type HardshipTriggerInput,
   type CardSummary,
 } from '../../src/backend/services/hardship.service.js';
-import {
-  computeRestackReadiness,
-  evaluateRestackReadiness,
-  buildOutreachTrigger,
-  RESTACK_ALERT_THRESHOLD,
-  type RestackReadinessInput,
-} from '../../src/backend/services/auto-restack.service.js';
 import { eventBus } from '../../src/backend/events/event-bus.js';
 
 // ── Shared helpers ────────────────────────────────────────────
@@ -580,74 +573,9 @@ describe('E2E: Deal Lifecycle Flow', () => {
 
   // ── Test 16: Re-stack readiness — active hardship blocks ─
 
-  it('returns score 0 and not_ready band when active hardship case is open', () => {
-    const input: RestackReadinessInput = {
-      onTimePaymentMonths:      12,
-      missedPaymentsSinceHardship: 0,
-      currentUtilization:       0.15,
-      baselineUtilization:      0.85,
-      currentCreditScore:       720,
-      baselineCreditScore:      640,
-      monthsSinceLastEvent:     12,
-      activeHardshipCase:       true,
-    };
+  // Three re-stack readiness cases were removed on 2026-09-02 with
+  // auto-restack.service.ts. That engine scored from caller-supplied numbers
+  // and wrote restack.trigger.fired to the ledger at score >= 70;
+  // restack-trigger.ts answers the same question from the database.
 
-    const result = computeRestackReadiness(input);
-
-    expect(result.score).toBe(0);
-    expect(result.band).toBe('not_ready');
-    expect(result.alertFired).toBe(false);
-    expect(result.recommendations[0]).toMatch(/hardship/i);
-  });
-
-  // ── Test 17: Re-stack readiness crosses alert threshold ───
-
-  it('fires advisor alert when re-stack score reaches threshold (≥ 70)', async () => {
-    const spy = createEventBusSpy(eventBus);
-
-    const input: RestackReadinessInput = {
-      onTimePaymentMonths:      12,  // 30 pts
-      missedPaymentsSinceHardship: 0,
-      currentUtilization:       0.18, // 16 pts utilization + improvement below
-      baselineUtilization:      0.85, // 50%+ improvement → 10 pts
-      currentCreditScore:       720,  // 15 pts
-      baselineCreditScore:      660,  // +60 gain → 10 pts
-      monthsSinceLastEvent:     12,   // 9 pts time
-      activeHardshipCase:       false,
-    };
-
-    const result = await evaluateRestackReadiness(
-      graph.business.id,
-      graph.tenant.id,
-      graph.advisorUser.id,
-      input,
-    );
-
-    expect(result.score).toBeGreaterThanOrEqual(RESTACK_ALERT_THRESHOLD);
-    expect(result.alertFired).toBe(true);
-    expect(['ready', 'optimal']).toContain(result.band);
-    spy.assertEventFired('restack.trigger.fired');
-    spy.restore();
-  });
-
-  // ── Test 18: Outreach trigger built for optimal band ──────
-
-  it('builds an SMS outreach trigger for a business at optimal re-stack band', () => {
-    const trigger = buildOutreachTrigger(
-      graph.business.id,
-      graph.advisorUser.id,
-      90,
-      'optimal',
-    );
-
-    expect(trigger.triggerId).toBeDefined();
-    expect(trigger.businessId).toBe(graph.business.id);
-    expect(trigger.channel).toBe('sms');
-    expect(trigger.score).toBe(90);
-    expect(trigger.band).toBe('optimal');
-    expect(trigger.message).toMatch(/optimal/i);
-    expect(trigger.scheduledAt).toBeInstanceOf(Date);
-    // Scheduled 1 business day out
-    expect(trigger.scheduledAt.getTime()).toBeGreaterThan(Date.now());
-  });
 });

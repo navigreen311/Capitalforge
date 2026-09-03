@@ -285,7 +285,11 @@ export class AchControlsService {
     }
 
     return this.prisma.achAuthorization.findMany({
-      where: { businessId },
+      // Scoped, though the business is verified above and the only caller is
+      // behind requireOwnedBusiness. Two arrangements protecting one query is
+      // not the same as the query being safe, and this returns every debit
+      // event on the authorisation.
+      where: { businessId, business: { tenantId } },
       include: {
         debitEvents: {
           orderBy: { processedAt: 'desc' },

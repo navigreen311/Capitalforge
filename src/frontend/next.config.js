@@ -54,10 +54,29 @@ const nextConfig = {
     ];
   },
 
-  // Webpack alias resolution for monorepo shared modules
+  // Webpack resolution for monorepo shared modules.
+  //
+  // The alias itself comes from `paths` in tsconfig.json, which Next reads; this block
+  // spread the existing aliases and added none, and the comment claimed otherwise.
+  //
+  // What was actually missing is the extension mapping. The root tsconfig is
+  // `moduleResolution: "NodeNext"`, which requires a `.js` suffix on relative imports,
+  // and this app is `moduleResolution: "Bundler"`, where the suffix is wrong. The first
+  // frontend file to import from `@shared` wrote it the backend's way and webpack
+  // resolved `@shared/types/index.js` to a file that does not exist - `index.ts` does.
+  //
+  // `Failed to compile. Module not found: Can't resolve '@shared/types/index.js'`, and
+  // the same line inside Playwright's `[WebServer]`, where it hung the browser suite
+  // until the job was killed at thirty minutes. Neither had run: the branch had never
+  // been through CI.
+  //
+  // So both conventions resolve now. `.js` in a shared import is not a mistake anybody
+  // should have to remember not to make, and it is the convention on the other side of
+  // the same repository.
   webpack(config) {
-    config.resolve.alias = {
-      ...config.resolve.alias,
+    config.resolve.extensionAlias = {
+      ...config.resolve.extensionAlias,
+      '.js': ['.ts', '.tsx', '.js'],
     };
     return config;
   },

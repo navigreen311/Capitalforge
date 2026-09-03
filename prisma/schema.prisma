@@ -46,6 +46,7 @@ model Tenant {
   smsMessages         SmsMessage[]
 
   @@map("tenants")
+  dossierExports      RegulatoryDossierExport[]
 }
 
 model User {
@@ -92,6 +93,9 @@ model User {
 
   @@unique([tenantId, email])
   @@map("users")
+  createdApplications CardApplication[] @relation("CardApplicationCreatedBy")
+  reconciledStatements StatementRecord[] @relation("StatementReconciledBy")
+  reviewedCommScans    CommComplianceRecord[] @relation("CommComplianceReviewedBy")
 }
 
 /**
@@ -273,6 +277,7 @@ model Business {
 
   @@index([tenantId, status])
   @@map("businesses")
+  regulatoryAlerts    RegulatoryAlert[]
 }
 
 model BusinessOwner {
@@ -468,6 +473,29 @@ model CardApplication {
   ///
   /// If you remove the constraint, that test fails. That is deliberate.
   approvedCreditLimit Decimal?
+  /**
+   * The user who created the application — the "maker" in maker-checker.
+   *
+   * Was a key inside `adverseActionNotice`, a Json column named for something
+   * else entirely, read back through a generic `_extractMetadata` helper. Three
+   * consequences, and the third is why it moved:
+   *
+   *   - nothing declared the key existed, so nothing could require it;
+   *   - the day an application carries a real adverse action notice, that
+   *     payload and the maker share one unnamespaced Json field;
+   *   - a missing maker made `checkMakerChecker` report "No approver
+   *     specified" — because `createdByUserId` was '' and the approver branch
+   *     is tested first — so an advisor who HAD supplied an approver was told
+   *     they had not, on the gate that enforces "no agent submits".
+   *
+   * Nullable: applications created before this column existed have no recorded
+   * maker, and the backfill can only recover the ones whose Json carried it.
+   * `checkMakerChecker` reports that state as its own reason rather than
+   * blaming the approver.
+   */
+  createdByUserId     String?
+  createdBy           User?     @relation("CardApplicationCreatedBy", fields: [createdByUserId], references: [id])
+
   introApr            Decimal?
   introAprExpiry      DateTime?
   regularApr          Decimal?
@@ -867,9 +895,24 @@ model StatementRecord {
   normalizedData    Json?
   anomalies         Json?
   reconciled        Boolean   @default(false)
+  /// Who signed off. This existed only inside a ledger event published after,
+  /// and outside, the update that flipped `reconciled` — so a failed publish
+  /// left a statement reconciled by nobody, permanently.
+  reconciledByUserId String?
+  reconciledAt       DateTime?
+  reconciliationNotes String?
+  /// Set when a later ingest of the same (businessId, issuer, statementDate)
+  /// replaced this row. Superseded rather than overwritten: a reconciled
+  /// statement is evidence of what an advisor reviewed on a given day.
+  supersededAt      DateTime?
+  supersededById    String?
   createdAt         DateTime  @default(now())
 
+  reconciledByUser User? @relation("StatementReconciledBy", fields: [reconciledByUserId], references: [id], onDelete: SetNull)
+
   @@index([tenantId, businessId])
+  @@index([reconciledByUserId])
+  @@index([supersededById])
   @@map("statement_records")
 }
 
@@ -936,6 +979,10 @@ model Complaint {
   description    String
   evidenceDocIds Json?
   callRecordIds  Json?
+  /// Evidence as attached: type, reference, title, notes, who and when.
+  evidenceItems  Json?
+  /// When the unauthorized-debit bundle was built; null predates the column.
+  debitBundleBuiltAt DateTime?
   rootCause      String?
   resolution     String?
   assignedTo     String?
@@ -1002,16 +1049,33 @@ model ContractAnalysis {
 model CommComplianceRecord {
   id         String    @id @default(uuid())
   tenantId   String
+  /// Verified against `users` in the same tenant at scan time. Rows written
+  /// before 2026-09-01 were not: the id was validated as a UUID and nothing
+  /// else, so some of them name nobody. No FK, because a constraint would fail
+  /// the migration on that history.
   advisorId  String
   channel    String
   content    String?
   violations Json?
   riskScore  Int?
   approved   Boolean?
-  reviewedAt DateTime?
+  /// When the scan ran. Was `reviewedAt`, which read as human sign-off.
+  scannedAt  DateTime?
+  /// When a person reviewed it, and who. Null for a scan nobody has read,
+  /// which is most of them.
+  humanReviewedAt  DateTime?
+  reviewedByUserId String?
+  /// What the scan required, and the text the client was actually sent. Both
+  /// were returned to the caller and discarded; a complaint turns on the
+  /// second one.
+  requiredDisclosures    Json?
+  contentWithDisclosures String?
   createdAt  DateTime  @default(now())
 
+  reviewedBy User? @relation("CommComplianceReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
   @@index([tenantId, advisorId])
+  @@index([reviewedByUserId])
   @@map("comm_compliance_records")
 }
 
@@ -1150,6 +1214,40 @@ model ReferralAttribution {
 // REGULATORY INTELLIGENCE
 // ============================================================
 
+/**
+ * A compliance dossier, as it was sent.
+ *
+ * `exportDossier` used to build one, hand back a fresh uuid as `exportId`, and
+ * store nothing — so "the dossier we sent on the 14th" could not be produced,
+ * only regenerated, and a regeneration differs from the original the moment any
+ * underlying row changes. An evidence export you cannot reproduce is a printout.
+ *
+ * `sections` holds the assembled document verbatim. That is deliberate
+ * duplication: the point is what was sent, not what the source rows say now.
+ */
+model RegulatoryDossierExport {
+  /** The exportId handed to the caller. */
+  id               String   @id @default(uuid())
+  tenantId         String
+  inquiryId        String
+  businessId       String
+  matterType       String
+  generatedAt      DateTime @default(now())
+  /** The user who requested it. Null only for a system-initiated export. */
+  generatedBy      String?
+  /** The dossier as assembled, verbatim. */
+  sections         Json
+  documentCount    Int
+  legalHoldSummary Json?
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id])
+  inquiry RegulatoryAlert @relation(fields: [inquiryId], references: [id])
+
+  @@index([tenantId, inquiryId])
+  @@index([generatedAt])
+  @@map("regulatory_dossier_exports")
+}
+
 model RegulatoryAlert {
   id              String    @id @default(uuid())
   tenantId        String
@@ -1163,6 +1261,21 @@ model RegulatoryAlert {
   reviewedBy      String?
   reviewedAt      DateTime?
   effectiveDate   DateTime?
+  /**
+   * The business this inquiry concerns.
+   *
+   * Was a key inside `metadata`. A link that lives in a JSON key is a link
+   * nothing can enforce: no foreign key, no index, no way for the database to
+   * refuse an inquiry pointing at a business that does not exist — and
+   * `exportDossier` read it with `metadata['businessId'] ?? null`, so a typo in
+   * the key produced a dossier with every section empty and no error.
+   *
+   * Nullable because an inquiry can arrive before anyone has matched it to a
+   * client. `exportDossier` refuses in that case rather than exporting nothing.
+   */
+  businessId      String?
+  business        Business? @relation(fields: [businessId], references: [id])
+
   /**
    * Free-form response/workflow state written by regulator-response.service
    */
@@ -1182,6 +1295,9 @@ model RegulatoryAlert {
   updatedAt       DateTime  @default(now()) @updatedAt
 
   @@index([tenantId, status])
+  dossierExports  RegulatoryDossierExport[]
+
+  @@index([businessId])
   @@map("regulatory_alerts")
 }
 

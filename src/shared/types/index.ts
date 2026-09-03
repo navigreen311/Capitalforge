@@ -107,7 +107,46 @@ export const CLOSED_APPLICATION_STATUSES = ['approved', 'declined', 'cancelled']
 export type RoundStatus = 'planning' | 'in_progress' | 'completed' | 'cancelled';
 
 // Consent
-export type ConsentChannel = 'voice' | 'sms' | 'email' | 'partner' | 'document';
+/**
+ * The channels a consent can be recorded against.
+ *
+ * An array as well as a union, because four separate lists of channels had
+ * grown up around it and none of them matched:
+ *
+ *   ConsentChannel            voice sms email partner document
+ *   the scan route's z.enum   voice sms email         document  chat video_script
+ *   DisclosureTemplate        voice sms email                   chat            all
+ *   the frontend CHANNELS     voice sms email         document  chat
+ *
+ * `partner` existed only in consent, `chat` in everything except consent, and
+ * `document` was missing from the disclosure templates — so a disclosure could
+ * not be marked as applying to a document at all. Nothing failed; the lists
+ * simply disagreed, quietly, about what a channel is.
+ */
+export const CONSENT_CHANNELS = ['voice', 'sms', 'email', 'partner', 'document'] as const;
+export type ConsentChannel = (typeof CONSENT_CHANNELS)[number];
+
+/**
+ * The channels a COMMUNICATION SCAN can be run against: every consent channel,
+ * plus two that are scanned but never consented to.
+ *
+ * The two extras are deliberate and are not consent channels:
+ *
+ *   `chat`         — a live chat transcript. Consent is not captured over chat
+ *                    in this system, but chat is scanned, and the frontend
+ *                    channel picker offers it.
+ *   `video_script` — the text a video is generated FROM, scanned before render.
+ *                    Kept distinct from `document` because the scan record is
+ *                    read later to answer "what was checked, and what was it":
+ *                    a script recorded as a document misdescribes both the
+ *                    artefact scanned and the audience it reaches. Named
+ *                    `video_script` rather than `video` because nothing here
+ *                    has inspected a video.
+ *
+ * Superset rather than a separate list, so the overlap cannot drift again.
+ */
+export const SCAN_CHANNELS = [...CONSENT_CHANNELS, 'chat', 'video_script'] as const;
+export type ScanChannel = (typeof SCAN_CHANNELS)[number];
 export type ConsentType = 'tcpa' | 'data_sharing' | 'referral' | 'application' | 'product_reality';
 export type ConsentStatus = 'active' | 'revoked' | 'expired';
 

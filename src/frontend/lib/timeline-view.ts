@@ -73,7 +73,6 @@ export const EVENT_TYPE_MAP: Record<string, EventTypeConfig> = {
   'apr.expiry.approaching': APPLICATION,
   'round.started': APPLICATION,
   'funding_round.completed': APPLICATION,
-  'restack.trigger.fired': APPLICATION,
 
   'debit.authorized': PAYMENT,
   'debit.revoked': PAYMENT,

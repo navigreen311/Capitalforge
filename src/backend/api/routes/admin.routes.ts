@@ -39,7 +39,7 @@ import logger from '../../config/logger.js';
 import { MultiTenantService }   from '../../services/multi-tenant.service.js';
 import { OffboardingService, type DeletionJurisdiction } from '../../services/offboarding.service.js';
 import { FairLendingService }   from '../../services/fair-lending.service.js';
-import { AiGovernanceService }  from '../../services/ai-governance.service.js';
+import { AiGovernanceService, AI_MODULE_SOURCES }  from '../../services/ai-governance.service.js';
 
 export const adminRouter = Router();
 
@@ -177,7 +177,8 @@ const Create1071RecordSchema = z.object({
 });
 
 const LogAiDecisionSchema = z.object({
-  moduleSource:  z.enum(['stacking_optimizer', 'suitability_engine', 'credit_intelligence', 'udap_scorer', 'decline_recovery', 'contract_analysis', 'comm_compliance', 'fraud_detection']),
+  // From AI_MODULE_SOURCES, not a second copy of the names.
+  moduleSource:  z.enum(AI_MODULE_SOURCES),
   decisionType:  z.enum(['recommendation', 'risk_score', 'classification', 'extraction', 'generation']),
   inputPayload:  z.record(z.unknown()),
   output:        z.record(z.unknown()),

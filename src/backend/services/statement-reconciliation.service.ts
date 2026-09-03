@@ -4,10 +4,16 @@
 // Responsibilities:
 //   1. Ingest raw statement data from multiple issuers and
 //      normalize via StatementNormalizer.
-//   2. Fee anomaly detection:
-//        • Unexpected fee types (not in the card's known fee schedule)
-//        • Duplicate charge detection across statements
-//        • Fee amount spikes (> 2× prior-period average)
+//   2. Fee anomaly detection, all of it WITHIN ONE STATEMENT:
+//        • Unexpected fee types (overlimit, returned payment, foreign
+//          transaction, cash advance)
+//        • Duplicate charge candidates — rows the statement carried twice,
+//          plus the same description and amount on different dates
+//        • Fee amount spikes, measured against the OTHER FEES ON THIS
+//          STATEMENT. This said "> 2× prior-period average"; there is no
+//          prior period. `detectFeeAnomalies` receives a single normalized
+//          statement and has never read another one, so a statement carrying
+//          one fee cannot spike.
 //   3. Balance mismatch detection:
 //        • Expected closing balance vs. reported closing balance
 //        • Previous balance + charges - payments ≠ closing balance
@@ -58,7 +64,13 @@ export type AnomalyType =
   | 'balance_mismatch'
   | 'interest_rate_change'
   | 'overlimit_fee'
-  | 'missing_payment_credit';
+  | 'missing_payment_credit'
+  /**
+   * Not a defect in the statement — a check that could not be performed.
+   * Kept in the same list so a reader sees it beside the findings rather than
+   * mistaking an absent check for a clean one.
+   */
+  | 'reconciliation_not_possible';
 
 export interface StatementAnomaly {
   type: AnomalyType;
@@ -88,6 +100,23 @@ export interface IngestStatementResult {
   anomalies: StatementAnomaly[];
   balanceMismatchDetected: boolean;
   feeAnomalyDetected: boolean;
+  /**
+   * The record this ingest replaced, if the same period had been imported
+   * before. Null on a first import.
+   *
+   * There was no uniqueness of any kind here: ingesting a statement twice made
+   * two records, two ledger events, and doubled every anomaly on the business
+   * report, so an agent retrying a timeout doubled a client's month.
+   */
+  supersededStatementRecordId: string | null;
+  /**
+   * True when the record replaced had already been reconciled.
+   *
+   * Worth its own field rather than a line of prose: somebody attested that
+   * they reviewed the earlier version, and that attestation does not carry
+   * over to figures they have not seen.
+   */
+  supersededReconciledStatement: boolean;
 }
 
 export interface ReconcileStatementInput {
@@ -108,6 +137,15 @@ export interface StatementSummary {
   interestCharged: number | null;
   anomalyCount: number;
   reconciled: boolean;
+  /**
+   * Who signed off, and when. `reconciled: true` with a null actor is a
+   * statement reconciled before the actor was recorded, or one whose only
+   * record of the actor was a ledger event the backfill could not find. It is
+   * not the same as nobody having reconciled it, and it is not the same as
+   * 'system' — which was the route's default and never an actor.
+   */
+  reconciledByUserId: string | null;
+  reconciledAt: Date | null;
   createdAt: Date;
 }
 
@@ -148,6 +186,79 @@ const ISSUER_SENDER_MAP: Record<string, string> = {
 };
 
 // ── Service ───────────────────────────────────────────────────
+
+/**
+ * The statement carried no date.
+ *
+ * Its own class rather than a bare Error so the route can answer 422 with a
+ * reason a caller can act on, instead of the 500 a generic throw would produce.
+ */
+export class UndatedStatementError extends Error {
+  constructor() {
+    super(
+      'This statement has no statement date. A statement is filed to the period it '
+      + 'belongs to, and nothing here can tell which period that is.',
+    );
+    this.name = 'UndatedStatementError';
+  }
+}
+
+/**
+ * No such business under this tenant.
+ *
+ * Typed, because the route mapped every failure by message substring —
+ * `includes('not found')`, `includes('does not belong')`, `includes('required')`,
+ * `includes('must be')`. A Prisma failure reading "Argument x is required"
+ * came back to the caller as a 422 about their own payload, which is an
+ * instruction to fix something that was never wrong.
+ *
+ * The message deliberately does not name the tenant. It used to read
+ * `Business <id> not found for tenant <tenantId>` and the route returned it
+ * verbatim in the 404 body, handing a caller an id belonging to the account
+ * boundary itself. A caller who cannot see the business does not need to be
+ * told which tenant could.
+ */
+export class BusinessNotFoundError extends Error {
+  constructor(public readonly businessId: string) {
+    super(`Business ${businessId} was not found.`);
+    this.name = 'BusinessNotFoundError';
+  }
+}
+
+/** No such statement under this tenant. Same reasoning, same omission. */
+export class StatementNotFoundError extends Error {
+  constructor(public readonly statementId: string) {
+    super(`Statement ${statementId} was not found.`);
+    this.name = 'StatementNotFoundError';
+  }
+}
+
+/** The statement has already been reconciled; reconciling is not idempotent. */
+export class StatementAlreadyReconciledError extends Error {
+  constructor(public readonly statementId: string) {
+    super(`Statement ${statementId} is already reconciled.`);
+    this.name = 'StatementAlreadyReconciledError';
+  }
+}
+
+/**
+ * Nobody was named as the reconciling actor.
+ *
+ * The route defaulted this to `'system'`, so a call arriving without a user id
+ * recorded a sign-off attributed to nothing — the same shape as the consent
+ * revoke that recorded the wrong actor. Reconciliation is a human attesting
+ * that they looked at a statement, and 'system' looked at nothing.
+ */
+export class UnattributedReconciliationError extends Error {
+  constructor() {
+    super(
+      'Reconciling a statement requires the user doing it. This is an advisor '
+      + 'attesting that they reviewed the statement, so it cannot be recorded '
+      + 'against no one.',
+    );
+    this.name = 'UnattributedReconciliationError';
+  }
+}
 
 export class StatementReconciliationService {
   private readonly prisma: PrismaClient;
@@ -191,9 +302,7 @@ export class StatementReconciliationService {
       select: { id: true, legalName: true },
     });
     if (!business) {
-      throw new Error(
-        `Business ${input.businessId} not found for tenant ${input.tenantId}.`,
-      );
+      throw new BusinessNotFoundError(input.businessId);
     }
 
     // ── Normalize ──────────────────────────────────────────────
@@ -215,10 +324,41 @@ export class StatementReconciliationService {
     );
 
     // ── Persist ────────────────────────────────────────────────
-    const statementDate = normalized.statementDate
-      ? new Date(normalized.statementDate)
-      : new Date();
+    // A statement with no date is not this month's.
+    //
+    // This defaulted to `new Date()`, so an undated statement was filed to
+    // whenever it happened to be ingested — and statementDate is what every
+    // period query orders and filters by. StatementRecord.statementDate is NOT
+    // NULL, so there is nowhere to put "unknown"; the honest answer is to
+    // refuse the ingest rather than invent the one field that decides where the
+    // record belongs.
+    if (!normalized.statementDate) {
+      throw new UndatedStatementError();
+    }
+    const statementDate = new Date(normalized.statementDate);
     const dueDate = normalized.dueDate ? new Date(normalized.dueDate) : null;
+
+    // ── Supersede a previous import of the same period ─────────
+    //
+    // (businessId, issuer, statementDate) identifies a statement: the account
+    // it belongs to, who issued it, and the period it closes. A second import
+    // of the same key is a correction or a retry, not a second statement.
+    //
+    // Superseded rather than overwritten or deleted. Overwriting would keep
+    // `reconciled: true` over figures nobody has reviewed; deleting would
+    // destroy the record an advisor already signed off against. So the old row
+    // stays, marked and pointing at its replacement, and the new row starts
+    // unreconciled.
+    const previous = await this.prisma.statementRecord.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        businessId: input.businessId,
+        issuer: normalized.issuer,
+        statementDate,
+        supersededAt: null,
+      },
+      select: { id: true, reconciled: true },
+    });
 
     const record = await this.prisma.statementRecord.create({
       data: {
@@ -239,8 +379,16 @@ export class StatementReconciliationService {
       },
     });
 
+    if (previous) {
+      await this.prisma.statementRecord.update({
+        where: { id: previous.id },
+        data: { supersededAt: new Date(), supersededById: record.id },
+      });
+    }
+
     svc.info('Statement ingested', {
       statementRecordId: record.id,
+      supersededStatementRecordId: previous?.id ?? null,
       issuer: normalized.issuer,
       anomalyCount: anomalies.length,
       balanceMismatch: balanceMismatchDetected,
@@ -264,6 +412,8 @@ export class StatementReconciliationService {
         interestCharged: normalized.interestCharged,
         transactionCount: normalized.transactions.length,
         anomalyCount: anomalies.length,
+        supersededStatementRecordId: previous?.id ?? null,
+        supersededReconciledStatement: previous?.reconciled ?? false,
         warnings: normalized.warnings,
       },
       metadata: { source: 'statement-reconciliation-service' },
@@ -296,6 +446,8 @@ export class StatementReconciliationService {
       anomalies,
       balanceMismatchDetected,
       feeAnomalyDetected,
+      supersededStatementRecordId: previous?.id ?? null,
+      supersededReconciledStatement: previous?.reconciled ?? false,
     };
   }
 
@@ -312,18 +464,22 @@ export class StatementReconciliationService {
       select: { id: true },
     });
     if (!business) {
-      throw new Error(`Business ${businessId} not found for tenant ${tenantId}.`);
+      throw new BusinessNotFoundError(businessId);
     }
 
     const [records, total] = await this.prisma.$transaction([
       this.prisma.statementRecord.findMany({
-        where: { tenantId, businessId },
+        // Superseded rows are excluded: a corrected import replaces the one
+        // before it, and listing both would show a client two statements for
+        // one period, which is the duplication the constraint exists to stop.
+        // They remain addressable by id.
+        where: { tenantId, businessId, supersededAt: null },
         orderBy: { statementDate: 'desc' },
         take: limit,
         skip: offset,
       }),
       this.prisma.statementRecord.count({
-        where: { tenantId, businessId },
+        where: { tenantId, businessId, supersededAt: null },
       }),
     ]);
 
@@ -333,13 +489,15 @@ export class StatementReconciliationService {
         id: r.id,
         issuer: r.issuer,
         statementDate: r.statementDate,
-        closingBalance: r.closingBalance ? Number(r.closingBalance) : null,
-        minimumPayment: r.minimumPayment ? Number(r.minimumPayment) : null,
+        closingBalance: r.closingBalance === null ? null : Number(r.closingBalance),
+        minimumPayment: r.minimumPayment === null ? null : Number(r.minimumPayment),
         dueDate: r.dueDate,
-        feesCharged: r.feesCharged ? Number(r.feesCharged) : null,
-        interestCharged: r.interestCharged ? Number(r.interestCharged) : null,
+        feesCharged: r.feesCharged === null ? null : Number(r.feesCharged),
+        interestCharged: r.interestCharged === null ? null : Number(r.interestCharged),
         anomalyCount: anomalies.length,
         reconciled: r.reconciled,
+        reconciledByUserId: r.reconciledByUserId,
+        reconciledAt: r.reconciledAt,
         createdAt: r.createdAt,
       };
     });
@@ -361,7 +519,7 @@ export class StatementReconciliationService {
       where: { id: statementId, tenantId },
     });
     if (!record) {
-      throw new Error(`Statement ${statementId} not found for tenant ${tenantId}.`);
+      throw new StatementNotFoundError(statementId);
     }
 
     const normalized = record.normalizedData as unknown as NormalizedStatement | null;
@@ -391,13 +549,17 @@ export class StatementReconciliationService {
       select: { id: true },
     });
     if (!business) {
-      throw new Error(`Business ${businessId} not found for tenant ${tenantId}.`);
+      throw new BusinessNotFoundError(businessId);
     }
 
     const records = await this.prisma.statementRecord.findMany({
       where: {
         tenantId,
         businessId,
+        // Superseded imports are excluded. Counting their anomalies alongside
+        // the live record's is how a retried ingest doubled a client's
+        // anomaly count.
+        supersededAt: null,
         // Only fetch records that have anomalies (non-empty JSON array)
         NOT: { anomalies: { equals: Prisma.DbNull } },
       },
@@ -439,23 +601,34 @@ export class StatementReconciliationService {
       tenantId: input.tenantId,
     });
 
+    // No actor, no sign-off. The route defaulted this to 'system'.
+    if (!input.reconciledBy || input.reconciledBy === 'system') {
+      throw new UnattributedReconciliationError();
+    }
+
     const existing = await this.prisma.statementRecord.findFirst({
       where: { id: input.statementId, tenantId: input.tenantId },
     });
     if (!existing) {
-      throw new Error(
-        `Statement ${input.statementId} not found for tenant ${input.tenantId}.`,
-      );
+      throw new StatementNotFoundError(input.statementId);
     }
     if (existing.reconciled) {
-      throw new Error(`Statement ${input.statementId} is already reconciled.`);
+      throw new StatementAlreadyReconciledError(input.statementId);
     }
 
     const reconciledAt = new Date();
 
     await this.prisma.statementRecord.update({
       where: { id: input.statementId },
-      data: { reconciled: true },
+      data: {
+        reconciled: true,
+        // These used to exist only in the ledger event published below —
+        // after, and outside, this update. A failed publish left a statement
+        // reconciled by nobody, and no read could say otherwise.
+        reconciledByUserId: input.reconciledBy,
+        reconciledAt,
+        reconciliationNotes: input.notes ?? null,
+      },
     });
 
     svc.info('Statement reconciled', {
@@ -567,19 +740,30 @@ export class StatementReconciliationService {
   // ── Fee Anomaly Detection ─────────────────────────────────
 
   /**
-   * Detect anomalous fees within a normalized statement.
+   * Detect anomalous fees within a normalized statement. One statement — this
+   * has never read another one.
    *
    * Checks:
-   *   1. Unexpected fee types — overlimit, returned payment, foreign transaction
-   *      flagged as medium severity.
-   *   2. Duplicate charges — same merchant + amount within the statement period.
-   *   3. Fee spike — single fee > 2× the total fees average across transactions.
+   *   1. Unexpected fee types — overlimit, returned payment, foreign
+   *      transaction, cash advance.
+   *   2. Duplicate charge candidates, from two places:
+   *      (a) rows the statement carried more than once, collapsed by the
+   *          normalizer and handed over on `removedDuplicates`;
+   *      (b) the same description and amount on different dates, within
+   *          `transactions`.
+   *      (a) used to be deleted before this ran, which is how the module came
+   *          to delete what it exists to find. (b) is the weaker signal —
+   *          two identical subscription renewals look exactly like it — so
+   *          the two are reported at different severities and say which they
+   *          are.
+   *   3. Fee spike — a fee more than 2× the average of the OTHER FEES ON THIS
+   *      STATEMENT. Not a prior-period average; there is no prior period.
    */
   detectFeeAnomalies(normalized: NormalizedStatement): StatementAnomaly[] {
     const anomalies: StatementAnomaly[] = [];
     const feeTransactions = normalized.transactions.filter((t) => t.isFee);
 
-    // ── Check 2: Duplicate charges (runs even when no fee transactions) ──
+    // ── Check 1: Unexpected fee types ─────────────────────────
     const HIGH_RISK_FEE_PATTERNS = [
       { pattern: /overlimit/i, label: 'overlimit fee', type: 'overlimit_fee' as AnomalyType },
       { pattern: /returned payment/i, label: 'returned payment fee', type: 'unexpected_fee' as AnomalyType },
@@ -601,7 +785,49 @@ export class StatementReconciliationService {
       }
     }
 
-    // ── Check 2: Duplicate charges ────────────────────────────
+    // ── Check 2a: rows the statement carried more than once ───
+    //
+    // Same date, same amount, same merchant. The strongest duplicate signal
+    // there is, and until 2026-09-01 it was the one thrown away: the
+    // normalizer collapsed these rows and reported a count, so the charge a
+    // cardholder would dispute never reached this function.
+    const repeated = new Map<string, { count: number; amount: number; desc: string; date: string }>();
+    for (const txn of normalized.removedDuplicates ?? []) {
+      const key = `${txn.transactionDate}|${txn.description.slice(0, 30).toLowerCase()}|${txn.amount.toFixed(2)}`;
+      const existing = repeated.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        repeated.set(key, {
+          // The collapsed row plus the one kept in `transactions`.
+          count: 2,
+          amount: txn.amount,
+          desc: txn.description,
+          date: txn.transactionDate,
+        });
+      }
+    }
+    for (const [, entry] of repeated) {
+      anomalies.push({
+        type: 'duplicate_charge',
+        severity: 'high',
+        description:
+          `Duplicate charge candidate: "${entry.desc}" appears ${entry.count} times on `
+          + `${entry.date} at $${entry.amount.toFixed(2)} each. Same date, same amount, `
+          + 'same merchant — either the issuer charged twice or the import repeated a '
+          + `row, and nothing here can tell which. $${(entry.amount * (entry.count - 1)).toFixed(2)} `
+          + 'is excluded from the balance check for this reason.',
+        // What is in dispute is the excess, not the whole charge.
+        amount: entry.amount * (entry.count - 1),
+        transactionRef: entry.desc,
+      });
+    }
+
+    // ── Check 2b: same description and amount, different dates ─
+    //
+    // The weaker signal, and the one this used to report on its own. Two
+    // identical subscription renewals in a period look exactly like this, so
+    // it is `medium` and says what it is rather than asserting a duplicate.
     const chargeSeen = new Map<string, { count: number; amount: number; desc: string }>();
     for (const txn of normalized.transactions) {
       if (!txn.isFee && !txn.isInterest && txn.amount > 0) {
@@ -618,10 +844,11 @@ export class StatementReconciliationService {
       if (entry.count > 1) {
         anomalies.push({
           type: 'duplicate_charge',
-          severity: 'high',
+          severity: 'medium',
           description:
-            `Possible duplicate charge: "${entry.desc}" appears ${entry.count} times ` +
-            `at $${entry.amount.toFixed(2)} each.`,
+            `Repeated charge: "${entry.desc}" appears ${entry.count} times at `
+            + `$${entry.amount.toFixed(2)} each, on different dates. A recurring charge `
+            + 'looks the same as a duplicated one from a single statement.',
           amount: entry.amount * entry.count,
           transactionRef: entry.desc,
         });
@@ -631,9 +858,13 @@ export class StatementReconciliationService {
     // ── Check 3: Fee spike ────────────────────────────────────
     if (feeTransactions.length > 1) {
       const feeAmounts = feeTransactions.map((t) => Math.abs(t.amount));
-      for (const txn of feeTransactions) {
-        // Use leave-one-out average to avoid diluting the spike with itself
-        const otherAmounts = feeAmounts.filter((a) => a !== Math.abs(txn.amount));
+      for (let i = 0; i < feeTransactions.length; i++) {
+        const txn = feeTransactions[i]!;
+        // Leave out THIS fee, by position — not every fee that happens to have
+        // the same value. `filter(a => a !== amount)` dropped both of two
+        // identical $39 fees, so each was compared against an average neither
+        // of them was in.
+        const otherAmounts = feeAmounts.filter((_, j) => j !== i);
         if (otherAmounts.length === 0) continue;
         const avgFee = otherAmounts.reduce((a, b) => a + b, 0) / otherAmounts.length;
         if (Math.abs(txn.amount) > avgFee * FEE_SPIKE_MULTIPLIER) {
@@ -641,8 +872,10 @@ export class StatementReconciliationService {
             type: 'fee_spike',
             severity: 'medium',
             description:
-              `Fee spike: "${txn.description}" at $${Math.abs(txn.amount).toFixed(2)} ` +
-              `is more than ${FEE_SPIKE_MULTIPLIER}× the average fee ($${avgFee.toFixed(2)}).`,
+              `Fee spike: "${txn.description}" at $${Math.abs(txn.amount).toFixed(2)} `
+              + `is more than ${FEE_SPIKE_MULTIPLIER}× the average of the other fees on `
+              + `this statement ($${avgFee.toFixed(2)}). Not a prior-period average — `
+              + 'nothing here reads a previous statement.',
             amount: txn.amount,
             transactionRef: txn.description,
           });
@@ -664,6 +897,10 @@ export class StatementReconciliationService {
    *
    * When previousBalance or closingBalance is unavailable the check is skipped
    * (partial statement — already flagged by normalizer).
+   *
+   * `transactions` has repeated rows collapsed out of it while the issuer's
+   * reported closing balance still contains them, so any mismatch names the
+   * amount those rows would have contributed.
    */
   detectBalanceMismatch(normalized: NormalizedStatement): StatementAnomaly[] {
     const anomalies: StatementAnomaly[] = [];
@@ -672,6 +909,33 @@ export class StatementReconciliationService {
 
     // Need previous and closing balance for the check
     if (previousBalance === null || closingBalance === null) return anomalies;
+
+    // And interest and fees. They used to be folded in as `?? 0`, which makes
+    // the expected balance too low, the delta large, and the anomaly
+    // 'critical' at delta > 50 — so a statement that simply did not carry an
+    // interest field manufactured a critical mismatch about money that
+    // reconciles fine.
+    //
+    // It persists, too: anomalies are computed once at ingest and stored, and
+    // the report endpoint reads them back rather than recomputing. A phantom
+    // critical from a missing field stayed on the record forever.
+    //
+    // So the check does not run, and says why instead of guessing.
+    if (interestCharged === null || feesCharged === null) {
+      const missing = [
+        interestCharged === null ? 'interest charged' : null,
+        feesCharged === null ? 'fees charged' : null,
+      ].filter(Boolean).join(' and ');
+      anomalies.push({
+        type: 'reconciliation_not_possible',
+        severity: 'low',
+        description:
+          `Balance reconciliation was not performed: ${missing} is not present on this `
+          + 'statement. This is not a mismatch — it is a check that could not run.',
+        amount: null,
+      });
+      return anomalies;
+    }
 
     // Sum charges (positive transactions) and payments (negative transactions)
     const totalCharges = normalized.transactions
@@ -686,18 +950,50 @@ export class StatementReconciliationService {
       previousBalance +
       totalCharges -
       totalPayments +
-      (interestCharged ?? 0) +
-      (feesCharged ?? 0);
+      interestCharged +
+      feesCharged;
 
     const delta = Math.abs(expectedBalance - closingBalance);
 
+    // What the collapsed rows would have contributed, had they been kept.
+    //
+    // The issuer's reported closing balance contains every row it charged. The
+    // expected balance above is computed from `transactions`, which has the
+    // repeated rows collapsed out. So a genuine double charge made the delta
+    // exactly its own amount, and the report called it a balance mismatch —
+    // critical over $50 — rather than the duplicate it is.
+    //
+    // Neither reading can be settled here, so the check names the amount it
+    // may be off by instead of picking one, the same way
+    // `reconciliation_not_possible` names the field it could not read.
+    const removedSum = (normalized.removedDuplicates ?? []).reduce(
+      (sum, t) => sum + t.amount,
+      0,
+    );
+    const removedNote =
+      removedSum !== 0
+        ? ` This may be off by $${Math.abs(removedSum).toFixed(2)}: rows the statement `
+          + 'carried more than once were collapsed before this arithmetic, and they are '
+          + 'reported separately as duplicate-charge candidates. If the issuer really '
+          + 'charged twice, that is the whole of this delta.'
+        : '';
+
     if (delta > BALANCE_MISMATCH_TOLERANCE) {
+      // A delta explained entirely by the collapsed rows is not evidence of a
+      // second, separate discrepancy — so it does not also escalate on size.
+      const explainedByDuplicates =
+        removedSum !== 0
+        && Math.abs(delta - Math.abs(removedSum)) <= BALANCE_MISMATCH_TOLERANCE;
+
       anomalies.push({
         type: 'balance_mismatch',
-        severity: delta > 50 ? 'critical' : delta > 10 ? 'high' : 'medium',
+        severity: explainedByDuplicates
+          ? 'medium'
+          : delta > 50 ? 'critical' : delta > 10 ? 'high' : 'medium',
         description:
-          `Balance mismatch detected: expected closing balance $${expectedBalance.toFixed(2)}, ` +
-          `reported $${closingBalance.toFixed(2)} (delta: $${delta.toFixed(2)}).`,
+          `Balance mismatch detected: expected closing balance $${expectedBalance.toFixed(2)}, `
+          + `reported $${closingBalance.toFixed(2)} (delta: $${delta.toFixed(2)}).`
+          + removedNote,
         amount: delta,
         transactionRef: null,
       });

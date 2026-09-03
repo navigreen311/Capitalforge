@@ -20,7 +20,13 @@ import { tenantMiddleware } from '../../middleware/tenant.middleware.js';
 import type { ApiResponse, TenantContext } from '../../../shared/types/index.js';
 import logger from '../../config/logger.js';
 import { eventBus } from '../../events/event-bus.js';
-import { EVENT_TYPES, AGGREGATE_TYPES } from '../../../shared/constants/index.js';
+import { ApplicationGateChecker } from '../../services/application-gates.js';
+import {
+  EVENT_TYPES,
+  AGGREGATE_TYPES,
+  PRE_SUBMISSION_DECLARATIONS,
+  PRE_SUBMISSION_DECLARATION_VERSION,
+} from '../../../shared/constants/index.js';
 
 const router = Router();
 const prisma = sharedPrisma;
@@ -405,7 +411,11 @@ router.post(
           cardProduct: cardProduct.trim(),
           creditLimit: requestedLimit ? Number(requestedLimit) : null,
           status: isSubmit ? 'submitted' : 'draft',
-          consentCapturedAt: isSubmit ? new Date() : null,
+          // Null on create, submitted or not. Same reason as the submit route:
+          // an application created directly as `submitted` has not captured
+          // per-application consent, and stamping now would record the moment
+          // of creation as the moment of consent.
+          consentCapturedAt: null,
           submittedAt: isSubmit ? new Date() : null,
         },
         include: {
@@ -579,45 +589,104 @@ router.post(
         return;
       }
 
-      // Validate all 4 declarations
-      if (!declarations || !Array.isArray(declarations) || declarations.length < 4 || !declarations.every(Boolean)) {
-        err(res, 422, 'GATE_CHECK_FAILED', 'All 4 pre-submission declarations must be acknowledged');
+      // ── The four declarations, by name ──────────────────────
+      //
+      // This was `declarations.length >= 4 && declarations.every(Boolean)`, so
+      // `[1, 'yes', {}, []]` passed and nothing anywhere said what was being
+      // declared. The four sentences existed only as display strings in the
+      // wizard; they are in shared/constants now, and the API requires each one
+      // by id.
+      //
+      // An array of booleans cannot say WHICH thing was confirmed. Positional
+      // truth is not an attestation — reorder the checkboxes and the same
+      // payload attests to different things.
+      const declared = declarations as Record<string, unknown> | undefined;
+      if (!declared || typeof declared !== 'object' || Array.isArray(declared)) {
+        err(
+          res,
+          422,
+          'DECLARATIONS_REQUIRED',
+          'declarations must be an object keyed by declaration id.',
+          {
+            required: PRE_SUBMISSION_DECLARATIONS.map((d) => ({ id: d.id, text: d.text })),
+          },
+        );
         return;
       }
 
-      // Run compliance checks
+      const missing = PRE_SUBMISSION_DECLARATIONS.filter((d) => declared[d.id] !== true);
+      if (missing.length > 0) {
+        // Named, so a caller learns which attestation it failed to make rather
+        // than being told a count.
+        err(res, 422, 'DECLARATIONS_INCOMPLETE', 'Every pre-submission declaration must be confirmed.', {
+          missing: missing.map((d) => ({ id: d.id, text: d.text })),
+        });
+        return;
+      }
+
+      // ── The six pre-submission gates, the same ones the status path runs ──
+      //
+      // This route ran its own three inline checks — a consent record of type
+      // tcpa OR application on ANY channel, a product_reality acknowledgment,
+      // and suitability noGoTriggered — and nothing else. The status path
+      // (PUT /applications/:id/status) runs ApplicationGateChecker.checkAll,
+      // which is six on paper and FIVE IN FACT: product_reality,
+      // consent_captured, suitability, kyb_kyc and maker_checker all run.
+      // cu_membership_disclosure is INERT — it fires only for issuerType
+      // 'credit_union', and CardApplication has an issuer NAME and no issuer
+      // TYPE column, so nothing anywhere can produce that value. Five enforced
+      // controls, described as six, wherever the gate list appears.
+      //
+      // So two routes reached `submitted` with different controls, and the one
+      // named "submit" was the weaker of the two. specification.md section 1
+      // states "maker-checker on submit" as a property of the system; it was a
+      // property of the other path. Burkham's compliance library says no agent
+      // submits, and maker-checker is the control that enforces it — on the
+      // route nobody was using.
+      //
+      // The inline checks are gone rather than kept alongside. Two
+      // implementations of one gate disagree the first time either changes, and
+      // the looser one was here.
       const businessId = application.businessId;
 
-      const [consentRecords, acknowledgments, suitability] = await Promise.all([
-        prisma.consentRecord.findMany({
-          where: { businessId, tenantId: ctx.tenantId, status: 'active' },
-        }),
-        prisma.productAcknowledgment.findMany({
-          where: { businessId },
-        }),
-        prisma.suitabilityCheck.findFirst({
-          where: { businessId },
-          orderBy: { createdAt: 'desc' },
-        }),
-      ]);
+      const meta =
+        application.adverseActionNotice != null &&
+        typeof application.adverseActionNotice === 'object' &&
+        !Array.isArray(application.adverseActionNotice)
+          ? (application.adverseActionNotice as Record<string, unknown>)
+          : {};
+      // From the column, falling back to the Json for rows the backfill could
+      // not resolve. The column is the one the database can enforce.
+      const createdByUserId =
+        application.createdByUserId
+        ?? (typeof meta.createdByUserId === 'string' ? meta.createdByUserId : '');
+      const approverUserId =
+        typeof (req.body as { approvedByUserId?: unknown }).approvedByUserId === 'string'
+          ? ((req.body as { approvedByUserId: string }).approvedByUserId)
+          : '';
 
-      const complianceIssues: string[] = [];
+      const gateSummary = await new ApplicationGateChecker(prisma).checkAll(
+        id,
+        businessId,
+        ctx.tenantId,
+        { createdByUserId, approverUserId },
+        // No issuerType argument, matching the status path — and gate 6
+        // (cu_membership_disclosure) is therefore unreachable from either
+        // route. CardApplication has an `issuer` name and no issuer TYPE
+        // column, so nothing anywhere can pass 'credit_union'. Left as it is
+        // rather than invented here: giving this route a source the other one
+        // does not have would recreate the divergence this change removes.
+      );
 
-      if (!consentRecords.some((c) => c.consentType === 'tcpa' || c.consentType === 'application')) {
-        complianceIssues.push('Missing required consent (TCPA or application consent)');
-      }
-
-      if (!acknowledgments.some((a) => a.acknowledgmentType === 'product_reality')) {
-        complianceIssues.push('Missing Product-Reality Acknowledgment');
-      }
-
-      if (suitability?.noGoTriggered) {
-        complianceIssues.push('Suitability check indicates not suitable');
-      }
-
-      if (complianceIssues.length > 0) {
-        err(res, 422, 'COMPLIANCE_CHECK_FAILED', 'Pre-submission compliance checks failed', {
-          issues: complianceIssues,
+      if (!gateSummary.allPassed) {
+        err(res, 422, 'COMPLIANCE_CHECK_FAILED', 'Pre-submission gate checks failed', {
+          failedGates: gateSummary.failedGates,
+          // The reason per gate, not just its name: "maker_checker" alone does
+          // not tell an advisor whether they forgot an approver or named
+          // themselves.
+          issues: gateSummary.results
+            .filter((r) => !r.passed)
+            .map((r) => ({ gate: r.gate, reason: r.reason })),
         });
         return;
       }
@@ -628,7 +697,17 @@ router.post(
         data: {
           status: 'submitted',
           submittedAt: new Date(),
-          consentCapturedAt: new Date(),
+          // consentCapturedAt is NOT written here.
+          //
+          // It was set to `new Date()` on submit, so the gate read it, passed,
+          // and then this write destroyed the value that satisfied it. The
+          // field that records when consent was captured recorded when the
+          // application was submitted — for every application that has ever
+          // been submitted through this route.
+          //
+          // It is stamped by the `pending_consent` transition, which is when
+          // consent is actually captured per application, and that is the value
+          // that matters.
         },
         include: {
           business: { select: { id: true, legalName: true } },
@@ -646,7 +725,11 @@ router.post(
           resourceId: id,
           metadata: {
             previousStatus: application.status,
-            declarations,
+            // Ids and the wording version, not the raw payload. `[true,true,
+            // true,true]` in an audit row records that four things were
+            // confirmed without recording which four.
+            declarations: PRE_SUBMISSION_DECLARATIONS.map((d) => d.id),
+            declarationVersion: PRE_SUBMISSION_DECLARATION_VERSION,
           },
         },
       });

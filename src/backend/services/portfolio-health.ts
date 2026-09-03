@@ -35,14 +35,31 @@ export interface ActionItem {
 }
 
 export interface PortfolioHealthResult {
-  score: number;
-  grade: HealthGrade;
+  /**
+   * Null when there is nothing to assess.
+   *
+   * Every component divides by the number of businesses on file, so a tenant
+   * with none used to fall through the `if (total > 0)` guards with each
+   * percentage at its initialiser of 0 — producing a score of 0 and a grade of
+   * F. "No clients yet" is not the bottom of the scale; it is off the scale,
+   * and the first screen a new tenant sees said its portfolio was failing.
+   *
+   * `assessed` is what a caller should branch on. A null score is not a zero
+   * and must not be rendered as one.
+   */
+  score: number | null;
+  grade: HealthGrade | null;
+  assessed: boolean;
+  /** How many businesses the score was computed over. Report the denominator. */
+  businessesAssessed: number;
+  /** Present only when `assessed` is false. */
+  notAssessedReason: string | null;
   components: HealthComponent[];
   trend: {
     direction: 'up' | 'down' | 'flat';
     delta: number;
     previousScore: number;
-  };
+  } | null;
   actionItems: ActionItem[];
   computedAt: string;
 }
@@ -188,6 +205,29 @@ export async function calculatePortfolioHealth(
 
   const businessIds = new Set(businesses.map((b) => b.id));
   const totalBusinesses = businessIds.size;
+
+  // ── Nothing to assess ────────────────────────────────────────────────────
+  //
+  // Returned before any component is computed rather than after, so there is no
+  // path on which a percentage initialised to 0 reaches a score. The six
+  // dimensions are all ratios over this number; with no denominator there is no
+  // answer, and 0/F is an answer.
+
+  if (totalBusinesses === 0) {
+    return {
+      score: null,
+      grade: null,
+      assessed: false,
+      businessesAssessed: 0,
+      notAssessedReason:
+        'No clients on file yet. Portfolio health is a ratio across the businesses '
+        + 'this tenant holds, so there is nothing to compute it over.',
+      components: [],
+      trend: null,
+      actionItems: [],
+      computedAt: now.toISOString(),
+    };
+  }
 
   // ── 1. Consent Completion (20 pts) ───────────────────────────────────────
 
@@ -458,6 +498,9 @@ export async function calculatePortfolioHealth(
   return {
     score: Math.round(score),
     grade: scoreToGrade(Math.round(score)),
+    assessed: true,
+    businessesAssessed: totalBusinesses,
+    notAssessedReason: null,
     components,
     trend: {
       direction,
