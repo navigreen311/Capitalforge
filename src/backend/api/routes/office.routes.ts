@@ -454,6 +454,94 @@ const MODULES: Readonly<Record<string, ModuleSpec>> = {
     },
   },
 
+  // -- scan_communication --------------------------------------
+  //
+  // A SCAN WRITES, and the manual is emphatic about why. It does not return
+  // findings for someone to act on - it returns `contentWithDisclosures`, a
+  // rewritten body, which is what would actually go out. An agent that reads
+  // `violations` and ignores that field has discarded the only output that
+  // changes what a client receives.
+  //
+  // `at_most_once`: The Office will not auto-retry it and escalates instead.
+  scan_communication: {
+    manual: 'capitalforge-scan-communication.md',
+    manualVersion: '1.0',
+    isMutating: true,
+    idempotencySupport: 'at_most_once',
+    permissions: [PERMISSIONS.COMPLIANCE_WRITE],
+    operations: {
+      scan: {
+        method: 'POST',
+        returns: 'violations, a risk score, and the content rewritten with disclosures',
+        request: (p) => ({
+          path: '/api/comm-compliance/scan',
+          body: {
+            advisorId: requireString(p, 'advisor_id'),
+            channel: requireString(p, 'channel'),
+            content: requireString(p, 'content'),
+          },
+        }),
+      },
+    },
+  },
+
+  // -- submit_application --------------------------------------
+  //
+  // THE PERMISSION SET HERE CONSTRAINS NOTHING, and that is worth knowing before
+  // anyone relies on it.
+  //
+  // Every other module in this map is scoped by a token CapitalForge's own RBAC
+  // middleware then enforces. `POST /api/applications/:id/submit` carries
+  // `tenantMiddleware` and no `requirePermission` at all - the permission named
+  // for this act, `application:submit`, is checked on a different route in a
+  // different file (application.routes.ts:115), which CREATES an application.
+  //
+  // So `APPLICATION_SUBMIT` is declared here because it is the right permission
+  // for the act and because it will take effect the day that route gains a
+  // guard. Today nothing reads it. What stands between a brokered call and a
+  // submitted application is the five enforced gates and the trust tier on the
+  // grant - which is why the manual declares `propose` and why that tier is
+  // doing real work rather than being cautious.
+  //
+  // See capitalforge-submit-application.md Appendix A.
+  submit_application: {
+    manual: 'capitalforge-submit-application.md',
+    manualVersion: '1.0',
+    isMutating: true,
+    idempotencySupport: 'at_most_once',
+    permissions: [PERMISSIONS.APPLICATION_SUBMIT],
+    operations: {
+      submit: {
+        method: 'POST',
+        returns: 'the submitted application, or the gates that refused it',
+        request: (p) => ({
+          path: `/api/applications/${seg(p, 'application_id')}/submit`,
+          body: {
+            // Maker-checker: the route refuses a submission with no approver
+            // named, and will not say whether one was forgotten or misnamed.
+            ...(typeof p['approved_by_user_id'] === 'string'
+              ? { approvedByUserId: p['approved_by_user_id'] }
+              : {}),
+            // AN OBJECT KEYED BY DECLARATION ID, never an array. The route
+            // refuses an array explicitly and says why: "An array of booleans
+            // cannot say WHICH thing was confirmed. Positional truth is not an
+            // attestation - reorder the checkboxes and the same payload attests
+            // to different things."
+            //
+            // The first version of this binding passed `declarations` only when
+            // it WAS an array, so every call answered DECLARATIONS_REQUIRED.
+            // Third binding defect found by calling rather than reading.
+            ...(p['declarations'] !== null &&
+            typeof p['declarations'] === 'object' &&
+            !Array.isArray(p['declarations'])
+              ? { declarations: p['declarations'] }
+              : {}),
+          },
+        }),
+      },
+    },
+  },
+
   // -- restack_recommend ---------------------------------------
   // Three GETs. Recommends; it does not act, and nothing here starts a round.
   restack_recommend: {

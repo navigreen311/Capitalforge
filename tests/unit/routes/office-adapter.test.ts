@@ -244,6 +244,9 @@ describe('record_consent records; it does not contact anyone', () => {
             channel: 'sms',
             consent_type: 'tcpa',
             inquiry_id: 'inq-1',
+            advisor_id: '55555555-5555-4555-8555-555555555555',
+            content: 'draft copy',
+            application_id: 'app-1',
             profile_type: 'business',
           },
         });
@@ -427,6 +430,35 @@ describe('dispatch', () => {
     });
     expect(res.status).toBe(422);
     expect((res.body as { error: { code: string } }).error.code).toBe('PAYLOAD_INVALID');
+  });
+
+  it('scopes submit_application to the permission that names the act', async () => {
+    // Declared, and today enforced by nothing: POST /applications/:id/submit has
+    // no requirePermission. application:submit is checked on a different route
+    // that creates rather than submits. See the manual's Appendix A - the trust
+    // tier on the grant is what actually holds here.
+    seen = [];
+    await call('POST', '/submit_application', {
+      headers: auth(),
+      body: { application_id: 'app-1', approved_by_user_id: 'user-9' },
+    });
+    const verified = await verifyAccessToken(seen[0]!.token);
+    if (!verified.valid) throw new Error('token did not verify');
+    expect(verified.payload.permissions).toEqual(['application:submit']);
+    expect(seen[0]!.path).toBe('/api/applications/app-1/submit');
+  });
+
+  it('carries at_most_once for the two modules that leave the building', async () => {
+    const res = await call('GET', '/_modules', { headers: auth() });
+    const modules = (res.body as {
+      modules: { module_id: string; idempotency_support: string }[];
+    }).modules;
+    const atMostOnce = modules
+      .filter((m) => m.idempotency_support === 'at_most_once')
+      .map((m) => m.module_id)
+      .sort();
+    // The Office refuses to auto-retry these and escalates to a human instead.
+    expect(atMostOnce).toEqual(['regulator_dossier_export', 'scan_communication', 'submit_application']);
   });
 
   it('encodes a caller-supplied id into the path', async () => {
