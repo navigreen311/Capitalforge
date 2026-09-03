@@ -210,6 +210,48 @@ words for one set of states.
 
 ---
 
+## 1d. Nothing records an advisor confirming debt-service capacity — 2026-09-02
+
+**Cost: table.**
+
+The suitability engine has seven hard no-go triggers. Three of them record a
+*human having confirmed something* rather than a fact about the client's
+finances: the client acknowledged the personal guarantee, the client
+acknowledged APR risk, and an advisor confirmed the client can service the debt.
+
+Two of the three have records. `personal_guarantee` and `product_reality` are
+`ProductAcknowledgment` rows with a version, a signature reference and a signed
+timestamp, and `runSuitabilityCheck` now reads them.
+
+**The third has none.** There is no model, no column and no endpoint that would
+hold an advisor's confirmation that a client can service the debt. So the gate
+returns `null` — unassessed — and the assessment reports it in
+`unassessedGates` with the basis `advisor_debt_service_confirmation_not_recorded`.
+
+The two alternatives were both wrong, and both were live until 2 September:
+
+- `true`, which is what `GET /api/suitability/:businessId` did. That endpoint
+  stated, about a named business, that an advisor had confirmed debt-service
+  capacity, from nothing. It has been deleted.
+- `false`, which would no-go every check in the system and would convert a
+  missing feature into a finding about a client's file. An absence in the
+  records is not a fact about the client.
+
+**What it would take.** A record with a person on it — who confirmed, when,
+against what figures — closer to an acknowledgment than to a boolean column,
+because the value of the gate is that a named human looked. The moment one
+exists, `readAcknowledgmentGates` returns a real boolean, `unassessedGates`
+empties, and a confirmation that was asked for and refused becomes the no-go
+`no_debt_service_confirmation`, which is already implemented and currently
+unreachable.
+
+**Read `unassessedGates` before reporting a clean check.** An empty
+`noGoReasons` with an entry in `unassessedGates` is not an assessment that
+passed. It is an assessment with a gate nobody could ask, and the two read
+identically if you only look at the reasons.
+
+---
+
 ## 2. Figures that are absent rather than zero
 
 These endpoints answer normally. Individual figures come back `null` with the

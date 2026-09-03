@@ -28,12 +28,23 @@ vi.mock('@prisma/client', () => {
   const mockFindUnique = vi.fn();
   const mockUpdate = vi.fn();
 
+  // Signed by default. A suite whose mock returns no acknowledgments would
+  // no-go every scenario, and each of these tests is about a financial rule.
+  // `readAcknowledgmentGates` has its own tests, where this is overridden.
+  const mockAckFindMany = vi.fn().mockResolvedValue([
+    { acknowledgmentType: 'personal_guarantee' },
+    { acknowledgmentType: 'product_reality' },
+  ]);
+
   const PrismaClient = vi.fn().mockImplementation(() => ({
     suitabilityCheck: {
       create:     mockCreate,
       findFirst:  mockFindFirst,
       findUnique: mockFindUnique,
       update:     mockUpdate,
+    },
+    productAcknowledgment: {
+      findMany: mockAckFindMany,
     },
   }));
 
@@ -45,6 +56,7 @@ vi.mock('@prisma/client', () => {
 import {
   computeSuitability,
   runSuitabilityCheck,
+  readAcknowledgmentGates,
   getLatestSuitabilityCheck,
   applyOverride,
   setPrismaClient,
@@ -76,6 +88,12 @@ const strongProfile: SuitabilityInput = {
   activeBankruptcy:    false,
   sanctionsMatch:      false,
   fraudSuspicion:      false,
+  // The acknowledgment gates. Signed on every base fixture so each scenario
+  // keeps testing the financial rule it was written for; the gates have their
+  // own describe block below.
+  clientAcknowledgedPersonalGuarantee: true,
+  clientAcknowledgedAprRisk:           true,
+  advisorConfirmedDebtServicing:       null,
 };
 
 const moderateProfile: SuitabilityInput = {
@@ -89,6 +107,12 @@ const moderateProfile: SuitabilityInput = {
   activeBankruptcy:    false,
   sanctionsMatch:      false,
   fraudSuspicion:      false,
+  // The acknowledgment gates. Signed on every base fixture so each scenario
+  // keeps testing the financial rule it was written for; the gates have their
+  // own describe block below.
+  clientAcknowledgedPersonalGuarantee: true,
+  clientAcknowledgedAprRisk:           true,
+  advisorConfirmedDebtServicing:       null,
 };
 
 const highRiskProfile: SuitabilityInput = {
@@ -102,6 +126,12 @@ const highRiskProfile: SuitabilityInput = {
   activeBankruptcy:    false,
   sanctionsMatch:      false,
   fraudSuspicion:      false,
+  // The acknowledgment gates. Signed on every base fixture so each scenario
+  // keeps testing the financial rule it was written for; the gates have their
+  // own describe block below.
+  clientAcknowledgedPersonalGuarantee: true,
+  clientAcknowledgedAprRisk:           true,
+  advisorConfirmedDebtServicing:       null,
 };
 
 const hardNoGoProfile: SuitabilityInput = {
@@ -115,6 +145,12 @@ const hardNoGoProfile: SuitabilityInput = {
   activeBankruptcy:    false,
   sanctionsMatch:      false,
   fraudSuspicion:      false,
+  // The acknowledgment gates. Signed on every base fixture so each scenario
+  // keeps testing the financial rule it was written for; the gates have their
+  // own describe block below.
+  clientAcknowledgedPersonalGuarantee: true,
+  clientAcknowledgedAprRisk:           true,
+  advisorConfirmedDebtServicing:       null,
 };
 
 const bankruptcyProfile: SuitabilityInput = {
@@ -711,5 +747,118 @@ describe('INDUSTRY_RISK_MULTIPLIERS', () => {
     expect(INDUSTRY_RISK_MULTIPLIERS['technology']).toBeGreaterThan(
       INDUSTRY_RISK_MULTIPLIERS['hospitality'],
     );
+  });
+});
+
+// ── The human-confirmation gates ──────────────────────────────
+//
+// These moved here from suitability-engine.ts on 2 September. That engine asked
+// for them and never persisted; this one persists and never asked, so the
+// `noGoTriggered` a compliance manifest reports had been computed by a rule set
+// that never looked at whether the client acknowledged anything.
+
+describe('acknowledgment gates', () => {
+  it('no-goes when the personal guarantee is not acknowledged', () => {
+    const result = computeSuitability({
+      ...strongProfile,
+      clientAcknowledgedPersonalGuarantee: false,
+    });
+
+    expect(result.noGoReasons).toContain(NOGO_REASON.NO_PG_ACKNOWLEDGMENT);
+    expect(result.noGoTriggered).toBe(true);
+    expect(result.maxSafeLeverage).toBe(0);
+  });
+
+  it('no-goes when APR risk is not acknowledged', () => {
+    const result = computeSuitability({
+      ...strongProfile,
+      clientAcknowledgedAprRisk: false,
+    });
+
+    expect(result.noGoReasons).toContain(NOGO_REASON.NO_APR_RISK_ACKNOWLEDGMENT);
+    expect(result.noGoTriggered).toBe(true);
+  });
+
+  it('does not zero the score for a missing signature', () => {
+    // The distinction that matters. Bankruptcy forces the composite to 0 because
+    // it is a finding about the client. An unsigned form is a procedural gap, and
+    // scoring the client 0 for one would state something about their finances
+    // that nobody found.
+    const unsigned = computeSuitability({
+      ...strongProfile,
+      clientAcknowledgedPersonalGuarantee: false,
+    });
+    const bankrupt = computeSuitability(bankruptcyProfile);
+
+    expect(bankrupt.score).toBe(0);
+    expect(unsigned.score).toBeGreaterThan(0);
+    expect(unsigned.score).toBe(computeSuitability(strongProfile).score);
+  });
+
+  it('reports debt-service confirmation as unassessed, not as a no-go', () => {
+    // Nothing in CapitalForge records an advisor confirming debt-service
+    // capacity. `true` would be the fabrication this gate was moved to stop;
+    // `false` would turn a missing feature into a finding about a client's file
+    // and no-go every check in the system.
+    const result = computeSuitability({
+      ...strongProfile,
+      advisorConfirmedDebtServicing: null,
+    });
+
+    expect(result.unassessedGates).toEqual([
+      {
+        code:  'no_debt_service_confirmation',
+        basis: 'advisor_debt_service_confirmation_not_recorded',
+      },
+    ]);
+    expect(result.noGoReasons).not.toContain(NOGO_REASON.NO_DEBT_SERVICE_CONFIRMATION);
+    expect(result.noGoTriggered).toBe(false);
+  });
+
+  it('no-goes a debt-service confirmation that was asked for and refused', () => {
+    // Unreachable until a confirmation is recordable, and here so the difference
+    // between "never asked" and "asked and not confirmed" is written down.
+    const result = computeSuitability({
+      ...strongProfile,
+      advisorConfirmedDebtServicing: false,
+    });
+
+    expect(result.noGoReasons).toContain(NOGO_REASON.NO_DEBT_SERVICE_CONFIRMATION);
+    expect(result.unassessedGates).toEqual([]);
+  });
+
+  it('an assessment with no no-go reasons is not necessarily clean', () => {
+    // The third state, stated as a test because it is the thing a reader gets
+    // wrong: an empty noGoReasons and an unassessed gate is not a pass.
+    const result = computeSuitability(strongProfile);
+
+    expect(result.noGoReasons).toEqual([]);
+    expect(result.unassessedGates.length).toBeGreaterThan(0);
+  });
+});
+
+describe('readAcknowledgmentGates', () => {
+  it('reads the signatures rather than being told about them', async () => {
+    const prisma = new PrismaClient();
+    setPrismaClient(prisma);
+    (prisma as unknown as {
+      productAcknowledgment: { findMany: ReturnType<typeof vi.fn> };
+    }).productAcknowledgment.findMany.mockResolvedValueOnce([
+      { acknowledgmentType: 'personal_guarantee' },
+    ]);
+
+    const gates = await readAcknowledgmentGates('biz-001');
+
+    expect(gates.clientAcknowledgedPersonalGuarantee).toBe(true);
+    expect(gates.clientAcknowledgedAprRisk).toBe(false);
+  });
+
+  it('never answers the debt-service gate, because nothing records it', async () => {
+    const prisma = new PrismaClient();
+    setPrismaClient(prisma);
+
+    const gates = await readAcknowledgmentGates('biz-001');
+
+    expect(gates.advisorConfirmedDebtServicing).toBeNull();
   });
 });

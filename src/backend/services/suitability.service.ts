@@ -58,6 +58,18 @@ export const NOGO_REASON = {
   FRAUD_SUSPICION:          'fraud_suspicion',
   NEGATIVE_CASH_FLOW:       'negative_cash_flow',
   CREDIT_SCORE_TOO_LOW:     'credit_score_too_low',
+
+  // The gates that record a human having confirmed something, rather than a
+  // fact about the client's finances. They moved here from suitability-engine.ts
+  // on 2 September: that engine asked for them and never persisted, this one
+  // persists and never asked, so the finding a compliance manifest reports as
+  // `noGoTriggered` was computed by a rule set that never looked at whether the
+  // client had acknowledged the personal guarantee or the APR risk.
+  //
+  // The codes are the engine's own, unchanged. One vocabulary for one concept.
+  NO_PG_ACKNOWLEDGMENT:     'no_pg_acknowledgment',
+  NO_APR_RISK_ACKNOWLEDGMENT: 'no_apr_risk_acknowledgment',
+  NO_DEBT_SERVICE_CONFIRMATION: 'no_debt_service_confirmation',
   BUSINESS_TOO_YOUNG:       'business_too_young',
 } as const;
 
@@ -107,6 +119,61 @@ export interface SuitabilityInput {
 
   /** True if compliance has flagged a fraud suspicion */
   fraudSuspicion: boolean;
+
+  /**
+   * A signed `personal_guarantee` acknowledgment exists for this business.
+   *
+   * Read from `ProductAcknowledgment`, never supplied by a caller — see
+   * `SuitabilityProfile` and `readAcknowledgmentGates`. An unsigned
+   * acknowledgment is an absence in the records, and the placement gate it
+   * guards is the one thing an absence may block: nothing signed means nothing
+   * signed.
+   */
+  clientAcknowledgedPersonalGuarantee: boolean;
+
+  /**
+   * A signed `product_reality` acknowledgment exists. That is the template
+   * carrying the APR-expiry disclosure — "THESE RATES EXPIRE ... standard
+   * purchase APRs, which may exceed 25%" — so it is the record of the client
+   * having been told about APR risk.
+   */
+  clientAcknowledgedAprRisk: boolean;
+
+  /**
+   * Whether an advisor confirmed the client can service the debt.
+   *
+   * **`null` means unassessed, and is the only value this can currently take.**
+   * CapitalForge has no record of an advisor confirming debt-service capacity —
+   * no model, no column, no endpoint — so the honest answer is neither true nor
+   * false. `true` would be the fabrication this gate was moved here to stop;
+   * `false` would convert a missing feature into a finding about a client's
+   * file, and would no-go every check in the system.
+   *
+   * It is reported in `unassessedGates` instead, with its basis. See
+   * `docs/gaps.md`.
+   */
+  advisorConfirmedDebtServicing: boolean | null;
+}
+
+/**
+ * What a caller may supply. The three gates are absent by construction.
+ *
+ * A route cannot assert that a client acknowledged the personal guarantee,
+ * because the type does not let it. `runSuitabilityCheck` reads them from the
+ * record and composes the full input itself — the engine that answers is the
+ * engine that asks.
+ */
+export type SuitabilityProfile = Omit<
+  SuitabilityInput,
+  | 'clientAcknowledgedPersonalGuarantee'
+  | 'clientAcknowledgedAprRisk'
+  | 'advisorConfirmedDebtServicing'
+>;
+
+/** A gate that could not be evaluated, and why. Never a pass. */
+export interface UnassessedGate {
+  code: string;
+  basis: string;
 }
 
 // ── Extended result (internal, includes leverage detail) ─────
@@ -120,6 +187,17 @@ export interface SuitabilityAssessment extends SuitabilityResult {
 
   /** Suitability band label */
   band: 'APPROVED' | 'MODERATE' | 'HIGH_RISK' | 'HARD_NOGO';
+
+  /**
+   * Gates that could not be evaluated, each with its basis.
+   *
+   * The third state, and the reason this field exists rather than a boolean:
+   * a no-go that did not fire and a no-go that could not be checked read
+   * identically in `noGoReasons`, and only one of them is a statement about the
+   * client. Never report an empty `noGoReasons` as a clean assessment without
+   * reading this.
+   */
+  unassessedGates: UnassessedGate[];
 }
 
 export interface ScoreBreakdown {
@@ -183,6 +261,38 @@ export function computeSuitability(input: SuitabilityInput): SuitabilityAssessme
     noGoReasons.push(NOGO_REASON.CREDIT_SCORE_TOO_LOW);
   }
 
+  // ---- 1b. The gates that record a human confirming something ---
+  //
+  // These block placement and do NOT zero the score, unlike bankruptcy,
+  // sanctions and fraud. The distinction is the point of them: an unsigned
+  // personal-guarantee acknowledgment is a procedural gap, and forcing the
+  // composite to 0 would state that the client is uncreditworthy when the fact
+  // is that a form has not been signed. Blocking a placement on a missing
+  // signature is right; recording a finding about the client's finances because
+  // of one is the absence-as-fact error this codebase keeps closing.
+  if (!input.clientAcknowledgedPersonalGuarantee) {
+    noGoReasons.push(NOGO_REASON.NO_PG_ACKNOWLEDGMENT);
+  }
+  if (!input.clientAcknowledgedAprRisk) {
+    noGoReasons.push(NOGO_REASON.NO_APR_RISK_ACKNOWLEDGMENT);
+  }
+
+  const unassessedGates: UnassessedGate[] = [];
+  if (input.advisorConfirmedDebtServicing === null) {
+    // Not "the advisor did not confirm". Nothing in CapitalForge records an
+    // advisor confirming debt-service capacity, so this gate has never been
+    // askable. Reported, not assumed in either direction.
+    unassessedGates.push({
+      code:  'no_debt_service_confirmation',
+      basis: 'advisor_debt_service_confirmation_not_recorded',
+    });
+  } else if (!input.advisorConfirmedDebtServicing) {
+    // Reachable the day a confirmation is recordable: an advisor who looked and
+    // did not confirm is a finding, and a different one from never having been
+    // asked.
+    noGoReasons.push(NOGO_REASON.NO_DEBT_SERVICE_CONFIRMATION);
+  }
+
   // ---- 2. Compute component scores ----------------------------
   const breakdown = computeScoreBreakdown(input);
 
@@ -235,6 +345,44 @@ export function computeSuitability(input: SuitabilityInput): SuitabilityAssessme
     scoreBreakdown:      { ...breakdown, total: effectiveScore },
     leverageDetail,
     band,
+    unassessedGates,
+  };
+}
+
+/**
+ * The three human-confirmation gates, read from the records.
+ *
+ * `personal_guarantee` and `product_reality` are `ProductAcknowledgment` rows —
+ * a signature exists or it does not, and no signature means the gate is not
+ * satisfied. There is no template for an advisor's debt-service confirmation
+ * and no column that would hold one, so that gate returns `null`: unassessed,
+ * which `computeSuitability` reports rather than assumes.
+ *
+ * Exported so the class wrapper uses the same reader. Two ways of deciding
+ * whether a client signed something is how the two engines diverged in the
+ * first place.
+ */
+export async function readAcknowledgmentGates(businessId: string): Promise<{
+  clientAcknowledgedPersonalGuarantee: boolean;
+  clientAcknowledgedAprRisk: boolean;
+  advisorConfirmedDebtServicing: boolean | null;
+}> {
+  const prisma = getPrisma();
+
+  const signed = await prisma.productAcknowledgment.findMany({
+    where: {
+      businessId,
+      acknowledgmentType: { in: ['personal_guarantee', 'product_reality'] },
+    },
+    select: { acknowledgmentType: true },
+  });
+
+  const types = new Set(signed.map((a) => a.acknowledgmentType));
+
+  return {
+    clientAcknowledgedPersonalGuarantee: types.has('personal_guarantee'),
+    clientAcknowledgedAprRisk:           types.has('product_reality'),
+    advisorConfirmedDebtServicing:       null,
   };
 }
 
@@ -247,10 +395,15 @@ export function computeSuitability(input: SuitabilityInput): SuitabilityAssessme
 export async function runSuitabilityCheck(
   businessId: string,
   tenantId:   string,
-  input:      SuitabilityInput,
+  profile:    SuitabilityProfile,
 ): Promise<{ checkId: string; assessment: SuitabilityAssessment }> {
-  const assessment = computeSuitability(input);
   const prisma = getPrisma();
+
+  // The three human-confirmation gates are read here and nowhere else. A caller
+  // supplies a `SuitabilityProfile`, which does not carry them, so no route can
+  // assert that a client acknowledged anything.
+  const gates = await readAcknowledgmentGates(businessId);
+  const assessment = computeSuitability({ ...profile, ...gates });
 
   const check = await prisma.suitabilityCheck.create({
     data: {
@@ -261,9 +414,13 @@ export async function runSuitabilityCheck(
       noGoTriggered:       assessment.noGoTriggered,
       noGoReasons:         assessment.noGoReasons,
       alternativeProducts: assessment.alternativeProducts,
-      decisionExplanation: assessment.scoreBreakdown
-        ? JSON.stringify(assessment.scoreBreakdown)
-        : null,
+      // The breakdown, and what could not be assessed. Both, because a reader
+      // of a stored check has no other way to tell a gate that passed from a
+      // gate that was never askable.
+      decisionExplanation: JSON.stringify({
+        scoreBreakdown:  assessment.scoreBreakdown,
+        unassessedGates: assessment.unassessedGates,
+      }),
     },
   });
 
@@ -617,6 +774,10 @@ export class SuitabilityService {
       activeBankruptcy:     false,
       sanctionsMatch:       false,
       fraudSuspicion:       false,
+      // Read, not defaulted. The three defaults this wrapper does still carry
+      // are the ones it was written for; these three are not test scaffolding,
+      // they are the record of a person having confirmed something.
+      ...(await readAcknowledgmentGates(input.businessId)),
     };
     const assessment = computeSuitability(suitabilityInput);
 
