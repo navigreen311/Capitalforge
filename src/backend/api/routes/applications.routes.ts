@@ -249,6 +249,27 @@ router.get(
           critical: true,
         },
         {
+          // `hasFeeSchedule` was computed here and never read, so this panel
+          // queried the acknowledgment, learned the answer and did not show it.
+          // fee_schedule is one of the two entries in PRE_SUBMISSION_REQUIRED,
+          // alongside product_reality - a client could be missing it with
+          // nothing on this page saying so.
+          //
+          // Showing it is not enforcing it: no gate in
+          // ApplicationGatesService checks fee_schedule, so this row can read
+          // `missing` and a submission still passes. That gap is stated in
+          // docs/decisions/submit-application.md entry 2 rather than closed
+          // here, because adding a sixth enforced gate changes what submission
+          // means and is not a display fix.
+          id: 'fee-schedule',
+          label: 'Fee-Schedule Acknowledgment',
+          status: hasFeeSchedule ? 'pass' : 'missing',
+          detail: hasFeeSchedule
+            ? `Signed ${acknowledgments.find((a) => a.acknowledgmentType === 'fee_schedule')?.signedAt.toISOString().split('T')[0]}`
+            : 'Not signed. Required before submission, and not enforced by any gate.',
+          critical: false,
+        },
+        {
           id: 'suitability',
           label: 'Suitability Assessment',
           status: suitabilityStatus === 'suitable' ? 'pass' : suitabilityStatus === 'not_suitable' ? 'fail' : 'warning',
@@ -358,38 +379,52 @@ router.post(
         return;
       }
 
-      // If submitting directly, validate declarations
-      const isSubmit = requestedStatus === 'submitted';
-      if (isSubmit) {
-        if (!declarations || !Array.isArray(declarations) || declarations.length < 4) {
-          err(res, 422, 'GATE_CHECK_FAILED', 'All 4 declarations must be acknowledged before submission');
-          return;
-        }
-
-        // Check compliance gates
-        const consentRecords = await prisma.consentRecord.findMany({
-          where: { businessId, tenantId: ctx.tenantId, status: 'active' },
-        });
-        const hasConsent = consentRecords.some(
-          (c) => c.consentType === 'tcpa' || c.consentType === 'application',
+      // Creating an application already submitted is refused, not gated.
+      //
+      // This was the third route to `submitted` and the last one running its own
+      // controls. b2a9536 removed the inline checks from POST /:id/submit for
+      // the reason that applies here too: two implementations of one gate
+      // disagree the first time either changes, and the looser one is the one
+      // nobody is watching. This path's were looser than that - they were
+      // absent. It read consent records and acknowledgments into `hasConsent`
+      // and `hasAck` and never read either variable again, so an application
+      // could be created already submitted with no consent on file and no
+      // product-reality acknowledgment. Its suitability read carried no
+      // tenantId, and it refused on `noGoTriggered` alone, so an overridden
+      // no-go passed on /submit and blocked here: two routes, opposite answers,
+      // same client.
+      //
+      // It is not gated because it cannot be. Three of the six gates key on an
+      // application id, and consent is captured against an application that
+      // exists - the create path already knew this and set `consentCapturedAt:
+      // null` with a comment saying an application created directly as
+      // submitted has not captured per-application consent, and then submitted
+      // it anyway. Running `consent_captured` against a record whose consent
+      // could not yet exist is a gate that always fails, which is a worse
+      // answer than a clear refusal.
+      //
+      // Nothing calls it. No frontend caller creates an application at all, and
+      // no test does. Submission is a second act with its own controls: create
+      // the draft, then POST /applications/:id/submit.
+      //
+      // See docs/decisions/submit-application.md entry 1.
+      if (requestedStatus === 'submitted') {
+        err(
+          res,
+          422,
+          'SUBMIT_IS_A_SEPARATE_ACT',
+          'An application cannot be created already submitted. Create it as a draft '
+          + 'and submit it with POST /api/applications/:id/submit, which runs the '
+          + 'pre-submission gates. An application created submitted has captured no '
+          + 'per-application consent, and there is no application id to check one '
+          + 'against.',
         );
+        return;
+      }
 
-        const acknowledgments = await prisma.productAcknowledgment.findMany({
-          where: { businessId },
-        });
-        const hasAck = acknowledgments.some(
-          (a) => a.acknowledgmentType === 'product_reality',
-        );
-
-        const suitability = await prisma.suitabilityCheck.findFirst({
-          where: { businessId },
-          orderBy: { createdAt: 'desc' },
-        });
-
-        if (suitability?.noGoTriggered) {
-          err(res, 422, 'GATE_CHECK_FAILED', 'Client suitability check indicates not suitable');
-          return;
-        }
+      if (declarations && (!Array.isArray(declarations) || declarations.length < 4)) {
+        err(res, 422, 'DECLARATIONS_INCOMPLETE', 'Every pre-submission declaration must be confirmed.');
+        return;
       }
 
       // Validate funding round if provided
@@ -410,13 +445,12 @@ router.post(
           issuer: issuer.trim(),
           cardProduct: cardProduct.trim(),
           creditLimit: requestedLimit ? Number(requestedLimit) : null,
-          status: isSubmit ? 'submitted' : 'draft',
-          // Null on create, submitted or not. Same reason as the submit route:
-          // an application created directly as `submitted` has not captured
-          // per-application consent, and stamping now would record the moment
-          // of creation as the moment of consent.
+          status: 'draft',
+          // Null on create. Consent is captured against an application that
+          // exists, so stamping here would record the moment of creation as the
+          // moment of consent.
           consentCapturedAt: null,
-          submittedAt: isSubmit ? new Date() : null,
+          submittedAt: null,
         },
         include: {
           business: { select: { id: true, legalName: true } },
@@ -429,7 +463,7 @@ router.post(
         data: {
           tenantId: ctx.tenantId,
           userId: ctx.userId,
-          action: isSubmit ? 'application.submitted' : 'application.created',
+          action: 'application.created',
           resource: 'CardApplication',
           resourceId: application.id,
           metadata: {
@@ -438,7 +472,7 @@ router.post(
             requestedLimit,
             businessPurpose,
             intendedUseCategory,
-            declarations: isSubmit ? declarations : undefined,
+            declarations,
           },
         },
       });
@@ -448,7 +482,7 @@ router.post(
       // on for regulatory inquiry, so a card application — the most
       // consequential act in the product — must appear in it.
       await eventBus.publishAndPersist(ctx.tenantId, {
-        eventType: isSubmit ? EVENT_TYPES.APPLICATION_SUBMITTED : EVENT_TYPES.APPLICATION_CREATED,
+        eventType: EVENT_TYPES.APPLICATION_CREATED,
         aggregateType: AGGREGATE_TYPES.APPLICATION,
         aggregateId: application.id,
         payload: {
@@ -462,7 +496,6 @@ router.post(
           status:         application.status,
           submittedAt:    application.submittedAt?.toISOString() ?? null,
           createdBy:      ctx.userId,
-          ...(isSubmit ? { declarations } : {}),
         },
       });
 
