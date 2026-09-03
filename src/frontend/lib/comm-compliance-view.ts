@@ -24,7 +24,7 @@
 
 // From SCAN_CHANNELS. This was a fourth hand-kept list and was missing
 // `partner` and `video_script`.
-import { SCAN_CHANNELS, type ScanChannel } from '@shared/types/index.js';
+import { SCAN_CHANNELS, type ScanChannel } from '@shared/types/index';
 
 export type Channel = ScanChannel;
 
