@@ -121,10 +121,28 @@ test.describe('A newly onboarded client', () => {
 
     // This panel used to show a fixed score of 72 and "suitable for moderate
     // stacking" for every client, assessed or not.
-    await expect(page.getByText('Not assessed', { exact: true })).toBeVisible({ timeout: 30000 });
+    //
+    // Scoped to the Suitability card. Three things on this page report an absence,
+    // and the unscoped match hit all three: the Readiness stat card and the
+    // Funding Readiness row both say "Not assessed", and the suitability panel
+    // says it too. They are different facts about different subjects, and a
+    // locator that cannot tell them apart would keep passing on a page where
+    // suitability had gone back to inventing a score, as long as readiness still
+    // said the right thing.
+    //
+    // The suitability stat card's own word is "Not checked" - a check that was
+    // never run, rather than a score that was never assessed.
+    const suitabilityCard = page
+      .locator('div')
+      .filter({ has: page.getByText('Suitability Score', { exact: true }) })
+      .last();
 
-    // The suitability card says so positively, rather than being merely empty.
-    await expect(page.getByText('no check on record', { exact: true })).toBeVisible();
+    await expect(suitabilityCard.getByText('Not checked', { exact: true })).toBeVisible({
+      timeout: 30000,
+    });
+
+    // The card says so positively, rather than being merely empty.
+    await expect(suitabilityCard.getByText('no check on record', { exact: true })).toBeVisible();
 
     // `exact: true` matters here. Without it this is a substring match against
     // the whole page, and it matched the client's own generated name — the
