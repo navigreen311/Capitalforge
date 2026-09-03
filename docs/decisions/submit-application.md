@@ -120,3 +120,43 @@ restated here:
 `submit_application`'s operating instruction cites those rather than repeating
 them. Two manuals stating the same rule in different words is how the rule comes
 to have two meanings.
+
+---
+
+## 4. Ruled 2026-09-03 — the inert gate stays, and `fee_schedule` stops claiming required
+
+Entry 2 recorded both and closed neither. Both are now ruled.
+
+**`cu_membership_disclosure` stays inert.** It cannot fire without an issuer
+*type*, and `CardApplication` carries an issuer *name*. Adding the column is a
+data-model decision with no caller asking for it, and faking the gate — deriving
+a type from an issuer name — would make a control that reports on a guess.
+
+So the gate list is **five enforced**, said that way everywhere it appears,
+including in the operating instruction. The sixth is recorded rather than
+removed, because it becomes real the day an issuer type exists.
+
+**`fee_schedule` is removed from `PRE_SUBMISSION_REQUIRED`.**
+
+Gating it would refuse submissions on a record nothing captures. That is the
+debt-service shape from `suitability.md` entry 2: a control no client can cure is
+an outage with a compliance justification. The constant now says what is
+actually enforced.
+
+Gating becomes available the day a fee schedule is recorded against a business.
+Recorded here so that the option is a decision waiting on data rather than a
+thing nobody remembered.
+
+**And a fourth dead control, found while ruling this one.**
+`assertPreSubmissionGate` — the method that consumes this constant — has **no
+production caller**. Its own docstring says it is *"checked before any
+CardApplication transitions to submitted"*, and no submission path invokes it.
+Only its unit tests do.
+
+So `product_reality` survives as a control solely because
+`ApplicationGatesService` gate 1 checks it separately, and the pre-submission
+acknowledgment gate as a whole has never run. Not fixed here: wiring it changes
+what submission means, and deleting it discards a tested implementation of a
+control somebody intended. It joins `hasConsent`, `hasAck` and `hasFeeSchedule`
+as the fourth of its kind in this area, and it is the largest.
+
