@@ -331,4 +331,33 @@ module.exports = [
       ],
     },
   },
+  // ── applications.routes.ts: an unused variable is an error here ──
+  //
+  // `no-unused-vars` is a warning repo-wide because 111 of them exist and
+  // clearing that is separate work. It is an error in this file because of what
+  // an unused variable turned out to mean here.
+  //
+  // The create-as-submitted path read consent records and product-reality
+  // acknowledgments, computed `hasConsent` and `hasAck`, and never read either
+  // variable. Two compliance gates that looked enforced and enforced nothing:
+  // an application could be created already submitted with no consent on file.
+  // The linter found it and said so, in a warning stream nobody reads, for as
+  // long as the code existed.
+  //
+  // This is the file where a discarded value is a discarded control, so the
+  // signal is promoted rather than left in the stream. A deliberate discard
+  // still gets an underscore.
+  {
+    files: ['src/backend/api/routes/applications.routes.ts'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
 ];
