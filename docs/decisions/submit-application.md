@@ -160,3 +160,155 @@ what submission means, and deleting it discards a tested implementation of a
 control somebody intended. It joins `hasConsent`, `hasAck` and `hasFeeSchedule`
 as the fourth of its kind in this area, and it is the largest.
 
+---
+
+## 5. OPEN — is credit-union membership disclosure actually required here?
+
+**Raised 2026-09-03. Not decided.**
+
+Entry 3 ratified leaving `cu_membership_disclosure` inert "until an issuer type
+exists." That was a decision about a dead branch. This entry asks the question
+underneath it, which nobody has asked: **is the disclosure required for
+applications this system actually places?**
+
+### What is on file
+
+| | |
+|---|---|
+| `CreditUnion` rows | **6**, every one `isActive: true` and `businessCardsOffered: true` — Lake Michigan, Navy Federal, First Tech, PenFed, Alliant and one more |
+| the disclosure | declared `required: true`, `applicableTo: ['credit_union']`, with full `templateText` in `compliance.routes.ts` |
+| the gate | runs only when `issuerType === 'credit_union'` |
+| `CardApplication` | carries an issuer **name** and **no issuer type column** |
+| applications placed with a credit union so far | **none** — every distinct issuer on file is a bank (Chase, Amex, Capital One, BofA, US Bank, Citi, Wells Fargo) |
+
+### Why "inert" was the wrong frame
+
+Inert reads as *harmless*. This is a **declared-required disclosure with a dead
+branch where its control should be**, on a placement path the product is built to
+support: six credit unions are carried as active targets that offer business cards,
+and `issuer-rules.routes.ts` prices their membership.
+
+Nothing has gone wrong yet only because no application has been placed with one.
+**The first one that is will pass submission without the disclosure, silently** —
+five gates green, and the sixth not refusing but never running. That is the failure
+mode this whole document set exists to name: a control that is green because it
+never executed.
+
+### The question, and it is not an engineering one
+
+**Is membership disclosure legally required before a client applies for a
+credit-union business card?** The declared text says the client must be informed
+that membership is required and is a separate relationship from the card.
+
+- **If yes** — this is a compliance hole, not a gap. It needs an `issuerType`
+  column, or issuer-name resolution against the `CreditUnion` table, before any
+  credit-union placement happens. The migration is small; the ordering is the point.
+- **If no** — the constant should stop declaring it `required`, the same way
+  `fee_schedule` did in entry 2. Both cannot stand.
+
+### What is true in the meantime
+
+**Do not read "five gates passed" as "the application was fully checked."** For a
+bank issuer the five are the whole ladder. For a credit union they are not, and
+nothing in the response says which case you are in.
+
+Recorded in `capitalforge-record-consent.md` §2 and
+`capitalforge-submit-application.md` §4, both of which previously described the
+six-gate chain as though all six ran.
+
+### Tripwire in place, 2026-09-03 — the decision has a trigger nothing detected
+
+The question above is open and both answers are real. What it did not have was a
+**detector**: the trigger is the first credit-union placement, and nothing would
+have noticed it happening.
+
+`POST /api/applications/:id/submit` now refuses when `parseIssuer(application.issuer)`
+resolves to a credit union, with `422 CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE`.
+
+**This is not the fix and must not be mistaken for one.** The fix is the column, the
+issuer-name resolution at write time, or the constant dropping its `required` claim.
+This turns a silent pass into a loud refusal while the question is open.
+
+**Why it can be decided here without new data.** `parseIssuer` already resolves an
+issuer name to `credit_union` — it is what `issuer-rules.routes.ts` uses to price
+membership — and it reads alias lists, so the refusal cannot be walked past by
+spelling the issuer differently. The condition was always decidable; nothing was
+asking it.
+
+**What it costs.** A submission that would have skipped a required disclosure.
+Against not refusing, which costs the disclosure.
+
+**When it comes out.** The day entry 5 is answered. If the disclosure is required,
+this is replaced by the gate actually running. If it is not, this is deleted with
+the `required` claim.
+
+Same shape as `fee_schedule` in entry 2: the control becomes available the moment
+the data does, and until then the absence is stated rather than assumed away.
+
+### Ruled 2026-09-04 — unresolvable from inside this repository
+
+**The ruling is that there is no ruling to make here, and that is not a deferral.**
+
+`required: true` has no source in this codebase. There is no citation, no
+regulation, no compliance-review reference, and no issuer-agreement note anywhere
+near the declaration. Its provenance is commit `e2ad5c7`, 7 April 2026 — *"feat: add
+GET /api/compliance/disclosure-templates endpoint"* — a feature commit that wrote
+the disclosure and its `required` flag inline as part of a static registry. The only
+regulatory string nearby is inside the template text a client would read (*"insured
+by the NCUA up to $250,000"*), which is content, not authority.
+
+The Office's Compliance Library holds nineteen entries, each carrying an
+`applicability_rule` and a `citation`. **None of them is about credit unions.**
+
+**Why that does not settle it.** No source in the repository is not no obligation.
+Retracting a compliance requirement because nobody cited one would be asserting a
+conclusion from an absence of evidence — shared rule 1, turned on our own records.
+Membership before application is a real feature of how credit unions work, and
+whether disclosing it is required is a question this repository cannot answer about
+itself.
+
+**This is not the same shape as `fee_schedule` in entry 2.** That was a constant
+claiming a requirement nothing captured: internally inconsistent, and internally
+resolvable — either gate it or stop calling it required, and both options lived
+here. This is a constant claiming a requirement nothing **sources**. The
+inconsistency is between the code and something outside the code, and the answer is
+not in the codebase to be found.
+
+### What is known, and what is needed
+
+| | |
+|---|---|
+| `CreditUnion` rows | 6, all `isActive`, all `businessCardsOffered` |
+| membership pricing | live, `issuer-rules.routes.ts` |
+| applications placed with a CU | none |
+| the disclosure | `required: true`, declared by a feature commit, 7 April 2026, no citation |
+| Compliance Library entries about credit unions | none of nineteen |
+
+**Needed: a Compliance Library entry with an `applicability_rule` and a `citation`,
+or a decision that none applies.** Routed to whoever owns the library. Until one of
+those lands, the tripwire stays.
+
+### A note on how the tripwire was approved
+
+It was approved on a described coverage, and the description was narrower than it
+read.
+
+The refusal was accepted on the strength of *"`parseIssuer` already resolves an
+issuer name to `credit_union` — it is what prices membership."* True, and it
+resolves **the six credit unions in the catalogue**. `Golden 1 Credit Union`,
+`Star One Credit Union` and `Some Random FCU` returned null and passed the control
+built to stop them. Ordinary names.
+
+It had a passing test throughout. The test exercised the alias list —
+`navy_federal` resolving like `Navy Federal Credit Union` — which is a real property
+and not the coverage question. **It took testing seven strings against both
+resolvers to find out.**
+
+**Same class as the §2 protection claims in the operating instructions**, where a
+manual named a middleware that did not exist and an audit had to go and look. The
+difference is only whose claim it was: those were found by auditing somebody else's
+prose, and this one was written and approved by the two people reading it.
+
+`isCreditUnionIssuerName` replaces it, and its own leak is recorded in the same
+commit rather than left for the next reader to find the same way.
+

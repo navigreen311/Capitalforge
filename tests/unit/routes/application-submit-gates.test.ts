@@ -361,3 +361,98 @@ describe('POST /applications — submission is a separate act', () => {
     expect([200, 201]).toContain(res.status);
   });
 });
+
+// ============================================================
+// The credit-union tripwire
+//
+// cu_membership_disclosure is declared required for credit-union issuers and its
+// gate cannot fire — CardApplication has an issuer NAME and no issuer TYPE. Six
+// credit unions are on file as active placement targets offering business cards,
+// so the first CU placement would pass with five gates green and the sixth never
+// running: a required disclosure skipped in silence.
+//
+// The refusal is not the fix. It turns the silent pass into a loud one while the
+// compliance question is open — docs/decisions/submit-application.md entry 5.
+// ============================================================
+
+describe('a credit-union placement is refused while its gate cannot run', () => {
+  /** The issuer lives on the application, not in the request. */
+  function applicationWithIssuer(issuer: string) {
+    const current = applicationFindFirst.getMockImplementation?.();
+    void current;
+    applicationFindFirst.mockResolvedValueOnce({
+      id: APP_ID,
+      businessId: BUSINESS_ID,
+      status: 'draft',
+      issuer,
+      createdByUserId: MAKER,
+      adverseActionNotice: { createdByUserId: MAKER },
+      business: { id: BUSINESS_ID, legalName: 'Acme', tenantId: TENANT },
+    });
+  }
+
+  it('refuses when the issuer resolves to a credit union', async () => {
+    applicationWithIssuer('Navy Federal Credit Union');
+    const res = await submit({ approvedByUserId: 'user-approver' });
+    const body = (await res.json()) as Body;
+
+    expect(res.status).toBe(422);
+    expect(body.error?.code).toBe('CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE');
+  });
+
+  it('resolves an alias, not just the exact name', async () => {
+    applicationWithIssuer('navy_federal');
+    const res = await submit({ approvedByUserId: 'user-approver' });
+    const body = (await res.json()) as Body;
+
+    expect(body.error?.code).toBe('CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE');
+  });
+
+  // THE COVERAGE QUESTION, WHICH THE ALIAS TEST ABOVE DOES NOT ASK.
+  //
+  // The first version of this control used `parseIssuer`, which resolves the six
+  // credit unions in the catalogue and returns null for everything else. It had a
+  // passing test - the one above - and the test passed while the control leaked,
+  // because it exercised the alias list rather than what happens to a credit union
+  // that is not on it.
+  //
+  // These are ordinary names, not edge cases. Every one of them walked past the
+  // control as originally approved.
+  it.each([
+    'Golden 1 Credit Union',
+    'Star One Credit Union',
+    'Some Random FCU',
+  ])('refuses %s - a credit union outside the catalogue', async (issuer) => {
+    applicationWithIssuer(issuer);
+    const res = await submit({ approvedByUserId: 'user-approver' });
+    const body = (await res.json()) as Body;
+
+    expect(res.status).toBe(422);
+    expect(body.error?.code).toBe('CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE');
+  });
+
+  it('documents what still gets past it: a bare CU suffix', async () => {
+    // isCreditUnionIssuerName's last resort is
+    //   normalised.includes('creditunion') || normalised.endsWith('fcu')
+    // so "Redwood CU" is not recognised. This test asserts the CURRENT behaviour
+    // rather than the desired one, so that closing the gap breaks it deliberately
+    // and whoever closes it reads why.
+    //
+    // A resolver over a free-text column cannot be complete. An issuerType column,
+    // or resolution against the CreditUnion table at write time, is what makes it
+    // total - see docs/decisions/submit-application.md entry 5.
+    applicationWithIssuer('Redwood CU');
+    const res = await submit({ approvedByUserId: 'user-approver' });
+    const body = (await res.json()) as Body;
+
+    expect(body.error?.code).not.toBe('CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE');
+  });
+
+  it('does not refuse a bank issuer', async () => {
+    applicationWithIssuer('chase');
+    const res = await submit({ approvedByUserId: 'user-approver' });
+    const body = (await res.json()) as Body;
+
+    expect(body.error?.code).not.toBe('CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE');
+  });
+});

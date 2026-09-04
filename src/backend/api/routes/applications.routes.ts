@@ -21,6 +21,7 @@ import type { ApiResponse, TenantContext } from '../../../shared/types/index.js'
 import logger from '../../config/logger.js';
 import { eventBus } from '../../events/event-bus.js';
 import { ApplicationGateChecker } from '../../services/application-gates.js';
+import { isCreditUnionIssuerName } from '../../../shared/constants/issuers.js';
 import {
   EVENT_TYPES,
   AGGREGATE_TYPES,
@@ -697,6 +698,74 @@ router.post(
         typeof (req.body as { approvedByUserId?: unknown }).approvedByUserId === 'string'
           ? ((req.body as { approvedByUserId: string }).approvedByUserId)
           : '';
+
+      // ── TRIPWIRE: a credit-union placement cannot pass silently ──────────
+      //
+      // cu_membership_disclosure is declared `required: true` for
+      // `applicableTo: ['credit_union']`, with template text, in
+      // compliance.routes.ts. The gate that enforces it fires only when
+      // issuerType === 'credit_union', and CardApplication has an issuer NAME
+      // and no issuer TYPE column — so the control cannot run.
+      //
+      // That reads as harmless only because no application has yet been placed
+      // with a credit union. Six are on file, every one isActive and
+      // businessCardsOffered, and issuer-rules.routes.ts prices their
+      // membership. The first CU placement passes submission with five gates
+      // green and the sixth never running: a required disclosure skipped in
+      // silence.
+      //
+      // THIS IS NOT THE FIX. The fix is an issuerType column, or resolving the
+      // issuer name against CreditUnion at write time — or the constant
+      // dropping the `required` claim, the way fee_schedule did. That is a
+      // compliance decision and it is open: docs/decisions/submit-application.md
+      // entry 5.
+      //
+      // What this does is turn the silent pass into a loud refusal while the
+      // question is open. Refusing costs a submission that would have skipped a
+      // disclosure; not refusing costs the disclosure.
+      //
+      // IT USED `parseIssuer` AND THAT WAS TOO NARROW. Corrected 4 September 2026.
+      // `parseIssuer` resolves the six credit unions in the catalogue and their
+      // aliases, and returns null for anything else — so "Golden 1 Credit Union",
+      // "Star One Credit Union" and "Some Random FCU" walked straight past a
+      // control built to stop exactly them. Ordinary names, not edge cases.
+      //
+      // `isCreditUnionIssuerName` exists for this and says so in its own docstring:
+      // it accepts the slug, any known alias, AND anything self-identifying as a
+      // credit union, "so that a credit union added to the catalogue without being
+      // added here is treated as one rather than silently counted as a bank".
+      //
+      // IT IS BETTER AND IT IS NOT TOTAL. Its last resort is
+      // `normalised.includes('creditunion') || normalised.endsWith('fcu')`, so a
+      // bare "Redwood CU" still returns false and still passes. `CardApplication.
+      // issuer` is a free-text column — validated as 1-100 characters and trimmed,
+      // nothing more — and no resolver over free text can be complete.
+      //
+      // A COLUMN IS WHAT MAKES IT TOTAL. An `issuerType`, or resolution against the
+      // CreditUnion table at write time, is the difference between a control that
+      // catches most spellings and one that cannot be spelled around. That is part
+      // of the fix entry 5 is waiting on, not something this refusal replaces.
+      //
+      // Same move as gating fee_schedule once a schedule exists: the control
+      // becomes available the moment the data does, and until then the absence
+      // is stated rather than assumed away.
+      if (isCreditUnionIssuerName(application.issuer)) {
+        err(
+          res,
+          422,
+          'CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE',
+          'This application names a credit union, and the credit-union membership '
+            + 'disclosure gate cannot run: CardApplication carries no issuer type. '
+            + 'Submission is refused rather than passing a required disclosure in '
+            + 'silence. See docs/decisions/submit-application.md entry 5.',
+          {
+            issuer: application.issuer,
+            gate: 'cu_membership_disclosure',
+            enforcedGates: 5,
+          },
+        );
+        return;
+      }
 
       const gateSummary = await new ApplicationGateChecker(prisma).checkAll(
         id,
