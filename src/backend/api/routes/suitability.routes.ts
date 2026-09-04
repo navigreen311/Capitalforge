@@ -20,6 +20,10 @@ import type { Request } from '../../types/http.js';
 import { z, ZodError } from 'zod';
 import {
   runSuitabilityCheck,
+  SuitabilityCheckNotFoundError,
+  OverrideRequiresComplianceOfficerError,
+  OverrideJustificationTooShortError,
+  HardNoGoLockedError,
   getLatestSuitabilityCheck,
   applyOverride,
   type SuitabilityProfile,
@@ -62,6 +66,59 @@ const SuitabilityCheckBodySchema = z.object({
 const OverrideBodySchema = z.object({
   justification: z.string().min(10, 'Justification must be at least 10 characters'),
 });
+
+/**
+ * The override's refusals, mapped once.
+ *
+ * This route used to choose a status by substring-matching the service's prose:
+ * `includes('not found')`, `includes('HARD NO-GO')`,
+ * `includes('compliance_officer role')`. Rewording a sentence in
+ * suitability.service.ts silently turned a 403 into a 400 - a caller told to fix
+ * their request when the truth was that they lacked a role. Same treatment as
+ * statements.routes.ts and the dossier.
+ *
+ * A check belonging to another business or another tenant is a 404 and not a
+ * 403. A caller who cannot see a check does not need to be told that it exists.
+ */
+function handleOverrideError(err: unknown, res: Response, businessId: string): void {
+  const message = err instanceof Error ? err.message : String(err);
+
+  if (err instanceof SuitabilityCheckNotFoundError) {
+    res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message, details: { businessId } },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  if (err instanceof OverrideRequiresComplianceOfficerError) {
+    res.status(403).json({
+      success: false,
+      error: { code: 'FORBIDDEN', message, details: { businessId } },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  if (err instanceof OverrideJustificationTooShortError) {
+    res.status(422).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message, details: { businessId } },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  // Its own code, because a caller has to be able to tell "you may not override
+  // this" from "you may not override".
+  if (err instanceof HardNoGoLockedError) {
+    res.status(422).json({
+      success: false,
+      error: { code: 'HARD_NOGO_LOCKED', message, details: { businessId } },
+    } satisfies ApiResponse);
+    return;
+  }
+
+  handleUnexpectedError(err, res, 'POST /override');
+}
 
 // ── Router ────────────────────────────────────────────────────
 
@@ -234,30 +291,12 @@ suitabilityRouter.post(
     try {
       const result = await applyOverride({
         checkId,
+        businessId,
         officerUserId: tenant.userId,
         officerRole:   tenant.role,
         justification: parsed.data.justification,
         tenantId:      tenant.tenantId,
       });
-
-      if (!result.success) {
-        // Distinguish between auth/policy failures (403) and not-found (404)
-        const isNotFound = result.message.includes('not found');
-        const isLocked   = result.message.includes('HARD NO-GO') || result.message.includes('Override is not permitted');
-        const isAuthz    = result.message.includes('compliance_officer role');
-
-        const status = isNotFound ? 404 : isLocked ? 422 : isAuthz ? 403 : 400;
-
-        res.status(status).json({
-          success: false,
-          error: {
-            code:    isLocked ? 'HARD_NOGO_LOCKED' : 'OVERRIDE_FAILED',
-            message: result.message,
-            details: { auditId: result.auditId, businessId },
-          },
-        } satisfies ApiResponse);
-        return;
-      }
 
       res.status(200).json({
         success: true,
@@ -270,7 +309,7 @@ suitabilityRouter.post(
         },
       } satisfies ApiResponse);
     } catch (err) {
-      handleUnexpectedError(err, res, 'POST /override');
+      handleOverrideError(err, res, businessId);
     }
   },
 );
