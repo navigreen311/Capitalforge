@@ -215,3 +215,32 @@ nothing in the response says which case you are in.
 Recorded in `capitalforge-record-consent.md` §2 and
 `capitalforge-submit-application.md` §4, both of which previously described the
 six-gate chain as though all six ran.
+
+### Tripwire in place, 2026-09-03 — the decision has a trigger nothing detected
+
+The question above is open and both answers are real. What it did not have was a
+**detector**: the trigger is the first credit-union placement, and nothing would
+have noticed it happening.
+
+`POST /api/applications/:id/submit` now refuses when `parseIssuer(application.issuer)`
+resolves to a credit union, with `422 CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE`.
+
+**This is not the fix and must not be mistaken for one.** The fix is the column, the
+issuer-name resolution at write time, or the constant dropping its `required` claim.
+This turns a silent pass into a loud refusal while the question is open.
+
+**Why it can be decided here without new data.** `parseIssuer` already resolves an
+issuer name to `credit_union` — it is what `issuer-rules.routes.ts` uses to price
+membership — and it reads alias lists, so the refusal cannot be walked past by
+spelling the issuer differently. The condition was always decidable; nothing was
+asking it.
+
+**What it costs.** A submission that would have skipped a required disclosure.
+Against not refusing, which costs the disclosure.
+
+**When it comes out.** The day entry 5 is answered. If the disclosure is required,
+this is replaced by the gate actually running. If it is not, this is deleted with
+the `required` claim.
+
+Same shape as `fee_schedule` in entry 2: the control becomes available the moment
+the data does, and until then the absence is stated rather than assumed away.
