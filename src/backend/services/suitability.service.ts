@@ -213,10 +213,69 @@ export interface ScoreBreakdown {
 
 export interface OverrideRequest {
   checkId:          string;
+  /** The business in the request path. The check must belong to it. */
+  businessId:       string;
   officerUserId:    string;
   officerRole:      string;
   justification:    string;
   tenantId:         string;
+}
+
+// ── Override refusals ─────────────────────────────────────────
+//
+// Typed, because the route chose a status by substring-matching the message:
+// `includes('not found')`, `includes('HARD NO-GO')`,
+// `includes('compliance_officer role')`. Rewording a sentence in this file
+// silently turned a 403 into a 400 - a caller told to fix their request when the
+// truth was that they lacked a role. Same treatment as
+// statement-reconciliation and compliance-dossier.
+
+/**
+ * No such check for this business under this tenant.
+ *
+ * One type for three situations: no such id, an id belonging to another
+ * business, and an id belonging to another tenant. They are one answer on
+ * purpose. A caller who cannot see a check does not need to be told that it
+ * exists and is somebody else's - that confirms the id, which is the whole
+ * value of guessing one.
+ */
+export class SuitabilityCheckNotFoundError extends Error {
+  constructor(public readonly checkId: string) {
+    super(`Suitability check ${checkId} was not found.`);
+    this.name = 'SuitabilityCheckNotFoundError';
+  }
+}
+
+/** The caller does not hold `compliance_officer`. */
+export class OverrideRequiresComplianceOfficerError extends Error {
+  constructor() {
+    super('Override requires the compliance_officer role.');
+    this.name = 'OverrideRequiresComplianceOfficerError';
+  }
+}
+
+/** An override is a recorded judgement, so it has to say something. */
+export class OverrideJustificationTooShortError extends Error {
+  constructor() {
+    super('Override requires a written justification of at least 10 characters.');
+    this.name = 'OverrideJustificationTooShortError';
+  }
+}
+
+/**
+ * Below the hard no-go threshold nothing may be overridden, by anyone.
+ *
+ * Its own type rather than folding into the role refusal, because a caller has
+ * to be able to tell "you may not override this" from "you may not override".
+ */
+export class HardNoGoLockedError extends Error {
+  constructor(public readonly score: number, public readonly threshold: number) {
+    super(
+      `Score ${score} is below the HARD NO-GO threshold (${threshold}). `
+      + 'Override is not permitted for any reason.',
+    );
+    this.name = 'HardNoGoLockedError';
+  }
 }
 
 export interface OverrideResult {
@@ -470,6 +529,16 @@ export async function getLatestSuitabilityCheck(
   maxSafeLeverage: number | null;
   overriddenBy: string | null;
   overrideReason: string | null;
+  /**
+   * Gates that could not be evaluated. See `UnassessedGate`.
+   *
+   * Returned here because a third state that exists only on the write path is
+   * not a third state. `POST /check` reported it and this read dropped it, so
+   * every later reader - the console, an advisor, a compliance officer opening
+   * the file a week afterwards - saw an empty `noGoReasons` and could not tell a
+   * gate that passed from a gate nobody could ask.
+   */
+  unassessedGates: UnassessedGate[];
   createdAt: Date;
 } | null> {
   const prisma = getPrisma();
@@ -491,8 +560,30 @@ export async function getLatestSuitabilityCheck(
     maxSafeLeverage:     check.maxSafeLeverage ? Number(check.maxSafeLeverage) : null,
     overriddenBy:        check.overriddenBy,
     overrideReason:      check.overrideReason,
+    unassessedGates:     readUnassessedGates(check.decisionExplanation),
     createdAt:           check.createdAt,
   };
+}
+
+/**
+ * The unassessed gates a stored check recorded, or none.
+ *
+ * `decisionExplanation` is where the write path put them. A row written before
+ * the field existed, or one whose explanation will not parse, returns `[]` -
+ * honest for a check that predates it, and not the same as asserting the gates
+ * were assessed. There is no way to tell those two apart from a stored row, and
+ * inventing a distinction would be worse than not having one.
+ */
+function readUnassessedGates(explanation: string | null): UnassessedGate[] {
+  if (!explanation) return [];
+  try {
+    const parsed = JSON.parse(explanation) as { unassessedGates?: unknown };
+    return Array.isArray(parsed.unassessedGates)
+      ? (parsed.unassessedGates as UnassessedGate[])
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -514,35 +605,39 @@ export async function applyOverride(req: OverrideRequest): Promise<OverrideResul
       role:   req.officerRole,
       checkId: req.checkId,
     });
-    return {
-      success:  false,
-      message:  'Override requires compliance_officer role.',
-      auditId,
-    };
+    throw new OverrideRequiresComplianceOfficerError();
   }
 
   // ---- Justification gate -------------------------------------
   if (!req.justification || req.justification.trim().length < 10) {
-    return {
-      success: false,
-      message: 'Override requires a written justification of at least 10 characters.',
-      auditId,
-    };
+    throw new OverrideJustificationTooShortError();
   }
 
   const prisma = getPrisma();
 
-  // ---- Fetch the check ----------------------------------------
-  const check = await prisma.suitabilityCheck.findUnique({
-    where: { id: req.checkId },
+  // ---- Fetch the check, through the business and the tenant ----
+  //
+  // `findUnique({ where: { id } })` resolved any check in any tenant.
+  // SuitabilityCheck carries no tenantId - it is scoped only through its
+  // business - and nothing compared the check's business to the `:id` in the
+  // path, which the mount guard had already validated as the caller's own. So a
+  // compliance officer could pass their own business and any checkId and write
+  // `overriddenBy` onto another tenant's row.
+  //
+  // That is not a disclosure, it is a decision: application-gates.ts treats
+  // `overriddenBy` as clearing the no-go, so the write cleared another tenant's
+  // placement gate, and the event was published under the caller's tenantId and
+  // landed in the wrong ledger.
+  const check = await prisma.suitabilityCheck.findFirst({
+    where: {
+      id:         req.checkId,
+      businessId: req.businessId,
+      business:   { tenantId: req.tenantId },
+    },
   });
 
   if (!check) {
-    return {
-      success: false,
-      message: `Suitability check ${req.checkId} not found.`,
-      auditId,
-    };
+    throw new SuitabilityCheckNotFoundError(req.checkId);
   }
 
   // ---- Hard no-go lock — no override possible below threshold -
@@ -551,11 +646,7 @@ export async function applyOverride(req: OverrideRequest): Promise<OverrideResul
       checkId: req.checkId,
       score:   check.score,
     });
-    return {
-      success: false,
-      message: `Score ${check.score} is below the HARD NO-GO threshold (${SCORE_BANDS.HARD_NOGO}). Override is not permitted for any reason.`,
-      auditId,
-    };
+    throw new HardNoGoLockedError(check.score, SCORE_BANDS.HARD_NOGO);
   }
 
   // ---- Apply override ----------------------------------------

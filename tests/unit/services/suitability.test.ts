@@ -55,6 +55,10 @@ vi.mock('@prisma/client', () => {
 
 import {
   computeSuitability,
+  SuitabilityCheckNotFoundError,
+  OverrideRequiresComplianceOfficerError,
+  OverrideJustificationTooShortError,
+  HardNoGoLockedError,
   runSuitabilityCheck,
   readAcknowledgmentGates,
   getLatestSuitabilityCheck,
@@ -500,11 +504,64 @@ describe('getLatestSuitabilityCheck', () => {
 
 // ── applyOverride ─────────────────────────────────────────────
 
+describe('getLatestSuitabilityCheck — the third state survives the read', () => {
+  let prismaInstance: PrismaClient;
+
+  beforeEach(() => {
+    prismaInstance = new PrismaClient();
+    setPrismaClient(prismaInstance as unknown as import('@prisma/client').PrismaClient);
+    vi.clearAllMocks();
+  });
+
+  function storedCheck(decisionExplanation: string | null) {
+    return {
+      id: 'check-1', score: 71, noGoTriggered: false, noGoReasons: [],
+      recommendation: 'ok', alternativeProducts: [], maxSafeLeverage: null,
+      overriddenBy: null, overrideReason: null, decisionExplanation,
+      createdAt: new Date(),
+    };
+  }
+
+  it('returns the gates that could not be assessed', async () => {
+    // POST /check reported these and this read dropped them, so every later
+    // reader saw an empty noGoReasons and could not tell a gate that passed
+    // from a gate nobody could ask.
+    const gates = [{
+      code:  'no_debt_service_confirmation',
+      basis: 'advisor_debt_service_confirmation_not_recorded',
+    }];
+    (prismaInstance as any).suitabilityCheck.findFirst.mockResolvedValueOnce(
+      storedCheck(JSON.stringify({ scoreBreakdown: {}, unassessedGates: gates })),
+    );
+
+    const latest = await getLatestSuitabilityCheck('biz-001');
+
+    expect(latest?.unassessedGates).toEqual(gates);
+    expect(latest?.noGoReasons).toEqual([]);
+  });
+
+  it('reports none for a check written before the field existed', async () => {
+    // A row whose explanation is the bare score breakdown, or will not parse at
+    // all. Empty is honest for a check that predates this; it is not the same as
+    // asserting the gates were assessed, and nothing here can tell those apart.
+    (prismaInstance as any).suitabilityCheck.findFirst
+      .mockResolvedValueOnce(storedCheck(JSON.stringify({ revenueScore: 20 })));
+
+    expect((await getLatestSuitabilityCheck('biz-001'))?.unassessedGates).toEqual([]);
+
+    (prismaInstance as any).suitabilityCheck.findFirst
+      .mockResolvedValueOnce(storedCheck('not json at all'));
+
+    expect((await getLatestSuitabilityCheck('biz-001'))?.unassessedGates).toEqual([]);
+  });
+});
+
 describe('applyOverride', () => {
   let prismaInstance: PrismaClient;
 
   const baseOverrideReq = {
     checkId:       'check-100',
+    businessId:    'biz-001',
     officerUserId: 'user-officer',
     officerRole:   'compliance_officer',
     justification: 'Reviewed by committee — exception approved per policy 5.3.',
@@ -518,23 +575,15 @@ describe('applyOverride', () => {
   });
 
   it('rejects override when requester is not compliance_officer', async () => {
-    const result = await applyOverride({
-      ...baseOverrideReq,
-      officerRole: 'advisor',
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.message).toMatch(/compliance_officer/);
+    await expect(
+      applyOverride({ ...baseOverrideReq, officerRole: 'advisor' }),
+    ).rejects.toBeInstanceOf(OverrideRequiresComplianceOfficerError);
   });
 
   it('rejects override with short / empty justification', async () => {
-    const result = await applyOverride({
-      ...baseOverrideReq,
-      justification: 'short',
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.message).toMatch(/justification/i);
+    await expect(
+      applyOverride({ ...baseOverrideReq, justification: 'short' }),
+    ).rejects.toBeInstanceOf(OverrideJustificationTooShortError);
   });
 
   it('blocks override when score < HARD_NOGO threshold', async () => {
@@ -545,25 +594,44 @@ describe('applyOverride', () => {
       businessId:   'biz-001',
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prismaInstance as any).suitabilityCheck.findUnique.mockResolvedValueOnce(lockedCheck);
+    (prismaInstance as any).suitabilityCheck.findFirst.mockResolvedValueOnce(lockedCheck);
 
-    const result = await applyOverride(baseOverrideReq);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toMatch(/HARD NO-GO/i);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(applyOverride(baseOverrideReq)).rejects.toBeInstanceOf(
+      HardNoGoLockedError,
+    );
     expect((prismaInstance as any).suitabilityCheck.update).not.toHaveBeenCalled();
   });
 
-  it('returns not-found message when check does not exist', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prismaInstance as any).suitabilityCheck.findUnique.mockResolvedValueOnce(null);
+  it('resolves the check through the business and the tenant', async () => {
+    // The defect this replaced: findUnique({ where: { id } }) resolved any check
+    // in any tenant. SuitabilityCheck carries no tenantId - it is scoped only
+    // through its business - and nothing compared the check's business to the
+    // one in the path, which the mount guard had already validated as the
+    // caller's own. application-gates.ts treats `overriddenBy` as clearing the
+    // no-go, so the write cleared another tenant's placement gate.
+    const eligible = { id: 'check-100', score: 42, noGoTriggered: true, businessId: 'biz-001' };
+    (prismaInstance as any).suitabilityCheck.findFirst.mockResolvedValueOnce(eligible);
+    (prismaInstance as any).suitabilityCheck.update.mockResolvedValueOnce(eligible);
 
-    const result = await applyOverride(baseOverrideReq);
+    await applyOverride(baseOverrideReq);
 
-    expect(result.success).toBe(false);
-    expect(result.message).toMatch(/not found/i);
+    expect((prismaInstance as any).suitabilityCheck.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id:         'check-100',
+          businessId: 'biz-001',
+          business:   { tenantId: 'tenant-001' },
+        },
+      }),
+    );
+  });
+
+  it('refuses a check this business and tenant cannot see', async () => {
+    (prismaInstance as any).suitabilityCheck.findFirst.mockResolvedValueOnce(null);
+
+    await expect(applyOverride(baseOverrideReq)).rejects.toBeInstanceOf(
+      SuitabilityCheckNotFoundError,
+    );
   });
 
   it('applies override and returns success with auditId for valid requests', async () => {
@@ -577,7 +645,7 @@ describe('applyOverride', () => {
     const updatedCheck = { ...eligibleCheck, overriddenBy: 'user-officer', overrideReason: baseOverrideReq.justification };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prismaInstance as any).suitabilityCheck.findUnique.mockResolvedValueOnce(eligibleCheck);
+    (prismaInstance as any).suitabilityCheck.findFirst.mockResolvedValueOnce(eligibleCheck);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (prismaInstance as any).suitabilityCheck.update.mockResolvedValueOnce(updatedCheck);
 
@@ -599,7 +667,7 @@ describe('applyOverride', () => {
     const updatedCheck = { ...eligibleCheck, overriddenBy: 'user-officer', overrideReason: baseOverrideReq.justification };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prismaInstance as any).suitabilityCheck.findUnique.mockResolvedValueOnce(eligibleCheck);
+    (prismaInstance as any).suitabilityCheck.findFirst.mockResolvedValueOnce(eligibleCheck);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (prismaInstance as any).suitabilityCheck.update.mockResolvedValueOnce(updatedCheck);
 
@@ -620,7 +688,7 @@ describe('applyOverride', () => {
     const eligibleCheck = { id: 'check-100', score: 38, noGoTriggered: true, businessId: 'biz-001' };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prismaInstance as any).suitabilityCheck.findUnique.mockResolvedValueOnce(eligibleCheck);
+    (prismaInstance as any).suitabilityCheck.findFirst.mockResolvedValueOnce(eligibleCheck);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (prismaInstance as any).suitabilityCheck.update.mockResolvedValueOnce({ ...eligibleCheck });
 
