@@ -542,6 +542,90 @@ const MODULES: Readonly<Record<string, ModuleSpec>> = {
     },
   },
 
+  // -- statement_pull ------------------------------------------
+  // Five reads over statement_records. "Pull" does not mean fetch from an
+  // issuer: nothing here contacts a card issuer or a bank, and every statement
+  // was put on file by an ingest that happened earlier.
+  //
+  // The router carries six more routes - ingest, reconcile, parse-email,
+  // disputes, and two already in forge_module_exclusion - and none is bound.
+  statement_pull: {
+    manual: 'capitalforge-statement-pull.md',
+    manualVersion: '1.1',
+    isMutating: false,
+    idempotencySupport: 'natural',
+    permissions: [PERMISSIONS.BUSINESS_READ],
+    operations: {
+      list: {
+        method: 'GET',
+        returns: 'statements on file for one business',
+        request: (p) => ({ path: `/api/businesses/${seg(p, 'business_id')}/statements` }),
+      },
+      list_by_client: {
+        method: 'GET',
+        returns: 'the same records, addressed by query rather than by path',
+        request: (p) => ({
+          path: `/api/statements?client_id=${seg(p, 'business_id')}`,
+        }),
+      },
+      detail: {
+        method: 'GET',
+        returns: 'one statement, with its normalised data',
+        request: (p) => ({ path: `/api/statements/${seg(p, 'statement_id')}` }),
+      },
+      anomalies: {
+        method: 'GET',
+        returns: 'anomaly reports for a business, optionally filtered by severity',
+        // An unrecognised severity falls back to no filter rather than being
+        // refused. The response does report which filter was applied - it
+        // carries `severityFilter` - so this is detectable by a caller who
+        // reads it, and the manual says to.
+        //
+        // Refused here anyway, one layer earlier: an agent that has to compare
+        // two fields to discover its query was discarded will sometimes not,
+        // and the adapter can decline to send a value the route will drop.
+        request: (p) => {
+          const base = `/api/businesses/${seg(p, 'business_id')}/statements/anomalies`;
+          const severity = p['severity'];
+          if (severity === undefined || severity === null) return { path: base };
+          if (typeof severity !== 'string'
+              || !['low', 'medium', 'high', 'critical'].includes(severity)) {
+            throw new PayloadError(
+              `severity must be low, medium, high or critical - the route falls back `
+                + `to no filter on an unrecognised value, so this would return a count `
+                + `over everything`,
+            );
+          }
+          return { path: `${base}?severity=${encodeURIComponent(severity)}` };
+        },
+      },
+      line_items: {
+        method: 'GET',
+        returns: 'what the record holds for one statement - not a transaction breakdown',
+        request: (p) => ({ path: `/api/statements/${seg(p, 'statement_id')}/line-items` }),
+      },
+    },
+  },
+
+  // -- portfolio_health ----------------------------------------
+  // One read. Returns a tenant-level statistic and NOTHING ABOUT AN
+  // IDENTIFIABLE CLIENT - no business id, no name, in the result or in its
+  // action items. It is the only module in this set of which that is true.
+  portfolio_health: {
+    manual: 'capitalforge-portfolio-health.md',
+    manualVersion: '1.0',
+    isMutating: false,
+    idempotencySupport: 'natural',
+    permissions: [PERMISSIONS.BUSINESS_READ],
+    operations: {
+      read: {
+        method: 'GET',
+        returns: 'the tenant portfolio health score, its components and action items',
+        request: () => ({ path: '/api/portfolio/health' }),
+      },
+    },
+  },
+
   // -- restack_recommend ---------------------------------------
   // Three GETs. Recommends; it does not act, and nothing here starts a round.
   restack_recommend: {
