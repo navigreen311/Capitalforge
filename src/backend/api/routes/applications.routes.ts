@@ -21,7 +21,7 @@ import type { ApiResponse, TenantContext } from '../../../shared/types/index.js'
 import logger from '../../config/logger.js';
 import { eventBus } from '../../events/event-bus.js';
 import { ApplicationGateChecker } from '../../services/application-gates.js';
-import { parseIssuer } from '../../../shared/constants/issuers.js';
+import { isCreditUnionIssuerName } from '../../../shared/constants/issuers.js';
 import {
   EVENT_TYPES,
   AGGREGATE_TYPES,
@@ -721,16 +721,35 @@ router.post(
       // entry 5.
       //
       // What this does is turn the silent pass into a loud refusal while the
-      // question is open. `parseIssuer` already resolves an issuer name to
-      // `credit_union` — it is what prices membership — so the condition is
-      // decidable here without a new column. Refusing costs a submission that
-      // would have skipped a disclosure; not refusing costs the disclosure.
+      // question is open. Refusing costs a submission that would have skipped a
+      // disclosure; not refusing costs the disclosure.
+      //
+      // IT USED `parseIssuer` AND THAT WAS TOO NARROW. Corrected 4 September 2026.
+      // `parseIssuer` resolves the six credit unions in the catalogue and their
+      // aliases, and returns null for anything else — so "Golden 1 Credit Union",
+      // "Star One Credit Union" and "Some Random FCU" walked straight past a
+      // control built to stop exactly them. Ordinary names, not edge cases.
+      //
+      // `isCreditUnionIssuerName` exists for this and says so in its own docstring:
+      // it accepts the slug, any known alias, AND anything self-identifying as a
+      // credit union, "so that a credit union added to the catalogue without being
+      // added here is treated as one rather than silently counted as a bank".
+      //
+      // IT IS BETTER AND IT IS NOT TOTAL. Its last resort is
+      // `normalised.includes('creditunion') || normalised.endsWith('fcu')`, so a
+      // bare "Redwood CU" still returns false and still passes. `CardApplication.
+      // issuer` is a free-text column — validated as 1-100 characters and trimmed,
+      // nothing more — and no resolver over free text can be complete.
+      //
+      // A COLUMN IS WHAT MAKES IT TOTAL. An `issuerType`, or resolution against the
+      // CreditUnion table at write time, is the difference between a control that
+      // catches most spellings and one that cannot be spelled around. That is part
+      // of the fix entry 5 is waiting on, not something this refusal replaces.
       //
       // Same move as gating fee_schedule once a schedule exists: the control
       // becomes available the moment the data does, and until then the absence
       // is stated rather than assumed away.
-      const issuerIdentity = parseIssuer(application.issuer);
-      if (issuerIdentity?.kind === 'credit_union') {
+      if (isCreditUnionIssuerName(application.issuer)) {
         err(
           res,
           422,
@@ -741,7 +760,6 @@ router.post(
             + 'silence. See docs/decisions/submit-application.md entry 5.',
           {
             issuer: application.issuer,
-            resolvedTo: issuerIdentity.id,
             gate: 'cu_membership_disclosure',
             enforcedGates: 5,
           },

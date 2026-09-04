@@ -401,13 +401,51 @@ describe('a credit-union placement is refused while its gate cannot run', () => 
   });
 
   it('resolves an alias, not just the exact name', async () => {
-    // parseIssuer reads the same alias lists that price membership, so the
-    // tripwire cannot be walked past by writing the issuer differently.
     applicationWithIssuer('navy_federal');
     const res = await submit({ approvedByUserId: 'user-approver' });
     const body = (await res.json()) as Body;
 
     expect(body.error?.code).toBe('CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE');
+  });
+
+  // THE COVERAGE QUESTION, WHICH THE ALIAS TEST ABOVE DOES NOT ASK.
+  //
+  // The first version of this control used `parseIssuer`, which resolves the six
+  // credit unions in the catalogue and returns null for everything else. It had a
+  // passing test - the one above - and the test passed while the control leaked,
+  // because it exercised the alias list rather than what happens to a credit union
+  // that is not on it.
+  //
+  // These are ordinary names, not edge cases. Every one of them walked past the
+  // control as originally approved.
+  it.each([
+    'Golden 1 Credit Union',
+    'Star One Credit Union',
+    'Some Random FCU',
+  ])('refuses %s - a credit union outside the catalogue', async (issuer) => {
+    applicationWithIssuer(issuer);
+    const res = await submit({ approvedByUserId: 'user-approver' });
+    const body = (await res.json()) as Body;
+
+    expect(res.status).toBe(422);
+    expect(body.error?.code).toBe('CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE');
+  });
+
+  it('documents what still gets past it: a bare CU suffix', async () => {
+    // isCreditUnionIssuerName's last resort is
+    //   normalised.includes('creditunion') || normalised.endsWith('fcu')
+    // so "Redwood CU" is not recognised. This test asserts the CURRENT behaviour
+    // rather than the desired one, so that closing the gap breaks it deliberately
+    // and whoever closes it reads why.
+    //
+    // A resolver over a free-text column cannot be complete. An issuerType column,
+    // or resolution against the CreditUnion table at write time, is what makes it
+    // total - see docs/decisions/submit-application.md entry 5.
+    applicationWithIssuer('Redwood CU');
+    const res = await submit({ approvedByUserId: 'user-approver' });
+    const body = (await res.json()) as Body;
+
+    expect(body.error?.code).not.toBe('CU_MEMBERSHIP_DISCLOSURE_UNENFORCEABLE');
   });
 
   it('does not refuse a bank issuer', async () => {
