@@ -160,3 +160,58 @@ what submission means, and deleting it discards a tested implementation of a
 control somebody intended. It joins `hasConsent`, `hasAck` and `hasFeeSchedule`
 as the fourth of its kind in this area, and it is the largest.
 
+---
+
+## 5. OPEN — is credit-union membership disclosure actually required here?
+
+**Raised 2026-09-03. Not decided.**
+
+Entry 3 ratified leaving `cu_membership_disclosure` inert "until an issuer type
+exists." That was a decision about a dead branch. This entry asks the question
+underneath it, which nobody has asked: **is the disclosure required for
+applications this system actually places?**
+
+### What is on file
+
+| | |
+|---|---|
+| `CreditUnion` rows | **6**, every one `isActive: true` and `businessCardsOffered: true` — Lake Michigan, Navy Federal, First Tech, PenFed, Alliant and one more |
+| the disclosure | declared `required: true`, `applicableTo: ['credit_union']`, with full `templateText` in `compliance.routes.ts` |
+| the gate | runs only when `issuerType === 'credit_union'` |
+| `CardApplication` | carries an issuer **name** and **no issuer type column** |
+| applications placed with a credit union so far | **none** — every distinct issuer on file is a bank (Chase, Amex, Capital One, BofA, US Bank, Citi, Wells Fargo) |
+
+### Why "inert" was the wrong frame
+
+Inert reads as *harmless*. This is a **declared-required disclosure with a dead
+branch where its control should be**, on a placement path the product is built to
+support: six credit unions are carried as active targets that offer business cards,
+and `issuer-rules.routes.ts` prices their membership.
+
+Nothing has gone wrong yet only because no application has been placed with one.
+**The first one that is will pass submission without the disclosure, silently** —
+five gates green, and the sixth not refusing but never running. That is the failure
+mode this whole document set exists to name: a control that is green because it
+never executed.
+
+### The question, and it is not an engineering one
+
+**Is membership disclosure legally required before a client applies for a
+credit-union business card?** The declared text says the client must be informed
+that membership is required and is a separate relationship from the card.
+
+- **If yes** — this is a compliance hole, not a gap. It needs an `issuerType`
+  column, or issuer-name resolution against the `CreditUnion` table, before any
+  credit-union placement happens. The migration is small; the ordering is the point.
+- **If no** — the constant should stop declaring it `required`, the same way
+  `fee_schedule` did in entry 2. Both cannot stand.
+
+### What is true in the meantime
+
+**Do not read "five gates passed" as "the application was fully checked."** For a
+bank issuer the five are the whole ladder. For a credit union they are not, and
+nothing in the response says which case you are in.
+
+Recorded in `capitalforge-record-consent.md` §2 and
+`capitalforge-submit-application.md` §4, both of which previously described the
+six-gate chain as though all six ran.
