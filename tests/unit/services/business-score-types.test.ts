@@ -71,9 +71,9 @@ async function service() {
 
 async function pull(bureau: string, profileType: 'business' | 'personal') {
   const svc = await service();
-  await svc.pullCreditProfiles(
+  await svc.pullCreditProfile(
     'biz-1',
-    { bureaus: [bureau], profileType, useCache: false, cacheTtlHours: 24 } as never,
+    { bureau: bureau, profileType, useCache: false, cacheTtlHours: 24 } as never,
     CTX,
   );
   return profileCreate.mock.calls[0]![0].data as { score: number; scoreType: string };

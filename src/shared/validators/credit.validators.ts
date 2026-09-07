@@ -61,10 +61,19 @@ export type Tradeline = z.infer<typeof TradelineSchema>;
 // ── Credit Pull Request ───────────────────────────────────────
 
 export const CreditPullRequestSchema = z.object({
-  bureaus: z
-    .array(BureauSchema)
-    .min(1, 'At least one bureau must be specified')
-    .max(4, 'Cannot exceed 4 bureaus per pull'),
+  /**
+   * ONE BUREAU PER CALL. This was `bureaus: Bureau[]` until 7 September 2026.
+   *
+   * The array made a half-a-pull response representable: the route answered 201
+   * with `data` shorter than the bureaus requested and `meta.total` counting
+   * successes rather than requests, because a bureau that failed was logged and
+   * skipped inside the loop. A caller asking for three and receiving two got the
+   * same shape as a caller asking for two and receiving two.
+   *
+   * One bureau per call cannot express that. The pull either produced a profile
+   * or raised, and the status code carries which.
+   */
+  bureau: BureauSchema,
   profileType: CreditProfileTypeSchema,
   /**
    * When true, skip bureau API call and use cached data if pulled
@@ -96,6 +105,22 @@ export const CreditProfileSchema = z.object({
   // rather than asserting a shape the data does not have.
   tradelines: z.union([z.array(TradelineSchema), z.record(z.unknown())]).nullable(),
   rawData: z.record(z.unknown()).nullable(),
+  /**
+   * Whether these figures came from a bureau or were generated.
+   *
+   * DERIVED FROM `rawData.synthetic` ON EVERY READ, NOT STORED. There is no
+   * column behind this and there should not be: `rawData` is the record of what
+   * the bureau returned, which is where the answer to "did a bureau return
+   * anything" belongs. A column would be a second copy of the same fact with its
+   * own drift path, and the two would disagree the first time one was written
+   * without the other.
+   *
+   * It is a named field rather than a key a caller digs out of the blob because
+   * a flag inside an untyped record is not a signal an agent can be expected to
+   * check. The difference is a failure signature that says "check `synthetic`"
+   * against one that says "look inside `rawData` for a key called `synthetic`".
+   */
+  synthetic: z.boolean(),
   pulledAt: z.string().datetime(),
   createdAt: z.string().datetime(),
 });

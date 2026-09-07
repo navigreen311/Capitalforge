@@ -2,7 +2,7 @@
 // credit-intelligence — will not write an invented credit profile
 //
 // The adapters in this service generate their answers, and
-// pullCreditProfiles writes the result into credit_profiles. So a FICO of
+// pullCreditProfile writes the result into credit_profiles. So a FICO of
 // 650 + Math.random() * 150 became a stored credit profile indistinguishable
 // from a real pull, which the credit-builder page read back as the client's
 // score and which drove the utilisation alerts and ledger events emitted
@@ -92,7 +92,7 @@ describe('with no credentials and no synthetic mode', () => {
     const svc = await service();
 
     await expect(
-      svc.pullCreditProfiles('biz-1', { bureaus: ['equifax'], profileType: 'business', useCache: false, cacheTtlHours: 24 }, CTX),
+      svc.pullCreditProfile('biz-1', { bureau: 'equifax', profileType: 'business', useCache: false, cacheTtlHours: 24 }, CTX),
     ).rejects.toBeInstanceOf(BureauNotConfiguredError);
   });
 
@@ -100,7 +100,7 @@ describe('with no credentials and no synthetic mode', () => {
     const svc = await service();
 
     await svc
-      .pullCreditProfiles('biz-1', { bureaus: ['equifax'], profileType: 'business', useCache: false, cacheTtlHours: 24 }, CTX)
+      .pullCreditProfile('biz-1', { bureau: 'equifax', profileType: 'business', useCache: false, cacheTtlHours: 24 }, CTX)
       .catch(() => undefined);
 
     // The whole point: no row reaches credit_profiles, because anything that
@@ -114,9 +114,9 @@ describe('with no credentials and no synthetic mode', () => {
     const svc = await service();
 
     await expect(
-      svc.pullCreditProfiles(
+      svc.pullCreditProfile(
         'biz-1',
-        { bureaus: ['equifax', 'experian'], profileType: 'business', useCache: false, cacheTtlHours: 24 },
+        { bureau: 'equifax', profileType: 'business', useCache: false, cacheTtlHours: 24 },
         CTX,
       ),
     ).rejects.toThrow(/No credentials are configured/);
@@ -128,9 +128,9 @@ describe('in synthetic mode', () => {
     process.env['BUREAU_MODE'] = 'synthetic';
     const svc = await service();
 
-    await svc.pullCreditProfiles(
+    await svc.pullCreditProfile(
       'biz-1',
-      { bureaus: ['equifax'], profileType: 'business', useCache: false, cacheTtlHours: 24 },
+      { bureau: 'equifax', profileType: 'business', useCache: false, cacheTtlHours: 24 },
       CTX,
     );
 
@@ -145,9 +145,9 @@ describe('with a bureau configured', () => {
     process.env['EQUIFAX_CLIENT_ID'] = 'test-client-id';
     const svc = await service();
 
-    await svc.pullCreditProfiles(
+    await svc.pullCreditProfile(
       'biz-1',
-      { bureaus: ['equifax'], profileType: 'business', useCache: false, cacheTtlHours: 24 },
+      { bureau: 'equifax', profileType: 'business', useCache: false, cacheTtlHours: 24 },
       CTX,
     );
 
@@ -161,7 +161,7 @@ describe('with a bureau configured', () => {
 
     // Configuring one bureau must not open the others.
     await expect(
-      svc.pullCreditProfiles('biz-1', { bureaus: ['experian'], profileType: 'business', useCache: false, cacheTtlHours: 24 }, CTX),
+      svc.pullCreditProfile('biz-1', { bureau: 'experian', profileType: 'business', useCache: false, cacheTtlHours: 24 }, CTX),
     ).rejects.toThrow(/experian/);
   });
 });
