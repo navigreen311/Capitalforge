@@ -94,10 +94,64 @@ apiRouter.use('/', openApiRouter);
 // bridged when it is not, and Gate 0 would pass on a Forge nobody can
 // authenticate to. Absent configuration means absent surface: The Office reads
 // a 404 as "adapter serves no manifest", which is the truth.
+//
+//
+// THE `else` BRANCH IS NOT DEFENSIVE PADDING. IT IS THE 404.
+// =========================================================
+//
+// Leaving the unconfigured case unmounted did not produce a 404. Nothing
+// matched `/office`, the request fell through to one of the many routers
+// mounted at '/' below, and that router's own `tenantMiddleware` answered
+// `401 UNAUTHORIZED — Authentication token required.`
+//
+// So the surface said the caller's credential was the problem, on a surface
+// where no credential had been read, because none was configured to compare
+// against. The Office would have recorded an authentication failure against a
+// Forge that was never bridged, and the operator would have gone looking for a
+// bad token instead of an absent one. Filed as Capitalforge#92.
+//
+// What made it invisible for as long as it lasted: the honest answer and the
+// lie share a status. `401 OFFICE_CREDENTIAL_REJECTED` — what a MOUNTED bridge
+// returns to an unauthenticated caller — is also a 401, so anyone reading only
+// the status saw what they expected to see. The distinguishing evidence was the
+// ABSENCE of the `OFFICE_CREDENTIAL_REJECTED` code, and an absence is not
+// something a reader notices.
+//
+// Hence three states that must never collapse into two, each asserted
+// separately in tests/unit/routes/office-bridge-unmounted.test.ts:
+//
+//   unconfigured                 -> 404 OFFICE_BRIDGE_NOT_CONFIGURED
+//   configured, bad credential   -> 401 OFFICE_CREDENTIAL_REJECTED
+//   configured, good credential  -> 200 and the manifest
+//
+// The handler is mounted at the same path as the router it stands in for, so
+// both states are decided in one `if` a reader can see at once. It terminates
+// every method and every sub-path under /office, which is the point: the branch
+// exists to stop the fall-through, and a handler that called `next()` for
+// anything would put the old 401 back for exactly that case.
+//
+// The body names the real cause rather than being an anonymous NOT_FOUND. It
+// discloses nothing a prober could not already have: a configured bridge
+// answers `OFFICE_CREDENTIAL_REJECTED` to any caller, so the existence of this
+// surface is public either way, and the only added bit — that this deployment
+// has not configured it — is the bit an operator needs and an attacker cannot
+// use. The status is what The Office reads; the code is for the human.
 import { officeRouter } from './office.routes.js';
 import { officeBridgeConfigured } from '../../config/office.js';
 if (officeBridgeConfigured()) {
   apiRouter.use('/office', officeRouter);
+} else {
+  apiRouter.use('/office', (_req, res) => {
+    res.status(404).json({
+      success: false,
+      error: {
+        code: 'OFFICE_BRIDGE_NOT_CONFIGURED',
+        message:
+          'CapitalForge serves no Office adapter: the bridge is not configured on this ' +
+          'deployment. This is not a credential failure - nothing here read a credential.',
+      },
+    });
+  });
 }
 
 // -- Health (public) --
