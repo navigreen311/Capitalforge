@@ -25,10 +25,31 @@ const VENTURE_MAP_VAR = 'OFFICE_VENTURE_TENANTS';
 /**
  * Env var holding the user id the adapter mints internal tokens for.
  *
- * Every brokered call runs as this principal on CapitalForge's side. It is a
- * real id so that `ledger_events.payload.userId` and every `createdBy` written
- * on a brokered call name something findable, rather than a null that reads as
- * "nobody did this".
+ * Every brokered call runs as this principal on CapitalForge's side. It must be
+ * a real `users` row because `CardApplication.createdByUserId` is a genuine
+ * foreign key: a brokered write naming an absent id fails on the constraint.
+ * Being real also means every `createdBy` written on a brokered call names
+ * something findable, rather than a null that reads as "nobody did this".
+ *
+ * **Corrected 2026-09-08. This comment used to also claim the id lands in
+ * `ledger_events.payload.userId`. It does not, and never did.** The payload
+ * `office.routes.ts` writes holds eleven keys — `moduleId`, `view`, `method`,
+ * `path`, `status`, `officeAgentId`, `venture`, `traceId`, `idempotencyKey`,
+ * `forgeRequestId`, `durationMs` — and its `metadata` four more. No `userId` in
+ * either. A brokered call's ledger row identifies the *agent* that asked
+ * (`officeAgentId`) and the tenant it ran in, but not the CapitalForge
+ * principal it ran as.
+ *
+ * The wrong half is left visible rather than quietly deleted because it was
+ * believed and repeated: it was read off this comment and stated as fact while
+ * planning the bridge's configuration, and a reader had no reason to doubt it.
+ * A comment asserting a property the code does not have is worse than no
+ * comment, because it is load-bearing for exactly the audit question somebody
+ * asks under pressure — and the tell only appeared when a real brokered call's
+ * row was read back.
+ *
+ * If the principal should appear in the ledger, that is a change to the payload
+ * in `office.routes.ts`, not to this comment.
  */
 const PRINCIPAL_VAR = 'OFFICE_SERVICE_PRINCIPAL_ID';
 

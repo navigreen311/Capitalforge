@@ -14,6 +14,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { seedIssuerRules } from './seeds/issuer-rules.js';
 import { seedCardProducts } from './seeds/card-products.js';
+import { seedOfficeBridge } from './seeds/office-bridge.js';
 // The disclosure text itself lives with the service that renders it. Imported
 // rather than copied: a disclosure is legal text, and two copies of it that
 // can drift is the wrong shape for something a client is handed.
@@ -2324,6 +2325,13 @@ const SEED_PHONES = {
 
   // ── Card Products ─────────────────────────────────────────
   await seedCardProducts();
+
+  // ── The Office bridge ─────────────────────────────────────
+  //
+  // The tenant and service principals that OFFICE_VENTURE_TENANTS and
+  // OFFICE_SERVICE_PRINCIPAL_ID name. Runs after the tenant block above
+  // because the Demo Advisors broker is scoped to that tenant.
+  await seedOfficeBridge(prisma);
 
   console.log('\n✅ Seed complete.');
   console.log(`   Tenant:   ${tenant.slug} (${tenant.id})`);
