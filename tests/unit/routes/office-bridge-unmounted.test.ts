@@ -30,6 +30,12 @@
 // defect's life. The property that matters is that 1 and 2 are distinguishable,
 // which is why it gets a test of its own that reads both responses.
 //
+// State 1 is exercised with the three variables absent AND with each one absent
+// in turn, because `.env.example` says "when ANY is absent" and the mount
+// comment warns about a half-configured bridge specifically. Neither the
+// none-set nor the all-set case can see `officeBridgeConfigured()` being
+// loosened from AND to OR; rotating the missing one can.
+//
 // THE UNCONFIGURED STATE IS CONSTRUCTED HERE, NOT SAMPLED FROM THE MACHINE
 // =======================================================================
 //
@@ -68,16 +74,32 @@ const PRINCIPAL = '22222222-2222-4222-8222-222222222222';
 // caller who has none.
 process.env['JWT_ACCESS_SECRET'] ??= 'test-access-secret-at-least-32-characters-long';
 
-/** The three variables `officeBridgeConfigured()` reads. Set, or absent. */
-function setBridgeEnv(configured: boolean): void {
-  if (configured) {
-    process.env['OFFICE_SHARED_SECRET'] = SECRET;
-    process.env['OFFICE_VENTURE_TENANTS'] = `burkham-wickmont:${TENANT}`;
-    process.env['OFFICE_SERVICE_PRINCIPAL_ID'] = PRINCIPAL;
-  } else {
-    delete process.env['OFFICE_SHARED_SECRET'];
-    delete process.env['OFFICE_VENTURE_TENANTS'];
-    delete process.env['OFFICE_SERVICE_PRINCIPAL_ID'];
+/** The three variables `officeBridgeConfigured()` reads, and their test values. */
+const BRIDGE_VARS = {
+  OFFICE_SHARED_SECRET: SECRET,
+  OFFICE_VENTURE_TENANTS: `burkham-wickmont:${TENANT}`,
+  OFFICE_SERVICE_PRINCIPAL_ID: PRINCIPAL,
+} as const;
+
+type BridgeVar = keyof typeof BRIDGE_VARS;
+
+const EVERY_VAR = Object.keys(BRIDGE_VARS) as BridgeVar[];
+
+/**
+ * Puts the environment into one named configuration state: the listed variables
+ * set to their test values, the unlisted ones ABSENT.
+ *
+ * Deleted rather than emptied. `officeBridgeConfigured()` treats an empty string
+ * as absent, but a fresh checkout has no variable at all, and the state under
+ * test is the one a fresh checkout starts in.
+ */
+function setBridgeEnv(present: readonly BridgeVar[]): void {
+  for (const name of EVERY_VAR) {
+    if (present.includes(name)) {
+      process.env[name] = BRIDGE_VARS[name];
+    } else {
+      delete process.env[name];
+    }
   }
 }
 
@@ -89,9 +111,9 @@ function setBridgeEnv(configured: boolean): void {
  * see this defect at all - the fall-through is to OTHER routers, and a router
  * examined in isolation has nothing to fall through to.
  */
-async function buildApp(configured: boolean): Promise<Express> {
+async function buildApp(present: readonly BridgeVar[]): Promise<Express> {
   vi.resetModules();
-  setBridgeEnv(configured);
+  setBridgeEnv(present);
 
   const { apiRouter } = await import('../../../src/backend/api/routes/index.js');
   const { notFoundHandler, globalErrorHandler } = await import(
@@ -109,25 +131,29 @@ async function buildApp(configured: boolean): Promise<Express> {
 // Built once per state. The mount decision is frozen at import, so an app is
 // only ever the state it was built in; `appFor` re-applies the environment on
 // every call because the shared secret is read LAZILY, per request.
-const built = new Map<boolean, Promise<Express>>();
+const built = new Map<string, Promise<Express>>();
 
-function appFor(configured: boolean): Promise<Express> {
-  setBridgeEnv(configured);
-  let app = built.get(configured);
+function appFor(present: readonly BridgeVar[]): Promise<Express> {
+  setBridgeEnv(present);
+  const key = [...present].sort().join('+') || 'none';
+  let app = built.get(key);
   if (app === undefined) {
-    app = buildApp(configured);
-    built.set(configured, app);
+    app = buildApp(present);
+    built.set(key, app);
   }
   return app;
 }
+
+const CONFIGURED = EVERY_VAR;
+const UNCONFIGURED: readonly BridgeVar[] = [];
 
 // `apiRouter` pulls in every route module in the API, which is a few seconds of
 // transform on a cold runner - comfortably past vitest's 5s default. Paid once,
 // here, with a timeout that says so, rather than leaving the first test in the
 // file to fail on a clock instead of on a claim.
 beforeAll(async () => {
-  await appFor(false);
-  await appFor(true);
+  await appFor(UNCONFIGURED);
+  await appFor(CONFIGURED);
 }, 120_000);
 
 interface Answer {
@@ -207,7 +233,7 @@ const withCredential = (secret: string): Record<string, string> => ({
 
 describe('an unconfigured Office bridge', () => {
   it('answers the manifest path with 404, as .env.example says it does', async () => {
-    const answer = await inject(await appFor(false), 'GET', OFFICE_MANIFEST);
+    const answer = await inject(await appFor(UNCONFIGURED), 'GET', OFFICE_MANIFEST);
 
     expect(answer.status).toBe(404);
     expect(answer.code).toBe('OFFICE_BRIDGE_NOT_CONFIGURED');
@@ -218,7 +244,7 @@ describe('an unconfigured Office bridge', () => {
     // `else` branch existed: the request fell past /office into a router
     // mounted at '/', whose tenantMiddleware reported a missing token on a
     // surface that reads no token.
-    const answer = await inject(await appFor(false), 'GET', OFFICE_MANIFEST);
+    const answer = await inject(await appFor(UNCONFIGURED), 'GET', OFFICE_MANIFEST);
 
     expect(answer.status).not.toBe(401);
     expect(answer.code).not.toBe('UNAUTHORIZED');
@@ -228,7 +254,7 @@ describe('an unconfigured Office bridge', () => {
     // The fall-through was never specific to `_modules`; it applied to
     // anything under the prefix. A handler that terminated only the manifest
     // path would leave the old 401 in place everywhere else.
-    const answer = await inject(await appFor(false), 'GET', '/api/office/definitely-not-a-route');
+    const answer = await inject(await appFor(UNCONFIGURED), 'GET', '/api/office/definitely-not-a-route');
 
     expect(answer.status).toBe(404);
     expect(answer.code).toBe('OFFICE_BRIDGE_NOT_CONFIGURED');
@@ -237,7 +263,7 @@ describe('an unconfigured Office bridge', () => {
   it('answers 404 to a POST at a module path, not only to a GET', async () => {
     // A brokered call is a POST. If the terminating handler answered GETs
     // only, the request The Office actually makes would still fall through.
-    const answer = await inject(await appFor(false), 'POST', '/api/office/client_read', {
+    const answer = await inject(await appFor(UNCONFIGURED), 'POST', '/api/office/client_read', {
       'content-type': 'application/json',
     });
 
@@ -250,17 +276,36 @@ describe('an unconfigured Office bridge', () => {
     // a path outside /office is still refused by requireAuth, with the code it
     // has always used. This is the control that says the fix stopped the
     // fall-through rather than opening a hole.
-    const answer = await inject(await appFor(false), 'GET', '/api/definitely-not-a-route');
+    const answer = await inject(await appFor(UNCONFIGURED), 'GET', '/api/definitely-not-a-route');
 
     expect(answer.status).toBe(401);
     expect(answer.code).toBe('AUTH_TOKEN_MISSING');
   });
 
   it('leaves the public health probe answering 200', async () => {
-    const answer = await inject(await appFor(false), 'GET', '/api/health');
+    const answer = await inject(await appFor(UNCONFIGURED), 'GET', '/api/health');
 
     expect(answer.status).toBe(200);
   });
+
+  it('answers 404 when one of the three variables is missing and the other two are set', async () => {
+    // `.env.example` says "when ANY is absent", and the mount comment says a
+    // half-configured bridge that answered "would tell The Office that
+    // CapitalForge is bridged when nothing can authenticate to it". Nothing
+    // asserted it. A partial configuration is the likelier accident of the two
+    // - a fresh checkout has none of them, but a half-finished R-1 has some.
+    //
+    // Rotating which one is missing is the point: this fails if
+    // `officeBridgeConfigured()` is ever loosened from AND to OR, which the
+    // none-set and all-set cases above would both survive.
+    for (const missing of EVERY_VAR) {
+      const partial = EVERY_VAR.filter((name) => name !== missing);
+      const answer = await inject(await appFor(partial), 'GET', OFFICE_MANIFEST);
+
+      expect(answer.status, `missing ${missing}`).toBe(404);
+      expect(answer.code, `missing ${missing}`).toBe('OFFICE_BRIDGE_NOT_CONFIGURED');
+    }
+  }, 120_000);
 });
 
 // ============================================================
@@ -270,7 +315,7 @@ describe('an unconfigured Office bridge', () => {
 describe('a configured Office bridge presented with the wrong credential', () => {
   it('answers 401 OFFICE_CREDENTIAL_REJECTED', async () => {
     const answer = await inject(
-      await appFor(true),
+      await appFor(CONFIGURED),
       'GET',
       OFFICE_MANIFEST,
       withCredential('not-the-shared-secret'),
@@ -281,7 +326,7 @@ describe('a configured Office bridge presented with the wrong credential', () =>
   });
 
   it('answers 401 OFFICE_CREDENTIAL_REJECTED when no credential is presented', async () => {
-    const answer = await inject(await appFor(true), 'GET', OFFICE_MANIFEST);
+    const answer = await inject(await appFor(CONFIGURED), 'GET', OFFICE_MANIFEST);
 
     expect(answer.status).toBe(401);
     expect(answer.code).toBe('OFFICE_CREDENTIAL_REJECTED');
@@ -295,7 +340,7 @@ describe('a configured Office bridge presented with the wrong credential', () =>
 describe('a configured Office bridge presented with the right credential', () => {
   it('answers 200 with a manifest naming this forge', async () => {
     const answer = await inject(
-      await appFor(true),
+      await appFor(CONFIGURED),
       'GET',
       OFFICE_MANIFEST,
       withCredential(SECRET),
@@ -320,10 +365,10 @@ describe('the three bridge states', () => {
     // fix, so a reader could not tell "this deployment has no bridge" from
     // "your credential was refused" - and the second reading sent an operator
     // looking for a bad token that did not exist.
-    const unconfigured = await inject(await appFor(false), 'GET', OFFICE_MANIFEST);
-    const refused = await inject(await appFor(true), 'GET', OFFICE_MANIFEST);
+    const unconfigured = await inject(await appFor(UNCONFIGURED), 'GET', OFFICE_MANIFEST);
+    const refused = await inject(await appFor(CONFIGURED), 'GET', OFFICE_MANIFEST);
     const accepted = await inject(
-      await appFor(true),
+      await appFor(CONFIGURED),
       'GET',
       OFFICE_MANIFEST,
       withCredential(SECRET),
