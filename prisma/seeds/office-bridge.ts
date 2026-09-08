@@ -32,6 +32,15 @@ import type { PrismaClient } from '@prisma/client';
  * something prettier would have meant an UPDATE on a primary key that
  * `OFFICE_VENTURE_TENANTS` already names — the hazard
  * `docs/backlog/incident-2026-08-03-broken-seed.md` is about.
+ *
+ * **This tenant does not hold the venture's whole history.** Between
+ * 2026-09-03 and 2026-09-04, 62 brokered calls carrying
+ * `venture = 'burkham-wickmont'` were recorded against the *Demo Advisors*
+ * tenant (`b615d509-…`), because `OFFICE_VENTURE_TENANTS` pointed there while
+ * no Burkham tenant existed. Those rows are left as written — `ledger_events`
+ * is append-only. Anyone reconstructing this venture from the ledger needs
+ * `docs/backlog/incident-2026-09-03-office-venture-mapped-to-demo-tenant.md`,
+ * which states the boundary: seed fixtures only, no real client data.
  */
 export const BURKHAM_TENANT_ID = 'd96b4fc3-f963-419d-ae9c-daa4fa7d5fba';
 
