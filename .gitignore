@@ -8,9 +8,12 @@ dist/
 # `next dev` over one distDir from the other side. See scripts/next-build.ts.
 # Docker and CI set NEXT_DIST_DIR=.next because they copy from that name.
 .next-build/
-.env
-.env.local
-.env.*.local
+# Every env file, then the one committed exception. `.env` and `.env.local`
+# alone left `.env.production` and `.env.development` tracked on a public
+# repository — a hole with a secret-shaped future, since those are exactly the
+# names a secret gets written to next.
+.env*
+!.env.example
 *.log
 coverage/
 .vercel
