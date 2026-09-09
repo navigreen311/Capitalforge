@@ -49,7 +49,7 @@ interface BureauPullResult {
 // FAILS CLOSED, and this is the one that mattered.
 //
 // These generate their answers — a FICO of 650 + Math.random() * 150, a
-// utilisation, an inquiry count, derogatory marks — and pullCreditProfiles
+// utilisation, an inquiry count, derogatory marks — and pullCreditProfile
 // writes the result straight into credit_profiles. So an invented score
 // became a stored credit profile indistinguishable from a real pull, which
 // the credit-builder page then read back as the client's Paydex or SBSS, and
@@ -298,12 +298,13 @@ export class CreditIntelligenceService {
    * checks utilization and inquiry velocity thresholds,
    * and emits ledger events.
    */
-  async pullCreditProfiles(
+  async pullCreditProfile(
     businessId: string,
     request: CreditPullRequest,
     ctx: TenantContext,
-  ): Promise<CreditProfileDto[]> {
-    logger.info('Credit pull initiated', { businessId, bureaus: request.bureaus, ctx });
+  ): Promise<CreditProfileDto> {
+    const { bureau } = request;
+    logger.info('Credit pull initiated', { businessId, bureau, ctx });
 
     // Verify business belongs to the tenant
     const business = await this.prisma.business.findFirst({
@@ -314,96 +315,88 @@ export class CreditIntelligenceService {
       throw new Error(`Business ${businessId} not found for tenant ${ctx.tenantId}`);
     }
 
-    const profiles: CreditProfileDto[] = [];
-
-    for (const bureau of request.bureaus) {
-      try {
-        // Optionally return cached data if within TTL
-        if (request.useCache) {
-          const cached = await this.findCachedProfile(
-            businessId,
-            bureau,
-            request.profileType,
-            request.cacheTtlHours,
-          );
-          if (cached) {
-            profiles.push(cached);
-            continue;
-          }
-        }
-
-        // Before anything is generated or written. Inside the per-bureau
-        // loop rather than around it, because each bureau is configured
-        // separately: one being unavailable should not stop the others.
-        assertPullAllowed(bureau);
-
-        const result = callBureauApi(bureau, businessId, request.profileType);
-
-        // Whether these figures were pulled or generated, recorded on the row
-        // itself. rawData is the record of what the bureau returned, so it is
-        // where the answer to "did a bureau return anything" belongs — by the
-        // time the credit-builder page reads this score back, the request
-        // that produced it is long gone.
-        const synthetic = !isBureauConfigured(bureau);
-
-        const saved = await this.prisma.creditProfile.create({
-          data: {
-            businessId,
-            profileType: request.profileType,
-            bureau,
-            score: result.score,
-            scoreType: result.scoreType,
-            utilization: result.utilization !== null ? result.utilization : null,
-            inquiryCount: result.inquiryCount,
-            derogatoryCount: result.derogatoryCount,
-            tradelines: result.tradelines as object[],
-            rawData: { ...(result.rawData as object), synthetic },
-            pulledAt: result.pulledAt,
-          },
-        });
-
-        if (synthetic) {
-          logger.warn('Synthetic credit profile stored', {
-            businessId,
-            bureau,
-            profileId: saved.id,
-          });
-        }
-
-        const dto = this.mapToDto(saved);
-        profiles.push(dto);
-
-        await this.checkAndEmitUtilizationAlerts(businessId, dto, ctx);
-
-        logger.info('Credit profile stored', { businessId, bureau, profileId: saved.id });
-      } catch (err) {
-        // Not configured is not a bureau failing: continuing would return an
-        // empty list and look like a clean pull that found nothing, which is
-        // the shape of answer this whole change exists to prevent.
-        if (err instanceof BureauNotConfiguredError) throw err;
-
-        logger.error('Bureau pull failed', { businessId, bureau, err });
-        // Continue to next bureau rather than failing the entire operation
-      }
+    // Optionally return cached data if within TTL
+    if (request.useCache) {
+      const cached = await this.findCachedProfile(
+        businessId,
+        bureau,
+        request.profileType,
+        request.cacheTtlHours,
+      );
+      if (cached) return cached;
     }
 
-    // Check inquiry velocity across all personal bureaus after pull
+    // Before anything is generated or written.
+    assertPullAllowed(bureau);
+
+    const result = callBureauApi(bureau, businessId, request.profileType);
+
+    // Whether these figures were pulled or generated, recorded on the row
+    // itself. rawData is the record of what the bureau returned, so it is
+    // where the answer to "did a bureau return anything" belongs — by the
+    // time the credit-builder page reads this score back, the request
+    // that produced it is long gone.
+    const synthetic = !isBureauConfigured(bureau);
+
+    const saved = await this.prisma.creditProfile.create({
+      data: {
+        businessId,
+        profileType: request.profileType,
+        bureau,
+        score: result.score,
+        scoreType: result.scoreType,
+        utilization: result.utilization !== null ? result.utilization : null,
+        inquiryCount: result.inquiryCount,
+        derogatoryCount: result.derogatoryCount,
+        tradelines: result.tradelines as object[],
+        rawData: { ...(result.rawData as object), synthetic },
+        pulledAt: result.pulledAt,
+      },
+    });
+
+    if (synthetic) {
+      logger.warn('Synthetic credit profile stored', {
+        businessId,
+        bureau,
+        profileId: saved.id,
+      });
+    }
+
+    const dto = this.mapToDto(saved);
+
+    await this.checkAndEmitUtilizationAlerts(businessId, dto, ctx);
+
+    // ONE INQUIRY, ONE VELOCITY CHECK.
+    //
+    // This ran once after the whole loop, so a request naming three personal
+    // bureaus produced three inquiries and one check. Per call is the more
+    // correct reading — each pull IS its own inquiry, and inquiry velocity is a
+    // count of inquiries — but it is worth meeting before the diff rather than
+    // in it, because it is the one change here that is not a narrowing.
+    //
+    // Everything else about this rewrite removes a state the API could express.
+    // This adds checks that did not happen: three bureaus formerly produced one
+    // check and now produce three, so a velocity threshold that was reached
+    // silently is now reached loudly, and an alert that was suppressed by
+    // batching is now raised. That is the intended behaviour and it is still a
+    // change in what the system does rather than in what it can say.
     await this.checkInquiryVelocity(businessId, ctx);
 
-    // Emit aggregate event
     await eventBus.publish(ctx.tenantId, {
       eventType: CREDIT_EVENTS.CREDIT_PULLED,
       aggregateType: AGGREGATE_TYPES.BUSINESS,
       aggregateId: businessId,
       payload: {
-        bureausPulled: profiles.map((p) => p.bureau),
+        bureausPulled: [dto.bureau],
         profileType: request.profileType,
-        profileCount: profiles.length,
+        profileCount: 1,
       },
       metadata: { userId: ctx.userId },
     });
 
-    return profiles;
+    logger.info('Credit profile stored', { businessId, bureau, profileId: saved.id });
+
+    return dto;
   }
 
   // ── Query ────────────────────────────────────────────────────
@@ -720,6 +713,14 @@ export class CreditIntelligenceService {
           ? (record.tradelines as Record<string, unknown>)
           : null,
       rawData: (record.rawData as Record<string, unknown>) ?? null,
+      // Derived on read, never stored. See CreditProfileSchema.synthetic: the
+      // fact lives in rawData because that is the record of what the bureau
+      // returned, and a column would be a second copy with its own drift path.
+      // Anything not explicitly marked synthetic is treated as a real pull.
+      synthetic:
+        typeof record.rawData === 'object' &&
+        record.rawData !== null &&
+        (record.rawData as Record<string, unknown>).synthetic === true,
       pulledAt: record.pulledAt.toISOString(),
       createdAt: record.createdAt.toISOString(),
     };

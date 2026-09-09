@@ -59,6 +59,9 @@ function makeProfile(overrides: Partial<CreditProfileDto> = {}): CreditProfileDt
     derogatoryCount: 0,
     tradelines: [makeTradeline()],
     rawData: {},
+    // Default false: a fixture is a stand-in for a real pull unless a test says
+    // otherwise, and the field is required so it cannot be forgotten.
+    synthetic: false,
     pulledAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     ...overrides,
@@ -109,33 +112,37 @@ afterAll(() => {
 });
 
 describe('CreditPullRequestSchema', () => {
-  it('accepts a valid single-bureau pull request', () => {
+  it('accepts a single bureau', () => {
     const result = CreditPullRequestSchema.safeParse({
-      bureaus: ['equifax'],
+      bureau: 'equifax',
       profileType: 'personal',
     });
     expect(result.success).toBe(true);
   });
 
-  it('accepts all four bureaus', () => {
-    const result = CreditPullRequestSchema.safeParse({
-      bureaus: ['equifax', 'transunion', 'experian', 'dnb'],
-      profileType: 'business',
-    });
+  it.each(['equifax', 'transunion', 'experian', 'dnb'])('accepts %s', (bureau) => {
+    const result = CreditPullRequestSchema.safeParse({ bureau, profileType: 'business' });
     expect(result.success).toBe(true);
   });
 
-  it('rejects empty bureaus array', () => {
-    const result = CreditPullRequestSchema.safeParse({
-      bureaus: [],
-      profileType: 'personal',
-    });
+  // WHAT USED TO BE HERE, and why it is gone.
+  //
+  // Two tests asserted "rejects empty bureaus array" and "rejects more than 4
+  // bureaus" - the min(1) and max(4) on the array. Both described a request
+  // shape that no longer exists rather than a rule that was dropped: with one
+  // bureau per call there is no empty list to reject and no fourth to exceed.
+  //
+  // Replaced by the thing that now carries the same guarantee: the field is
+  // required and singular, so a caller cannot ask for none and cannot ask for
+  // several.
+  it('rejects a missing bureau', () => {
+    const result = CreditPullRequestSchema.safeParse({ profileType: 'personal' });
     expect(result.success).toBe(false);
   });
 
-  it('rejects more than 4 bureaus', () => {
+  it('rejects an array where a single bureau is expected', () => {
     const result = CreditPullRequestSchema.safeParse({
-      bureaus: ['equifax', 'transunion', 'experian', 'dnb', 'equifax'],
+      bureau: ['equifax', 'transunion'],
       profileType: 'personal',
     });
     expect(result.success).toBe(false);
@@ -143,7 +150,7 @@ describe('CreditPullRequestSchema', () => {
 
   it('rejects unknown bureau', () => {
     const result = CreditPullRequestSchema.safeParse({
-      bureaus: ['lexisnexis'],
+      bureau: 'lexisnexis',
       profileType: 'personal',
     });
     expect(result.success).toBe(false);
@@ -151,7 +158,7 @@ describe('CreditPullRequestSchema', () => {
 
   it('rejects invalid profileType', () => {
     const result = CreditPullRequestSchema.safeParse({
-      bureaus: ['equifax'],
+      bureau: 'equifax',
       profileType: 'corporate',
     });
     expect(result.success).toBe(false);
@@ -159,7 +166,7 @@ describe('CreditPullRequestSchema', () => {
 
   it('defaults useCache to false and cacheTtlHours to 24', () => {
     const result = CreditPullRequestSchema.safeParse({
-      bureaus: ['equifax'],
+      bureau: 'equifax',
       profileType: 'personal',
     });
     expect(result.success).toBe(true);
@@ -226,30 +233,47 @@ describe('validateScoreForType', () => {
 
 // ── Section 2: CreditIntelligenceService — Score Storage ─────
 
-describe('CreditIntelligenceService.pullCreditProfiles', () => {
-  it('creates a credit profile record per bureau', async () => {
+describe('CreditIntelligenceService.pullCreditProfile', () => {
+  const REQ = (over = {}) => ({
+    bureau: 'equifax' as const,
+    profileType: 'personal' as const,
+    useCache: false,
+    cacheTtlHours: 24,
+    ...over,
+  });
+
+  it('creates one credit profile record', async () => {
     const prismaMock = buildPrismaMock();
     const service = new CreditIntelligenceService(prismaMock as never);
 
-    const profiles = await service.pullCreditProfiles(
-      BUSINESS_ID,
-      { bureaus: ['equifax', 'transunion'], profileType: 'personal', useCache: false, cacheTtlHours: 24 },
-      CTX,
-    );
+    const profile = await service.pullCreditProfile(BUSINESS_ID, REQ(), CTX);
 
-    expect(prismaMock.creditProfile.create).toHaveBeenCalledTimes(2);
-    expect(profiles).toHaveLength(2);
+    expect(prismaMock.creditProfile.create).toHaveBeenCalledTimes(1);
+    expect(profile.bureau).toBe('equifax');
+  });
+
+  // ONE REQUEST, ONE PROFILE - the shape the array could not guarantee.
+  //
+  // pullCreditProfiles took bureaus[] and returned an array built inside a loop
+  // whose catch continued to the next bureau. Three requested and two returned
+  // was a 201, indistinguishable from two requested and two returned. There is
+  // no partial success to test for here because there is no longer a shape that
+  // can carry one.
+  it('returns a profile rather than a list, so a partial pull is unrepresentable', async () => {
+    const prismaMock = buildPrismaMock();
+    const service = new CreditIntelligenceService(prismaMock as never);
+
+    const profile = await service.pullCreditProfile(BUSINESS_ID, REQ(), CTX);
+
+    expect(Array.isArray(profile)).toBe(false);
+    expect(profile).toHaveProperty('id');
   });
 
   it('stores scoreType from bureau stub result', async () => {
     const prismaMock = buildPrismaMock();
     const service = new CreditIntelligenceService(prismaMock as never);
 
-    await service.pullCreditProfiles(
-      BUSINESS_ID,
-      { bureaus: ['equifax'], profileType: 'personal', useCache: false, cacheTtlHours: 24 },
-      CTX,
-    );
+    await service.pullCreditProfile(BUSINESS_ID, REQ(), CTX);
 
     const createCall = (prismaMock.creditProfile.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(createCall.data.bureau).toBe('equifax');
@@ -260,11 +284,7 @@ describe('CreditIntelligenceService.pullCreditProfiles', () => {
     const prismaMock = buildPrismaMock();
     const service = new CreditIntelligenceService(prismaMock as never);
 
-    await service.pullCreditProfiles(
-      BUSINESS_ID,
-      { bureaus: ['equifax'], profileType: 'personal', useCache: false, cacheTtlHours: 24 },
-      CTX,
-    );
+    await service.pullCreditProfile(BUSINESS_ID, REQ(), CTX);
 
     const createCall = (prismaMock.creditProfile.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(Array.isArray(createCall.data.tradelines)).toBe(true);
@@ -277,11 +297,7 @@ describe('CreditIntelligenceService.pullCreditProfiles', () => {
     const service = new CreditIntelligenceService(prismaMock as never);
 
     await expect(
-      service.pullCreditProfiles(
-        'nonexistent-biz',
-        { bureaus: ['equifax'], profileType: 'personal', useCache: false, cacheTtlHours: 24 },
-        CTX,
-      ),
+      service.pullCreditProfile('nonexistent-biz', REQ(), CTX),
     ).rejects.toThrow('not found');
   });
 
@@ -312,34 +328,66 @@ describe('CreditIntelligenceService.pullCreditProfiles', () => {
 
     const service = new CreditIntelligenceService(prismaMock as never);
 
-    const profiles = await service.pullCreditProfiles(
-      BUSINESS_ID,
-      { bureaus: ['equifax'], profileType: 'personal', useCache: true, cacheTtlHours: 24 },
-      CTX,
-    );
+    const profile = await service.pullCreditProfile(BUSINESS_ID, REQ({ useCache: true }), CTX);
 
-    // Should not create a new record since cache is fresh
     expect(prismaMock.creditProfile.create).not.toHaveBeenCalled();
-    expect(profiles).toHaveLength(1);
-    expect(profiles[0].id).toBe('cached-id');
+    expect(profile.id).toBe('cached-id');
   });
 
-  it('pulls all four bureaus independently', async () => {
+  it.each(['equifax', 'transunion', 'experian', 'dnb'] as const)(
+    'pulls %s independently',
+    async (bureau) => {
+      const prismaMock = buildPrismaMock();
+      const service = new CreditIntelligenceService(prismaMock as never);
+
+      const profile = await service.pullCreditProfile(BUSINESS_ID, REQ({ bureau }), CTX);
+
+      expect(profile.bureau).toBe(bureau);
+      expect(prismaMock.creditProfile.create).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  // DERIVED ON READ, NOT STORED. The flag lives in rawData because that is the
+  // record of what the bureau returned; the DTO field is read back out of it.
+  // A caller checks `synthetic`, not `rawData.synthetic`.
+  it('surfaces synthetic as a named field, read back from rawData', async () => {
     const prismaMock = buildPrismaMock();
     const service = new CreditIntelligenceService(prismaMock as never);
 
-    const profiles = await service.pullCreditProfiles(
-      BUSINESS_ID,
-      { bureaus: ['equifax', 'transunion', 'experian', 'dnb'], profileType: 'business', useCache: false, cacheTtlHours: 24 },
-      CTX,
-    );
+    const profile = await service.pullCreditProfile(BUSINESS_ID, REQ(), CTX);
 
-    expect(profiles).toHaveLength(4);
-    const bureaus = profiles.map((p) => p.bureau);
-    expect(bureaus).toContain('equifax');
-    expect(bureaus).toContain('transunion');
-    expect(bureaus).toContain('experian');
-    expect(bureaus).toContain('dnb');
+    expect(typeof profile.synthetic).toBe('boolean');
+    const createCall = (prismaMock.creditProfile.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(createCall.data.rawData).toHaveProperty('synthetic', profile.synthetic);
+  });
+
+  it('treats a profile with no synthetic key as a real pull', async () => {
+    const prismaMock = buildPrismaMock({
+      creditProfile: {
+        create: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'legacy-id',
+          businessId: BUSINESS_ID,
+          profileType: 'personal',
+          bureau: 'equifax',
+          score: 700,
+          scoreType: 'fico',
+          utilization: 0.1,
+          inquiryCount: 0,
+          derogatoryCount: 0,
+          tradelines: [],
+          rawData: {},
+          pulledAt: new Date(),
+          createdAt: new Date(),
+        }),
+      },
+    });
+    const service = new CreditIntelligenceService(prismaMock as never);
+
+    const profile = await service.pullCreditProfile(BUSINESS_ID, REQ({ useCache: true }), CTX);
+
+    expect(profile.synthetic).toBe(false);
   });
 });
 

@@ -98,7 +98,15 @@ export function createCreditRouter(customPrisma?: PrismaClient): Router {
   // Trigger a fresh bureau pull.
   //
   // Body: CreditPullRequest
-  //   { bureaus: Bureau[], profileType: 'personal'|'business', useCache?: boolean }
+  //   { bureau: Bureau, profileType: 'personal'|'business', useCache?: boolean }
+  //
+  // ONE BUREAU PER CALL, and the response says so. This took bureaus[] and
+  // answered 201 with an array — which meant `data` could be shorter than the
+  // bureaus asked for and `meta.total` counted successes rather than requests,
+  // because a bureau that failed was logged and skipped inside the loop. Asking
+  // for three and getting two looked exactly like asking for two.
+  //
+  // A single pull cannot say that. It produced a profile or it raised.
 
   router.post('/pull', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const businessId = req.params.id!;
@@ -121,16 +129,18 @@ export function createCreditRouter(customPrisma?: PrismaClient): Router {
 
       logger.info('Credit pull triggered via API', {
         businessId,
-        bureaus: parseResult.data.bureaus,
+        bureau: parseResult.data.bureau,
         tenantId: ctx.tenantId,
       });
 
-      const profiles = await service.pullCreditProfiles(businessId, parseResult.data, ctx);
+      const profile = await service.pullCreditProfile(businessId, parseResult.data, ctx);
 
+      // No `meta.total`. One request, one profile — a count here would be the
+      // number 1 dressed as a result, and it is the field that used to carry the
+      // half-a-pull answer.
       const body: ApiResponse = {
         success: true,
-        data: profiles,
-        meta: { total: profiles.length },
+        data: profile,
       };
       res.status(201).json(body);
     } catch (err) {

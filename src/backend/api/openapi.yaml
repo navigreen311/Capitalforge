@@ -357,20 +357,25 @@ components:
           type: number
         derogatoryMarks:
           type: integer
+        synthetic:
+          type: boolean
+          description: >-
+            Whether these figures came from a bureau or were generated. Derived
+            from rawData.synthetic on read; there is no column behind it.
         pulledAt:
           type: string
           format: date-time
 
     CreditPullRequest:
       type: object
-      required: [bureaus, profileType]
+      required: [bureau, profileType]
       properties:
-        bureaus:
-          type: array
-          items:
-            type: string
-            enum: [experian, equifax, transunion, dun_bradstreet, lexisnexis]
-          minItems: 1
+        # One bureau per call. This was `bureaus: Bureau[]` until 7 September
+        # 2026, when the array made a partial success representable: 201 with
+        # fewer profiles than bureaus requested, and a total counting successes.
+        bureau:
+          type: string
+          enum: [experian, equifax, transunion, dun_bradstreet, lexisnexis]
         profileType:
           type: string
           enum: [personal, business]
@@ -1311,7 +1316,7 @@ paths:
               $ref: '#/components/schemas/CreditPullRequest'
       responses:
         '201':
-          description: Credit pull initiated
+          description: The profile the pull produced. One bureau, one profile.
           content:
             application/json:
               schema:
@@ -1320,9 +1325,16 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/CreditProfile'
+                        $ref: '#/components/schemas/CreditProfile'
+        '503':
+          description: >-
+            The bureau is not configured. Not a 500: the request was fine and the
+            integration is unavailable, and a caller that retries a 500 is
+            retrying an attempt to write an invented credit profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
 
   /businesses/{id}/credit/roadmap:
     get:

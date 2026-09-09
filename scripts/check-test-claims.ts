@@ -379,7 +379,6 @@ const KNOWN_OVERSTATED = new Set<string>([
   'tests/unit/services/ach-controls.test.ts::returns mapped alerts for all flagged debit events',
   'tests/unit/services/ach-controls.test.ts::returns zero violations when all events are clean',
   'tests/unit/services/complaint.test.ts::returns a dossier with all required sections',
-  'tests/unit/services/credit-intelligence-gate.test.ts::gates each bureau on its own credential',
   'tests/unit/services/funding-round.test.ts::gives a perfect score when all cards approved at target credit with 0 fees',
   'tests/e2e/funding-flow.test.ts::marks a funding round as completed when all applications close',
   'tests/unit/services/kyb-kyc.test.ts::publishes KYC_VERIFIED when all beneficial owners are verified',
