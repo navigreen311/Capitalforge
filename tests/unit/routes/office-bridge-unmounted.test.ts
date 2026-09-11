@@ -104,6 +104,35 @@ function setBridgeEnv(present: readonly BridgeVar[]): void {
 }
 
 /**
+ * Warms the modules that read `.env`, so that the environment this file
+ * establishes is the one the router actually sees.
+ *
+ * `@prisma/client` loads `.env` at import time, and dotenv FILLS AN ABSENT
+ * variable - it declines only to overwrite a variable that is already there.
+ * `buildApp` deletes the three bridge variables to construct the unconfigured
+ * state and then imports the router, which pulls in Prisma. So on any checkout
+ * whose `.env` configures the bridge, the delete was undone between those two
+ * lines and `officeBridgeConfigured()` read `true` at the mount.
+ *
+ * That is not hypothetical, and the shape of it is what hid it. The reload
+ * happens once per worker, so it struck whichever state was built FIRST and no
+ * other; every later build saw the environment it had asked for. The
+ * unconfigured state is built first, and it is the one state this file exists
+ * to assert. On a developer machine with the bridge in `.env` the unconfigured
+ * tests failed while the half-configured rotation passed; on CI, which has no
+ * `.env` at all, every test passed. Green on the runner and red on any desk
+ * that had onboarded the bridge - and the failure there was `401
+ * OFFICE_CREDENTIAL_REJECTED`, which reads exactly like the defect this file
+ * was written about.
+ *
+ * Importing it HERE, before `setBridgeEnv`, moves the load to a moment when we
+ * do not yet care what the variables are.
+ */
+async function warmEnvReaders(): Promise<void> {
+  await import('@prisma/client');
+}
+
+/**
  * An app composed the way server.ts composes it: `apiRouter` under `/api`, the
  * 404 catch-all behind it, the error handler last.
  *
@@ -113,9 +142,33 @@ function setBridgeEnv(present: readonly BridgeVar[]): void {
  */
 async function buildApp(present: readonly BridgeVar[]): Promise<Express> {
   vi.resetModules();
+  await warmEnvReaders();
   setBridgeEnv(present);
 
   const { apiRouter } = await import('../../../src/backend/api/routes/index.js');
+
+  // The precondition, asserted rather than assumed, AFTER the import that
+  // consumes it.
+  //
+  // Every claim in this file is about what a bridge in a named configuration
+  // state answers, and all of them are vacuous if the state is not the one we
+  // asked for. The order here is the whole point: the mount decision is taken
+  // during the import on the line above, and the `.env` reload that used to
+  // break it is triggered BY that import. A check placed before it reads an
+  // environment nothing has consumed yet and passes while the router goes on
+  // to see something else - which is precisely how this survived. So it is
+  // read here, off the same side of the import that the router read it from.
+  const { officeBridgeConfigured } = await import('../../../src/backend/config/office.js');
+  const wanted = present.length === EVERY_VAR.length;
+  if (officeBridgeConfigured() !== wanted) {
+    throw new Error(
+      `bridge state not established: wanted officeBridgeConfigured() === ${String(wanted)} ` +
+        `for [${present.join(', ') || 'none'}], got ${String(officeBridgeConfigured())}. ` +
+        'Importing the router re-populated the OFFICE_* variables this test had cleared, ' +
+        'so the app under test is not in the state the test names.',
+    );
+  }
+
   const { notFoundHandler, globalErrorHandler } = await import(
     '../../../src/backend/middleware/error-handler.js'
   );
